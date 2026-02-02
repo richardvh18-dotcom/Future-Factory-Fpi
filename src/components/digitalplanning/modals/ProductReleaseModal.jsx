@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   X,
   CheckCircle2,
@@ -15,8 +15,14 @@ import {
   updateDoc,
   serverTimestamp,
   arrayUnion,
+  query,
+  where,
+  collection,
+  getDocs,
+  onSnapshot,
 } from "firebase/firestore";
 import { db } from "../../../config/firebase";
+import { PATHS } from "../../../config/dbPaths";
 import { DEFAULT_SPECS_BY_TYPE } from "../../../data/constants";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 
@@ -30,9 +36,24 @@ const ProductReleaseModal = ({ product, isOpen, onClose, appId }) => {
   const [measurements, setMeasurements] = useState({});
   const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [occupancy, setOccupancy] = useState([]);
+
+  // Laad occupancy data voor personnel tracking
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const unsubOccupancy = onSnapshot(
+      collection(db, ...PATHS.OCCUPANCY),
+      (snap) => {
+        setOccupancy(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      }
+    );
+    
+    return () => unsubOccupancy();
+  }, [isOpen]);
 
   const isPostProcessing = ["NABEWERKING", "MAZAK", "BM01"].includes(
-    (product?.machine || "").toUpperCase()
+    (product?.currentStation || "").toUpperCase()
   );
   const specFields = isPostProcessing
     ? []
@@ -42,31 +63,37 @@ const ProductReleaseModal = ({ product, isOpen, onClose, appId }) => {
   const routing = useMemo(() => {
     if (!product) return { nextMachine: "", label: "" };
 
-    const machine = (product.machine || "").toUpperCase();
+    const currentStation = (product.currentStation || product.originMachine || "").toUpperCase();
     const desc = (product.item || "").toUpperCase();
     let next = "";
     let flowLabel = "";
+    let nextStep = "";
 
-    if (["BH18", "BH31", "BH16"].includes(machine)) {
-      next = "NABEWERKING"; // Altijd hoofdletters
+    if (["BH18", "BH31", "BH16"].includes(currentStation)) {
+      next = "NABEWERKING";
+      nextStep = "Nabewerking";
       flowLabel = "Naar Nabewerking";
-    } else if (["BH12", "BH17", "BH11", "BH15"].includes(machine)) {
+    } else if (["BH12", "BH17", "BH11", "BH15"].includes(currentStation)) {
       if (desc.startsWith("FL")) {
-        next = "MAZAK"; // Altijd hoofdletters
+        next = "MAZAK";
+        nextStep = "Mazak";
         flowLabel = "Naar Mazak (FL Item)";
       } else {
-        next = "NABEWERKING"; // Altijd hoofdletters
+        next = "NABEWERKING";
+        nextStep = "Nabewerking";
         flowLabel = "Naar Nabewerking";
       }
-    } else if (machine === "MAZAK" || machine === "NABEWERKING") {
-      next = "BM01"; // Altijd hoofdletters
+    } else if (currentStation === "MAZAK" || currentStation === "NABEWERKING") {
+      next = "BM01";
+      nextStep = "Eindinspectie";
       flowLabel = "Naar Eindinspectie (BM01)";
-    } else if (machine === "BM01") {
-      next = "FINISHED";
+    } else if (currentStation === "BM01") {
+      next = "GEREED";
+      nextStep = "Finished";
       flowLabel = "Product Voltooid";
     }
 
-    return { nextMachine: next, label: flowLabel };
+    return { nextMachine: next, label: flowLabel, nextStep: nextStep };
   }, [product]);
 
   const handleSave = async () => {
@@ -76,50 +103,106 @@ const ProductReleaseModal = ({ product, isOpen, onClose, appId }) => {
     try {
       const productRef = doc(
         db,
-        "artifacts",
-        appId,
-        "public",
-        "data",
-        "tracked_products",
+        ...PATHS.TRACKING,
         product.id
       );
 
-      let finalNextMachine = (product.machine || "").toUpperCase();
-      let finalStatus = "In Production";
+      let finalNextStation = routing.nextMachine;
+      let finalStatus = "in_progress";
+      let finalStep = routing.nextStep;
       let actionLabel = "Gereedgemeld";
+      const timestampKey = `${routing.nextStep?.toLowerCase()}_start`;
 
       if (status === "Approved") {
-        finalNextMachine = routing.nextMachine;
-        finalStatus =
-          routing.nextMachine === "FINISHED" ? "Finished" : "In Production";
+        finalStatus = routing.nextStep === "Finished" ? "completed" : "in_progress";
         actionLabel = routing.label;
       } else if (status === "Rejected") {
-        finalStatus = "Rejected";
+        finalStatus = "rejected";
+        finalStep = "REJECTED";
+        finalNextStation = "AFKEUR";
         actionLabel = "Definitief Afgekeurd";
       } else {
-        finalStatus = "Held_QC";
+        finalStatus = "temp_reject";
+        finalStep = "HOLD_AREA";
         actionLabel = "In Reparatie / Herstel";
       }
 
       const historyEntry = {
         action: actionLabel,
-        station: product.stationLabel || product.machine,
+        station: product.currentStation || product.originMachine,
         timestamp: new Date().toISOString(),
         user: user?.email || "Operator",
         notes: notes,
       };
 
-      await updateDoc(productRef, {
+      const updates = {
         status: finalStatus,
-        machine: finalNextMachine,
+        currentStation: finalNextStation,
+        currentStep: finalStep,
         releaseStatus: status,
         measurements: measurements,
         inspectorNotes: notes,
         releasedAt: serverTimestamp(),
-        lastStation: (product.machine || "").toUpperCase(),
+        lastStation: product.currentStation || product.originMachine,
         history: arrayUnion(historyEntry),
         updatedAt: serverTimestamp(),
-      });
+      };
+
+      // Add personnel tracking for next station if approved
+      if (status === "Approved" && finalNextStation && finalNextStation !== "GEREED") {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const stationOperators = occupancy
+          .filter(occ => {
+            if (occ.station !== finalNextStation) return false;
+            if (!occ.date) return false;
+            const occDate = occ.date.toDate ? occ.date.toDate() : new Date(occ.date);
+            occDate.setHours(0, 0, 0, 0);
+            return occDate.getTime() === today.getTime();
+          })
+          .map(occ => occ.operatorNumber)
+          .filter(Boolean);
+        
+        if (stationOperators.length > 0) {
+          updates[`personnelTracking.${finalNextStation}`] = stationOperators;
+        }
+      }
+
+      // Add timestamp for next step if approved
+      if (status === "Approved" && timestampKey) {
+        updates[`timestamps.${timestampKey}`] = serverTimestamp();
+      }
+
+      await updateDoc(productRef, updates);
+
+      // Bij definitieve afkeur: update order teller
+      if (status === "Rejected" && product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
+        try {
+          // Zoek de order in planning
+          const orderQuery = query(
+            collection(db, ...PATHS.PLANNING),
+            where("orderId", "==", product.orderId)
+          );
+          const orderSnap = await getDocs(orderQuery);
+          
+          if (!orderSnap.empty) {
+            const orderDoc = orderSnap.docs[0];
+            const orderData = orderDoc.data();
+            const originStation = product.originMachine || product.currentStation;
+            const stationField = `started_${originStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const currentStarted = orderData[stationField] || 0;
+            
+            // Verlaag de started counter met 1 (product telt niet meer mee)
+            if (currentStarted > 0) {
+              await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), {
+                [stationField]: currentStarted - 1,
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Fout bij updaten order teller:", err);
+        }
+      }
 
       onClose();
     } catch (err) {

@@ -228,6 +228,23 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
   }, [structure.departments, scope]);
 
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={48} /></div>;
+  
+  const getShiftColor = (shiftLabel) => {
+    const label = (shiftLabel || "").toUpperCase();
+    if (label.includes("OCHTEND") || label.includes("MORNING") || label.includes("EARLY")) {
+      return { bg: "bg-amber-50", border: "border-amber-300", text: "text-amber-800", badge: "bg-amber-100 text-amber-700", ring: "ring-amber-100" };
+    }
+    if (label.includes("AVOND") || label.includes("EVENING") || label.includes("LATE")) {
+      return { bg: "bg-indigo-50", border: "border-indigo-300", text: "text-indigo-800", badge: "bg-indigo-100 text-indigo-700", ring: "ring-indigo-100" };
+    }
+    if (label.includes("NACHT") || label.includes("NIGHT")) {
+      return { bg: "bg-purple-50", border: "border-purple-300", text: "text-purple-800", badge: "bg-purple-100 text-purple-700", ring: "ring-purple-100" };
+    }
+    if (label.includes("DAG") || label === "DAGDIENST") {
+      return { bg: "bg-blue-50", border: "border-blue-300", text: "text-blue-800", badge: "bg-blue-100 text-blue-700", ring: "ring-blue-100" };
+    }
+    return { bg: "bg-slate-50", border: "border-slate-300", text: "text-slate-800", badge: "bg-slate-100 text-slate-700", ring: "ring-slate-100" };
+  };
 
   // Fallback als er geen factory config is
   if (!structure.departments || structure.departments.length === 0) {
@@ -315,6 +332,15 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                         const isTL = mId.toLowerCase().includes("teamleader");
                         const stationOccupancy = occupancy.filter(b => normalizeMachine(b.machineId) === normalizeMachine(mId) && b.date === todayStr && b.departmentId === dept.id);
                         const isBusy = stationOccupancy.length > 0;
+                        
+                        // Groepeer operators per dienst
+                        const byShift = {};
+                        stationOccupancy.forEach(occ => {
+                          const shiftKey = occ.shift || "DAGDIENST";
+                          if (!byShift[shiftKey]) byShift[shiftKey] = [];
+                          byShift[shiftKey].push(occ);
+                        });
+                        
                         return (
                             <div key={station.id} className={`p-5 rounded-[35px] border-2 transition-all duration-500 relative flex flex-col shadow-sm ${isTL ? (isBusy ? 'bg-slate-900 border-amber-400 ring-4 ring-amber-400/10 shadow-xl' : 'bg-slate-900 border-slate-800 opacity-80 shadow-inner') : (isBusy ? 'bg-white border-blue-500 ring-4 ring-blue-50/50' : 'bg-white border-slate-100 hover:border-blue-200')}`}>
                                 <div className="flex justify-between items-start mb-4 text-left">
@@ -322,40 +348,62 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                                     {isTL ? <ShieldCheck size={20} className={isBusy ? 'text-amber-400' : 'text-slate-600'} /> : <Cpu size={20} className={isBusy ? 'text-blue-600' : 'text-slate-200'} />}
                                 </div>
                                 <div className="space-y-2 mb-4 flex-1 text-left text-left">
-                                    {stationOccupancy.map(occ => (
-                                        <div key={occ.id} className={`p-3 rounded-2xl border flex flex-col gap-2 animate-in slide-in-from-right-1 ${isTL ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-100'} ${occ.isLoan ? 'ring-2 ring-green-400' : ''}`}>
-                                            <div className="flex items-center justify-between text-left">
-                                                <div className="text-left overflow-hidden text-left flex-1">
-                                                    {/* OPLOSSING: NAAM ZWART EN GROTER */}
-                                                    <h5 className={`text-sm font-black uppercase italic truncate mb-0.5 text-left ${isTL ? 'text-amber-400' : 'text-slate-950'}`}>{occ.operatorName}</h5>
-                                                    <div className="flex items-center gap-1.5 opacity-70 text-left flex-wrap">
-                                                        <span className={`text-[7px] font-black px-1 rounded ${occ.isPloeg ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{occ.isPloeg ? 'PLOEG' : 'DAG'}</span>
-                                                        <span className={`text-[7px] font-bold uppercase ${isTL ? 'text-slate-400' : 'text-slate-500'}`}>{occ.shift}</span>
-                                                        {occ.isLoan && (
-                                                          <span className="text-[7px] font-black px-1 rounded bg-green-100 text-green-700">UITGELEEND</span>
-                                                        )}
+                                    {Object.entries(byShift).map(([shiftKey, operators]) => {
+                                      const shiftColors = getShiftColor(shiftKey);
+                                      return (
+                                        <div key={shiftKey} className="space-y-1">
+                                          {/* Shift Label */}
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <div className={`h-1 flex-1 rounded ${shiftColors.badge}`}></div>
+                                            <span className={`text-[8px] font-black uppercase tracking-wider ${shiftColors.text}`}>
+                                              {shiftKey}
+                                            </span>
+                                            <div className={`h-1 flex-1 rounded ${shiftColors.badge}`}></div>
+                                          </div>
+                                          
+                                          {/* Operators in deze shift */}
+                                          {operators.map(occ => (
+                                            <div key={occ.id} className={`p-3 rounded-2xl border-2 flex flex-col gap-2 animate-in slide-in-from-right-1 ${isTL ? 'bg-white/5 border-white/10 text-white' : `${shiftColors.bg} ${shiftColors.border}`} ${occ.isLoan ? 'ring-2 ring-green-400' : `ring-1 ${shiftColors.ring}`}`}>
+                                                <div className="flex items-center justify-between text-left">
+                                                    <div className="text-left overflow-hidden text-left flex-1">
+                                                        <h5 className={`text-sm font-black uppercase italic truncate mb-0.5 text-left ${isTL ? 'text-amber-400' : shiftColors.text}`}>{occ.operatorName}</h5>
+                                                        <div className="flex items-center gap-1.5 opacity-70 text-left flex-wrap">
+                                                            <span className={`text-[7px] font-black px-1.5 py-0.5 rounded ${occ.isPloeg ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{occ.isPloeg ? 'PLOEG' : 'DAG'}</span>
+                                                            <span className={`text-[7px] font-bold uppercase ${isTL ? 'text-slate-400' : 'text-slate-600'}`}>#{occ.operatorNumber}</span>
+                                                            {occ.isLoan && (
+                                                              <span className="text-[7px] font-black px-1.5 py-0.5 rounded bg-green-100 text-green-700">UITGELEEND</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                      {editable && !occ.isLoan && (
+                                                        <button 
+                                                          onClick={() => {
+                                                            setSelectedPersonForLoan(occ);
+                                                            setSelectedDepartmentForLoan(dept);
+                                                            setLoanModalOpen(true);
+                                                          }}
+                                                          className="p-1 text-blue-400 hover:text-blue-600 transition-colors"
+                                                          title="Uitlenen aan andere afdeling"
+                                                        >
+                                                          <ArrowRight size={14} />
+                                                        </button>
+                                                      )}
+                                                      <button onClick={() => deleteDoc(doc(db, ...PATHS.OCCUPANCY, occ.id))} className="p-1 text-slate-400 hover:text-rose-500 transition-colors"><X size={14} /></button>
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-1">
-                                                  {editable && !occ.isLoan && (
-                                                    <button 
-                                                      onClick={() => {
-                                                        setSelectedPersonForLoan(occ);
-                                                        setSelectedDepartmentForLoan(dept);
-                                                        setLoanModalOpen(true);
-                                                      }}
-                                                      className="p-1 text-blue-400 hover:text-blue-600 transition-colors"
-                                                      title="Uitlenen aan andere afdeling"
-                                                    >
-                                                      <ArrowRight size={14} />
-                                                    </button>
-                                                  )}
-                                                  <button onClick={() => deleteDoc(doc(db, ...PATHS.OCCUPANCY, occ.id))} className="p-1 text-slate-400 hover:text-rose-500 transition-colors"><X size={14} /></button>
+                                                <div className={`pt-2 border-t flex items-center justify-between ${isTL ? 'border-white/5' : 'border-slate-300/60'}`}>
+                                                  <div className="flex items-center gap-1.5">
+                                                    <Clock size={10} className={shiftColors.text} />
+                                                    <span className={`text-[8px] font-black uppercase tracking-tighter ${isTL ? 'text-slate-500' : 'text-slate-500'}`}>Inzet:</span>
+                                                  </div>
+                                                  <span className={`text-[10px] font-black ${isTL ? 'text-white' : shiftColors.text}`}>{occ.hoursWorked?.toFixed(1) || 0}u</span>
                                                 </div>
                                             </div>
-                                            <div className={`pt-2 border-t flex items-center justify-between ${isTL ? 'border-white/5' : 'border-slate-200/60'}`}><div className="flex items-center gap-1.5"><Clock size={10} className="text-blue-500" /><span className={`text-[8px] font-black uppercase tracking-tighter ${isTL ? 'text-slate-500' : 'text-slate-400'}`}>Inzet:</span></div><span className={`text-[10px] font-black ${isTL ? 'text-white' : 'text-slate-900'}`}>{occ.hoursWorked?.toFixed(1) || 0}u</span></div>
+                                          ))}
                                         </div>
-                                    ))}
+                                      );
+                                    })}
                                     {!isBusy && <div className={`py-4 border border-dashed rounded-2xl flex flex-col items-center justify-center opacity-40 ${isTL ? 'border-white/10' : 'border-slate-200'}`}><span className={`text-[7px] font-black uppercase tracking-widest text-center ${isTL ? 'text-slate-600' : 'text-slate-400'}`}>Vrij</span></div>}
                                 </div>
                             </div>
@@ -410,17 +458,21 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                   onChange={(e) => {
                     const person = personnel.find(p => p.id === e.target.value);
                     if (person && selectedStation) {
-                      // Voeg toe
-                      const occId = `${selectedDept.id}-${selectedStation.id}-${person.id}`;
+                      // Bereken de juiste shift details voor deze persoon
+                      const shiftInfo = getShiftDetails(person, selectedDept.id);
+                      
+                      // Voeg toe met timestamp om meerdere shifts per persoon toe te staan
+                      const timestamp = Date.now();
+                      const occId = `${selectedDept.id}-${selectedStation.id}-${person.id}-${timestamp}`;
                       setDoc(doc(db, ...PATHS.OCCUPANCY, occId), {
                         departmentId: selectedDept.id,
                         machineId: selectedStation.id,
                         operatorNumber: person.id,
                         operatorName: person.name,
                         date: todayStr,
-                        hoursWorked: 0,
-                        isPloeg: person.rotationType !== "STATIC",
-                        shift: person.shiftId || "DAGDIENST",
+                        hoursWorked: shiftInfo.hours || 0,
+                        isPloeg: shiftInfo.isPloeg,
+                        shift: shiftInfo.label || "DAGDIENST",
                         isLoan: false,
                       }, { merge: true });
                       setAssignModalOpen(false);

@@ -1,3 +1,9 @@
 {
-    "framework": "vite"
+    "framework": "vite",
+    "git": {
+        "deploymentEnabled": {
+            "main": true,
+            "preview": true
+        }
+    }
 }

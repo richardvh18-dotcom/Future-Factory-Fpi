@@ -288,72 +288,55 @@ const Terminal = ({ initialStation, onBack }) => {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
-      {/* HEADER - GEWIJZIGD: Z-30 in plaats van Z-50 om sidebar ruimte te geven */}
-      <div className="p-4 bg-white border-b border-slate-200 flex justify-between items-center shrink-0 z-30 shadow-sm px-6 text-left">
-        <div className="flex items-center gap-3 text-left">
-          <button
-            onClick={onBack}
-            className="p-3 bg-slate-100 rounded-2xl text-slate-600 active:scale-90 transition-all hover:bg-slate-200 shadow-sm"
-          >
-            <ArrowLeft size={24} />
-          </button>
-          <div className="text-left">
-            <h1 className="text-lg md:text-xl font-black uppercase tracking-widest text-slate-900 italic leading-none">
-              {stationName}
-            </h1>
-            <p className="hidden md:block text-[10px] text-blue-600 font-bold uppercase mt-1 tracking-tighter">
-              {isNabewerking
-                ? "Centraal Ontvangst & Afwerking"
-                : "Machine Terminal"}
-            </p>
-          </div>
-        </div>
-
-        {!isNabewerking && (
-          <div className="flex bg-slate-100 p-1 rounded-2xl mx-2">
+      {/* TAB NAVIGATIE & ZOEKEN */}
+      {!isNabewerking && (
+        <div className="p-4 bg-white border-b border-slate-200 shrink-0 shadow-sm">
+          <div className="flex items-center gap-4 justify-between">
+            <div className="flex bg-slate-100 p-1 rounded-2xl flex-1 max-w-xl">
+              <button
+                onClick={() => setActiveTab("planning")}
+                className={`flex-1 px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
+                  activeTab === "planning"
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-slate-500"
+                }`}
+              >
+                Planning
+              </button>
+              <button
+                onClick={() => setActiveTab("wikkelen")}
+                className={`flex-1 px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
+                  activeTab === "wikkelen"
+                    ? "bg-white text-orange-600 shadow-sm"
+                    : "text-slate-500"
+                }`}
+              >
+                Wikkelen
+              </button>
+              <button
+                onClick={() => setActiveTab("lossen")}
+                className={`flex-1 px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
+                  activeTab === "lossen"
+                    ? "bg-white text-emerald-600 shadow-sm"
+                    : "text-slate-500"
+                }`}
+              >
+                Lossen
+              </button>
+            </div>
+            
             <button
-              onClick={() => setActiveTab("planning")}
-              className={`px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === "planning"
-                  ? "bg-white text-blue-600 shadow-sm"
-                  : "text-slate-500"
-              }`}
+              onClick={() => setShowManualInput(true)}
+              className="p-3 bg-white border-2 border-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
             >
-              Planning
-            </button>
-            <button
-              onClick={() => setActiveTab("wikkelen")}
-              className={`px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === "wikkelen"
-                  ? "bg-white text-orange-600 shadow-sm"
-                  : "text-slate-500"
-              }`}
-            >
-              Wikkelen
-            </button>
-            <button
-              onClick={() => setActiveTab("lossen")}
-              className={`px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === "lossen"
-                  ? "bg-white text-emerald-600 shadow-sm"
-                  : "text-slate-500"
-              }`}
-            >
-              Lossen
+              <Keyboard size={18} />
+              <span className="hidden sm:inline">Zoeken</span>
             </button>
           </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowManualInput(true)}
-            className="p-3 bg-white border-2 border-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
-          >
-            <Keyboard size={18} />{" "}
-            <span className="hidden sm:inline">Zoeken</span>
-          </button>
         </div>
-      </div>
+      )}
+
+      {/* CONTENT AREA */}
 
       <div className="flex-1 overflow-hidden flex flex-col">
         {isNabewerking ? (

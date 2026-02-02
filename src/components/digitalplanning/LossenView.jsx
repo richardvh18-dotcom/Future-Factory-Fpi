@@ -37,16 +37,18 @@ const LossenView = ({ stationId, appId }) => {
         const currentStationNorm = normalizeMachine(stationId);
 
         const filtered = docs.filter((item) => {
-          // Normaliseer de machine-naam van het product voor een veilige vergelijking
-          const itemMachineNorm = normalizeMachine(item.machine || "");
-          const isOurStation = itemMachineNorm === currentStationNorm;
+          // Filter op currentStation die overeenkomt met dit werkstation
+          const itemStationNorm = normalizeMachine(item.currentStation || "");
+          const currentStationNorm = normalizeMachine(stationId);
+          const isOurStation = itemStationNorm === currentStationNorm;
 
-          // Alleen items tonen die 'In Production' zijn (betekent onderweg naar of op station)
-          // en nog niet zijn afgemeld (Finished)
-          const isPendingStep =
-            item.status === "In Production" || item.status === "Held_QC";
+          // Alleen items tonen die op "Lossen" stap staan
+          const isLossenStep = item.currentStep === "Lossen";
 
-          return isOurStation && isPendingStep;
+          // Of items die status "in_progress" hebben en nog niet finished zijn
+          const isActive = item.status === "in_progress" && item.currentStep !== "Finished";
+
+          return isOurStation && isLossenStep && isActive;
         });
 
         setItems(

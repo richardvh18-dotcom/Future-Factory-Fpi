@@ -118,17 +118,21 @@ const ProductionStartModal = ({
   // 4. Zoom berekening voor preview venster
   useEffect(() => {
     if (containerRef.current && selectedLabel) {
-      const containerW = containerRef.current.clientWidth - 100;
-      const containerH = containerRef.current.clientHeight - 300;
+      const containerW = containerRef.current.clientWidth - 60;
+      const containerH = containerRef.current.clientHeight - 180;
       const labelW = selectedLabel.width * PIXELS_PER_MM;
       const labelH = selectedLabel.height * PIXELS_PER_MM;
-      setPreviewZoom(Math.min(1.0, containerW / labelW, containerH / labelH));
+      setPreviewZoom(Math.min(1.4, containerW / labelW, containerH / labelH));
     }
   }, [selectedLabel, isOpen]);
 
   // 5. Browser Print Functie
   const handlePrint = () => {
     if (!selectedLabel) return;
+    
+    const quantity = prompt("Hoeveel labels wilt u printen?", "1");
+    if (!quantity || isNaN(quantity) || parseInt(quantity) < 1) return;
+    
     const printWindow = window.open("", "_blank", "width=800,height=600");
     const labelW = selectedLabel.width;
     const labelH = selectedLabel.height;
@@ -143,8 +147,16 @@ const ProductionStartModal = ({
             .el { position: absolute; color: black; line-height: 1; transform-origin: top left; }
             img { display: block; width: 100%; height: 100%; object-fit: contain; }
           </style>
+          <script>
+            window.onload = function() {
+              for (let i = 0; i < ${quantity}; i++) {
+                window.print();
+              }
+              window.close();
+            };
+          </script>
         </head>
-        <body onload="window.print(); window.close();">
+        <body>
           <div class="canvas">
             ${selectedLabel.elements
               ?.map((el) => {
@@ -152,10 +164,10 @@ const ProductionStartModal = ({
                 const style = `left:${el.x}mm; top:${el.y}mm; width:${
                   el.width || "auto"
                 }mm; height:${el.height || "auto"}mm; font-size:${
-                  el.fontSize / PIXELS_PER_MM
-                }pt; font-weight:${
+                  el.fontSize
+                }px; font-weight:${
                   el.isBold ? "900" : "normal"
-                }; transform: rotate(${el.rotation || 0}deg);`;
+                }; transform: rotate(${el.rotation || 0}deg); font-family: sans-serif; white-space: nowrap;`;
                 if (el.type === "text")
                   return `<div class="el" style="${style}">${res.content}</div>`;
                 if (el.type === "qr")
@@ -183,88 +195,87 @@ const ProductionStartModal = ({
     <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 md:p-4 backdrop-blur-md animate-in fade-in">
       <div className="bg-white w-full max-w-6xl h-full md:h-[85vh] rounded-[40px] shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/10">
         {/* LINKS: CONFIGURATIE */}
-        <div className="w-full md:w-1/3 p-8 border-r border-slate-100 flex flex-col bg-slate-50/50 overflow-y-auto custom-scrollbar">
-          <div className="flex justify-between items-start mb-8">
+        <div className="w-full md:w-1/3 p-4 border-r border-slate-100 flex flex-col bg-slate-50/50 overflow-y-auto custom-scrollbar">
+          <div className="flex justify-between items-start mb-4">
             <div className="text-left">
-              <h2 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter">
+              <h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">
                 Order Start
               </h2>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 text-left italic">
-                Systeem:{" "}
-                <span className="text-blue-600 font-black">{stationId}</span>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 text-left italic">
+                {stationId}
               </p>
             </div>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+              className="p-1.5 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
             >
-              <X size={24} />
+              <X size={20} />
             </button>
           </div>
 
-          <div className="space-y-6 flex-1 text-left">
+          <div className="space-y-4 flex-1 text-left">
             {/* Dossier info kaart */}
-            <div className="bg-white p-6 rounded-[30px] border-2 border-slate-100 shadow-sm text-left">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-slate-900 text-white rounded-xl">
-                  <FileText size={16} />
+            <div className="bg-white p-4 rounded-2xl border-2 border-slate-100 shadow-sm text-left">
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className="p-1.5 bg-slate-900 text-white rounded-lg">
+                  <FileText size={14} />
                 </div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                   Werkorder
                 </span>
               </div>
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none italic">
+              <h3 className="text-xl font-black text-slate-900 tracking-tight leading-none italic">
                 {order.orderId}
               </h3>
-              <p className="text-[11px] font-bold text-slate-500 mt-2 truncate uppercase">
+              <p className="text-[10px] font-bold text-slate-500 mt-1.5 truncate uppercase">
                 {order.item}
               </p>
             </div>
 
             {/* Mode switcher */}
-            <div className="flex bg-slate-200 p-1 rounded-2xl">
+            <div className="flex bg-slate-200 p-1 rounded-xl">
               <button
                 onClick={() => setMode("auto")}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-all ${
                   mode === "auto"
                     ? "bg-white text-blue-600 shadow-sm"
                     : "text-slate-500"
                 }`}
               >
-                <RefreshCw size={14} /> Auto
+                <RefreshCw size={12} /> Auto
               </button>
               <button
                 onClick={() => setMode("manual")}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-all ${
                   mode === "manual"
                     ? "bg-white text-blue-600 shadow-sm"
                     : "text-slate-500"
                 }`}
               >
-                <Keyboard size={14} /> Manueel
+                <Keyboard size={12} /> Manueel
               </button>
             </div>
 
             {/* Lot invoer sectie */}
             {mode === "auto" ? (
-              <div className="space-y-4 animate-in slide-in-from-top-2 text-left">
-                <div className="bg-slate-900 p-6 rounded-[30px] text-center shadow-xl border border-white/5 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-4 opacity-5">
-                    <QrCode size={64} />
+              <div className="space-y-3 animate-in slide-in-from-top-2 text-left">
+                <div className="bg-slate-900 p-4 rounded-2xl text-center shadow-xl border border-white/5 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-3 opacity-5">
+                    <QrCode size={48} />
                   </div>
-                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-[0.3em] block mb-2">
+                  <span className="text-[8px] font-black text-blue-400 uppercase tracking-[0.3em] block mb-1.5">
                     Huidig Lotnummer
                   </span>
-                  <div className="text-3xl font-mono font-black text-white italic tracking-tighter">
+                  <div className="text-2xl font-mono font-black text-white italic tracking-tighter">
                     {lotNumber}
                   </div>
                 </div>
-                <div className="space-y-1.5 text-left">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
+                <div className="space-y-1 text-left">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
                     Totaal Aantal
                   </label>
-                  <div className="flex items-center gap-4 bg-white p-4 rounded-2xl border-2 border-slate-100 focus-within:border-blue-500 transition-all shadow-sm">
-                    <Layers size={20} className="text-blue-500" />
+                  <div className="flex items-center gap-3 bg-white p-3 rounded-xl border-2 border-slate-100 focus-within:border-blue-500 transition-all shadow-sm">
+                    <Layers size={18} className="text-blue-500" />
                     <input
                       type="number"
                       min="1"
@@ -272,15 +283,15 @@ const ProductionStartModal = ({
                       onChange={(e) =>
                         setStringCount(parseInt(e.target.value) || 1)
                       }
-                      className="w-full font-black text-slate-800 outline-none text-xl"
+                      className="w-full font-black text-slate-800 outline-none text-lg"
                     />
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 animate-in slide-in-from-top-2 text-left">
-                <div className="space-y-1.5 text-left">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
+              <div className="space-y-3 animate-in slide-in-from-top-2 text-left">
+                <div className="space-y-1 text-left">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
                     Lot Handmatig Invoeren
                   </label>
                   <input
@@ -291,22 +302,22 @@ const ProductionStartModal = ({
                       setLotNumber(e.target.value.toUpperCase());
                     }}
                     placeholder="YY-WW-XXXX"
-                    className="w-full p-5 bg-white border-4 border-slate-100 rounded-[30px] font-mono text-2xl font-black uppercase outline-none focus:border-blue-600 shadow-sm text-center"
+                    className="w-full p-3 bg-white border-2 border-slate-100 rounded-2xl font-mono text-xl font-black uppercase outline-none focus:border-blue-600 shadow-sm text-center"
                   />
                 </div>
               </div>
             )}
 
             {/* Label selectie */}
-            <div className="pt-4 border-t border-slate-200 text-left">
-              <label className="text-[10px] font-black text-slate-400 uppercase block mb-2 ml-2">
+            <div className="pt-3 border-t border-slate-200 text-left">
+              <label className="text-[9px] font-black text-slate-400 uppercase block mb-1.5 ml-2">
                 Label Formaat
               </label>
               <div className="relative group">
                 <select
                   value={selectedLabelId}
                   onChange={(e) => setSelectedLabelId(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl text-xs font-black text-slate-700 outline-none focus:border-blue-600 shadow-sm appearance-none cursor-pointer group-hover:border-slate-300"
+                  className="w-full p-3 bg-white border-2 border-slate-100 rounded-xl text-xs font-black text-slate-700 outline-none focus:border-blue-600 shadow-sm appearance-none cursor-pointer group-hover:border-slate-300"
                 >
                   {availableLabels.map((l) => (
                     <option key={l.id} value={l.id}>
@@ -315,14 +326,14 @@ const ProductionStartModal = ({
                   ))}
                 </select>
                 <Printer
-                  size={16}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={14}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
                 />
               </div>
             </div>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-slate-200 flex gap-4">
+          <div className="mt-4 pt-4 border-t border-slate-200 flex gap-3">
             <button
               onClick={onClose}
               className="flex-1 py-5 bg-white border-2 border-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-all"
@@ -348,13 +359,13 @@ const ProductionStartModal = ({
         {/* RECHTS: DESIGN PREVIEW & PRINT ACTIE */}
         <div
           ref={containerRef}
-          className="flex-1 bg-slate-900 p-10 flex flex-col items-center justify-between relative overflow-hidden text-left"
+          className="flex-1 bg-slate-900 p-6 flex flex-col items-center justify-between relative overflow-hidden text-left"
         >
-          <div className="absolute top-10 left-10 text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] flex items-center gap-2 text-left">
-            <Activity size={14} className="text-emerald-500" /> Etiket Preview
+          <div className="absolute top-4 left-4 text-[9px] font-black text-slate-500 uppercase tracking-[0.4em] flex items-center gap-2 text-left">
+            <Activity size={12} className="text-emerald-500" /> Etiket Preview
           </div>
 
-          <div className="flex-1 flex items-center justify-center w-full min-h-0 py-12">
+          <div className="flex-1 flex items-center justify-center w-full min-h-0 py-8">
             {selectedLabel ? (
               <div
                 className="bg-white shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center overflow-hidden border-2 border-white/10"
@@ -437,28 +448,27 @@ const ProductionStartModal = ({
           </div>
 
           {/* --- PRINT AREA (ALLEEN PRINT KNOP) --- */}
-          <div className="w-full max-w-sm bg-white/5 border border-white/10 p-8 rounded-[40px] backdrop-blur-md mb-4 flex flex-col gap-4 animate-in slide-in-from-bottom-6 duration-700 text-left">
-            <div className="flex justify-between items-center px-2 mb-2">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                Printer Selectie
+          <div className="w-full max-w-sm bg-white/5 border border-white/10 p-4 rounded-2xl backdrop-blur-md mb-2 flex flex-col gap-3 animate-in slide-in-from-bottom-6 duration-700 text-left">
+            <div className="flex justify-between items-center px-2">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                Printer
               </span>
-              <span className="text-[9px] font-black text-blue-500 uppercase bg-blue-500/10 px-2 py-0.5 rounded tracking-tighter">
-                Standaard Systeemprinter
+              <span className="text-[8px] font-black text-blue-500 uppercase bg-blue-500/10 px-2 py-0.5 rounded tracking-tighter">
+                Standaard
               </span>
             </div>
 
             <button
               onClick={handlePrint}
               disabled={!selectedLabel}
-              className="w-full py-7 bg-blue-600 text-white rounded-[25px] font-black uppercase text-sm tracking-[0.2em] shadow-2xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all flex items-center justify-center gap-4 disabled:opacity-30"
+              className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm tracking-[0.2em] shadow-2xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-30"
             >
-              <Printer size={28} />
-              Print
+              <Printer size={22} />
+              Print Label
             </button>
 
-            <p className="text-[9px] text-slate-500 text-center font-bold uppercase tracking-tighter opacity-50 mt-2">
-              Zorg dat de juiste labelprinter is geselecteerd in het Windows
-              menu.
+            <p className="text-[8px] text-slate-500 text-center font-bold uppercase tracking-tighter opacity-50">
+              Selecteer aantal bij print prompt
             </p>
           </div>
         </div>

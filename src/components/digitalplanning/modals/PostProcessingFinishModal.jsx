@@ -9,7 +9,11 @@ import {
   Loader2,
   Save,
 } from "lucide-react";
+import { doc, updateDoc, serverTimestamp, query, where, collection, getDocs } from "firebase/firestore";
+import { db } from "../../../config/firebase";
+import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS } from "../../../utils/workstationLogic";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 const PostProcessingFinishModal = ({
   product,
@@ -17,6 +21,7 @@ const PostProcessingFinishModal = ({
   onConfirm,
   currentStation,
 }) => {
+  const { showWarning } = useNotifications();
   const [status, setStatus] = useState("completed");
   const [selectedReasons, setSelectedReasons] = useState([]);
   const [note, setNote] = useState("");
@@ -32,7 +37,7 @@ const PostProcessingFinishModal = ({
 
   const handleConfirm = async () => {
     if (status !== "completed" && selectedReasons.length === 0) {
-      alert("Selecteer minimaal één reden voor afkeur.");
+      showWarning("Selecteer minimaal één reden voor afkeur", "Incompleet");
       return;
     }
     setIsProcessing(true);

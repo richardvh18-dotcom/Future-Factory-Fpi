@@ -1,5 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
 import {
   Factory,
   KeyRound,
@@ -22,6 +25,18 @@ const LoginView = ({ onLogin, externalError }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState({ appName: "Future Factory", logoUrl: "" });
+
+  // Load settings for logo and app name
+  useEffect(() => {
+    const docRef = doc(db, ...PATHS.GENERAL_SETTINGS);
+    const unsubscribe = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        setSettings(snap.data());
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const toggleLanguage = () => {
     const newLang = i18n.language === 'en' ? 'nl' : 'en';
@@ -79,10 +94,20 @@ const LoginView = ({ onLogin, externalError }) => {
       </div>
 
       <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
-        {/* Welkomsttekst */}
+        {/* Logo + Welkomsttekst */}
         <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
+          {/* Logo */}
+          {settings.logoUrl && (
+            <div className="flex justify-center mb-6">
+              <img 
+                src={settings.logoUrl} 
+                alt={settings.appName || "Logo"}
+                className="h-20 md:h-24 w-auto object-contain drop-shadow-2xl"
+              />
+            </div>
+          )}
           <h1 className="text-5xl md:text-6xl font-black text-white mb-3 uppercase italic tracking-tighter leading-none">
-            {t('login.title_main')} <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">{t('login.title_sub')}</span>
+            {settings.appName || t('login.title_main')} <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">{t('login.title_sub')}</span>
           </h1>
           <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
             {t('login.subtitle')}

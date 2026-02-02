@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App"; // Schakelt weer over naar de hoofdapplicatie
+import "./i18n"; // Import i18n configuratie
 import "./styles.css";
 
 /**

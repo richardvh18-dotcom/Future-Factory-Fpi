@@ -148,9 +148,10 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 
 ---
 
-## � Fase 7: Externe Integraties (NIEUW)
+## 🔗 Fase 7: Externe Integraties (NIEUW)
 
 **Doel:** Naadloze data-uitwisseling met externe systemen (o.a. ATPS).
+
 **Target:** Q4 2026 / 2027
 
 ### 7.1 HR & Planning Connectie (ATPS)
@@ -171,7 +172,7 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 
 ---
 
-## �🛠️ Onderhoud & Professionalisering
+## 🛠️ Onderhoud & Professionalisering
 
 **Target:** Doorlopend, parallel aan andere fases
 
@@ -206,7 +207,7 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 
 ---
 
-## � Code Audit Findings (Basis voor Verbeteringen)
+## 📋 Code Audit Findings (Basis voor Verbeteringen)
 
 ### Component Size & Complexity
 | Component | Lines | Status | Actie |
@@ -233,7 +234,7 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 
 ---
 
-## �📊 Voortgang Overzicht
+## 📊 Voortgang Overzicht
 
 | Fase | Status | Voortgang | Target |
 |------|--------|-----------|--------|
@@ -258,25 +259,34 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 ## 📝 Opmerkingen voor Volgende Sprint
 
 ### Fase 4 Sprint Planning
+
 **Week 1-2: PersonnelManager Split**
 - Zet sub-components op: PersonnelTeamView, PersonnelScheduleView, PersonnelImportView
 - Target: Component size < 400 lines each
 - Acceptance: Pass prop-drilling test, maintain feature parity
+
+---
 
 **Week 3: Terminal Refactor**
 - Extract StationPanel, OrderTimeline, ReleaseHandler
 - Batch 5x `onSnapshot` listeners → 1 batched listener
 - Test on 1000+ order mock data
 
+---
+
 **Week 4: react-window Integration**
 - Install & setup react-window
 - Implement in PlanningListView + AdminReferenceTable
 - Measure: FCP, LCP, CLS metrics
 
+---
+
 **Week 5: Bundle Analysis**
 - Webpack/Vite bundle analysis
 - Identify tree-shake candidates
 - Defer CSS animations to critical path
+
+---
 
 ### Success Metrics (Fase 4)
 - ✅ TTI (Time to Interactive): < 3s (from 5.2s)
@@ -284,6 +294,8 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 - ✅ Component re-render overhead: -40%
 - ✅ Bundle size: -20% (150KB → 120KB)
 - ✅ 10.000 orders rendering: 60fps min
+
+---
 
 ### Blockers & Risks
 - 🚨 **Risk:** Terminal.jsx complexity → Schedule +3 days for spike

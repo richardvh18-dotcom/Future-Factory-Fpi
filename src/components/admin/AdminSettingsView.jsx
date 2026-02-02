@@ -22,19 +22,19 @@ import { PATHS } from "../../config/dbPaths";
 // Handige presets voor snelle branding
 const PRESET_LOGOS = [
   {
-    id: "fpi_default",
-    url: "https://via.placeholder.com/150/3b82f6/ffffff?text=FPI",
-    label: "FPI Standaard",
+    id: "simple_ff",
+    url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%233b82f6' width='100' height='100' rx='20'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='0.35em' font-family='Arial Black' font-size='40' fill='white' font-weight='900'%3EFF%3C/text%3E%3C/svg%3E",
+    label: "FF Blauw",
   },
   {
-    id: "fpi_dark",
-    url: "https://via.placeholder.com/150/0f172a/ffffff?text=FPI",
-    label: "FPI Donker",
+    id: "simple_mes",
+    url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%2310b981' width='100' height='100' rx='20'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='0.35em' font-family='Arial Black' font-size='28' fill='white' font-weight='900'%3EMES%3C/text%3E%3C/svg%3E",
+    label: "MES Groen",
   },
   {
-    id: "gre_blue",
-    url: "https://via.placeholder.com/150/10b981/ffffff?text=GRE",
-    label: "GRE Blauw",
+    id: "simple_factory",
+    url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%230f172a' width='100' height='100' rx='20'/%3E%3Cpath d='M30 70h40v5H30z' fill='%23fbbf24'/%3E%3Cpath d='M35 45h8v25h-8z' fill='%2394a3b8'/%3E%3Cpath d='M50 35h8v35h-8z' fill='%2394a3b8'/%3E%3Cpath d='M32 48l8-8v5h5l8-8v5h5l8-8v8H32z' fill='%23fbbf24'/%3E%3C/svg%3E",
+    label: "Factory",
   },
 ];
 
@@ -47,6 +47,7 @@ const AdminSettingsView = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(null);
+  const [uploadedLogos, setUploadedLogos] = useState([]);
   const fileInputRef = useRef(null);
 
   const [settings, setSettings] = useState({
@@ -54,6 +55,7 @@ const AdminSettingsView = () => {
     logoUrl: "",
     themeColor: "blue",
     maintenanceMode: false,
+    uploadedLogos: [], // Array om alle geüploade logo's bij te houden
   });
 
   // 1. Live Sync met de Root
@@ -64,7 +66,9 @@ const AdminSettingsView = () => {
       docRef,
       (snap) => {
         if (snap.exists()) {
-          setSettings((prev) => ({ ...prev, ...snap.data() }));
+          const data = snap.data();
+          setSettings((prev) => ({ ...prev, ...data }));
+          setUploadedLogos(data.uploadedLogos || []);
         }
         setLoading(false);
       },
@@ -115,7 +119,22 @@ const AdminSettingsView = () => {
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setSettings({ ...settings, logoUrl: reader.result });
+      const newLogoUrl = reader.result;
+      const newUploadedLogos = [
+        ...settings.uploadedLogos,
+        {
+          id: Date.now().toString(),
+          url: newLogoUrl,
+          uploadedAt: new Date().toISOString(),
+          fileName: file.name,
+        },
+      ];
+      setSettings({ 
+        ...settings, 
+        logoUrl: newLogoUrl,
+        uploadedLogos: newUploadedLogos,
+      });
+      setUploadedLogos(newUploadedLogos);
     };
     reader.readAsDataURL(file);
   };
@@ -123,6 +142,18 @@ const AdminSettingsView = () => {
   const removeLogo = () => {
     setSettings({ ...settings, logoUrl: "" });
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const deleteUploadedLogo = (logoId) => {
+    const updatedLogos = settings.uploadedLogos.filter(logo => logo.id !== logoId);
+    const wasCurrentLogo = uploadedLogos.find(logo => logo.id === logoId)?.url === settings.logoUrl;
+    
+    setSettings({ 
+      ...settings, 
+      uploadedLogos: updatedLogos,
+      logoUrl: wasCurrentLogo ? "" : settings.logoUrl,
+    });
+    setUploadedLogos(updatedLogos);
   };
 
   if (loading)
@@ -319,22 +350,76 @@ const AdminSettingsView = () => {
                     : "border-slate-50 hover:border-rose-100 bg-slate-50/50"
                 }`}
               >
-                <Trash2
-                  size={16}
-                  className={
-                    !settings.logoUrl ? "text-rose-500" : "text-slate-300"
-                  }
-                />
-                <span
-                  className={`text-[8px] font-black uppercase tracking-tighter ${
-                    !settings.logoUrl ? "text-rose-700" : "text-slate-400"
-                  }`}
-                >
-                  Geen Logo
+                <Trash2 size={14} className="text-rose-500" />
+                <span className="text-[7px] font-black text-rose-600 uppercase">
+                  Verwijder
                 </span>
               </button>
             </div>
           </div>
+
+          {/* Geüploade Logo's Sectie */}
+          {uploadedLogos.length > 0 && (
+            <div className="space-y-4 pt-6 border-t border-slate-100">
+              <p className="text-[10px] font-black text-slate-400 uppercase ml-2 block italic">
+                Mijn Geüploade Logo's ({uploadedLogos.length})
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {uploadedLogos.map((logo) => (
+                  <div
+                    key={logo.id}
+                    className={`relative p-3 rounded-[25px] border-2 transition-all flex flex-col items-center gap-3 group ${
+                      settings.logoUrl === logo.url
+                        ? "border-emerald-500 bg-emerald-50 shadow-md ring-4 ring-emerald-500/5"
+                        : "border-slate-50 hover:border-slate-200 bg-slate-50/50"
+                    }`}
+                  >
+                    <button
+                      onClick={() => deleteUploadedLogo(logo.id)}
+                      className="absolute -top-2 -right-2 p-1.5 bg-rose-500 text-white rounded-full shadow-lg hover:bg-rose-600 transition-all z-10 opacity-0 group-hover:opacity-100"
+                      title="Verwijderen"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                    <button
+                      onClick={() => setSettings({ ...settings, logoUrl: logo.url })}
+                      className="w-full flex flex-col items-center gap-2"
+                    >
+                      <img
+                        src={logo.url}
+                        className="h-10 w-10 object-contain transition-transform group-hover:scale-110"
+                        alt={logo.fileName}
+                      />
+                      <span className="text-[7px] font-black text-slate-400 uppercase mt-1 block truncate w-full text-center">
+                        {logo.fileName || 'Logo'}
+                      </span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* RECHTS: SAVE BUTTON */}
+        <div className="space-y-4">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full bg-blue-600 text-white p-5 rounded-2xl font-black uppercase text-sm hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+          >
+            {saving ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Opslaan...
+              </>
+            ) : (
+              <>
+                <Save size={18} />
+                Wijzigingen Opslaan
+              </>
+            )}
+          </button>
         </div>
       </div>
 

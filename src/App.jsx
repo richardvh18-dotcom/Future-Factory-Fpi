@@ -14,6 +14,10 @@ import ProfileView from "./components/ProfileView";
 import ProductSearchView from "./components/products/ProductSearchView";
 import ForcePasswordChangeView from "./components/ForcePasswordChangeView";
 
+// Notification System
+import { NotificationProvider } from "./contexts/NotificationContext";
+import ToastContainer from "./components/notifications/ToastContainer";
+
 // Hooks
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useProductsData } from "./hooks/useProductsData";
@@ -129,60 +133,63 @@ const App = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
-      <Header
-        user={user}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        logoUrl={generalConfig?.logoUrl}
-        appName={generalConfig?.appName}
-        unreadCount={unreadCount}
-      />
-
-      <div className="flex-1 flex overflow-hidden relative">
-        <Sidebar
+    <NotificationProvider>
+      <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
+        <ToastContainer />
+        <Header
           user={user}
-          isAdmin={isAdmin}
-          onLogout={async () => {
-            await signOut(auth);
-            navigate("/login");
-          }}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          logoUrl={generalConfig?.logoUrl}
+          appName={generalConfig?.appName}
+          unreadCount={unreadCount}
         />
 
-        <main className="flex-1 flex flex-col overflow-hidden relative md:pl-16">
-          <Suspense
-            fallback={
-              <div className="flex-1 flex items-center justify-center bg-white">
-                <Loader2 className="animate-spin text-blue-500" />
-              </div>
-            }
-          >
-            <Routes>
-              <Route path="/" element={<PortalView />} />
-              <Route path="/portal" element={<PortalView />} />
-              <Route path="/profile" element={<ProfileView />} />
-              <Route
-                path="/products"
-                element={<ProductSearchView products={products} />}
-              />
-              <Route path="/planning/*" element={<DigitalPlanningHub />} />
-              <Route path="/scanner" element={<MobileScanner />} />
-              <Route path="/calculator" element={<CalculatorView />} />
-              <Route path="/assistant" element={<AiAssistantView />} />
+        <div className="flex-1 flex overflow-hidden relative">
+          <Sidebar
+            user={user}
+            isAdmin={isAdmin}
+            onLogout={async () => {
+              await signOut(auth);
+              navigate("/login");
+            }}
+          />
 
-              {/* FIX: Route voor Berichten (Sidebar link) */}
-              <Route
-                path="/messages"
-                element={<AdminMessagesView user={user} />}
-              />
+          <main className="flex-1 flex flex-col overflow-hidden relative md:pl-16">
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center bg-white">
+                  <Loader2 className="animate-spin text-blue-500" />
+                </div>
+              }
+            >
+              <Routes>
+                <Route path="/" element={<PortalView />} />
+                <Route path="/portal" element={<PortalView />} />
+                <Route path="/profile" element={<ProfileView />} />
+                <Route
+                  path="/products"
+                  element={<ProductSearchView products={products} />}
+                />
+                <Route path="/planning/*" element={<DigitalPlanningHub />} />
+                <Route path="/scanner" element={<MobileScanner />} />
+                <Route path="/calculator" element={<CalculatorView />} />
+                <Route path="/assistant" element={<AiAssistantView />} />
 
-              <Route path="/admin/*" element={<AdminDashboard />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </main>
+                {/* FIX: Route voor Berichten (Sidebar link) */}
+                <Route
+                  path="/messages"
+                  element={<AdminMessagesView user={user} />}
+                />
+
+                <Route path="/admin/*" element={<AdminDashboard />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </main>
+        </div>
       </div>
-    </div>
+    </NotificationProvider>
   );
 };
 

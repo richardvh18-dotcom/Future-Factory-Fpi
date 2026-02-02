@@ -138,7 +138,7 @@ const DepartmentStationSelector = ({ department, onBack }) => {
                 )}
               </h3>
             </button>
-          ))})
+          ))}
         </div>
       </div>
     </div>
