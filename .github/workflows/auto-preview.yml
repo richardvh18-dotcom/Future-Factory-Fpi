@@ -1,0 +1,24 @@
+name: Auto Deploy to Preview
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync-to-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync main to preview
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout preview
+          git merge main --no-edit
+          git push origin preview

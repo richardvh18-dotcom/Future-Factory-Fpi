@@ -10,30 +10,34 @@ Dit project gebruikt een twee-branch deployment strategie met Vercel:
 - **`main`** - Production deployment (stabiele productie omgeving)
 - **`preview`** - Review deployment (test/preview omgeving)
 
-### Workflow
+### Automatische Workflow
 
-1. **Feature development**
-   ```bash
-   git checkout -b feature/mijn-feature
-   # Maak je wijzigingen
-   git commit -m "Voeg nieuwe feature toe"
-   ```
+Alle commits naar `main` worden **automatisch** ook naar `preview` gepusht:
 
-2. **Deploy naar Review voor testen**
-   ```bash
-   git checkout preview
-   git merge feature/mijn-feature  # of: git merge main
-   git push
-   ```
-   ✅ Vercel deployt automatisch naar de preview omgeving
+#### Optie 1: Quick Deploy Script
+```bash
+./deploy.sh
+```
+Dit script:
+- Commit je wijzigingen (als er uncommitted changes zijn)
+- Pusht naar `main` (production)
+- Synct automatisch naar `preview`
 
-3. **Deploy naar Production na goedkeuring**
-   ```bash
-   git checkout main
-   git merge preview
-   git push
-   ```
-   ✅ Vercel deployt automatisch naar productie
+#### Optie 2: GitHub Actions (Automatisch)
+Bij elke push naar `main` triggert een GitHub Action die automatisch `preview` update.
+Geen handmatige actie nodig! 🎉
+
+#### Optie 3: Handmatig
+```bash
+# Commit je wijzigingen
+git add -A
+git commit -m "Jouw wijzigingen"
+
+# Push naar main
+git push origin main
+
+# Preview wordt automatisch gesynchroniseerd via GitHub Actions
+```
 
 ### Vercel Configuratie
 
