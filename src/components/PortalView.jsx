@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { getAuth, signOut } from "firebase/auth"; // Nodig voor werkend uitloggen
 import {
   Package,
@@ -10,14 +11,22 @@ import {
   Monitor,
   ScanBarcode,
   MessageSquare, // Nieuw icoon voor berichten
+  Globe, // Taalwissel icoon
 } from "lucide-react";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 import { useMessages } from "../hooks/useMessages"; // Voor badge count
 
 const PortalView = () => {
+  const { t, i18n } = useTranslation();
   const { user, isAdmin } = useAdminAuth();
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState(false);
+
+  // Toggle Language
+  const toggleLanguage = () => {
+    const newLang = i18n.language === 'en' ? 'nl' : 'en';
+    i18n.changeLanguage(newLang);
+  };
 
   // Ophalen ongelezen berichten voor badge
   const { messages } = useMessages(user);
@@ -43,7 +52,7 @@ const PortalView = () => {
 
   const displayName = user?.displayName
     ? user.displayName.split(" ")[0]
-    : user?.email?.split("@")[0] || "Medewerker";
+    : user?.email?.split("@")[0] || t('common.employee');
 
   // FIX: Werkende uitlog functie
   const handleLogout = async () => {
@@ -58,17 +67,35 @@ const PortalView = () => {
 
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-blue-950 overflow-y-auto">
+      {/* Language Switch & Logout - Top Right */}
+      <div className="absolute top-6 right-6 flex items-center gap-4 z-50">
+        <button
+          onClick={toggleLanguage}
+          className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 text-cyan-200 transition-all hover:scale-110 active:scale-95 group"
+          title="Switch Language"
+        >
+          <Globe size={20} className="group-hover:rotate-12 transition-transform" />
+        </button>
+        <button
+          onClick={handleLogout}
+          className="p-3 bg-white/5 hover:bg-white/10 hover:bg-rose-500/20 rounded-full border border-white/10 hover:border-rose-500/50 text-slate-300 hover:text-rose-400 transition-all hover:scale-110 active:scale-95"
+          title={t('common.logout') || "Uitloggen"}
+        >
+          <LogOut size={20} />
+        </button>
+      </div>
+
       <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
         {/* Welkomsttekst */}
         <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
           <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight uppercase italic mb-2">
-            Welkom,{" "}
+            {t('common.welcome')},{" "}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 block md:inline">
               {displayName}
             </span>
           </h1>
           <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
-            Kies uw werkomgeving
+            {t('portal.welcome_sub')}
           </p>
         </div>
 
@@ -90,14 +117,14 @@ const PortalView = () => {
               </div>
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
-                  Catalogus
+                  {t('portal.tiles.catalog.title')}
                 </h2>
                 <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
-                  Zoek productspecificaties en tekeningen.
+                  {t('portal.tiles.catalog.desc')}
                 </p>
               </div>
               <div className="mt-4 md:mt-6 flex items-center text-emerald-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
-                Openen <ArrowRight size={16} />
+                {t('portal.tiles.catalog.action')} <ArrowRight size={16} />
               </div>
             </div>
           </button>
@@ -117,14 +144,14 @@ const PortalView = () => {
               </div>
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
-                  Planning & MES
+                  {t('portal.tiles.planning.title')}
                 </h2>
                 <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
-                  Digitale planning en voortgangscontrole.
+                  {t('portal.tiles.planning.desc')}
                 </p>
               </div>
               <div className="mt-4 md:mt-6 flex items-center text-blue-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
-                Openen <ArrowRight size={16} />
+                {t('portal.tiles.planning.action')} <ArrowRight size={16} />
               </div>
             </div>
           </button>
@@ -142,7 +169,7 @@ const PortalView = () => {
             {/* Badge */}
             {unreadCount > 0 && (
               <div className="absolute top-6 right-6 bg-red-500 text-white font-bold text-xs px-3 py-1 rounded-full animate-pulse shadow-lg z-20">
-                {unreadCount} Nieuw
+                {unreadCount} {t('portal.tiles.messages.badge_new')}
               </div>
             )}
 
@@ -152,14 +179,14 @@ const PortalView = () => {
               </div>
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
-                  Berichten
+                  {t('portal.tiles.messages.title')}
                 </h2>
                 <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
-                  Inbox en communicatie.
+                  {t('portal.tiles.messages.desc')}
                 </p>
               </div>
               <div className="mt-4 md:mt-6 flex items-center text-rose-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
-                Openen <ArrowRight size={16} />
+                {t('portal.tiles.messages.action')} <ArrowRight size={16} />
               </div>
             </div>
           </button>
@@ -168,7 +195,7 @@ const PortalView = () => {
           {isMobile && (
             <button
               type="button"
-              onClick={() => navigate("/terminal/MOBILE_SCANNER")}
+              onClick={() => navigate("/scanner")}
               className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-orange-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-orange-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
             >
               <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">

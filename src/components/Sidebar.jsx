@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useMessages } from "../hooks/useMessages";
 import {
   LayoutGrid,
@@ -14,6 +15,7 @@ import {
   User,
   Factory,
   Filter,
+  Globe,
 } from "lucide-react";
 
 /**
@@ -26,6 +28,7 @@ const Sidebar = ({
   onToggleCatalogFilters,
   isCatalogFiltersOpen,
 }) => {
+  const { t, i18n } = useTranslation();
   const { messages } = useMessages(user);
   const unreadCount = messages
     ? messages.filter((m) => !m.read && !m.archived).length
@@ -33,15 +36,20 @@ const Sidebar = ({
   const location = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const toggleLanguage = () => {
+    const newLang = i18n.language === 'en' ? 'nl' : 'en';
+    i18n.changeLanguage(newLang);
+  };
+
   const navItems = [
-    { path: "/", label: "Portaal", icon: LayoutGrid },
-    { path: "/planning", label: "Planning", icon: Factory },
-    { path: "/products", label: "Catalogus", icon: Search },
-    { path: "/inventory", label: "Gereedschap", icon: Package },
-    { path: "/assistant", label: "AI Training", icon: Bot },
-    { path: "/calculator", label: "Calculator", icon: Calculator },
-    { path: "/messages", label: "Berichten", icon: Mail, badge: unreadCount },
-    { path: "/admin", label: "Beheer", icon: Settings, adminOnly: true },
+    { path: "/", label: t('sidebar.nav.common.portal'), icon: LayoutGrid },
+    { path: "/planning", label: t('sidebar.nav.common.planning'), icon: Factory },
+    { path: "/products", label: t('sidebar.nav.common.catalog'), icon: Search },
+    { path: "/inventory", label: t('sidebar.nav.common.inventory'), icon: Package },
+    { path: "/assistant", label: t('sidebar.nav.common.ai_training'), icon: Bot },
+    { path: "/calculator", label: t('sidebar.nav.common.calculator'), icon: Calculator },
+    { path: "/messages", label: t('sidebar.nav.common.messages'), icon: Mail, badge: unreadCount },
+    { path: "/admin", label: t('sidebar.nav.common.admin'), icon: Settings, adminOnly: true },
   ];
 
   const visibleItems = navItems.filter((item) =>
@@ -100,7 +108,7 @@ const Sidebar = ({
                   }`}
                 >
                   <Filter size={12} />{" "}
-                  {isCatalogFiltersOpen ? "Filters Verbergen" : "Filters Tonen"}
+                  {isCatalogFiltersOpen ? t('sidebar.filters_hide') : t('sidebar.filters_show')}
                 </button>
               )}
             </div>
@@ -109,6 +117,23 @@ const Sidebar = ({
       </nav>
 
       <div className="p-2 border-t border-slate-800">
+        <button
+          onClick={toggleLanguage}
+          className={`w-full mb-2 flex items-center gap-3 rounded-xl hover:bg-slate-800 hover:text-white transition-colors text-slate-400 border border-transparent hover:border-slate-700 ${
+            isExpanded ? "px-4 py-3 justify-start" : "p-3 justify-center"
+          }`}
+          title={t('profile.prefs.language')}
+        >
+          <Globe size={18} />
+          <span
+            className={`font-medium transition-all duration-300 whitespace-nowrap overflow-hidden ${
+              isExpanded ? "opacity-100" : "opacity-0 w-0"
+            }`}
+          >
+            {i18n.language === "en" ? t('profile.prefs.lang_nl') : t('profile.prefs.lang_en')}
+          </span>
+        </button>
+
         <NavLink
           to="/profile"
           className={`w-full mb-2 rounded-lg text-xs font-bold border flex items-center transition-all duration-300 overflow-hidden ${
@@ -125,7 +150,7 @@ const Sidebar = ({
               isExpanded ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
-            {user?.name || user?.displayName?.split(" ")[0] || "Profiel"}
+            {user?.name || user?.displayName?.split(" ")[0] || t('sidebar.nav.common.profile')}
           </span>
         </NavLink>
         <button
@@ -140,7 +165,7 @@ const Sidebar = ({
               isExpanded ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
-            Uitloggen
+            {t('sidebar.nav.common.logout')}
           </span>
         </button>
       </div>

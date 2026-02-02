@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Factory,
   KeyRound,
@@ -7,6 +8,7 @@ import {
   Loader2,
   ArrowRight,
   ShieldCheck,
+  Globe,
 } from "lucide-react";
 import AccountRequestModal from "./AccountRequestModal";
 
@@ -15,10 +17,16 @@ import AccountRequestModal from "./AccountRequestModal";
  * - Dezelfde vormgeving als PortalView met gradient achtergrond
  * - Moderne glasmorphism design
  */
-const LoginView = ({ onLogin, error: externalError }) => {
+const LoginView = ({ onLogin, externalError }) => {
+  const { t, i18n } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const toggleLanguage = () => {
+    const newLang = i18n.language === 'en' ? 'nl' : 'en';
+    i18n.changeLanguage(newLang);
+  };
   const [internalError, setInternalError] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
 
@@ -29,7 +37,7 @@ const LoginView = ({ onLogin, error: externalError }) => {
     // 🔥 EMERGENCY GOD MODE BYPASS 🔥
     if (email === "god@mode.local" && password === "master2026") {
       console.log("🔥 EMERGENCY GOD MODE ACTIVATED");
-      alert("⚠️ EMERGENCY MODE: God Mode bypass geactiveerd!\n\nDit is een noodtoegang. Login wordt gesimuleerd.");
+      alert(`⚠️ ${t('login.emergency_title')}: ${t('login.emergency_desc')}`);
       // We kunnen hier niet direct inloggen zonder Firebase Auth
       // Maar we kunnen wel debugging info tonen
       console.log("Master Admin UID uit .env:", import.meta.env.VITE_MASTER_ADMIN_UID);
@@ -48,7 +56,8 @@ const LoginView = ({ onLogin, error: externalError }) => {
       await onLogin(email, password);
     } catch (err) {
       console.error("❌ Login Component Fout:", err);
-      setInternalError("Systeemfout bij inloggen.");
+      setInternalError(t('login.error_auth'));
+
     } finally {
       setLoading(false);
     }
@@ -58,15 +67,25 @@ const LoginView = ({ onLogin, error: externalError }) => {
 
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-blue-950 overflow-y-auto">
+      {/* Language Toggle - Top Right */}
+      <div className="absolute top-6 right-6 z-50">
+        <button
+          onClick={toggleLanguage}
+          className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 text-cyan-200 transition-all hover:scale-110 active:scale-95 group"
+          title="Switch Language"
+        >
+          <Globe size={20} className="group-hover:rotate-12 transition-transform" />
+        </button>
+      </div>
+
       <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
         {/* Welkomsttekst */}
         <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
-          <Factory className="text-blue-500 w-16 h-16 md:w-20 md:h-20 mx-auto mb-6" />
-          <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight uppercase italic mb-2">
-            Future <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">Factory</span>
+          <h1 className="text-5xl md:text-6xl font-black text-white mb-3 uppercase italic tracking-tighter leading-none">
+            {t('login.title_main')} <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">{t('login.title_sub')}</span>
           </h1>
           <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
-            Industrial MES Portal
+            {t('login.subtitle')}
           </p>
         </div>
 
@@ -84,7 +103,7 @@ const LoginView = ({ onLogin, error: externalError }) => {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1">
-                  E-mailadres
+                  {t('login.email_label')}
                 </label>
                 <div className="relative group">
                   <Mail
@@ -98,14 +117,14 @@ const LoginView = ({ onLogin, error: externalError }) => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
-                    placeholder="naam@futurepipe.com"
+                    placeholder={t('login.email_placeholder')}
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1">
-                  Wachtwoord
+                  {t('login.password_label')}
                 </label>
                 <div className="relative group">
                   <KeyRound
@@ -119,7 +138,7 @@ const LoginView = ({ onLogin, error: externalError }) => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
-                    placeholder="••••••••"
+                    placeholder={t('login.password_placeholder')}
                   />
                 </div>
               </div>
@@ -132,7 +151,7 @@ const LoginView = ({ onLogin, error: externalError }) => {
                   <Loader2 className="animate-spin" size={20} />
                 ) : (
                   <>
-                    Systeem Inloggen <ArrowRight size={18} />
+                    {t('login.submit')} <ArrowRight size={18} />
                   </>
                 )}
               </button>
@@ -142,7 +161,7 @@ const LoginView = ({ onLogin, error: externalError }) => {
                 onClick={() => setShowRequestModal(true)}
                 className="w-full bg-white/10 border-2 border-white/20 text-cyan-200 py-4 rounded-2xl font-bold uppercase text-xs tracking-[0.15em] hover:bg-white/20 hover:border-white/30 transition-all flex items-center justify-center gap-2 mt-3"
               >
-                Account Aanvragen
+                {t('login.request_account')}
               </button>
             </form>
 

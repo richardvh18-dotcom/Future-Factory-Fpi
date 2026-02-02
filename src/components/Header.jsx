@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Search, Factory, X } from "lucide-react";
 
 /**
@@ -8,6 +9,7 @@ import { Search, Factory, X } from "lucide-react";
  * De merknaam "Future Factory" is vergroot voor een krachtigere uitstraling.
  */
 const Header = ({ searchQuery, setSearchQuery, logoUrl, appName }) => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   return (
@@ -26,9 +28,8 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName }) => {
             <h1 className="text-xl font-black uppercase italic tracking-tighter leading-none text-white">
               Future <span className="text-blue-500">Factory</span>
             </h1>
-            {/* Subtekst iets vergroot voor balans */}
             <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1.5">
-              Industrial MES Core
+              {t('header.branding_sub')}
             </p>
           </div>
         </div>
@@ -43,7 +44,7 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName }) => {
           />
           <input
             type="text"
-            placeholder="Zoek in het systeem (Orders, Producten, Tekeningen...)"
+            placeholder={t('header.search_placeholder')}
             className="w-full bg-white/5 border border-slate-700 rounded-2xl py-2.5 pl-12 pr-10 text-sm font-medium text-slate-200 outline-none focus:bg-white/10 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/5 transition-all placeholder:text-slate-600"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -64,7 +65,7 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName }) => {
         <div className="flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
           <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic select-none">
-            FPi Secure Node
+            {t('header.system_status')}
           </span>
         </div>
       </div>
