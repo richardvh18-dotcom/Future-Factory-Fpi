@@ -3,6 +3,7 @@ import { db } from "../../config/firebase";
 import {
   collection,
   getDocs,
+  getDoc,
   doc,
   setDoc,
   writeBatch,
@@ -26,8 +27,9 @@ import {
   Info,
   DatabaseZap,
   ArrowRightLeft,
+  X,
 } from "lucide-react";
-import { PATHS } from "../../config/dbPaths";
+import { PATHS, getArtifactsPath } from "../../config/dbPaths";
 
 /**
  * DataMigrationTool V6.0 - Future Factory Root Sync
@@ -39,16 +41,31 @@ const DataMigrationTool = () => {
   const [counts, setCounts] = useState({});
   const [sourceId, setSourceId] = useState("fittings-app-v1");
 
-  // DEFINITIE VAN DE MIGRATIE ROUTE
-  // 'old' is de mapnaam onder artifacts/{appId}/public/data/
-  // 'new' is de key in dbPaths.js
+  // DEFINITIE VAN DE MIGRATIE ROUTE - VOLLEDIGE MAPPING
+  // 'id' is de mapnaam onder artifacts/{appId}/public/data/
+  // 'newKey' is de key in dbPaths.js
   const MIGRATION_MAP = [
+    // --- PRODUCTEN & CATALOGUS ---
     {
       label: "Product Catalogus",
       id: "products",
       newKey: "PRODUCTS",
       type: "collection",
     },
+    {
+      label: "Product Afbeeldingen",
+      id: "product_images",
+      newKey: "IMAGE_LIBRARY",
+      type: "collection",
+    },
+    {
+      label: "Product Conversies",
+      id: "product_conversions",
+      newKey: "CONVERSION_MATRIX",
+      type: "collection",
+    },
+    
+    // --- PLANNING & TRACKING ---
     {
       label: "Digitale Planning",
       id: "digital_planning",
@@ -62,29 +79,47 @@ const DataMigrationTool = () => {
       type: "collection",
     },
     {
-      label: "Inventaris & Tools",
+      label: "Machine Bezetting",
+      id: "machine_occupancy",
+      newKey: "OCCUPANCY",
+      type: "collection",
+    },
+    
+    // --- INVENTARIS & MATERIALEN ---
+    {
+      label: "Inventaris & Moffen",
       id: "moffen",
       newKey: "INVENTORY",
       type: "collection",
     },
+    
+    // --- TECHNISCHE SPECS ---
     {
-      label: "Boring Specificaties",
-      id: "bore_dimensions",
-      newKey: "BORE_DIMENSIONS",
-      type: "collection",
-    },
-    {
-      label: "Mof Maten (CB)",
+      label: "CB Mof Dimensies",
       id: "cb_dimensions",
       newKey: "CB_DIMENSIONS",
       type: "collection",
     },
     {
-      label: "Mof Maten (TB)",
+      label: "TB Mof Dimensies",
       id: "tb_dimensions",
       newKey: "TB_DIMENSIONS",
       type: "collection",
     },
+    {
+      label: "Fitting Specs",
+      id: "standard_fitting_specs",
+      newKey: "FITTING_SPECS",
+      type: "collection",
+    },
+    {
+      label: "Socket Specs",
+      id: "standard_socket_specs",
+      newKey: "SOCKET_SPECS",
+      type: "collection",
+    },
+    
+    // --- GEBRUIKERS & PERSONEEL ---
     {
       label: "Gebruikers & Rollen",
       id: "user_roles",
@@ -92,22 +127,80 @@ const DataMigrationTool = () => {
       type: "collection",
     },
     {
-      label: "Systeem Instellingen",
+      label: "Personeel Database",
+      id: "personnel",
+      newKey: "PERSONNEL",
+      type: "collection",
+    },
+    
+    // --- COMMUNICATIE ---
+    {
+      label: "Berichten & Inbox",
+      id: "messages",
+      newKey: "MESSAGES",
+      type: "collection",
+    },
+    
+    // --- INSTELLINGEN & CONFIG ---
+    {
+      label: "Fabriek Configuratie",
+      id: "config/factory_config",
+      newKey: "FACTORY_CONFIG",
+      type: "document",
+    },
+    {
+      label: "Algemene Instellingen",
       id: "app_settings/general",
       newKey: "GENERAL_SETTINGS",
       type: "document",
     },
     {
-      label: "Matrix Config",
-      id: "settings/matrix",
-      newKey: "MATRIX_CONFIG",
+      label: "Algemene Config (Alt)",
+      id: "settings/general_config",
+      newKey: "GENERAL_SETTINGS",
       type: "document",
+      skipIfExists: true, // Skip als al gemigreerd via app_settings/general
+    },
+    {
+      label: "Productie Structuur",
+      id: "settings/production_structure",
+      newKey: "FACTORY_CONFIG",
+      type: "document",
+      merge: true, // Merge met bestaande factory_config
+    },
+    {
+      label: "Product Blueprints",
+      id: "settings/product_templates",
+      newKey: "BLUEPRINTS",
+      type: "document",
+    },
+    
+    // --- MEDIA & DOCUMENTEN ---
+    {
+      label: "Technische Tekeningen",
+      id: "library_drawings",
+      newKey: "DRAWING_LIBRARY",
+      type: "collection",
+    },
+    {
+      label: "Label Templates",
+      id: "label_templates",
+      newKey: "LABEL_TEMPLATES",
+      type: "collection",
+    },
+    
+    // --- AI & KENNIS ---
+    {
+      label: "AI Knowledge Base",
+      id: "ai_knowledge_base",
+      newKey: "AI_KNOWLEDGE_BASE",
+      type: "collection",
     },
   ];
 
   const addLog = (msg) =>
     setLogs((prev) =>
-      [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 30)
+      [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 100) // Verhoogd van 30 naar 100
     );
 
   /**
@@ -116,35 +209,56 @@ const DataMigrationTool = () => {
   const performScan = async () => {
     setStatus("scanning");
     setCounts({});
-    addLog(`🔍 Scan gestart voor bron: /artifacts/${sourceId}/...`);
+    setLogs([]); // Clear oude logs
+    addLog(`🔍 Scan gestart voor bron: /artifacts/${sourceId}/public/data/`);
+    addLog(`📊 Controleren van ${MIGRATION_MAP.length} data bronnen...`);
 
     const newCounts = {};
+    let totalFound = 0;
+    let totalDocs = 0;
+    
     for (const item of MIGRATION_MAP) {
       try {
-        const oldPathParts = [
-          "artifacts",
-          sourceId,
-          "public",
-          "data",
-          ...item.id.split("/"),
-        ];
+        const oldPathParts = getArtifactsPath(sourceId, ...item.id.split("/"));
 
         if (item.type === "collection") {
           const snap = await getDocs(collection(db, ...oldPathParts));
           newCounts[item.id] = snap.size;
-          if (snap.size > 0)
-            addLog(`✅ Gevonden: ${item.label} (${snap.size} docs)`);
+          if (snap.size > 0) {
+            addLog(`✅ ${item.label}: ${snap.size} documenten`);
+            totalFound++;
+            totalDocs += snap.size;
+          } else {
+            addLog(`⚪ ${item.label}: leeg`);
+          }
         } else {
-          // Voor documenten checken we alleen bestaan
-          newCounts[item.id] = 1; // We markeren het als 'aanwezig'
-          addLog(`📄 Gevonden: ${item.label} (Config Document)`);
+          // Voor documenten checken we bestaan
+          try {
+            const docRef = doc(db, ...oldPathParts);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              newCounts[item.id] = 1;
+              addLog(`✅ ${item.label}: configuratie gevonden`);
+              totalFound++;
+            } else {
+              newCounts[item.id] = 0;
+              addLog(`⚪ ${item.label}: niet gevonden`);
+            }
+          } catch (docErr) {
+            newCounts[item.id] = 0;
+            addLog(`⚪ ${item.label}: niet gevonden`);
+          }
         }
       } catch (e) {
-        addLog(`❌ Pad niet gevonden voor ${item.label}`);
+        addLog(`❌ ${item.label}: pad niet toegankelijk`);
         newCounts[item.id] = 0;
       }
     }
+    
     setCounts(newCounts);
+    addLog(`---`);
+    addLog(`📈 Scan compleet: ${totalFound}/${MIGRATION_MAP.length} bronnen gevonden`);
+    addLog(`📦 Totaal: ${totalDocs} documenten gereed voor migratie`);
     setStatus("ready");
   };
 
@@ -154,7 +268,8 @@ const DataMigrationTool = () => {
   const startMigration = async () => {
     if (
       !window.confirm(
-        "Weet je zeker dat je de data wilt kopiëren naar de nieuwe root?"
+        "Weet je zeker dat je de data wilt kopiëren naar de nieuwe root?\n\n" +
+        "Dit overschrijft bestaande data met dezelfde ID's."
       )
     )
       return;
@@ -163,23 +278,27 @@ const DataMigrationTool = () => {
 
     try {
       for (const item of MIGRATION_MAP) {
-        if (!counts[item.id]) continue;
+        if (!counts[item.id]) {
+          addLog(`⏭️  Overgeslagen: ${item.label} (geen data gevonden)`);
+          continue;
+        }
 
-        const oldPathParts = [
-          "artifacts",
-          sourceId,
-          "public",
-          "data",
-          ...item.id.split("/"),
-        ];
+        const oldPathParts = getArtifactsPath(sourceId, ...item.id.split("/"));
         const targetPath = PATHS[item.newKey];
+
+        if (!targetPath) {
+          addLog(`❌ FOUT: Geen mapping gevonden voor ${item.newKey}`);
+          continue;
+        }
 
         addLog(`📦 Verhuizen: ${item.label} -> /${targetPath.join("/")}`);
 
         if (item.type === "collection") {
+          // COLLECTIE MIGRATIE
           const snapshot = await getDocs(collection(db, ...oldPathParts));
           let batch = writeBatch(db);
           let count = 0;
+          let totalMigrated = 0;
 
           for (const oldDoc of snapshot.docs) {
             const newDocRef = doc(db, ...targetPath, oldDoc.id);
@@ -194,25 +313,80 @@ const DataMigrationTool = () => {
             );
 
             count++;
+            totalMigrated++;
+            
             if (count >= 450) {
               // Batch limiet Firestore
               await batch.commit();
+              addLog(`   ✓ Batch committed (${totalMigrated} docs)`);
               batch = writeBatch(db);
               count = 0;
             }
           }
-          await batch.commit();
-        } else {
-          // Document migratie
-          // Let op: targetPath voor een document eindigt op de documentnaam (even aantal segmenten)
-          // oldPathParts voor een document moet ook naar het document wijzen
+          
+          if (count > 0) {
+            await batch.commit();
+          }
+          
+          addLog(`   ✅ Compleet: ${totalMigrated} documenten gemigreerd`);
+          
+        } else if (item.type === "document") {
+          // DOCUMENT MIGRATIE
+          try {
+            // Check of we moeten skippen
+            if (item.skipIfExists) {
+              const targetDocRef = doc(db, ...targetPath);
+              const existingDoc = await getDoc(targetDocRef);
+              if (existingDoc.exists()) {
+                addLog(`   ⏭️  Overgeslagen: ${item.label} (bestaat al)`);
+                continue;
+              }
+            }
+
+            // Haal het oude document op
+            const oldDocRef = doc(db, ...oldPathParts);
+            const oldDocSnap = await getDoc(oldDocRef);
+            
+            if (!oldDocSnap.exists()) {
+              addLog(`   ⚠️  Document niet gevonden: ${item.label}`);
+              continue;
+            }
+
+            const targetDocRef = doc(db, ...targetPath);
+            
+            if (item.merge) {
+              // Merge met bestaand document
+              await setDoc(
+                targetDocRef,
+                {
+                  ...oldDocSnap.data(),
+                  migratedAt: serverTimestamp(),
+                  sourceNode: sourceId,
+                },
+                { merge: true }
+              );
+              addLog(`   ✅ Gemerged: ${item.label}`);
+            } else {
+              // Overschrijf document
+              await setDoc(targetDocRef, {
+                ...oldDocSnap.data(),
+                migratedAt: serverTimestamp(),
+                sourceNode: sourceId,
+              });
+              addLog(`   ✅ Compleet: ${item.label}`);
+            }
+          } catch (docError) {
+            addLog(`   ❌ Fout bij ${item.label}: ${docError.message}`);
+          }
         }
       }
 
       setStatus("done");
       addLog("--- 🎉 MIGRATIE VOLTOOID ---");
+      addLog("Alle data is succesvol gekopieerd naar de nieuwe root structuur.");
     } catch (err) {
-      addLog(`❌ FOUT: ${err.message}`);
+      addLog(`❌ KRITIEKE FOUT: ${err.message}`);
+      console.error("Migration error:", err);
       setStatus("error");
     }
   };
@@ -270,41 +444,63 @@ const DataMigrationTool = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* MIGRATIE OVERZICHT */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {MIGRATION_MAP.map((item) => (
-              <div
-                key={item.id}
-                className={`bg-white p-6 rounded-[30px] border-2 transition-all shadow-sm ${
-                  counts[item.id] > 0
-                    ? "border-emerald-100 bg-emerald-50/20"
-                    : "border-slate-50 opacity-40 grayscale"
-                }`}
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="text-left">
-                    <p className="font-black text-slate-900 uppercase italic text-xs tracking-tight">
-                      {item.label}
-                    </p>
-                    <p className="text-[9px] font-mono text-slate-400 mt-1">
-                      /{item.id}
-                    </p>
-                  </div>
-                  {counts[item.id] > 0 ? (
-                    <span className="text-sm font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">
-                      {counts[item.id]}
-                    </span>
-                  ) : (
-                    <X size={14} className="text-slate-300" />
-                  )}
-                </div>
-                <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-50">
-                  <ArrowRightLeft size={10} className="text-slate-300" />
-                  <span className="text-[8px] font-black text-slate-400 uppercase truncate italic">
-                    To: {PATHS[item.newKey]?.join("/")}
-                  </span>
-                </div>
+          {/* Status samenvatting */}
+          {status === "ready" && (
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-[30px] p-6 flex items-center justify-between">
+              <div className="text-left">
+                <p className="text-xs font-black text-blue-900 uppercase tracking-widest mb-1">
+                  Scan Compleet
+                </p>
+                <p className="text-2xl font-black text-blue-600">
+                  {Object.values(counts).filter(v => v > 0).length}/{MIGRATION_MAP.length}
+                  <span className="text-sm font-bold text-blue-400 ml-2">bronnen gevonden</span>
+                </p>
+                <p className="text-xs text-blue-700 mt-2">
+                  {Object.values(counts).reduce((sum, v) => sum + v, 0)} totaal documenten
+                </p>
               </div>
-            ))}
+              <Database size={48} className="text-blue-300" />
+            </div>
+          )}
+          
+          {/* Scrollable container voor veel items */}
+          <div className="max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {MIGRATION_MAP.map((item) => (
+                <div
+                  key={item.id}
+                  className={`bg-white p-6 rounded-[30px] border-2 transition-all shadow-sm ${
+                    counts[item.id] > 0
+                      ? "border-emerald-100 bg-emerald-50/20"
+                      : "border-slate-50 opacity-40 grayscale"
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="text-left flex-1">
+                      <p className="font-black text-slate-900 uppercase italic text-xs tracking-tight leading-tight">
+                        {item.label}
+                      </p>
+                      <p className="text-[9px] font-mono text-slate-400 mt-1 break-all">
+                        {item.id}
+                      </p>
+                    </div>
+                    {counts[item.id] > 0 ? (
+                      <span className="text-sm font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg ml-2 shrink-0">
+                        {counts[item.id]}
+                      </span>
+                    ) : (
+                      <X size={14} className="text-slate-300 ml-2 shrink-0" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-50">
+                    <ArrowRightLeft size={10} className="text-slate-300 shrink-0" />
+                    <span className="text-[8px] font-black text-slate-400 uppercase italic break-all">
+                      {PATHS[item.newKey]?.join("/")}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {status === "ready" && Object.values(counts).some((v) => v > 0) && (

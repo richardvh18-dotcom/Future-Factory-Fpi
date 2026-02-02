@@ -1,51 +1,53 @@
 import React, { useState, useEffect } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 import TeamleaderHub from "./TeamleaderHub";
 import { Loader2 } from "lucide-react";
 
 /**
- * TeamleaderPipesHub - Dynamische versie (Path Fix)
+ * TeamleaderPipesHub - V2 (Future Factory Path)
  */
 const TeamleaderPipesHub = (props) => {
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
   useEffect(() => {
-    // PAD FIX: Gebruik 6 segmenten
-    const docRef = doc(
-      db,
-      "artifacts",
-      appId,
-      "public",
-      "data",
-      "config",
-      "factory_config"
-    );
+    console.log('[TeamleaderPipesHub] Initializing, path:', PATHS.FACTORY_CONFIG.join('/'));
+    const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
 
     const unsubscribe = onSnapshot(
       docRef,
       (docSnap) => {
+        console.log('[TeamleaderPipesHub] Factory config exists:', docSnap.exists());
         if (docSnap.exists()) {
           const data = docSnap.data();
+          console.log('[TeamleaderPipesHub] Departments:', data.departments?.length || 0);
           const myDept = (data.departments || []).find(
-            (d) => d.slug === "pipes"
+            (d) => d.slug === "pipes" || d.id === "pipes"
           );
           if (myDept) {
+            console.log('[TeamleaderPipesHub] Found pipes dept with', myDept.stations?.length || 0, 'stations');
             setStations(myDept.stations || []);
+          } else {
+            console.warn('[TeamleaderPipesHub] No pipes department found in factory config');
           }
+        } else {
+          console.warn('[TeamleaderPipesHub] Factory config document does not exist');
         }
         setLoading(false);
       },
       (err) => {
-        console.error("Fout:", err);
+        console.error("[TeamleaderPipesHub] Factory config error:", err);
         setLoading(false);
       }
     );
 
-    return () => unsubscribe();
-  }, [appId]);
+    return () => {
+      console.log('[TeamleaderPipesHub] Cleanup');
+      unsubscribe();
+    };
+  }, []);
 
   if (loading)
     return (

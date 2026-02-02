@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
-import { db, appId } from "../config/firebase";
+import { db } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
 
 /**
  * useInventory.js - Nieuw in Fase 2
@@ -14,9 +15,7 @@ const useInventory = (shouldFetch = true) => {
     if (!shouldFetch) return;
 
     setLoading(true);
-    // Let op: In AdminLocationsView werd dit 'moffen' genoemd, maar in de DB heet de collectie waarschijnlijk 'moffen' of 'inventory'
-    // Op basis van AdminLocationsView code: collection(..., "moffen")
-    const q = collection(db, "artifacts", appId, "public", "data", "moffen");
+    const q = collection(db, ...PATHS.INVENTORY);
 
     const unsubscribe = onSnapshot(
       q,

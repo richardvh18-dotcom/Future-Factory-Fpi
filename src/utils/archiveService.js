@@ -1,5 +1,6 @@
 import { doc, writeBatch, serverTimestamp } from "firebase/firestore";
 import { db } from "../config/firebase";
+import { PATHS, getPlanningArchivePath } from "../config/dbPaths";
 
 // Hulpfunctie om het huidige jaar op te halen
 const getCurrentYear = () => new Date().getFullYear();
@@ -22,8 +23,8 @@ export const archiveOrder = async (appId, order, reason) => {
   const batch = writeBatch(db);
   const year = getCurrentYear();
 
-  // 1. Bepaal de doel-collectie op basis van status of reden
-  let targetCollection = "";
+  // 1. Bepaal het type archief
+  let archiveType = "archive";
 
   // Check of de order status 'rejected' is OF dat de handmatige reden 'rejected' is
   const isRejected =
@@ -32,35 +33,15 @@ export const archiveOrder = async (appId, order, reason) => {
     order.status === "REJECTED";
 
   if (isRejected) {
-    // Definitieve afkeur gaat naar de 'rejected' bak
-    targetCollection = `rejected_${year}_planning`;
-  } else {
-    // Completed (of handmatig opgeruimd) gaat naar het reguliere archief
-    targetCollection = `archive_${year}_planning`;
+    archiveType = "rejected";
   }
 
   // 2. Definieer de paden
   // Bron: De huidige actieve lijst
-  const sourceRef = doc(
-    db,
-    "artifacts",
-    appId,
-    "public",
-    "data",
-    "digital_planning",
-    order.id
-  );
+  const sourceRef = doc(db, ...PATHS.PLANNING, order.id);
 
   // Doel: De berekende jaar-map
-  const targetRef = doc(
-    db,
-    "artifacts",
-    appId,
-    "public",
-    "data",
-    targetCollection,
-    order.id
-  );
+  const targetRef = doc(db, ...getPlanningArchivePath(year, archiveType), order.id);
 
   // 3. Bereid de data voor het archief voor
   // We voegen meta-data toe over wanneer en waarom het gearchiveerd is
@@ -84,7 +65,7 @@ export const archiveOrder = async (appId, order, reason) => {
     console.log(
       `Order ${
         order.orderId || order.id
-      } succesvol verplaatst naar ${targetCollection}`
+      } succesvol verplaatst naar archief (${year})`
     );
     return true;
   } catch (error) {

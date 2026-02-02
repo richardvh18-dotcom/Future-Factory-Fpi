@@ -4,9 +4,11 @@ import ProductFilterSidebar from "./ProductFilterSidebar";
 import ProductCard from "./ProductCard";
 import ProductDetailModal from "./ProductDetailModal";
 import { Search, ChevronDown, Layers, Box, Filter } from "lucide-react";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 const ProductSearchView = ({ showFilters, setShowFilters }) => {
-  const { products, loading, error } = useProductsData();
+  const { user } = useAdminAuth();
+  const { products, loading, error } = useProductsData(user);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedGroups, setExpandedGroups] = useState({});

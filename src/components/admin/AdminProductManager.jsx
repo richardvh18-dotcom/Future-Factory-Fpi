@@ -30,7 +30,7 @@ const AdminProductManager = ({ user }) => {
   const [actionLoading, setActionLoading] = useState(false);
 
   // Haal live data op uit de root via de custom hook
-  const { products, loading, refresh } = useProductsData();
+  const { products, loading, refresh } = useProductsData(user);
 
   const handleCreateNew = () => {
     setSelectedProduct(null);

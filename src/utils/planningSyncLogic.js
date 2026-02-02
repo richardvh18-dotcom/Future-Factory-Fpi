@@ -9,6 +9,7 @@ import {
   getDoc,
 } from "firebase/firestore";
 import { lookupProductByManufacturedId } from "./conversionLogic";
+import { PATHS } from "../config/dbPaths";
 
 /**
  * Zoekt door alle actieve orders en probeert tekeningen te koppelen
@@ -18,15 +19,7 @@ export const syncMissingDrawings = async (appId, onProgress) => {
   let stats = { checked: 0, updated: 0, errors: 0 };
 
   try {
-    // PAD FIX: Gebruik 'digital_planning'
-    const planningRef = collection(
-      db,
-      "artifacts",
-      appId,
-      "public",
-      "data",
-      "digital_planning"
-    );
+    const planningRef = collection(db, ...PATHS.PLANNING);
     const snapshot = await getDocs(planningRef);
 
     const ordersToCheck = snapshot.docs
@@ -56,22 +49,14 @@ export const syncMissingDrawings = async (appId, onProgress) => {
           let productDoc = null;
 
           // 1. Zoek Product
-          const prodRef = doc(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "products",
-            newCode
-          );
+          const prodRef = doc(db, ...PATHS.PRODUCTS, newCode);
           const prodSnap = await getDoc(prodRef);
 
           if (prodSnap.exists()) {
             productDoc = prodSnap.data();
           } else {
             const qProd = query(
-              collection(db, "artifacts", appId, "public", "data", "products"),
+              collection(db, ...PATHS.PRODUCTS),
               where("articleCode", "==", newCode)
             );
             const qSnap = await getDocs(qProd);
@@ -87,15 +72,7 @@ export const syncMissingDrawings = async (appId, onProgress) => {
           }
 
           // 2. Update Order (in digital_planning)
-          const orderRef = doc(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "digital_planning",
-            order.id
-          );
+          const orderRef = doc(db, ...PATHS.PLANNING, order.id);
 
           const updateData = {
             articleCode: newCode,

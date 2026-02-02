@@ -17,8 +17,8 @@ export default defineConfig({
   },
 
   server: {
-    port: 3000,
-    strictPort: true, // Voorkomt dat Vite naar een andere poort springt
+    port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+    strictPort: !process.env.PORT, // Flexibel zijn als Vercel/Process een poort toewijst
     host: true,       // Maakt de server bereikbaar voor externe verbindingen
     
     // Sta specifiek het sandbox domein toe om security blocks te voorkomen

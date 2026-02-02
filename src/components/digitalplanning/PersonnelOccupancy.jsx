@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Loader2, Cpu, Users, Layers, Info, Clock, MinusCircle, 
   ChevronUp, ShieldCheck, X, ChevronDown, Activity, Calculator, TrendingUp, RotateCw,
-  UserCheck, AlertCircle, AlertTriangle, CheckCircle2
+  UserCheck, AlertCircle, AlertTriangle, CheckCircle2, ArrowRight, PlusCircle
 } from "lucide-react";
-import { format, getISOWeek, parse } from "date-fns";
+import { format, getWeek, parse } from "date-fns";
 import { db } from "../../config/firebase";
 import { 
   collection, onSnapshot, doc, setDoc, 
@@ -12,11 +12,18 @@ import {
 } from "firebase/firestore";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { PATHS } from "../../config/dbPaths";
+import LoanPersonnelModal from "./modals/LoanPersonnelModal";
 
 /**
- * PersonnelOccupancy - V38 (Visual Polish)
- * OPLOSSING: 
- * - Operator namen zijn nu groter en in zwart (slate-950) voor betere leesbaarheid op tablets.
+ * PersonnelOccupancy - V40 (Uitleensysteem)
+ * NIEUW:
+ * - Mogelijkheid om personeel uit te lenen aan andere afdelingen
+ * - Visuele indicatie van uitgeleend personeel
+ * OPGELOST: 
+ * - Leest nu personeel van /future-factory/Users/Personnel (niet artifacts)
+ * - Leest bezetting van /future-factory/production/machine_occupancy
+ * - Leest factory config van /future-factory/settings/factory_configs/main
  */
 const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
   const { user } = useAdminAuth();
@@ -27,37 +34,78 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
   const [updatingId, setUpdatingId] = useState(null);
   const [expandedSections, setExpandedSections] = useState({});
   const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [loanModalOpen, setLoanModalOpen] = useState(false);
+  const [selectedPersonForLoan, setSelectedPersonForLoan] = useState(null);
+  const [selectedDepartmentForLoan, setSelectedDepartmentForLoan] = useState(null);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [selectedStation, setSelectedStation] = useState(null);
+  const [selectedDept, setSelectedDept] = useState(null);
 
-  const appId = typeof __app_id !== 'undefined' ? __app_id : 'fittings-app-v1';
   const todayStr = format(new Date(), "yyyy-MM-dd");
-  const currentWeek = getISOWeek(new Date());
+  const currentWeek = getWeek(new Date(), { weekStartsOn: 0 }); // Zondag start
 
-  // 1. DATA SYNC
+  // 1. DATA SYNC - Uit /future-factory root
   useEffect(() => {
+    console.log("[PersonnelOccupancy] Starting data sync...");
+    console.log("[PersonnelOccupancy] PATHS.PERSONNEL:", PATHS.PERSONNEL);
+    console.log("[PersonnelOccupancy] PATHS.OCCUPANCY:", PATHS.OCCUPANCY);
+    console.log("[PersonnelOccupancy] PATHS.FACTORY_CONFIG:", PATHS.FACTORY_CONFIG);
+    
     const unsubPersonnel = onSnapshot(
-      query(collection(db, "artifacts", appId, "public", "data", "personnel"), orderBy("name")),
-      (snap) => setPersonnel(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      query(collection(db, ...PATHS.PERSONNEL), orderBy("name")),
+      (snap) => {
+        console.log("[PersonnelOccupancy] Personnel loaded:", snap.docs.length);
+        setPersonnel(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      },
+      (error) => {
+        console.error("[PersonnelOccupancy] Personnel listener error:", error);
+        setPersonnel([]);
+      }
     );
+    
     const unsubOccupancy = onSnapshot(
-      collection(db, "artifacts", appId, "public", "data", "machine_occupancy"),
-      (snap) => setOccupancy(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      collection(db, ...PATHS.OCCUPANCY),
+      (snap) => {
+        console.log("[PersonnelOccupancy] Occupancy loaded:", snap.docs.length);
+        setOccupancy(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      },
+      (error) => {
+        console.error("[PersonnelOccupancy] Occupancy listener error:", error);
+        setOccupancy([]);
+      }
     );
+    
     const unsubStructure = onSnapshot(
-      doc(db, "artifacts", appId, "public", "data", "config", "factory_config"),
+      doc(db, ...PATHS.FACTORY_CONFIG),
       (docSnap) => {
         if (docSnap.exists()) {
+            console.log("[PersonnelOccupancy] Factory config loaded");
             setStructure(docSnap.data());
             const initialExpanded = {};
             (docSnap.data().departments || []).forEach(d => { initialExpanded[d.id] = true; });
             setExpandedSections(initialExpanded);
+        } else {
+            console.warn("[PersonnelOccupancy] Factory config document does not exist");
+            setStructure({ departments: [] });
         }
+        setLoading(false);
+      },
+      (error) => {
+        console.error("[PersonnelOccupancy] Factory config listener error:", error);
+        setStructure({ departments: [] });
         setLoading(false);
       }
     );
-    return () => { unsubPersonnel(); unsubOccupancy(); unsubStructure(); };
-  }, [appId]);
+    
+    return () => { 
+      console.log("[PersonnelOccupancy] Cleanup: closing listeners");
+      unsubPersonnel(); 
+      unsubOccupancy(); 
+      unsubStructure(); 
+    };
+  }, []);
 
-  // 2. HELPERS
+  // 2. HELPERS - Gebruik dezelfde logica als PersonnelManager
   const getShiftDetails = (person, deptId) => {
     const dept = (structure.departments || []).find(d => d.id === deptId);
     const fallbackShift = { label: "DAGDIENST", start: "07:30", end: "16:15" };
@@ -66,16 +114,34 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
 
     if (!dept || !dept.shifts || dept.shifts.length === 0) {
         activeShift = fallbackShift;
+    } else if (person.rotationSchedule?.enabled && person.rotationSchedule.shifts?.length > 0) {
+        // NIEUWE METHODE: rotationSchedule met cyclische rotatie
+        isPloeg = true;
+        const startWeekNum = person.rotationSchedule.startWeek || 1;
+        const rotationShifts = person.rotationSchedule.shifts;
+        
+        // Bereken welke shift nu actief is (cyclisch roteren)
+        const weeksSinceStart = currentWeek - startWeekNum;
+        const shiftIndex = ((weeksSinceStart % rotationShifts.length) + rotationShifts.length) % rotationShifts.length;
+        const currentShiftId = rotationShifts[shiftIndex];
+        
+        activeShift = dept.shifts.find(s => s.id === currentShiftId) || dept.shifts[0];
     } else if (person.rotationType === "STATIC") {
+        // OUDE METHODE: vaste shift
         activeShift = dept.shifts.find(s => s.id === person.shiftId) || fallbackShift;
         if (person.shiftId !== "DAGDIENST" && person.shiftId) isPloeg = true;
     } else if (person.rotationType === "RELATIVE") {
+        // OUDE METHODE: simpele week swap
         isPloeg = true; 
         const startWeek = person.startWeek || currentWeek;
         const isSwapped = Math.abs(currentWeek - startWeek) % 2 !== 0;
         const startIndex = dept.shifts.findIndex(s => s.id === person.startShiftId);
         const currentIndex = isSwapped ? (startIndex === 0 ? 1 : 0) : (startIndex === -1 ? 0 : startIndex);
         activeShift = dept.shifts[currentIndex] || dept.shifts[0];
+    } else {
+        // Geen rotatie: gebruik shiftId
+        activeShift = dept.shifts.find(s => s.id === person.shiftId) || fallbackShift;
+        if (person.shiftId !== "DAGDIENST" && person.shiftId) isPloeg = true;
     }
 
     try {
@@ -90,7 +156,51 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
     }
   };
 
-  // 3. KPI CALCULATIONS
+  // 3. AUTO-CLEANUP: Verwijder occupancy records die niet meer kloppen met shift rotatie
+  useEffect(() => {
+    if (personnel.length === 0 || occupancy.length === 0) return;
+    
+    const checkAndCleanup = async () => {
+      const toDelete = [];
+      
+      occupancy.forEach(occ => {
+        // Vind de persoon die bij deze occupancy hoort
+        const person = personnel.find(p => p.employeeNumber === occ.operatorNumber);
+        if (!person) return; // Persoon niet gevonden, skip
+        
+        // Bereken welke shift deze persoon NU zou moeten hebben
+        const shiftInfo = getShiftDetails(person, occ.departmentId);
+        
+        // Check of de opgeslagen shift nog klopt met de berekende shift
+        const storedShift = occ.shift || '';
+        const currentShift = shiftInfo.label || '';
+        
+        // Als shifts niet meer matchen EN de occupancy is van vandaag
+        if (occ.date === todayStr && storedShift !== currentShift) {
+          console.log(`⚠️ Shift mismatch voor ${person.name}: opgeslagen="${storedShift}", actueel="${currentShift}"`);
+          toDelete.push(occ.id);
+        }
+      });
+      
+      // Verwijder verkeerde records
+      if (toDelete.length > 0) {
+        console.log(`🧹 Cleaning up ${toDelete.length} verkeerde occupancy records...`);
+        for (const id of toDelete) {
+          try {
+            await deleteDoc(doc(db, ...PATHS.OCCUPANCY, id));
+          } catch (err) {
+            console.error('Cleanup error:', err);
+          }
+        }
+      }
+    };
+    
+    // Run cleanup na 2 seconden (geef data tijd om te laden)
+    const timer = setTimeout(checkAndCleanup, 2000);
+    return () => clearTimeout(timer);
+  }, [personnel, occupancy, todayStr]);
+
+  // 4. KPI CALCULATIONS
   const capacityMetrics = useMemo(() => {
     let totalNetHours = 0;
     const activeToday = occupancy.filter(occ => occ.date === todayStr && occ.operatorNumber);
@@ -107,6 +217,10 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
     const allDepts = structure.departments || [];
     const cleanScope = (scope || "").toLowerCase();
     let filtered = (scope === 'all') ? allDepts : allDepts.filter(d => d.id.toLowerCase() === cleanScope || d.slug === cleanScope || d.name.toLowerCase().includes(cleanScope));
+    console.log('[PersonnelOccupancy displaySections] scope:', scope, 'allDepts:', allDepts.length, 'filtered:', filtered.length, 'filtered names:', filtered.map(d => d.name));
+    if (filtered.length === 0 && scope !== 'all') {
+      console.warn('[PersonnelOccupancy] No departments found for scope:', scope, 'all departments:', allDepts.map(d => ({ id: d.id, slug: d.slug, name: d.name })));
+    }
     return filtered.map(d => ({
         ...d,
         stations: [...(d.stations || [])].sort((a,b) => a.name.toLowerCase().includes("teamleader") ? -1 : 1)
@@ -114,6 +228,37 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
   }, [structure.departments, scope]);
 
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={48} /></div>;
+
+  // Fallback als er geen factory config is
+  if (!structure.departments || structure.departments.length === 0) {
+    return (
+      <div className="p-20 text-center space-y-6">
+        <div className="flex justify-center">
+          <div className="p-6 bg-amber-50 rounded-3xl border-2 border-amber-200">
+            <AlertTriangle className="text-amber-600 mx-auto" size={48} />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-xl font-black text-slate-800 uppercase">Geen Fabrieksstructuur Gevonden</h3>
+          <p className="text-sm text-slate-600 max-w-md mx-auto">
+            De fabrieksstructuur (afdelingen en werkstations) is nog niet geconfigureerd.
+          </p>
+        </div>
+        <div className="text-xs text-slate-500 font-mono bg-slate-100 p-4 rounded-xl max-w-2xl mx-auto text-left">
+          <p className="font-bold mb-2">Debug Info:</p>
+          <p>Path: {PATHS.FACTORY_CONFIG.join("/")}</p>
+          <p>Personnel: {personnel.length} records</p>
+          <p>Occupancy: {occupancy.length} records</p>
+        </div>
+        <button
+          onClick={() => window.location.href = "/admin/database"}
+          className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-blue-700 transition-all"
+        >
+          Ga naar Database Setup
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 text-left animate-in fade-in duration-500 w-full pb-32 px-1">
@@ -141,13 +286,27 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
 
       {displaySections.map(dept => (
         <section key={dept.id} className="space-y-4 text-left">
-            <button onClick={() => setExpandedSections(prev => ({...prev, [dept.id]: !prev[dept.id]}))} className="w-full flex items-center justify-between border-b-2 border-slate-200 pb-3 ml-2 hover:bg-slate-100/50 p-2 rounded-xl transition-all">
-                <div className="flex items-center gap-3 text-left">
+            <div className="w-full flex items-center justify-between border-b-2 border-slate-200 pb-3 ml-2 p-2 rounded-xl">
+                <button onClick={() => setExpandedSections(prev => ({...prev, [dept.id]: !prev[dept.id]}))} className="flex items-center gap-3 text-left flex-1 hover:bg-slate-100/50 p-2 rounded-xl transition-all">
                     <div className="p-2 bg-slate-800 text-white rounded-xl shadow-md"><Layers size={16} /></div>
                     <h3 className="text-lg font-black text-slate-800 uppercase italic tracking-tight">{dept.name}</h3>
-                </div>
-                <ChevronUp className={`transition-transform duration-300 ${expandedSections[dept.id] !== false ? '' : 'rotate-180'}`} size={20} />
-            </button>
+                </button>
+                {editable && (
+                  <button
+                    onClick={() => {
+                      setSelectedDept(dept);
+                      setAssignModalOpen(true);
+                    }}
+                    className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-xl transition-all"
+                    title="Personeel toevoegen"
+                  >
+                    <PlusCircle size={20} />
+                  </button>
+                )}
+                <button onClick={() => setExpandedSections(prev => ({...prev, [dept.id]: !prev[dept.id]}))} className="p-2">
+                  <ChevronUp className={`transition-transform duration-300 ${expandedSections[dept.id] !== false ? '' : 'rotate-180'}`} size={20} />
+                </button>
+            </div>
 
             {expandedSections[dept.id] !== false && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in zoom-in-95 duration-200 text-left">
@@ -164,17 +323,35 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                                 </div>
                                 <div className="space-y-2 mb-4 flex-1 text-left text-left">
                                     {stationOccupancy.map(occ => (
-                                        <div key={occ.id} className={`p-3 rounded-2xl border flex flex-col gap-2 animate-in slide-in-from-right-1 ${isTL ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-100'}`}>
+                                        <div key={occ.id} className={`p-3 rounded-2xl border flex flex-col gap-2 animate-in slide-in-from-right-1 ${isTL ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-100'} ${occ.isLoan ? 'ring-2 ring-green-400' : ''}`}>
                                             <div className="flex items-center justify-between text-left">
-                                                <div className="text-left overflow-hidden text-left">
+                                                <div className="text-left overflow-hidden text-left flex-1">
                                                     {/* OPLOSSING: NAAM ZWART EN GROTER */}
                                                     <h5 className={`text-sm font-black uppercase italic truncate mb-0.5 text-left ${isTL ? 'text-amber-400' : 'text-slate-950'}`}>{occ.operatorName}</h5>
-                                                    <div className="flex items-center gap-1.5 opacity-70 text-left">
+                                                    <div className="flex items-center gap-1.5 opacity-70 text-left flex-wrap">
                                                         <span className={`text-[7px] font-black px-1 rounded ${occ.isPloeg ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{occ.isPloeg ? 'PLOEG' : 'DAG'}</span>
                                                         <span className={`text-[7px] font-bold uppercase ${isTL ? 'text-slate-400' : 'text-slate-500'}`}>{occ.shift}</span>
+                                                        {occ.isLoan && (
+                                                          <span className="text-[7px] font-black px-1 rounded bg-green-100 text-green-700">UITGELEEND</span>
+                                                        )}
                                                     </div>
                                                 </div>
-                                                <button onClick={() => deleteDoc(doc(db, "artifacts", appId, "public", "data", "machine_occupancy", occ.id))} className="p-1 text-slate-400 hover:text-rose-500 transition-colors"><X size={14} /></button>
+                                                <div className="flex items-center gap-1">
+                                                  {editable && !occ.isLoan && (
+                                                    <button 
+                                                      onClick={() => {
+                                                        setSelectedPersonForLoan(occ);
+                                                        setSelectedDepartmentForLoan(dept);
+                                                        setLoanModalOpen(true);
+                                                      }}
+                                                      className="p-1 text-blue-400 hover:text-blue-600 transition-colors"
+                                                      title="Uitlenen aan andere afdeling"
+                                                    >
+                                                      <ArrowRight size={14} />
+                                                    </button>
+                                                  )}
+                                                  <button onClick={() => deleteDoc(doc(db, ...PATHS.OCCUPANCY, occ.id))} className="p-1 text-slate-400 hover:text-rose-500 transition-colors"><X size={14} /></button>
+                                                </div>
                                             </div>
                                             <div className={`pt-2 border-t flex items-center justify-between ${isTL ? 'border-white/5' : 'border-slate-200/60'}`}><div className="flex items-center gap-1.5"><Clock size={10} className="text-blue-500" /><span className={`text-[8px] font-black uppercase tracking-tighter ${isTL ? 'text-slate-500' : 'text-slate-400'}`}>Inzet:</span></div><span className={`text-[10px] font-black ${isTL ? 'text-white' : 'text-slate-900'}`}>{occ.hoursWorked?.toFixed(1) || 0}u</span></div>
                                         </div>
@@ -188,6 +365,88 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
             )}
         </section>
       ))}
+
+      {/* Uitlenen Modal */}
+      <LoanPersonnelModal
+        isOpen={loanModalOpen}
+        onClose={() => {
+          setLoanModalOpen(false);
+          setSelectedPersonForLoan(null);
+          setSelectedDepartmentForLoan(null);
+        }}
+        person={selectedPersonForLoan}
+        currentDepartment={selectedDepartmentForLoan}
+      />
+
+      {/* Assign Personnel Modal */}
+      {assignModalOpen && selectedDept && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-black text-slate-900 uppercase italic">Personeel toevoegen</h3>
+              <button onClick={() => setAssignModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Station</label>
+                <select
+                  value={selectedStation?.id || ""}
+                  onChange={(e) => setSelectedStation(selectedDept.stations?.find(s => s.id === e.target.value) || null)}
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600"
+                >
+                  <option value="">Selecteer een station...</option>
+                  {(selectedDept.stations || []).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Personeelslid</label>
+                <select
+                  onChange={(e) => {
+                    const person = personnel.find(p => p.id === e.target.value);
+                    if (person && selectedStation) {
+                      // Voeg toe
+                      const occId = `${selectedDept.id}-${selectedStation.id}-${person.id}`;
+                      setDoc(doc(db, ...PATHS.OCCUPANCY, occId), {
+                        departmentId: selectedDept.id,
+                        machineId: selectedStation.id,
+                        operatorNumber: person.id,
+                        operatorName: person.name,
+                        date: todayStr,
+                        hoursWorked: 0,
+                        isPloeg: person.rotationType !== "STATIC",
+                        shift: person.shiftId || "DAGDIENST",
+                        isLoan: false,
+                      }, { merge: true });
+                      setAssignModalOpen(false);
+                    }
+                  }}
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600"
+                >
+                  <option value="">Selecteer personeelslid...</option>
+                  {personnel.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="pt-4 border-t border-slate-200">
+                <button
+                  onClick={() => setAssignModalOpen(false)}
+                  className="w-full px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold uppercase text-xs tracking-wider hover:bg-slate-200 transition-all"
+                >
+                  Annuleren
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

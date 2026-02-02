@@ -4,7 +4,7 @@
  */
 
 // Haal API key uit env of gebruik fallback (let op: env is veiliger)
-const apiKey = process.env.REACT_APP_GEMINI_API_KEY || "";
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 export const callGemini = async (userQuery, systemPrompt) => {
   if (!apiKey) {

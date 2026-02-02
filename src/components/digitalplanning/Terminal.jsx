@@ -34,6 +34,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 import {
   getISOWeek,
   addWeeks,
@@ -115,28 +116,40 @@ const Terminal = ({ initialStation, onBack }) => {
 
   useEffect(() => {
     if (!stationId) return;
+    
     setLoading(true);
-
+    
+    // Firestore listeners voor orders en products
     const unsubOrders = onSnapshot(
-      collection(db, "artifacts", appId, "public", "data", "digital_planning"),
+      collection(db, ...PATHS.PLANNING),
       (snap) => {
         setAllOrders(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-      }
-    );
-
-    const unsubProducts = onSnapshot(
-      collection(db, "artifacts", appId, "public", "data", "tracked_products"),
-      (snap) => {
-        setAllTracked(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      },
+      (error) => {
+        console.error("Orders listener error:", error);
         setLoading(false);
       }
     );
 
+    const unsubProducts = onSnapshot(
+      collection(db, ...PATHS.TRACKING),
+      (snap) => {
+        setAllTracked(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Products listener error:", error);
+        setLoading(false);
+      }
+    );
+
+    // Cleanup functie die ALTIJD de listeners afsluit wanneer component unmount of dependencies veranderen
     return () => {
+      console.log(`[Terminal ${stationId}] Cleanup: listeners worden afgesloten`);
       unsubOrders();
       unsubProducts();
     };
-  }, [appId, stationId]);
+  }, [stationId]); // appId verwijderd - deze is constant en hoeft niet in dependencies
 
   const myOrders = useMemo(() => {
     return allOrders.filter(
@@ -226,15 +239,7 @@ const Terminal = ({ initialStation, onBack }) => {
       );
 
       await setDoc(
-        doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          "tracked_products",
-          docId
-        ),
+        doc(db, ...PATHS.TRACKING, docId),
         {
           id: docId,
           orderId: order.orderId,
@@ -259,15 +264,7 @@ const Terminal = ({ initialStation, onBack }) => {
       );
 
       await updateDoc(
-        doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          "digital_planning",
-          order.id
-        ),
+        doc(db, ...PATHS.PLANNING, order.id),
         {
           status: "in_progress",
           activeLot: lot,

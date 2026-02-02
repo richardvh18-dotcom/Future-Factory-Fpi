@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 import {
   Package,
   Loader2,
@@ -24,14 +25,7 @@ const LossenView = ({ stationId, appId }) => {
     if (!stationId || !appId) return;
 
     setLoading(true);
-    const productsRef = collection(
-      db,
-      "artifacts",
-      appId,
-      "public",
-      "data",
-      "tracked_products"
-    );
+    const productsRef = collection(db, ...PATHS.TRACKING);
 
     const unsubscribe = onSnapshot(
       productsRef,

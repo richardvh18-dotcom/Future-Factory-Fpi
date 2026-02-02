@@ -3,14 +3,13 @@ import { Lock, ShieldCheck, Loader2, Save, AlertCircle } from "lucide-react";
 import { getAuth, updatePassword } from "firebase/auth";
 import { db } from "../config/firebase";
 import { doc, updateDoc } from "firebase/firestore";
+import { PATHS } from "../config/dbPaths";
 
 const ForcePasswordChangeView = ({ user, onComplete }) => {
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
   const handleUpdate = async (e) => {
     e.preventDefault();
@@ -29,19 +28,11 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
       // 1. Update in Firebase Authentication
       await updatePassword(currentUser, newPass);
 
-      // 2. Update in Firestore vlag verwijderen
-      const userRef = doc(
-        db,
-        "artifacts",
-        appId,
-        "public",
-        "data",
-        "user_roles",
-        user.uid
-      );
+      // 2. Update in Firestore - verwijder requirePasswordChange flag
+      const userRef = doc(db, ...PATHS.USERS, user.uid);
       await updateDoc(userRef, {
-        mustChangePassword: false,
-        tempPasswordDisplay: null, // Verwijder de tijdelijke weergave
+        requirePasswordChange: false,
+        tempPassword: null,
       });
 
       onComplete();

@@ -13,6 +13,7 @@ import {
   Palette,
   CheckCircle2,
   AlertCircle,
+  Settings,
 } from "lucide-react";
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../config/firebase";

@@ -16,8 +16,8 @@ export const useAdminAuth = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState(null);
 
-  // Jouw unieke Master UID voor directe God Mode toegang
-  const MASTER_ADMIN_UID = "pzxPfiwQhnQdEQJcXU77ZgT2Jo32";
+  // Master UID voor directe God Mode toegang (configureer via .env)
+  const MASTER_ADMIN_UID = (import.meta.env.VITE_MASTER_ADMIN_UID || "").trim();
 
   useEffect(() => {
     let isMounted = true;
@@ -32,10 +32,10 @@ export const useAdminAuth = () => {
       if (firebaseUser) {
         const currentUid = firebaseUser.uid.trim();
         console.log("🔐 Current UID:", currentUid);
-        console.log("🔐 Master Admin UID:", MASTER_ADMIN_UID);
+        console.log("🔐 Master Admin UID:", MASTER_ADMIN_UID || "(niet ingesteld)");
 
         // 1. MASTER BYPASS (Altijd volledige rechten voor Richard)
-        if (currentUid === MASTER_ADMIN_UID) {
+        if (MASTER_ADMIN_UID && currentUid === MASTER_ADMIN_UID) {
           console.log("✅ Master Admin detected!");
           const adminProfile = {
             uid: currentUid,

@@ -14,6 +14,7 @@ import {
   Hash,
   Activity,
   FileText,
+  Info,
 } from "lucide-react";
 
 /**
@@ -26,6 +27,7 @@ const AdminReferenceTable = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState(null);
 
   // Configuratie van de tabs gekoppeld aan dbPaths.js keys
   const TABS = [
@@ -57,33 +59,49 @@ const AdminReferenceTable = () => {
 
   // 1. Realtime Sync met de geselecteerde collectie in de root
   useEffect(() => {
-    if (!isValidPath(activeTab)) return;
+    if (!isValidPath(activeTab)) {
+      console.error("❌ Invalid tab path:", activeTab);
+      setError(`Path ${activeTab} is not valid`);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
-    const colRef = collection(db, ...PATHS[activeTab]);
+    setError(null);
+    
+    try {
+      const colRef = collection(db, ...PATHS[activeTab]);
+      console.log("📂 Loading from path:", PATHS[activeTab].join("/"));
 
-    const unsubscribe = onSnapshot(
-      query(colRef),
-      (snapshot) => {
-        const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const unsubscribe = onSnapshot(
+        query(colRef),
+        (snapshot) => {
+          const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+          console.log(`✅ Loaded ${docs.length} items from ${activeTab}`);
 
-        // Sortering op diameter (ID) of DN
-        docs.sort((a, b) => {
-          const valA = Number(a.diameter || a.dn || a.ID || 0);
-          const valB = Number(b.diameter || b.dn || b.ID || 0);
-          return valA - valB;
-        });
+          // Sortering op diameter (ID) of DN
+          docs.sort((a, b) => {
+            const valA = Number(a.diameter || a.dn || a.ID || 0);
+            const valB = Number(b.diameter || b.dn || b.ID || 0);
+            return valA - valB;
+          });
 
-        setData(docs);
-        setLoading(false);
-      },
-      (err) => {
-        console.error(`Fout bij laden ${activeTab}:`, err);
-        setLoading(false);
-      }
-    );
+          setData(docs);
+          setLoading(false);
+        },
+        (err) => {
+          console.error(`❌ Error loading ${activeTab}:`, err.code, err.message);
+          setError(`Error: ${err.message}`);
+          setLoading(false);
+        }
+      );
 
-    return () => unsubscribe();
+      return () => unsubscribe();
+    } catch (err) {
+      console.error("❌ Setup error:", err);
+      setError(err.message);
+      setLoading(false);
+    }
   }, [activeTab]);
 
   // 2. Client-side Search Filter
@@ -106,6 +124,17 @@ const AdminReferenceTable = () => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 text-left">
+      {/* ERROR DISPLAY */}
+      {error && (
+        <div className="bg-red-50 border-2 border-red-200 p-6 rounded-[24px] flex items-start gap-4">
+          <Activity className="text-red-600 flex-shrink-0 mt-1" size={20} />
+          <div>
+            <h4 className="font-black text-red-700 uppercase">Fout bij laden</h4>
+            <p className="text-sm text-red-600 font-mono mt-2">{error}</p>
+          </div>
+        </div>
+      )}
+
       {/* TABS NAVIGATIE */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {TABS.map((t) => (

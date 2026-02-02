@@ -25,6 +25,7 @@ import {
 import { collection, query, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { getISOWeek } from "date-fns";
+import { PATHS } from "../../config/dbPaths";
 
 // Helpers & Modals
 import { normalizeMachine } from "../../utils/hubHelpers";
@@ -51,6 +52,7 @@ const TeamleaderHub = ({
   const [rawOrders, setRawOrders] = useState([]);
   const [rawProducts, setRawProducts] = useState([]);
   const [bezetting, setBezetting] = useState([]);
+  const [factoryConfig, setFactoryConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState(null);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -63,26 +65,9 @@ const TeamleaderHub = ({
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
   const [showTerminalSelection, setShowTerminalSelection] = useState(false);
 
-  // Gebruik de global __app_id of fallback naar fittings-app-v1
-  const currentAppId =
-    typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-
   useEffect(() => {
-    if (!currentAppId) {
-      setDbError("Geen App ID geconfigureerd.");
-      setLoading(false);
-      return;
-    }
-
     const unsubOrders = onSnapshot(
-      collection(
-        db,
-        "artifacts",
-        currentAppId,
-        "public",
-        "data",
-        "digital_planning"
-      ),
+      collection(db, ...PATHS.PLANNING),
       (snap) => {
         setRawOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         setLoading(false);
@@ -95,44 +80,49 @@ const TeamleaderHub = ({
     );
 
     const unsubProds = onSnapshot(
-      collection(
-        db,
-        "artifacts",
-        currentAppId,
-        "public",
-        "data",
-        "tracked_products"
-      ),
+      collection(db, ...PATHS.TRACKING),
       (snap) =>
         setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => console.warn("Tracked Products Sync Error:", err.code)
     );
 
     const unsubOcc = onSnapshot(
-      collection(
-        db,
-        "artifacts",
-        currentAppId,
-        "public",
-        "data",
-        "machine_occupancy"
-      ),
+      collection(db, ...PATHS.OCCUPANCY),
       (snap) => setBezetting(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => console.warn("Occupancy Sync Error:", err.code)
+    );
+
+    const unsubConfig = onSnapshot(
+      doc(db, ...PATHS.FACTORY_CONFIG),
+      (snap) => {
+        if (snap.exists()) setFactoryConfig(snap.data());
+      },
+      (err) => console.warn("Factory Config Sync Error:", err)
     );
 
     return () => {
       unsubOrders();
       unsubProds();
       unsubOcc();
+      unsubConfig();
     };
-  }, [currentAppId]);
+  }, []);
 
   // Voorkom crashes door lege arrays of undefined machines
   const allowedNorms = useMemo(
     () => (allowedMachines || []).map((m) => normalizeMachine(m)),
     [allowedMachines]
   );
+
+  useEffect(() => {
+    console.log('[TeamleaderHub] fixedScope:', fixedScope);
+    console.log('[TeamleaderHub] allowedMachines:', allowedMachines);
+    console.log('[TeamleaderHub] allowedNorms:', allowedNorms);
+  }, [fixedScope, allowedMachines, allowedNorms]);
+
+  useEffect(() => {
+    console.log('[TeamleaderHub] selectedStationDetail changed:', selectedStationDetail);
+  }, [selectedStationDetail]);
 
   const dataStore = useMemo(() => {
     if (!rawOrders) return [];
@@ -158,19 +148,34 @@ const TeamleaderHub = ({
     const currentWeek = getISOWeek(new Date());
     const validOrderIds = new Set(dataStore.map((o) => o.orderId));
 
-    const machineGridData = (allowedMachines || []).map((mId) => {
-      const mNorm = normalizeMachine(mId);
+    // Get stations from factory config based on fixedScope
+    let stations = [];
+    if (factoryConfig && factoryConfig.departments) {
+      const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
+      const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
+      console.log('[TeamleaderHub metrics] fixedScope:', fixedScope, 'targetSlug:', targetSlug);
+      console.log('[TeamleaderHub metrics] departments:', factoryConfig.departments.map(d => ({ id: d.id, slug: d.slug, name: d.name })));
+      
+      const dept = factoryConfig.departments.find(
+        (d) => d.slug === targetSlug || d.id === targetSlug || d.name?.toLowerCase() === targetSlug
+      );
+      console.log('[TeamleaderHub metrics] found dept:', dept?.name, 'stations count:', dept?.stations?.length);
+      stations = dept ? (dept.stations || []).filter(s => s.name?.toLowerCase() !== "teamleader") : [];
+    }
+
+    const machineGridData = stations.map((station) => {
+      const stationName = station.name;
       const mProducts = rawProducts.filter(
-        (p) => normalizeMachine(p.machine || "") === mNorm
+        (p) => (p.machine || "").toLowerCase() === stationName.toLowerCase()
       );
       const currentOccupancy = bezetting.filter(
-        (b) => normalizeMachine(b.machineId) === mNorm
+        (b) => (b.machineId || "").toLowerCase() === stationName.toLowerCase()
       );
 
       return {
-        id: mId,
+        id: stationName,
         planned: dataStore
-          .filter((o) => o.normMachine === mNorm)
+          .filter((o) => (o.machine || "").toLowerCase() === stationName.toLowerCase())
           .reduce((acc, o) => acc + Number(o.plan || 0), 0),
         finished: mProducts.filter((p) => p.status === "Finished").length,
         active: mProducts.filter((p) => p.status === "In Production").length,
@@ -180,7 +185,10 @@ const TeamleaderHub = ({
     });
 
     return {
-      totalPlanned: dataStore.reduce((acc, o) => acc + Number(o.plan || 0), 0),
+      // Totaal Plan: Som van 'plan' veld van alle orders (exclusief geannuleerd/afgekeurd)
+      totalPlanned: dataStore
+        .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
+        .reduce((acc, o) => acc + Number(o.plan || 0), 0),
       activeCount: rawProducts.filter(
         (p) => p.status === "In Production" && validOrderIds.has(p.orderId)
       ).length,
@@ -191,7 +199,7 @@ const TeamleaderHub = ({
         (p) => p.status === "Rejected" && validOrderIds.has(p.orderId)
       ).length,
       bezettingAantal: bezetting.filter((b) =>
-        allowedNorms.includes(normalizeMachine(b.machineId))
+        stations.some(s => (s.name || "").toLowerCase() === (b.machineId || "").toLowerCase())
       ).length,
       machineGridData,
     };
@@ -200,8 +208,8 @@ const TeamleaderHub = ({
     dataStore,
     rawProducts,
     bezetting,
-    allowedMachines,
-    allowedNorms,
+    factoryConfig,
+    fixedScope,
   ]);
 
   // Render Logica
@@ -363,7 +371,10 @@ const TeamleaderHub = ({
                   {metrics.machineGridData.map((machine) => (
                     <div
                       key={machine.id}
-                      onClick={() => setSelectedStationDetail(machine.id)}
+                      onClick={() => {
+                        console.log('[TeamleaderHub] Station clicked:', machine.id);
+                        setSelectedStationDetail(machine.id);
+                      }}
                       className="bg-white border border-slate-200 rounded-[35px] p-6 shadow-sm hover:shadow-xl hover:border-blue-400 transition-all cursor-pointer group relative overflow-hidden text-left"
                     >
                       <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">

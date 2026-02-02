@@ -30,11 +30,17 @@
     "@vitejs/plugin-react": "^4.3.3",
     "terser": "^5.36.0"
   },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.17"
+  },
   "scripts": {
     "dev": "vite",
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "vercel:dev": "vercel dev --listen 3000",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

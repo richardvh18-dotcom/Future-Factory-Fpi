@@ -20,6 +20,7 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { db } from "../../../config/firebase";
+import { PATHS } from "../../../config/dbPaths";
 import * as XLSX from "xlsx";
 import {
   subWeeks,
@@ -37,22 +38,11 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [importMode, setImportMode] = useState("new_only");
   const fileInputRef = useRef(null);
 
-  const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-
   useEffect(() => {
     const fetchExisting = async () => {
       if (!isOpen) return;
       try {
-        const snap = await getDocs(
-          collection(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "digital_planning"
-          )
-        );
+        const snap = await getDocs(collection(db, ...PATHS.PLANNING));
         const ids = new Set(snap.docs.map((d) => d.id));
         setExistingIds(ids);
       } catch (err) {
@@ -60,7 +50,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       }
     };
     fetchExisting();
-  }, [isOpen, appId]);
+  }, [isOpen]);
 
   const normalizeMachine = (val) => {
     if (!val) return "-";
@@ -210,15 +200,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
         chunk.forEach((item) => {
           const { isExisting, ...dbData } = item;
-          const docRef = doc(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "digital_planning",
-            item.id
-          );
+          const docRef = doc(db, ...PATHS.PLANNING, item.id);
           batch.set(
             docRef,
             {

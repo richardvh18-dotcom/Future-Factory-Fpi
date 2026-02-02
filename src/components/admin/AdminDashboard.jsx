@@ -24,10 +24,12 @@ import {
   BookOpen,
   ShieldCheck,
   SearchCode,
+  TrendingUp,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 // --- LAZY LOAD IMPORTS ---
+const RoadmapViewer = React.lazy(() => import("./RoadmapViewer"));
 const AdminProductManager = React.lazy(() => import("./AdminProductManager"));
 const FactoryStructureManager = React.lazy(() =>
   import("./FactoryStructureManager")
@@ -57,6 +59,15 @@ const AdminDashboard = () => {
   const [activeScreen, setActiveScreen] = useState(null);
 
   const allMenuItems = [
+    {
+      id: "roadmap",
+      title: "Master Roadmap",
+      desc: "Volg de ontwikkelings-roadmap en dien ideeën in.",
+      icon: <TrendingUp size={24} className="text-emerald-600" />,
+      color: "bg-emerald-50 border-emerald-100",
+      roles: ["admin", "engineer", "teamleader"],
+      component: RoadmapViewer,
+    },
     {
       id: "products",
       title: "Product Manager",

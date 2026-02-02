@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 
 /**
  * MobileScanner V26 - Focus op Helderheid & Snelheid.
@@ -63,26 +64,34 @@ const MobileScanner = () => {
 
     // Synchroniseer met de database voor direct resultaat na een scan
     const unsubOrders = onSnapshot(
-      collection(db, "artifacts", appId, "public", "data", "digital_planning"),
+      collection(db, ...PATHS.PLANNING),
       (snap) => {
         setAllOrders(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      },
+      (error) => {
+        console.error("Orders listener error:", error);
       }
     );
 
     const unsubProducts = onSnapshot(
-      collection(db, "artifacts", appId, "public", "data", "tracked_products"),
+      collection(db, ...PATHS.TRACKING),
       (snap) => {
         setAllTracked(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Products listener error:", error);
         setLoading(false);
       }
     );
 
     return () => {
+      console.log("[MobileScanner] Cleanup: listeners worden afgesloten");
       unsubOrders();
       unsubProducts();
       stopCamera();
     };
-  }, [appId]);
+  }, []); // Leeg array - de listeners moeten één keer worden opgezet bij mount
 
   // 2. Camera aansturing
   const startCamera = async () => {

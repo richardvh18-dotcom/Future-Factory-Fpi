@@ -2,7 +2,8 @@ import React, { useState, Suspense, lazy, useEffect } from "react";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { auth } from "./config/firebase";
+import { auth, db } from "./config/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 // Basis Componenten
 import Header from "./components/Header";
@@ -11,6 +12,7 @@ import LoginView from "./components/LoginView";
 import PortalView from "./components/PortalView";
 import ProfileView from "./components/ProfileView";
 import ProductSearchView from "./components/products/ProductSearchView";
+import ForcePasswordChangeView from "./components/ForcePasswordChangeView";
 
 // Hooks
 import { useAdminAuth } from "./hooks/useAdminAuth";
@@ -33,13 +35,14 @@ const CalculatorView = lazy(() => import("./components/CalculatorView"));
 const AiAssistantView = lazy(() => import("./components/AiAssistantView"));
 
 /**
- * App.jsx V16.0 - Messaging Route Fix
- * Voegt de ontbrekende route voor /messages toe zodat de Sidebar link werkt.
+ * App.jsx V17.0 - Password Change Flow
+ * + Force password change voor nieuwe accounts
  */
 const App = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [loginError, setLoginError] = useState(null);
+  const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
 
   // Data fetching via Hooks
   const { user, isAdmin, role, loading: authLoading } = useAdminAuth();
@@ -51,13 +54,52 @@ const App = () => {
     ? messages.filter((m) => !m.read && !m.archived).length
     : 0;
 
+  // Check of gebruiker wachtwoord moet wijzigen
+  useEffect(() => {
+    if (user) {
+      const checkPasswordChange = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, "future-factory", "Users", "Accounts", user.uid));
+          if (userDoc.exists() && userDoc.data().requirePasswordChange) {
+            setRequiresPasswordChange(true);
+          }
+        } catch (err) {
+          console.error("Error checking password change:", err);
+        }
+      };
+      checkPasswordChange();
+    }
+  }, [user]);
+
   const handleLogin = async (email, password) => {
     setLoginError(null);
+    console.log("🔐 Login poging voor:", email);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log("✅ Login succesvol! UID:", userCredential.user.uid);
       navigate("/");
     } catch (err) {
-      setLoginError("E-mail of wachtwoord onjuist.");
+      console.error("❌ Login fout:", err);
+      console.error("Error code:", err.code);
+      console.error("Error message:", err.message);
+      
+      let errorMessage = "E-mail of wachtwoord onjuist.";
+      
+      if (err.code === "auth/user-not-found") {
+        errorMessage = "Geen account gevonden met dit e-mailadres.";
+      } else if (err.code === "auth/wrong-password") {
+        errorMessage = "Onjuist wachtwoord.";
+      } else if (err.code === "auth/invalid-email") {
+        errorMessage = "Ongeldig e-mailadres.";
+      } else if (err.code === "auth/user-disabled") {
+        errorMessage = "Dit account is uitgeschakeld.";
+      } else if (err.code === "auth/too-many-requests") {
+        errorMessage = "Te veel pogingen. Probeer later opnieuw.";
+      } else if (err.code === "auth/network-request-failed") {
+        errorMessage = "Netwerkfout. Controleer je internetverbinding.";
+      }
+      
+      setLoginError(errorMessage);
     }
   };
 
@@ -74,6 +116,16 @@ const App = () => {
 
   if (!user || role === "guest") {
     return <LoginView onLogin={handleLogin} error={loginError} />;
+  }
+
+  // Force password change voor nieuwe gebruikers
+  if (requiresPasswordChange) {
+    return (
+      <ForcePasswordChangeView 
+        user={user} 
+        onComplete={() => setRequiresPasswordChange(false)} 
+      />
+    );
   }
 
   return (

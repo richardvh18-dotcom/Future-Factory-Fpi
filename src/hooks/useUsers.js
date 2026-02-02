@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { collection, getDocs } from "firebase/firestore";
-import { db, appId } from "../config/firebase";
+import { db } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
 
 export const useUsers = () => {
   const [users, setUsers] = useState([]);
@@ -9,9 +10,7 @@ export const useUsers = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const querySnapshot = await getDocs(
-          collection(db, "artifacts", appId, "user_roles")
-        );
+        const querySnapshot = await getDocs(collection(db, ...PATHS.USERS));
         const userList = querySnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
