@@ -3,8 +3,9 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 /**
- * Vite Configuratie V2.5 (TypeScript Edition)
- * Oplossing voor 'Blocked request' en stabiliteit in CodeSandbox.
+ * Vite Configuratie V2.6 - Vercel Deployment Fix
+ * + SPA routing support
+ * + Optimized build configuration
  */
 export default defineConfig({
   plugins: [react()],
@@ -14,6 +15,19 @@ export default defineConfig({
       // Zorgt ervoor dat we @ kunnen gebruiken als kortere weg naar de src map
       '@': path.resolve(__dirname, './src'),
     },
+  },
+
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+        }
+      }
+    }
   },
 
   server: {
