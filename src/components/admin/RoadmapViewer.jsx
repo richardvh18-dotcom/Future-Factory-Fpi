@@ -48,12 +48,6 @@ const RoadmapViewer = ({ user }) => {
       status: "🔮 Toekomst (Q3-Q4 2026)",
       items: ["Direct ZPL Printing: Zebra integration", "AI Predictive Maintenance", "IoT Dashboards: Real-time monitoring"],
     },
-    {
-      id: "7",
-      title: "Externe Integraties",
-      status: "🔗 Concept (Q4 2026+)",
-      items: ["ATPS Koppeling: HR & Planning (API/Interfaces)", "ERP/Boekhouding: Infor LN & Artikelstam Sync"],
-    },
   ];
 
   const handleSubmitIdea = () => {
