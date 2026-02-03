@@ -13,6 +13,7 @@ import PortalView from "./components/PortalView";
 import ProfileView from "./components/ProfileView";
 import ProductSearchView from "./components/products/ProductSearchView";
 import ForcePasswordChangeView from "./components/ForcePasswordChangeView";
+import GodModeBootstrap from "./components/admin/GodModeBootstrap";
 
 // Notification System
 import { NotificationProvider } from "./contexts/NotificationContext";
@@ -116,6 +117,11 @@ const App = () => {
         </p>
       </div>
     );
+  }
+
+  // Check for specialized bootstrapping view (Orphaned Admin)
+  if (user?.uid === "pzxPfiwQhnQdEQJcXU77ZgT2Jo32" && role === "guest") {
+    return <GodModeBootstrap />;
   }
 
   if (!user || role === "guest") {
