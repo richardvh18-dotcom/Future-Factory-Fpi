@@ -21,8 +21,6 @@ import {
 
 /**
  * Sidebar V5.0 - Responsive met mobiele drawer
- * - Desktop: hover-expand sidebar
- * - Tablet/Mobiel: slide-out drawer menu
  */
 const Sidebar = ({
   user,
@@ -58,7 +56,11 @@ const Sidebar = ({
   ];
 
   const visibleItems = navItems.filter((item) =>
-    i>
+    item.adminOnly ? isAdmin : true
+  );
+
+  return (
+    <>
       {/* Overlay voor mobiel menu */}
       {isMobileMenuOpen && (
         <div
@@ -69,19 +71,13 @@ const Sidebar = ({
 
       {/* Sidebar - Desktop & Mobile */}
       <aside
-        className={`bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 z-[80] transition-all duration-300 ease-in-out
-          ${
-            // Desktop styling
-            "hidden md:flex md:fixed md:left-0"
-          }
-          ${
-            // Mobile styling - slide drawer
-            isMobileMenuOpen
-              ? "fixed left-0 top-0 h-full w-64 flex shadow-2xl"
-              : "fixed -left-full"
-          }
-          ${isExpanded ? "md:w-64" : "md:w-16"}
-        `}
+        className={`bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 z-[80] transition-all duration-300 ease-in-out ${
+          isMobileMenuOpen
+            ? "fixed left-0 top-0 h-full w-64 flex shadow-2xl"
+            : "fixed -left-full md:flex md:left-0"
+        } ${
+          isExpanded ? "md:w-64" : "md:w-16"
+        }`}
         style={{ top: isMobileMenuOpen ? 0 : "4rem", height: isMobileMenuOpen ? "100vh" : "calc(100vh - 4rem)" }}
         onMouseEnter={() => !isMobileMenuOpen && setIsExpanded(true)}
         onMouseLeave={() => !isMobileMenuOpen && setIsExpanded(false)}
@@ -98,122 +94,117 @@ const Sidebar = ({
             </button>
           </div>
         )}
-
-        <nav className="flex-1 px-2 pt-4 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden">
-          {visibleItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <div key={item.path} className="flex flex-col gap-1">
-                <NavLink
-                  to={item.path}
-                  onClick={() => isMobileMenuOpen && onMobileMenuClose()}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 whitespace-nowrap relative ${
-                      isActive
-                        ? "bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20"
-                        : "hover:bg-slate-800 hover:text-white border border-transparent"
-                    } ${isExpanded || isMobileMenuOpen ? "justify-start" : "justify-center"}`
-                  }
+      <nav className="flex-1 px-2 pt-4 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden">
+        {visibleItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <div key={item.path} className="flex flex-col gap-1">
+              <NavLink
+                to={item.path}
+                onClick={() => isMobileMenuOpen && onMobileMenuClose()}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 whitespace-nowrap relative ${
+                    isActive
+                      ? "bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20"
+                      : "hover:bg-slate-800 hover:text-white border border-transparent"
+                  } ${isExpanded || isMobileMenuOpen ? "justify-start" : "justify-center"}`
+                }
+              >
+                <div className="relative shrink-0">
+                  <item.icon size={20} strokeWidth={2} />
+                  {item.badge > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full border-2 border-slate-900 animate-pulse">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+                <span
+                  className={`transition-all duration-300 ${
+                    isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
+                  }`}
                 >
-                  <div className="relative shrink-0">
-                    <item.icon size={20} strokeWidth={2} />
-                    {item.badge > 0 && (
-                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full border-2 border-slate-900 animate-pulse">
-                        {item.badge}
-                      </span>
-                    )}
-                  </div>
-                  <span
-                    className={`transition-all duration-300 ${
-                      isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
-                    }`}
-                  >
-                    {item.label}
-                  </span>
-                </NavLink>
+                  {item.label}
+                </span>
+              </NavLink>
 
-                {/* Speciale filters voor de catalogus pagina */}
-                {item.path === "/products" && isActive && (isExpanded || isMobileMenuOpen) && (
-                  <button
-                    onClick={onToggleCatalogFilters}
-                    className={`mt-1 flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border ${
-                      isCatalogFiltersOpen
-                        ? "bg-blue-600 text-white border-blue-500 shadow-lg"
-                        : "bg-slate-800 text-slate-400 border-slate-700 hover:text-white"
-                    }`}
-                  >
-                    <Filter size={12} />{" "}
-                    {isCatalogFiltersOpen ? t('sidebar.filters_hide') : t('sidebar.filters_show')}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </nav>
+              {/* Speciale filters voor de catalogus pagina */}
+              {item.path === "/products" && isActive && (isExpanded || isMobileMenuOpen) && (
+                <button
+                  onClick={onToggleCatalogFilters}
+                  className={`mt-1 flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border ${
+                    isCatalogFiltersOpen
+                      ? "bg-blue-600 text-white border-blue-500 shadow-lg"
+                      : "bg-slate-800 text-slate-400 border-slate-700 hover:text-white"
+                  }`}
+                >
+                  <Filter size={12} />{" "}
+                  {isCatalogFiltersOpen ? t('sidebar.filters_hide') : t('sidebar.filters_show')}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </nav>
 
-        <div className="p-2 border-t border-slate-800">
-          <button
-            onClick={toggleLanguage}
-            className={`w-full mb-2 flex items-center gap-3 rounded-xl hover:bg-slate-800 hover:text-white transition-colors text-slate-400 border border-transparent hover:border-slate-700 ${
-              isExpanded || isMobileMenuOpen ? "px-4 py-3 justify-start" : "p-3 justify-center"
-            }`}
-            title={t('profile.prefs.language')}
-          >
-            <Globe size={18} />
-            <span
-              className={`font-medium transition-all duration-300 whitespace-nowrap overflow-hidden ${
-                isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
-              }`}
-            >
-              {i18n.language === "en" ? t('profile.prefs.lang_nl') : t('profile.prefs.lang_en')}
-            </span>
-          </button>
-
-          <NavLink
-            to="/profile"
-            onClick={() => isMobileMenuOpen && onMobileMenuClose()}
-            className={`w-full mb-2 rounded-lg text-xs font-bold border flex items-center transition-all duration-300 overflow-hidden ${
-              isExpanded || isMobileMenuOpen ? "px-3 py-2 gap-2" : "p-2 justify-center"
-            } ${
-              isAdmin
-                ? "bg-blue-900/30 text-blue-400 border-blue-500/30"
-                : "bg-slate-800 text-slate-400 border-slate-700"
+      <div className="p-2 border-t border-slate-800">
+        <button
+          onClick={toggleLanguage}
+          className={`w-full mb-2 flex items-center gap-3 rounded-xl hover:bg-slate-800 hover:text-white transition-colors text-slate-400 border border-transparent hover:border-slate-700 ${
+            isExpanded || isMobileMenuOpen ? "px-4 py-3 justify-start" : "p-3 justify-center"
+          }`}
+          title={t('profile.prefs.language')}
+        >
+          <Globe size={18} />
+          <span
+            className={`font-medium transition-all duration-300 whitespace-nowrap overflow-hidden ${
+              isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
-            {isAdmin ? <ShieldCheck size={14} /> : <User size={14} />}
-            <span
-              className={`truncate uppercase font-black tracking-widest ${
-                isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
-              }`}
-            >
-              {user?.name || user?.displayName?.split(" ")[0] || t('sidebar.nav.common.profile')}
-            </span>
-          </NavLink>
-          <button
-            onClick={() => {
-              onLogout();
-              isMobileMenuOpen && onMobileMenuClose();
-            }}
-            className={`w-full flex items-center gap-3 rounded-xl hover:bg-red-500/10 hover:text-red-400 transition-colors text-slate-400 ${
-              isExpanded || isMobileMenuOpen ? "px-4 py-3 justify-start" : "p-3 justify-center"
+            {i18n.language === "en" ? t('profile.prefs.lang_nl') : t('profile.prefs.lang_en')}
+          </span>
+        </button>
+
+        <NavLink
+          to="/profile"
+          onClick={() => isMobileMenuOpen && onMobileMenuClose()}
+          className={`w-full mb-2 rounded-lg text-xs font-bold border flex items-center transition-all duration-300 overflow-hidden ${
+            isExpanded || isMobileMenuOpen ? "px-3 py-2 gap-2" : "p-2 justify-center"
+          } ${
+            isAdmin
+              ? "bg-blue-900/30 text-blue-400 border-blue-500/30"
+              : "bg-slate-800 text-slate-400 border-slate-700"
+          }`}
+        >
+          {isAdmin ? <ShieldCheck size={14} /> : <User size={14} />}
+          <span
+            className={`truncate uppercase font-black tracking-widest ${
+              isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
-            <LogOut size={18} />
-            <span
-              className={`font-medium ${
-                isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
-              }`}
-            >
-              {t('sidebar.nav.common.logout')}
-            </span>
-          </button>
-        </div>
-      </aside>
-    </ {t('sidebar.nav.common.logout')}
+            {user?.name || user?.displayName?.split(" ")[0] || t('sidebar.nav.common.profile')}
+          </span>
+        </NavLink>
+        <button
+          onClick={() => {
+            onLogout();
+            isMobileMenuOpen && onMobileMenuClose();
+          }}
+          className={`w-full flex items-center gap-3 rounded-xl hover:bg-red-500/10 hover:text-red-400 transition-colors text-slate-400 ${
+            isExpanded || isMobileMenuOpen ? "px-4 py-3 justify-start" : "p-3 justify-center"
+          }`}
+        >
+          <LogOut size={18} />
+          <span
+            className={`font-medium ${
+              isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
+            }`}
+          >
+            {t('sidebar.nav.common.logout')}
           </span>
         </button>
       </div>
     </aside>
+    </>
   );
 };
 
