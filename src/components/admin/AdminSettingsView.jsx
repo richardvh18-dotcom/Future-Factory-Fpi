@@ -4,7 +4,6 @@ import {
   Loader2,
   Image as ImageIcon,
   Type,
-  Check,
   Trash2,
   Upload,
   ShieldCheck,
@@ -14,8 +13,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Settings,
+  BrainCircuit,
 } from "lucide-react";
-import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
@@ -57,6 +57,7 @@ const AdminSettingsView = () => {
     maintenanceMode: false,
     uploadedLogos: [], // Array om alle geüploade logo's bij te houden
   });
+  const [aiPrompt, setAiPrompt] = useState("");
 
   // 1. Live Sync met de Root
   useEffect(() => {
@@ -81,6 +82,18 @@ const AdminSettingsView = () => {
     return () => unsubscribe();
   }, []);
 
+  // 1b. Laad AI Context (losse fetch om traffic te sparen)
+  useEffect(() => {
+    const fetchAiConfig = async () => {
+      try {
+        const docRef = doc(db, "future-factory", "settings", "ai_config", "main");
+        const snap = await getDoc(docRef);
+        if (snap.exists()) setAiPrompt(snap.data().systemPrompt || "");
+      } catch (e) { console.error(e); }
+    };
+    fetchAiConfig();
+  }, []);
+
   // 2. Opslaan naar de Root
   const handleSave = async () => {
     setSaving(true);
@@ -96,6 +109,14 @@ const AdminSettingsView = () => {
         },
         { merge: true }
       );
+
+      // Sla AI prompt apart op
+      if (aiPrompt) {
+        await setDoc(doc(db, "future-factory", "settings", "ai_config", "main"), {
+          systemPrompt: aiPrompt,
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
 
       setStatus({ type: "success", msg: "Systeeminstellingen gepubliceerd!" });
       setTimeout(() => setStatus(null), 3000);
@@ -399,6 +420,24 @@ const AdminSettingsView = () => {
               </div>
             </div>
           )}
+        </div>
+
+        {/* AI CONFIGURATIE */}
+        <div className="space-y-4 pt-6 border-t border-slate-100">
+          <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
+            <BrainCircuit size={16} className="text-purple-500" /> AI Kennisbank (System Prompt)
+          </h3>
+          <div className="relative">
+            <textarea 
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              className="w-full h-64 p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono text-xs text-slate-600 outline-none focus:border-purple-500 transition-all resize-y"
+              placeholder="Plak hier de volledige context en instructies voor de AI..."
+            />
+            <div className="absolute bottom-4 right-4 text-[9px] font-bold text-slate-400 bg-white px-2 py-1 rounded border border-slate-200">
+              {aiPrompt.length} karakters
+            </div>
+          </div>
         </div>
 
         {/* RECHTS: SAVE BUTTON */}

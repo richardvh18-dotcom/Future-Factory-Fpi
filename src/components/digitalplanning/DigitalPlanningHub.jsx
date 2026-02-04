@@ -25,12 +25,20 @@ const DigitalPlanningHub = () => {
   const [activeDept, setActiveDept] = useState(null);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [searchOrderNumber, setSearchOrderNumber] = useState(null);
 
   // --- REFRESH VEILIGHEID ---
   useEffect(() => {
     try {
       console.log('[DigitalPlanningHub] Location:', location.pathname);
       console.log('[DigitalPlanningHub] State:', location.state);
+      
+      // Als we een order zoeken via AI link
+      if (location.state?.searchOrder) {
+        console.log('[DigitalPlanningHub] Search order:', location.state.searchOrder);
+        setSearchOrderNumber(location.state.searchOrder);
+      }
+      
       // Als we via een link met state binnenkomen (bijv. vanaf Portal)
       if (location.state?.initialView) {
         console.log('[DigitalPlanningHub] Setting activeDept:', location.state.initialView);
@@ -41,7 +49,7 @@ const DigitalPlanningHub = () => {
       setErrorMessage(err.message);
       setHasError(true);
     }
-  }, [location.state?.initialView]);
+  }, [location.state?.initialView, location.state?.searchOrder]);
 
   const DEPARTMENTS = [
     {
@@ -129,6 +137,7 @@ const DigitalPlanningHub = () => {
           key={activeDept}
           department={activeDept}
           onBack={() => setActiveDept(null)}
+          searchOrder={searchOrderNumber}
         />
       </Suspense>
     );

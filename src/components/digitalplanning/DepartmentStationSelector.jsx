@@ -10,7 +10,7 @@ import TeamleaderHub from "./TeamleaderHub";
  * DepartmentStationSelector
  * Laadt stations dynamisch uit factory_config in Firestore
  */
-const DepartmentStationSelector = ({ department, onBack }) => {
+const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
   const [selectedStation, setSelectedStation] = useState(null);
   const [showTeamleader, setShowTeamleader] = useState(false);
   const [factoryConfig, setFactoryConfig] = useState(null);
@@ -68,6 +68,7 @@ const DepartmentStationSelector = ({ department, onBack }) => {
       <WorkstationHub
         initialStationId={selectedStation}
         onExit={() => setSelectedStation(null)}
+        searchOrder={searchOrder}
       />
     );
   }

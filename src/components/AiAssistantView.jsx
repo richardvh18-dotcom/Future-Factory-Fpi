@@ -1,25 +1,36 @@
 import React, { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Bot,
   Send,
   Sparkles,
   GraduationCap,
   MessageSquare,
-  BookOpen,
-  AlertCircle,
+  Paperclip,
 } from "lucide-react";
+import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
+import { db, auth } from "../config/firebase";
 import FlashcardViewer from "./ai/FlashcardViewer";
-import { FLASHCARD_SYSTEM_PROMPT, MOCK_FLASHCARDS } from "../data/aiPrompts";
+import { FLASHCARD_SYSTEM_PROMPT, GENERAL_SYSTEM_PROMPT, MOCK_FLASHCARDS } from "../data/aiPrompts";
 import { aiService } from "../services/aiService";
 import { useNotifications } from "../contexts/NotificationContext";
+import { PATHS } from "../config/dbPaths";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
+
+GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url
+).toString();
 
 const AiAssistantView = () => {
   const { showError, showSuccess } = useNotifications();
   const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("chat"); // 'chat' of 'training'
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingDocument, setIsUploadingDocument] = useState(false);
   const messagesEndRef = React.useRef(null);
+  const abortControllerRef = React.useRef(null);
 
   // Chat State
   const [messages, setMessages] = useState([
@@ -64,8 +75,63 @@ Waar kan ik je mee helpen?`,
   const [flashcardData, setFlashcardData] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Simpele formatter voor AI responses
+  // Formatter voor AI responses met order links
   const formatResponse = (text) => {
+    
+    // Helper functie om ordernummers (N##### formaat) om te zetten naar knoppen
+    const parseOrderNumbers = (line) => {
+      // Regex om N20023990 formaat te vinden
+      const orderRegex = /N\d{8,}/gi;
+      
+      if (!orderRegex.test(line)) {
+        return line;
+      }
+      
+      // Reset regex position
+      orderRegex.lastIndex = 0;
+      const parts = [];
+      let lastIndex = 0;
+      let match;
+      
+      while ((match = orderRegex.exec(line)) !== null) {
+        // Add text before match
+        if (match.index > lastIndex) {
+          parts.push(line.substring(lastIndex, match.index));
+        }
+        
+        // Add order button
+        const orderNumber = match[0];
+        parts.push(
+          <button
+            key={`order-${match.index}`}
+            onClick={() => {
+              // Navigeer naar planning met search order
+              navigate('/planning', { 
+                state: { 
+                  searchOrder: orderNumber,
+                  initialView: 'FITTINGS'
+                } 
+              });
+            }}
+            className="inline-flex items-center gap-1 px-2 py-0.5 mx-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100"
+            title={`Ga naar order ${orderNumber}`}
+          >
+            <span>📦</span>
+            <span>{orderNumber}</span>
+          </button>
+        );
+        
+        lastIndex = match.index + match[0].length;
+      }
+      
+      // Add remaining text
+      if (lastIndex < line.length) {
+        parts.push(line.substring(lastIndex));
+      }
+      
+      return parts;
+    };
+    
     return text.split('\n').map((line, i) => {
       // Headers
       if (line.startsWith('### ')) {
@@ -80,10 +146,10 @@ Waar kan ik je mee helpen?`,
       }
       // Lists
       if (line.match(/^\d+\./)) {
-        return <li key={i} className="ml-6 mb-1 list-decimal">{line.replace(/^\d+\.\s/, '')}</li>;
+        return <li key={i} className="ml-6 mb-1 list-decimal">{parseOrderNumbers(line.replace(/^\d+\.\s/, ''))}</li>;
       }
       if (line.startsWith('- ') || line.startsWith('* ')) {
-        return <li key={i} className="ml-6 mb-1 list-disc">{line.substring(2)}</li>;
+        return <li key={i} className="ml-6 mb-1 list-disc">{parseOrderNumbers(line.substring(2))}</li>;
       }
       // Horizontal rule
       if (line === '---') {
@@ -93,13 +159,36 @@ Waar kan ik je mee helpen?`,
       if (line.trim() === '') {
         return <br key={i} />;
       }
-      // Normal text
-      return <p key={i} className="mb-2">{line}</p>;
+      // Normal text - with order number parsing
+      return <p key={i} className="mb-2">{parseOrderNumbers(line)}</p>;
     });
   };
 
-  // System context for chat - bevat MES-specifieke informatie EN handleiding
-  const MES_CONTEXT = `Je bent een AI assistent voor FPi Future Factory, een MES (Manufacturing Execution System) voor de productie van GRE (Glass Reinforced Epoxy) buizen en fittings.
+  // --- AI CONTEXT LADEN ---
+  const [systemContext, setSystemContext] = useState("");
+
+  useEffect(() => {
+    const fetchContext = async () => {
+      try {
+        // Probeer context uit Firebase te halen
+        const docRef = doc(db, "future-factory", "settings", "ai_config", "main");
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists() && docSnap.data().systemPrompt) {
+          setSystemContext(docSnap.data().systemPrompt);
+        } else {
+          setSystemContext(DEFAULT_CONTEXT);
+        }
+      } catch (err) {
+        console.error("Kon AI context niet laden, gebruik fallback:", err);
+        setSystemContext(DEFAULT_CONTEXT);
+      }
+    };
+    fetchContext();
+  }, []);
+
+  // Fallback context (lokaal)
+  const DEFAULT_CONTEXT = `Je bent een AI assistent voor FPi Future Factory, een MES (Manufacturing Execution System) voor de productie van PVC-buizen en fittings.
 
 BELANGRIJK: Gebruik altijd proper Markdown formatting in je antwoorden:
 - Gebruik **vetgedrukt** voor belangrijke termen
@@ -113,13 +202,13 @@ BELANGRIJK: Gebruik altijd proper Markdown formatting in je antwoorden:
 ## PRODUCTIE INFORMATIE:
 
 **GRE Specificaties:**
-- GRE = Glass Reinforced Epoxy (glasvezelversterkte epoxy)
-- EST = Epoxy Standard Type specificaties (bijv. 32mm, 40mm, 50mm)
-- CST = Conductive Standard Type specificaties (zwart, geleidend)
+- GRE = Gereedstands- en Renvooiliggeld Eenheid
+- EST = Eastern Standard Time specificaties (bijv. 32mm, 40mm, 50mm)
+- CST = Canadian Standard Time specificaties (zwart, geleidend)
 - Belangrijke producten: Wavistrong (drukriool), Bocht 87.5°, T-stukken, Moffen
 
 **Afdelingen:**
-- Lamineren: Productie van GRE buizen en componenten
+- Spuitgieten: Productie van PVC componenten
 - Verpakking: Afwerking en verpakken
 - Lossen: Eindcontrole en verzending
 - Nabewerking: Post-processing
@@ -400,10 +489,242 @@ A: Type je vraag in chat mode, of gebruik header zoekbalk met bot icon, of typ ?
 - Gebruik code formatting voor knoppen en technische termen`;
 
   // --- CHAT LOGICA ---
+  const MAX_DOC_CHARS = 50000;
+
+  const extractJson = (text) => {
+    if (!text) return null;
+    
+    // Verwijder alle markdown code blocks markers eerst
+    let cleaned = text.trim()
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+    
+    // Als het begint en eindigt met {}, is het waarschijnlijk pure JSON
+    if (cleaned.startsWith("{") && cleaned.endsWith("}")) {
+      return cleaned;
+    }
+    
+    // Probeer JSON object te vinden met verbeterde regex
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/m);
+    if (jsonMatch) {
+      let extracted = jsonMatch[0].trim();
+      
+      // Extra cleaning: verwijder trailing text na de laatste }
+      const lastBrace = extracted.lastIndexOf('}');
+      if (lastBrace !== -1) {
+        extracted = extracted.substring(0, lastBrace + 1);
+      }
+      
+      return extracted;
+    }
+    
+    return null;
+  };
+
+  const analyzeDocument = async (text, fileName) => {
+    const systemPrompt = `Je bent een AI die bedrijfsdocumenten analyseert voor een MES omgeving.
+
+RETURN ONLY VALID JSON - NO MARKDOWN, NO EXPLANATION, JUST THE JSON OBJECT!
+
+JSON Structure:
+{
+  "title": "",
+  "summary": "",
+  "keyFacts": [],
+  "processes": [],
+  "partNumbers": [],
+  "tolerances": [],
+  "stations": [],
+  "dates": [],
+  "warnings": [],
+  "tags": [],
+  "fullContext": ""
+}
+
+IMPORTANT RULES:
+- Return ONLY the JSON object, nothing else
+- NO markdown formatting, NO code blocks, NO explanations
+- summary: minimaal 500 karakters met alle belangrijke details
+- fullContext: volledige gestructureerde samenvatting (max 10000 karakters)
+- keyFacts: alle belangrijke feiten, specificaties en details
+- Arrays van strings voor specifieke categorieën
+- Taal: Nederlands
+- Wees volledig en uitgebreid
+- Lege array [] als niets gevonden, lege string "" als niet van toepassing`;
+
+    try {
+      const response = await aiService.chat(
+        [{ role: "user", content: `Bestandsnaam: ${fileName}\n\nDocument inhoud:\n${text}` }],
+        systemPrompt
+      );
+
+      console.log('🔍 Raw AI Response:', response.substring(0, 200));
+
+      const jsonText = extractJson(response);
+      if (!jsonText) {
+        console.warn('⚠️ Geen JSON gevonden in response');
+        // Maak een basis analyse van de ruwe response
+        return { 
+          parsed: false,
+          analysis: {
+            title: fileName,
+            summary: response.substring(0, 1000),
+            keyFacts: [],
+            processes: [],
+            partNumbers: [],
+            tolerances: [],
+            stations: [],
+            dates: [],
+            warnings: ["Automatische analyse - JSON parsing niet gelukt"],
+            tags: ["niet-geparsed"],
+            fullContext: response.substring(0, 10000)
+          }
+        };
+      }
+
+      const analysis = JSON.parse(jsonText);
+      console.log('✅ JSON parsing succesvol');
+      
+      // Valideer en vul ontbrekende velden
+      const validatedAnalysis = {
+        title: analysis.title || fileName,
+        summary: analysis.summary || "Geen samenvatting beschikbaar",
+        keyFacts: Array.isArray(analysis.keyFacts) ? analysis.keyFacts : [],
+        processes: Array.isArray(analysis.processes) ? analysis.processes : [],
+        partNumbers: Array.isArray(analysis.partNumbers) ? analysis.partNumbers : [],
+        tolerances: Array.isArray(analysis.tolerances) ? analysis.tolerances : [],
+        stations: Array.isArray(analysis.stations) ? analysis.stations : [],
+        dates: Array.isArray(analysis.dates) ? analysis.dates : [],
+        warnings: Array.isArray(analysis.warnings) ? analysis.warnings : [],
+        tags: Array.isArray(analysis.tags) ? analysis.tags : [],
+        fullContext: analysis.fullContext || analysis.summary || ""
+      };
+      
+      return { parsed: true, analysis: validatedAnalysis };
+    } catch (err) {
+      console.error("Analyse fout:", err);
+      // Fallback: maak een basis analyse
+      return { 
+        parsed: false,
+        analysis: {
+          title: fileName,
+          summary: `Fout bij analyseren: ${err.message}`,
+          keyFacts: [],
+          processes: [],
+          partNumbers: [],
+          tolerances: [],
+          stations: [],
+          dates: [],
+          warnings: ["Analyse fout opgetreden"],
+          tags: ["error"],
+          fullContext: text.substring(0, 5000)
+        }
+      };
+    }
+  };
+
+  const extractTextFromPdf = async (file) => {
+    const buffer = await file.arrayBuffer();
+    const pdf = await getDocument({ data: buffer }).promise;
+    let fullText = "";
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item) => item.str).join(" ");
+      fullText += `\n${pageText}`;
+      if (fullText.length > MAX_DOC_CHARS * 3) {
+        break;
+      }
+    }
+
+    return fullText;
+  };
+
+  const handleChatFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowed = [
+      "application/pdf",
+      "text/plain",
+      "text/markdown",
+      "text/csv",
+      "application/json",
+    ];
+
+    if (!allowed.includes(file.type)) {
+      showError("Alleen .pdf, .txt, .md, .csv of .json bestanden zijn ondersteund.");
+      e.target.value = "";
+      return;
+    }
+
+    setIsUploadingDocument(true);
+
+    try {
+      let text = "";
+      if (file.type === "application/pdf") {
+        text = await extractTextFromPdf(file);
+      } else {
+        text = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result || "");
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+      }
+
+      const content = String(text).slice(0, MAX_DOC_CHARS);
+      const analysisResult = await analyzeDocument(content, file.name);
+
+      if (!analysisResult.parsed || !analysisResult.analysis) {
+        showError("Analyse mislukt. Probeer een ander document of formaat.");
+        return;
+      }
+
+      // Sla ook de volledige tekst op (tot 50000 chars) voor betere context
+      const fullTextContent = String(text).slice(0, MAX_DOC_CHARS);
+
+      await addDoc(collection(db, ...PATHS.AI_DOCUMENTS), {
+        fileName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        uploadedAt: serverTimestamp(),
+        uploadedBy: auth.currentUser?.email || "Admin",
+        analysis: analysisResult.analysis,
+        parsed: true,
+        tags: analysisResult.analysis?.tags || [],
+        fullText: fullTextContent, // Volledige tekst voor context
+        characterCount: fullTextContent.length,
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "📄 Document verwerkt en context opgeslagen. Je kunt nu vragen stellen over deze info.",
+        },
+      ]);
+      showSuccess("Document geanalyseerd en opgeslagen.");
+    } catch (error) {
+      console.error("Document upload fout:", error);
+      showError("Fout bij analyseren of opslaan van document.");
+    } finally {
+      setIsUploadingDocument(false);
+      e.target.value = "";
+    }
+  };
+
   const handleSendChat = async (e, queryOverride = null) => {
     if (e) e.preventDefault();
     const messageText = queryOverride || input;
     if (!messageText.trim() || isLoading) return;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
     const userMsg = { role: "user", content: messageText };
     setMessages((prev) => [...prev, userMsg]);
@@ -426,7 +747,13 @@ A: Type je vraag in chat mode, of gebruik header zoekbalk met bot icon, of typ ?
       console.log('📤 Sending to AI:', { historyLength: chatHistory.length, lastMessage: messageText.substring(0, 50) });
 
       // Stuur naar AI service met MES context als system prompt
-      const response = await aiService.chat(chatHistory, MES_CONTEXT);
+      // Gebruik chatWithContext om automatisch productie data toe te voegen
+      const response = await aiService.chatWithContext(
+        chatHistory, 
+        systemContext || DEFAULT_CONTEXT,
+        true, // includeContext - zoek producten en orders
+        { signal: abortControllerRef.current.signal }
+      );
 
       console.log('📥 Received from AI:', response.substring(0, 100));
 
@@ -440,6 +767,17 @@ A: Type je vraag in chat mode, of gebruik header zoekbalk met bot icon, of typ ?
       
       showSuccess('Antwoord ontvangen!');
     } catch (error) {
+      if (error?.name === 'AbortError') {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "⏹️ Antwoord gestopt op verzoek.",
+          },
+        ]);
+        showSuccess('AI gestopt.');
+        return;
+      }
       console.error("AI Chat Error:", error);
       
       let errorMessage = "⚠️ AI verbinding mislukt: " + (error.message || "Onbekende fout");
@@ -467,6 +805,13 @@ A: Type je vraag in chat mode, of gebruik header zoekbalk met bot icon, of typ ?
       ]);
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleStopChat = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -581,8 +926,32 @@ A: Type je vraag in chat mode, of gebruik header zoekbalk met bot icon, of typ ?
                   placeholder="Typ je vraag..."
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  disabled={isLoading}
+                  disabled={isLoading || isUploadingDocument}
                 />
+                <label
+                  className={`inline-flex items-center justify-center p-3 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer ${
+                    isUploadingDocument ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                  title="Upload document (PDF of tekst)"
+                >
+                  <Paperclip size={18} />
+                  <input
+                    type="file"
+                    accept=".pdf,.txt,.md,.csv,.json"
+                    onChange={handleChatFileUpload}
+                    disabled={isUploadingDocument}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleStopChat}
+                  disabled={!isLoading}
+                  className="bg-white text-slate-700 border border-slate-200 p-3 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Stop antwoord"
+                >
+                  Stop
+                </button>
                 <button
                   type="submit"
                   disabled={isLoading}

@@ -20,23 +20,30 @@ import AccountRequestModal from "./AccountRequestModal";
  * - Dezelfde vormgeving als PortalView met gradient achtergrond
  * - Moderne glasmorphism design
  */
-const LoginView = ({ onLogin, externalError }) => {
+const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
   const { t, i18n } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [settings, setSettings] = useState({ appName: "Future Factory", logoUrl: "" });
+  const [settings, setSettings] = useState({ appName: appName || "Future Factory", logoUrl: logoUrl || "" });
 
   // Load settings for logo and app name
   useEffect(() => {
-    const docRef = doc(db, ...PATHS.GENERAL_SETTINGS);
-    const unsubscribe = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        setSettings(snap.data());
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+    if (logoUrl || appName) {
+      setSettings({ 
+        appName: appName || "Future Factory", 
+        logoUrl: logoUrl || "" 
+      });
+    } else {
+      const docRef = doc(db, ...PATHS.GENERAL_SETTINGS);
+      const unsubscribe = onSnapshot(docRef, (snap) => {
+        if (snap.exists()) {
+          setSettings(snap.data());
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, [logoUrl, appName]);
 
   const toggleLanguage = () => {
     const newLang = i18n.language === 'en' ? 'nl' : 'en';
@@ -81,7 +88,7 @@ const LoginView = ({ onLogin, externalError }) => {
   const displayError = externalError || internalError;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-blue-950 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-orange-950 overflow-y-auto">
       {/* Language Toggle - Top Right */}
       <div className="absolute top-6 right-6 z-50">
         <button
@@ -97,17 +104,23 @@ const LoginView = ({ onLogin, externalError }) => {
         {/* Logo + Welkomsttekst */}
         <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
           {/* Logo */}
-          {settings.logoUrl && (
-            <div className="flex justify-center mb-6">
+          <div className="flex justify-center mb-6">
+            {settings.logoUrl ? (
               <img 
                 src={settings.logoUrl} 
                 alt={settings.appName || "Logo"}
                 className="h-20 md:h-24 w-auto object-contain drop-shadow-2xl"
               />
-            </div>
-          )}
+            ) : (
+              <div className="p-3 md:p-4 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-900/50">
+                <Factory size={32} className="md:w-12 md:h-12" />
+              </div>
+            )}
+          </div>
           <h1 className="text-5xl md:text-6xl font-black text-white mb-3 uppercase italic tracking-tighter leading-none">
-            {settings.appName || t('login.title_main')} <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">{t('login.title_sub')}</span>
+            {settings.appName || (
+              <>Future <span className="text-emerald-300">Factory</span></>
+            )}
           </h1>
           <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
             {t('login.subtitle')}
@@ -170,7 +183,7 @@ const LoginView = ({ onLogin, externalError }) => {
 
               <button
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 mt-6 shadow-2xl shadow-cyan-900/50"
+                className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-500 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 mt-6 shadow-2xl shadow-blue-900/50"
               >
                 {loading ? (
                   <Loader2 className="animate-spin" size={20} />
@@ -197,21 +210,6 @@ const LoginView = ({ onLogin, externalError }) => {
                   Secure Node 377EF
                 </p>
               </div>
-              
-              {/* Debug Info */}
-              <details className="mt-4 text-left">
-                <summary className="text-[8px] text-cyan-200/30 uppercase cursor-pointer hover:text-cyan-200/50 font-bold">
-                  Debug Info (Klik)
-                </summary>
-                <div className="mt-2 p-3 bg-black/20 rounded-xl text-[9px] font-mono text-cyan-200/50 space-y-1">
-                  <div>Project: {import.meta.env.VITE_FIREBASE_PROJECT_ID || "N/A"}</div>
-                  <div>Auth Domain: {import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "N/A"}</div>
-                  <div>Master UID: {import.meta.env.VITE_MASTER_ADMIN_UID ? "✓ Set" : "✗ Not Set"}</div>
-                  <div className="pt-2 border-t border-cyan-200/10 text-emerald-400/50">
-                    Emergency: god@mode.local / master2026
-                  </div>
-                </div>
-              </details>
             </div>
           </div>
         </div>

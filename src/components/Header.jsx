@@ -64,7 +64,7 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMe
           <div className="text-left">
             <h1 className="text-base md:text-xl font-black uppercase italic tracking-tighter leading-none text-white">
               {appName || (
-                <>Future <span className="text-blue-500">Factory</span></>
+                <>Future <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-orange-400">Factory</span></>
               )}
             </h1>
             <p className="hidden sm:block text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1.5">

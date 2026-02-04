@@ -1,8 +1,8 @@
 {
     "buildCommand": "npm run build",
     "outputDirectory": "dist",
-    "cleanUrls": true,
-    "trailingSlash": false,
+    "installCommand": "npm install",
+    "framework": "vite",
     "rewrites": [
         {
             "source": "/(.*)",

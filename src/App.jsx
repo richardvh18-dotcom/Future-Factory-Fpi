@@ -127,7 +127,7 @@ const App = () => {
   }
 
   if (!user || role === "guest") {
-    return <LoginView onLogin={handleLogin} error={loginError} />;
+    return <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
   }
 
   // Force password change voor nieuwe gebruikers

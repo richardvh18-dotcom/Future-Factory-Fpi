@@ -13,6 +13,8 @@ export const PATHS = {
   MESSAGES: [BASE, "production", "messages"],
   OCCUPANCY: [BASE, "production", "machine_occupancy"],
   INVENTORY: [BASE, "production", "inventory"],
+  PRODUCTION_STANDARDS: [BASE, "production", "time_standards"],
+  TIME_LOGS: [BASE, "production", "time_logs"],
 
   // --- TECHNISCHE SPECS (Sub-collecties: oneven segmenten) ---
   BORE_DIMENSIONS: [BASE, "production", "dimensions", "bore", "records"],
@@ -40,6 +42,7 @@ export const PATHS = {
   IMAGE_LIBRARY: [BASE, "settings", "media", "images", "records"],
   DRAWING_LIBRARY: [BASE, "settings", "media", "drawings", "records"],
   AI_KNOWLEDGE_BASE: [BASE, "settings", "ai_knowledge_base", "training", "records"],
+  AI_DOCUMENTS: [BASE, "settings", "ai_documents", "knowledge", "records"],
 };
 
 /**

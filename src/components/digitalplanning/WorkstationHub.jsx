@@ -26,12 +26,14 @@ import {
   isInspectionOverdue,
 } from "../../utils/workstationLogic";
 import { normalizeMachine } from "../../utils/hubHelpers";
+import { calculateDuration } from "../../utils/efficiencyCalculator";
 import PlanningListView from "./views/PlanningListView";
 import ActiveProductionView from "./views/ActiveProductionView";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 
 import Terminal from "./Terminal";
 import LossenView from "./LossenView";
+import EfficiencyDashboard from "./EfficiencyDashboard";
 import ProductDetailModal from "../products/ProductDetailModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";
@@ -58,7 +60,7 @@ const FITTING_MACHINES = [
 ];
 const PIPE_MACHINES = ["BH05", "BH07", "BH08", "BH09"];
 
-const WorkstationHub = ({ initialStationId, onExit }) => {
+const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const { t } = useTranslation();
   const { user: currentUser } = useAdminAuth();
   const { showSuccess, showError, showInfo, showWarning } = useNotifications();
@@ -73,6 +75,7 @@ const WorkstationHub = ({ initialStationId, onExit }) => {
   const [occupancy, setOccupancy] = useState([]);
   const [personnel, setPersonnel] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchFilterOrder, setSearchFilterOrder] = useState(searchOrder || null);
   
   // Huidige datum/tijd voor display
   const currentDate = new Date();
@@ -113,6 +116,26 @@ const WorkstationHub = ({ initialStationId, onExit }) => {
       }
     }
   }, [initialStationId]);
+
+  // Als searchOrder is meegegeven, zoek en select die order
+  useEffect(() => {
+    if (searchFilterOrder && rawOrders.length > 0) {
+      console.log(`🔍 WorkstationHub: Zoeken naar order ${searchFilterOrder}`);
+      const foundOrder = rawOrders.find(order => 
+        order.orderId === searchFilterOrder || order.id === searchFilterOrder
+      );
+      
+      if (foundOrder) {
+        console.log(`✅ Order gevonden:`, foundOrder);
+        setSelectedOrder(foundOrder);
+        setActiveTab("terminal"); // Toon de orders tab
+        showInfo(`Order ${searchFilterOrder} geladen`);
+      } else {
+        console.log(`⚠️ Order ${searchFilterOrder} niet gevonden in planning`);
+        showWarning(`Order ${searchFilterOrder} niet gevonden`);
+      }
+    }
+  }, [searchFilterOrder, rawOrders]);
 
   // Data Fetching
   useEffect(() => {
@@ -766,35 +789,33 @@ const WorkstationHub = ({ initialStationId, onExit }) => {
               </span>
             </div>
 
-            {/* Midden: Datum, Tijd & Week */}
-            <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-              <Calendar size={16} className="text-blue-600" />
-              <div className="text-xs font-bold text-gray-700">
-                Week {currentWeekInfo.week} • {currentDate.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </div>
-              <div className="text-xs font-mono font-bold text-blue-600 border-l border-gray-300 pl-3">
-                {currentDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+            {/* Midden: Bezetting Info */}
+            <div className="hidden lg:flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 shadow-sm">
+              <Clock className="w-4 h-4 text-slate-500" />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {stationOccupancy.map((occ, idx) => (
+                  <div
+                    key={idx}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase border ${getShiftColor(occ.shift)}`}
+                    title={`${occ.operatorName} - ${occ.shift}`}
+                  >
+                    {occ.operatorName}
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* Rechts: Bezetting Info - helemaal rechts met flex-1 */}
-            <div className="flex-1 hidden lg:flex justify-end">
-              {stationOccupancy.length > 0 && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 shadow-sm">
-                  <Clock className="w-4 h-4 text-slate-500" />
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {stationOccupancy.map((occ, idx) => (
-                      <div
-                        key={idx}
-                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase border ${getShiftColor(occ.shift)}`}
-                        title={`${occ.operatorName} - ${occ.shift}`}
-                      >
-                        {occ.operatorName}
-                      </div>
-                    ))}
-                  </div>
+            {/* Rechts: Datum, Tijd & Week - helemaal rechts met flex-1 */}
+            <div className="flex-1 hidden md:flex justify-end items-center">
+              <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                <Calendar size={16} className="text-blue-600" />
+                <div className="text-xs font-bold text-gray-700">
+                  Week {currentWeekInfo.week} • {currentDate.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                 </div>
-              )}
+                <div className="text-xs font-mono font-bold text-blue-600 border-l border-gray-300 pl-3">
+                  {currentDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
             </div>
 
             {/* Rechterkant: Mobiel Menu Button */}
@@ -876,6 +897,19 @@ const WorkstationHub = ({ initialStationId, onExit }) => {
                         Lossen
                       </button>
                     )}
+                    <button
+                      onClick={() => {
+                        setActiveTab("efficiency");
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${
+                        activeTab === "efficiency"
+                          ? "bg-blue-50 text-blue-600"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      Efficiency
+                    </button>
                   </div>
                 )}
               </div>
@@ -920,6 +954,11 @@ const WorkstationHub = ({ initialStationId, onExit }) => {
                   products={rawProducts}
                   onBack={() => setActiveTab("planning")}
                 />
+              </div>
+            )}
+            {activeTab === "efficiency" && (
+              <div className="h-full">
+                <EfficiencyDashboard selectedStation={selectedStation} />
               </div>
             )}
           </>
