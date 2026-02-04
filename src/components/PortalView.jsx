@@ -66,16 +66,21 @@ const PortalView = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-blue-950 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-orange-950 overflow-y-auto">
       {/* Language Switch & Logout - Top Right */}
       <div className="absolute top-6 right-6 flex items-center gap-4 z-50">
-        <button
-          onClick={toggleLanguage}
-          className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 text-cyan-200 transition-all hover:scale-110 active:scale-95 group"
-          title="Switch Language"
-        >
-          <Globe size={20} className="group-hover:rotate-12 transition-transform" />
-        </button>
+        <div className="group relative">
+          <button
+            onClick={toggleLanguage}
+            className="p-3 bg-white/5 hover:bg-cyan-500/20 rounded-full border border-white/10 hover:border-cyan-400/50 text-cyan-300 hover:text-cyan-200 transition-all hover:scale-110 active:scale-95"
+            title="Taal selectie / Language selection"
+          >
+            <Globe size={20} className="group-hover:rotate-12 transition-transform" />
+          </button>
+          <div className="absolute top-full right-0 mt-2 px-3 py-1 bg-slate-900/90 border border-cyan-400/50 rounded-lg text-cyan-300 text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            {i18n.language === 'nl' ? '🇳🇱 NL → 🇬🇧 EN' : '🇬🇧 EN → 🇳🇱 NL'}
+          </div>
+        </div>
         <button
           onClick={handleLogout}
           className="p-3 bg-white/5 hover:bg-white/10 hover:bg-rose-500/20 rounded-full border border-white/10 hover:border-rose-500/50 text-slate-300 hover:text-rose-400 transition-all hover:scale-110 active:scale-95"
@@ -251,15 +256,6 @@ const PortalView = () => {
             </button>
           )}
         </div>
-
-        {/* Footer / Logout */}
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="mt-8 md:mt-12 flex items-center gap-2 text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest opacity-60 hover:opacity-100 py-4"
-        >
-          <LogOut size={16} /> Uitloggen
-        </button>
       </div>
     </div>
   );
