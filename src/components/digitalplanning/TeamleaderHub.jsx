@@ -38,6 +38,7 @@ import TraceModal from "./modals/TraceModal";
 import PlanningSidebar from "./PlanningSidebar";
 import PlanningImportModal from "./modals/PlanningImportModal";
 import EfficiencyDashboard from "./EfficiencyDashboard";
+import StationAssignmentModal from "./modals/StationAssignmentModal";
 
 /**
  * TeamleaderHub V7.0 - Error Resilience Update
@@ -66,6 +67,8 @@ const TeamleaderHub = ({
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
   const [showTerminalSelection, setShowTerminalSelection] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignmentStation, setAssignmentStation] = useState(null);
 
   useEffect(() => {
     const unsubOrders = onSnapshot(
@@ -383,11 +386,7 @@ const TeamleaderHub = ({
                   {metrics.machineGridData.map((machine) => (
                     <div
                       key={machine.id}
-                      onClick={() => {
-                        console.log('[TeamleaderHub] Station clicked:', machine.id);
-                        setSelectedStationDetail(machine.id);
-                      }}
-                      className="bg-white border border-slate-200 rounded-[35px] p-6 shadow-sm hover:shadow-xl hover:border-blue-400 transition-all cursor-pointer group relative overflow-hidden text-left"
+                      className="bg-white border border-slate-200 rounded-[35px] p-6 shadow-sm hover:shadow-xl hover:border-blue-400 transition-all group relative overflow-hidden text-left"
                     >
                       <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                         <Cpu size={80} />
@@ -425,6 +424,29 @@ const TeamleaderHub = ({
                             {machine.finished}
                           </span>
                         </div>
+                      </div>
+                      
+                      {/* Action buttons */}
+                      <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setAssignmentStation(machine.id);
+                            setShowAssignModal(true);
+                          }}
+                          className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-black uppercase tracking-widest transition-all"
+                          title="Personeelstoewijzing"
+                        >
+                          <Users size={14} className="inline mr-1" />
+                          Toewijzen
+                        </button>
+                        <button
+                          onClick={() => setSelectedStationDetail(machine.id)}
+                          className="flex-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-black uppercase tracking-widest transition-all"
+                          title="Details"
+                        >
+                          <Monitor size={14} className="inline mr-1" />
+                          Details
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -467,6 +489,16 @@ const TeamleaderHub = ({
         <PlanningImportModal
           isOpen={true}
           onClose={() => setShowImportModal(false)}
+        />
+      )}
+      {showAssignModal && assignmentStation && (
+        <StationAssignmentModal
+          stationId={assignmentStation}
+          onClose={() => {
+            setShowAssignModal(false);
+            setAssignmentStation(null);
+          }}
+          department={fixedScope}
         />
       )}
       {selectedStationDetail && (
