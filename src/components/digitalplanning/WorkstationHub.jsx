@@ -956,11 +956,6 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                 />
               </div>
             )}
-            {activeTab === "efficiency" && (
-              <div className="h-full">
-                <EfficiencyDashboard selectedStation={selectedStation} />
-              </div>
-            )}
           </>
         )}
       </div>

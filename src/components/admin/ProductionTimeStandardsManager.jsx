@@ -10,7 +10,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Edit2
+  Edit2,
+  Brain,
+  TrendingUp,
+  RefreshCw
 } from "lucide-react";
 import {
   collection,
@@ -27,6 +30,7 @@ import {
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { formatMinutes } from "../../utils/efficiencyCalculator";
+import { getRecommendations, analyzeAndUpdateStandards } from "../../utils/autoLearningService";
 
 /**
  * ProductionTimeStandardsManager
@@ -41,6 +45,9 @@ const ProductionTimeStandardsManager = () => {
   const [editMode, setEditMode] = useState(null);
   const [availableItemCodes, setAvailableItemCodes] = useState([]);
   const [availableMachines, setAvailableMachines] = useState([]);
+  const [learningRecommendations, setLearningRecommendations] = useState([]);
+  const [isLearning, setIsLearning] = useState(false);
+  const [showRecommendations, setShowRecommendations] = useState(false);
   
   // New entry form
   const [newEntry, setNewEntry] = useState({
@@ -254,6 +261,39 @@ const ProductionTimeStandardsManager = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleAutoLearn = async (applyUpdates = false) => {
+    setIsLearning(true);
+    try {
+      const results = await analyzeAndUpdateStandards({
+        minSamples: 5,
+        maxDeviation: 50,
+        learningRate: 0.3,
+        dryRun: !applyUpdates
+      });
+
+      setLearningRecommendations(results.recommendations);
+      setShowRecommendations(true);
+
+      if (applyUpdates) {
+        setStatus({ 
+          type: "success", 
+          message: `${results.updated} standaarden automatisch bijgewerkt` 
+        });
+      } else {
+        setStatus({ 
+          type: "success", 
+          message: `${results.recommendations.length} aanbevelingen gevonden` 
+        });
+      }
+      setTimeout(() => setStatus(null), 5000);
+    } catch (error) {
+      console.error("Auto-learning error:", error);
+      setStatus({ type: "error", message: "Fout bij auto-learning analyse" });
+    } finally {
+      setIsLearning(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -319,6 +359,15 @@ const ProductionTimeStandardsManager = () => {
             Export CSV
           </button>
 
+          <button
+            onClick={() => handleAutoLearn(false)}
+            disabled={isLearning}
+            className="inline-flex items-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-purple-700 transition disabled:opacity-50"
+          >
+            {isLearning ? <Loader2 className="animate-spin" size={16} /> : <Brain size={16} />}
+            Analyse
+          </button>
+
           <div className="flex-1 min-w-[200px]">
             <input
               type="text"
@@ -355,8 +404,106 @@ const ProductionTimeStandardsManager = () => {
               </div>
             </div>
           </div>
+
+          <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+            <div className="flex items-start gap-2 text-xs text-purple-700">
+              <Brain size={16} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <div className="font-bold">Zelflerend Systeem:</div>
+                <div className="text-[10px] mt-1">
+                  Klik op <strong>Analyse</strong> om het systeem historische data te laten analyseren.
+                  Het systeem vergelijkt standaard tijden met werkelijke gemeten tijden en stelt updates voor.
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Auto-Learning Recommendations */}
+      {showRecommendations && learningRecommendations.length > 0 && (
+        <div className="bg-white border-2 border-purple-200 rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Brain className="text-purple-600" size={20} />
+              <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
+                Zelflerend Aanbevelingen ({learningRecommendations.length})
+              </h3>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleAutoLearn(true)}
+                disabled={isLearning}
+                className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-purple-700 transition disabled:opacity-50"
+              >
+                <RefreshCw size={14} className="inline mr-1" />
+                Alles Toepassen
+              </button>
+              <button
+                onClick={() => setShowRecommendations(false)}
+                className="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition"
+              >
+                Sluiten
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {learningRecommendations.map((rec, idx) => (
+              <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3">
+                    <div className="font-bold text-slate-800">{rec.itemCode}</div>
+                    <div className="text-xs text-slate-500">→</div>
+                    <div className="text-sm text-slate-600">{rec.machine}</div>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {rec.sampleCount} metingen • {rec.deviation > 0 ? '+' : ''}{rec.deviation}% afwijking
+                  </div>
+                </div>
+                <div className="flex items-center gap-6">
+                  <div className="text-right">
+                    <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">Huidig</div>
+                    <div className="text-lg font-black text-slate-600">
+                      {formatMinutes(rec.currentStandard)}
+                    </div>
+                  </div>
+                  <div className="text-slate-400">→</div>
+                  <div className="text-right">
+                    <div className="text-xs text-purple-500 uppercase tracking-widest mb-1">Aanbevolen</div>
+                    <div className="text-lg font-black text-purple-600">
+                      {formatMinutes(rec.recommendedStandard)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      rec.change < 0 
+                        ? 'bg-emerald-100 text-emerald-700' 
+                        : 'bg-rose-100 text-rose-700'
+                    }`}>
+                      {rec.change > 0 ? '+' : ''}{rec.change}m
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+            <div className="flex items-start gap-2 text-xs text-purple-700">
+              <TrendingUp size={16} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <div className="font-bold">Hoe werkt het?</div>
+                <div className="text-[10px] mt-1">
+                  Het systeem analyseert voltooide producties en vergelijkt werkelijke tijden met standaard tijden.
+                  Bij significante afwijkingen (>5%) wordt een aanpassing voorgesteld.
+                  Groene cijfers = sneller dan verwacht, rode cijfers = langzamer.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add New Form */}
       <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">

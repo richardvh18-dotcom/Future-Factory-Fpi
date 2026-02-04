@@ -45,6 +45,7 @@ const AdminDatabaseView = React.lazy(() => import("./AdminDatabaseView"));
 const DataMigrationTool = React.lazy(() => import("./DataMigrationTool"));
 const AdminLogView = React.lazy(() => import("./AdminLogView"));
 const AdminSettingsView = React.lazy(() => import("./AdminSettingsView"));
+const CapacityPlanningView = React.lazy(() => import("./CapacityPlanningView"));
 const AdminLabelDesigner = React.lazy(() => import("./AdminLabelDesigner"));
 const AiTrainingView = React.lazy(() => import("./AiTrainingView"));
 // NIEUW: Referentie Tabel toevoegen
@@ -175,6 +176,15 @@ const AdminDashboard = () => {
       color: "bg-blue-50 border-blue-100",
       roles: ["admin"],
       component: AdminSettingsView,
+    },
+    {
+      id: "capacity",
+      title: "Capaciteits Planning",
+      desc: "Vergelijk beschikbare productie-uren met geplande vraag.",
+      icon: <TrendingUp size={24} className="text-purple-600" />,
+      color: "bg-purple-50 border-purple-100",
+      roles: ["admin", "engineer", "teamleader"],
+      component: CapacityPlanningView,
     },
     {
       id: "migration",

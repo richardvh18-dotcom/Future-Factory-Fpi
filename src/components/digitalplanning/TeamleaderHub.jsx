@@ -21,6 +21,7 @@ import {
   CalendarDays,
   UserCheck,
   AlertTriangle,
+  Target,
 } from "lucide-react";
 import { collection, query, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -36,6 +37,7 @@ import TerminalSelectionModal from "./modals/TerminalSelectionModal";
 import TraceModal from "./modals/TraceModal";
 import PlanningSidebar from "./PlanningSidebar";
 import PlanningImportModal from "./modals/PlanningImportModal";
+import EfficiencyDashboard from "./EfficiencyDashboard";
 
 /**
  * TeamleaderHub V7.0 - Error Resilience Update
@@ -305,6 +307,16 @@ const TeamleaderHub = ({
           >
             Volledige Lijst
           </button>
+          <button
+            onClick={() => setActiveTab("efficiency")}
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === "efficiency"
+                ? "bg-white text-purple-600 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Efficiency
+          </button>
         </div>
 
         <div className="flex-1 overflow-hidden relative">
@@ -425,6 +437,10 @@ const TeamleaderHub = ({
                 scope={fixedScope}
                 machines={allowedMachines}
               />
+            </div>
+          ) : activeTab === "efficiency" ? (
+            <div className="h-full overflow-y-auto custom-scrollbar pb-20">
+              <EfficiencyDashboard selectedStation={null} />
             </div>
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
