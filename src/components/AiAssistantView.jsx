@@ -171,7 +171,7 @@ Waar kan ik je mee helpen?`,
     const fetchContext = async () => {
       try {
         // Probeer context uit Firebase te halen
-        const docRef = doc(db, "future-factory", "settings", "ai_config", "main");
+        const docRef = doc(db, ...PATHS.AI_CONFIG);
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists() && docSnap.data().systemPrompt) {

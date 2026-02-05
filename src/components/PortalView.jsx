@@ -164,7 +164,7 @@ const PortalView = () => {
           {/* Tegel 3: Berichten (NIEUW) */}
           <button
             type="button"
-            onClick={() => navigate("/admin/messages")}
+            onClick={() => navigate("/messages")}
             className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-rose-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-rose-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
           >
             <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">

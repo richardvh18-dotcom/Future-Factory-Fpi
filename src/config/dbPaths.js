@@ -15,6 +15,8 @@ export const PATHS = {
   INVENTORY: [BASE, "production", "inventory"],
   PRODUCTION_STANDARDS: [BASE, "production", "time_standards"],
   TIME_LOGS: [BASE, "production", "time_logs"],
+  DOWNTIME: [BASE, "production", "downtime_reports"],
+  DEFECTS: [BASE, "production", "defect_reports"],
 
   // --- TECHNISCHE SPECS (Sub-collecties: oneven segmenten) ---
   BORE_DIMENSIONS: [BASE, "production", "dimensions", "bore", "records"],
@@ -26,6 +28,7 @@ export const PATHS = {
   // --- GEBRUIKERS (Collecties: oneven segmenten) ---
   USERS: [BASE, "Users", "Accounts"],
   PERSONNEL: [BASE, "Users", "Personnel"],
+  ACCOUNT_REQUESTS: [BASE, "Users", "AccountRequests"],
 
   // --- INSTELLINGEN & CONFIG (Documents: even segmenten) ---
   FACTORY_CONFIG: [BASE, "settings", "factory_configs", "main"],
@@ -33,6 +36,7 @@ export const PATHS = {
   MATRIX_CONFIG: [BASE, "settings", "matrix_configs", "main"],
   BLUEPRINTS: [BASE, "settings", "blueprint_configs", "main"],
   LABEL_TEMPLATES: [BASE, "settings", "label_templates"],
+  AI_CONFIG: [BASE, "settings", "ai_config", "main"],
 
   // --- LOGGING & AUDIT (Collecties: oneven segmenten) ---
   ACTIVITY_LOGS: [BASE, "production", "activity_logs"],
@@ -43,6 +47,13 @@ export const PATHS = {
   DRAWING_LIBRARY: [BASE, "settings", "media", "drawings", "records"],
   AI_KNOWLEDGE_BASE: [BASE, "settings", "ai_knowledge_base", "training", "records"],
   AI_DOCUMENTS: [BASE, "settings", "ai_documents", "knowledge", "records"],
+
+  // --- AUTOMATION & NOTIFICATIES ---
+  AUTOMATION_RULES: [BASE, "automation", "rules"],
+  AUTOMATION_EXECUTIONS: [BASE, "automation", "executions"],
+  NOTIFICATION_RULES: [BASE, "notifications", "rules"],
+  NOTIFICATION_LOGS: [BASE, "notifications", "logs"],
+  SCENARIOS: [BASE, "planning", "scenarios"],
 };
 
 /**

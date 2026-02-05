@@ -17,9 +17,12 @@ import {
   AlertCircle,
   CircleDot, // Icoon voor boringen
 } from "lucide-react";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
+
+import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { db, storage } from "../../config/firebase";
 import { generateProductPDF } from "../../utils/pdfGenerator";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { aiService } from "../../services/aiService";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -38,6 +41,9 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
   const [boreSpecs, setBoreSpecs] = useState(null); // NIEUW: State voor boringen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
 
   const FITTING_ORDER = ["TW", "L", "Lo", "R", "Weight"];
   const MOF_ORDER = ["B1", "B2", "BA", "A", "TWcb", "BD", "W"];
@@ -238,9 +244,59 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                   ERP: {product.articleCode}
                 </span>
               )}
+              {/* PDF Upload knop alleen voor admin/qc/engineer */}
+              {(userRole === 'admin' || userRole === 'qc' || userRole === 'engineer') && (
+                <form style={{ display: 'inline' }}>
+                  <label className="ml-4 bg-blue-100 text-blue-700 px-3 py-1 rounded-xl text-xs font-bold cursor-pointer hover:bg-blue-200 transition-all">
+                    PDF uploaden
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      style={{ display: 'none' }}
+                      disabled={uploading}
+                      onChange={async (e) => {
+                        setUploadError(null);
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        setUploading(true);
+                        try {
+                          // Upload naar Firebase Storage
+                          const storageRef = ref(storage, `pdfs/${file.name}`);
+                          await uploadBytes(storageRef, file);
+                          const url = await getDownloadURL(storageRef);
+                          // Voeg toe aan product.sourcePdfs
+                          const productRef = doc(db, "future-factory/production/products", product.id);
+                          await updateDoc(productRef, {
+                            sourcePdfs: arrayUnion({ name: file.name, url })
+                          });
+                          // Trigger AI learning direct (optioneel: feedback)
+                          try {
+                            await aiService.learnFromPdfUrl(url, file.name);
+                          } catch (aiErr) {
+                            // AI mag falen zonder UI crash
+                            console.warn("AI learning error:", aiErr);
+                          }
+                          window.location.reload(); // Simpel: herlaad om nieuwe PDF te tonen
+                        } catch (err) {
+                          setUploadError("Uploaden mislukt: " + err.message);
+                        } finally {
+                          setUploading(false);
+                        }
+                      }}
+                    />
+                  </label>
+                  {uploading && <span className="ml-2 text-xs text-blue-500">Uploaden...</span>}
+                  {uploadError && <span className="ml-2 text-xs text-red-500">{uploadError}</span>}
+                </form>
+              )}
             </div>
           </div>
           <button
+            // AIService uitbreiden met learnFromPdfUrl
+            // (Plaats deze functie in aiService.js indien nog niet aanwezig)
+            // async learnFromPdfUrl(pdfUrl, fileName) {
+            //   // Download PDF, parse tekst, sla op in ai_documents
+            // }
             onClick={onClose}
             className="p-3 bg-slate-100 text-slate-400 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all border-none"
           >

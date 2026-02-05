@@ -1,0 +1,1 @@
+import{s}from"./index-TtjwkAWP.js";import{r as e,a as o}from"./index-jHXuI3CI.js";import{a as i}from"./index-CHWv9JIR.js";function m(a,t){e(2,arguments);var r=s(a),n=s(t);return r.getTime()===n.getTime()}function y(a){return e(1,arguments),m(a,Date.now())}function D(a,t){e(2,arguments);var r=o(t);return i(a,-r)}export{y as i,D as s};

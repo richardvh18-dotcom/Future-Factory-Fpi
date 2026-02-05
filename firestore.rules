@@ -19,6 +19,14 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    // --- AUTOMATION RULES (Centraal beheer) ---
+    match /automationRules/{document=**} {
+      allow read, write: if isSignedIn();
+    }
+    match /automationExecutions/{document=**} {
+      allow read, write: if isSignedIn();
+    }
+
     // --- MIGRATIE & BOOTSTRAP (Oude Structuur) ---
     
     // Tijdelijke toegang tot de oude artifacts map zodat de migratietool de data kan lezen

@@ -86,7 +86,7 @@ const AdminSettingsView = () => {
   useEffect(() => {
     const fetchAiConfig = async () => {
       try {
-        const docRef = doc(db, "future-factory", "settings", "ai_config", "main");
+        const docRef = doc(db, ...PATHS.AI_CONFIG);
         const snap = await getDoc(docRef);
         if (snap.exists()) setAiPrompt(snap.data().systemPrompt || "");
       } catch (e) { console.error(e); }
@@ -112,7 +112,7 @@ const AdminSettingsView = () => {
 
       // Sla AI prompt apart op
       if (aiPrompt) {
-        await setDoc(doc(db, "future-factory", "settings", "ai_config", "main"), {
+        await setDoc(doc(db, ...PATHS.AI_CONFIG), {
           systemPrompt: aiPrompt,
           lastUpdated: serverTimestamp()
         }, { merge: true });

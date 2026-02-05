@@ -21,6 +21,9 @@ import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { PATHS, isValidPath } from "../../../config/dbPaths";
 
+// Nieuw pad voor site config
+const SITE_CONFIG_PATH = ["future-factory", "settings", "site_config", "app"];
+
 // Sub-componenten
 import AvailabilityView from "./AvailabilityView";
 import LibraryView from "./LibraryView";
@@ -35,6 +38,35 @@ import AdminDrillingView from "./AdminDrillingView"; // NIEUW: Boorpatronen behe
  * AdminMatrixManager V7.5 - Full Access Edition
  * Beheert de volledige technische intelligentie inclusief boorpatronen (Drilling).
  */
+
+const handleSiteConfigMigrationFactory = (setLoading, setSiteConfig, addLog) => async () => {
+  setLoading(true);
+  try {
+    const oldSiteSnap = await getDoc(doc(db, "future-factory", "settings", "site_config", "main"));
+    if (oldSiteSnap.exists()) {
+      const oldData = oldSiteSnap.data();
+      const migrated = {
+        logo: oldData.logo || "",
+        siteName: oldData.siteName || oldData.appName || "",
+        color: oldData.color || oldData.themeColor || "",
+        logoUrl: oldData.logoUrl || "",
+        themeColor: oldData.themeColor || "",
+        uploadedLogos: oldData.uploadedLogos || [],
+        appName: oldData.appName || oldData.siteName || ""
+      };
+      await setDoc(doc(db, ...SITE_CONFIG_PATH), migrated, { merge: true });
+      setSiteConfig(migrated);
+      addLog("success", "Site-configuratie succesvol gemigreerd naar /app");
+    } else {
+      addLog("error", "Geen oude site-configuratie gevonden in /main");
+    }
+  } catch (e) {
+    addLog("error", `Migratie mislukt: ${e.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
 const AdminMatrixManager = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState("matrix");
   const [loading, setLoading] = useState(true);
@@ -43,41 +75,46 @@ const AdminMatrixManager = ({ onBack }) => {
 
   // Data States
   const [matrixData, setMatrixData] = useState({});
-  const [libraryData, setLibraryData] = useState({
-    connections: [],
-    labels: [],
-    extraCodes: [],
-    product_names: [],
-    pns: [],
-    diameters: [],
-    angles: [],
-    borings: [],
-  });
+  const [libraryData, setLibraryData] = useState({});
+  const [siteConfig, setSiteConfig] = useState({});
   const [blueprints, setBlueprints] = useState({});
 
-  const addLog = (type, msg) => {
-    setStatus({ type, msg });
-    if (type === "error") console.error(`[MatrixManager] ${msg}`);
-  };
+  // Helper function for logging
+  const addLog = (type, msg) => setStatus({ type, msg });
 
-  // 1. DATA INITIALISATIE UIT ROOT
+  const handleSiteConfigMigration = handleSiteConfigMigrationFactory(setLoading, setSiteConfig, addLog);
+
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
       try {
-        if (!isValidPath("MATRIX_CONFIG") || !isValidPath("GENERAL_SETTINGS")) {
-          throw new Error("Systeempaden niet correct geconfigureerd.");
-        }
-
-        const [rangeSnap, configSnap, templatesSnap] = await Promise.all([
+        const [rangeSnap, configSnap, templatesSnap, siteSnap, oldSiteSnap] = await Promise.all([
           getDoc(doc(db, ...PATHS.MATRIX_CONFIG)),
           getDoc(doc(db, ...PATHS.GENERAL_SETTINGS)),
           getDoc(doc(db, ...PATHS.BLUEPRINTS)),
+          getDoc(doc(db, ...SITE_CONFIG_PATH)),
+          getDoc(doc(db, "future-factory", "settings", "site_config", "main")),
         ]);
 
         if (rangeSnap.exists()) setMatrixData(rangeSnap.data());
         if (configSnap.exists()) setLibraryData(configSnap.data());
         if (templatesSnap.exists()) setBlueprints(templatesSnap.data());
+        if (siteSnap.exists()) {
+          setSiteConfig(siteSnap.data());
+        } else if (oldSiteSnap.exists()) {
+          // Migreer oude data naar nieuwe locatie, neem alle relevante velden mee
+          const oldData = oldSiteSnap.data();
+          const migrated = {
+            logo: oldData.logo || "",
+            siteName: oldData.siteName || oldData.appName || "",
+            color: oldData.color || oldData.themeColor || "",
+            logoUrl: oldData.logoUrl || "",
+            themeColor: oldData.themeColor || "",
+            uploadedLogos: oldData.uploadedLogos || [],
+            appName: oldData.appName || oldData.siteName || ""
+          };
+          await setDoc(doc(db, ...SITE_CONFIG_PATH), migrated, { merge: true });
+          setSiteConfig(migrated);
+        }
 
         console.log("✅ Matrix Hub: Alle data gesynchroniseerd.");
       } catch (err) {
@@ -101,7 +138,41 @@ const AdminMatrixManager = ({ onBack }) => {
       data = matrixData;
     } else if (activeTab === "library") {
       pathArray = PATHS.GENERAL_SETTINGS;
-      data = libraryData;
+      // Alleen relevante bibliotheekvelden opslaan
+      const allowedKeys = [
+        "connections",
+        "product_names",
+        "pns",
+        "diameters",
+        "borings",
+        "codes"
+      ]; // Voeg hier extra keys toe als je meer bibliotheekvelden wilt ondersteunen
+      // Haal site config velden uit libraryData (en bewaar ze apart)
+      const { logo, siteName, color, logoUrl, themeColor, uploadedLogos, appName, ...filtered } = libraryData;
+      data = Object.fromEntries(
+        Object.entries(filtered).filter(([key]) => allowedKeys.includes(key))
+      );
+      // Sla site config apart op als er iets is ingevuld
+      const safeSiteConfig = {
+        logo: logo ?? "",
+        siteName: siteName ?? "",
+        color: color ?? "",
+        logoUrl: logoUrl ?? "",
+        themeColor: themeColor ?? "",
+        uploadedLogos: uploadedLogos ?? [],
+        appName: appName ?? ""
+      };
+      if (
+        safeSiteConfig.logo ||
+        safeSiteConfig.siteName ||
+        safeSiteConfig.color ||
+        safeSiteConfig.logoUrl ||
+        safeSiteConfig.themeColor ||
+        (safeSiteConfig.uploadedLogos && safeSiteConfig.uploadedLogos.length) ||
+        safeSiteConfig.appName
+      ) {
+        await setDoc(doc(db, ...SITE_CONFIG_PATH), safeSiteConfig, { merge: true });
+      }
     } else if (activeTab === "blueprints") {
       pathArray = PATHS.BLUEPRINTS;
       data = blueprints;
@@ -142,6 +213,7 @@ const AdminMatrixManager = ({ onBack }) => {
     { id: "specs", label: "Overzicht", icon: <FileText size={14} /> },
   ];
 
+
   if (loading && Object.keys(matrixData).length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-4">
@@ -154,61 +226,36 @@ const AdminMatrixManager = ({ onBack }) => {
   }
 
   return (
-    <div className="flex flex-col min-h-full bg-slate-50 w-full items-center text-left">
-      {/* Header Unit */}
+    <div className="flex-1">
       <div className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shrink-0 shadow-sm z-20 w-full h-20">
         <div className="flex items-center gap-6">
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3 italic uppercase leading-none">
             <LayoutDashboard size={24} className="text-blue-600" /> Matrix{" "}
             <span className="text-blue-600">Hub</span>
           </h2>
-          {["matrix", "library", "blueprints"].includes(activeTab) && (
-            <>
-              <div className="h-8 w-px bg-slate-200"></div>
-              <button
-                onClick={handleSave}
-                disabled={
-                  loading || (!hasUnsavedChanges && status.type !== "error")
-                }
-                className={`px-8 py-2.5 rounded-xl transition-all font-black text-sm flex items-center gap-2 shadow-lg uppercase tracking-widest ${
-                  hasUnsavedChanges || status.type === "error"
-                    ? "bg-slate-900 text-white hover:bg-blue-600"
-                    : "bg-slate-100 text-slate-300"
-                }`}
-              >
-                {loading ? (
-                  <RefreshCw className="animate-spin" size={18} />
-                ) : (
-                  <Save size={18} />
-                )}{" "}
-                Opslaan
-              </button>
-            </>
-          )}
-        </div>
-
-        <div className="flex items-center gap-4">
-          {hasUnsavedChanges && (
-            <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200 uppercase tracking-widest animate-pulse italic">
-              Wijzigingen in concept
-            </span>
-          )}
-          {status.msg && (
-            <div
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 animate-in fade-in zoom-in ${
-                status.type === "error"
-                  ? "bg-rose-50 text-rose-600 border border-rose-100 shadow-sm"
-                  : "bg-emerald-50 text-emerald-600 border border-emerald-100 shadow-sm"
-              }`}
-            >
-              {status.type === "error" ? (
-                <AlertTriangle size={14} />
-              ) : (
-                <CheckCircle size={14} />
-              )}{" "}
-              {status.msg}
-            </div>
-          )}
+            {["matrix", "library", "blueprints"].includes(activeTab) && (
+              <>
+                <div className="h-8 w-px bg-slate-200"></div>
+                <button
+                  onClick={handleSave}
+                  disabled={
+                    loading || (!hasUnsavedChanges && status.type !== "error")
+                  }
+                  className={`px-8 py-2.5 rounded-xl transition-all font-black text-sm flex items-center gap-2 shadow-lg uppercase tracking-widest ${
+                    hasUnsavedChanges || status.type === "error"
+                      ? "bg-slate-900 text-white hover:bg-blue-600"
+                      : "bg-slate-100 text-slate-300"
+                  }`}
+                >
+                  {loading ? (
+                    <RefreshCw className="animate-spin" size={18} />
+                  ) : (
+                    <Save size={18} />
+                  )}{" "}
+                  Opslaan
+                </button>
+              </>
+            )}
         </div>
       </div>
 
@@ -250,6 +297,7 @@ const AdminMatrixManager = ({ onBack }) => {
               libraryData={libraryData}
               setLibraryData={setLibraryData}
               setHasUnsavedChanges={setHasUnsavedChanges}
+              blueprints={blueprints}
             />
           )}
           {activeTab === "blueprints" && (

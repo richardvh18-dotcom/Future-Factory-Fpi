@@ -18,7 +18,12 @@ import LibrarySection from "./LibrarySection";
  * Beheert de configuratie-arrays die worden opgeslagen in GENERAL_SETTINGS.
  * Deze component koppelt de UI (LibrarySection) aan de centrale state.
  */
-const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges }) => {
+import { useState } from "react";
+
+const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, blueprints = {} }) => {
+    // State voor selectie van blauwdruk en targetveld
+    const [selectedBlueprint, setSelectedBlueprint] = useState(null);
+    const [targetField, setTargetField] = useState("product_names");
   // Helper om een item toe te voegen aan een specifieke lijst in de state
   const addItem = (key, val) => {
     setLibraryData((prev) => {
@@ -130,6 +135,53 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges }) => {
         ))}
       </div>
 
+      {/* Blauwdrukken direct toevoegen aan bibliotheekvelden */}
+      <div className="mt-10 bg-white rounded-[32px] shadow-sm border border-blue-200 overflow-hidden flex flex-col hover:shadow-xl transition-all animate-in fade-in">
+        <div className="p-5 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-blue-500"><Layers size={18} /></span>
+            <h3 className="font-black text-blue-800 text-xs uppercase tracking-widest italic">
+              Blauwdrukken toevoegen aan Bibliotheek
+            </h3>
+          </div>
+          <span className="text-[10px] font-black bg-blue-600 text-white px-2.5 py-1 rounded-lg shadow-sm">
+            {Object.keys(blueprints).length}
+          </span>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2 items-center mb-2">
+            <span className="text-xs font-bold text-blue-900">Kies veld:</span>
+            <select
+              className="border border-blue-200 rounded-lg px-2 py-1 text-xs font-bold"
+              value={targetField}
+              onChange={e => setTargetField(e.target.value)}
+            >
+              <option value="product_names">Product Types</option>
+              <option value="borings">Boring Types</option>
+              <option value="connections">Mof Verbindingen</option>
+              <option value="diameters">Diameters (ID)</option>
+              <option value="pns">Drukklassen (PN)</option>
+              <option value="codes">Extra Codes</option>
+            </select>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Object.keys(blueprints).length === 0 && (
+              <span className="text-slate-400 text-xs">Geen blauwdrukken gevonden.</span>
+            )}
+            {Object.entries(blueprints).map(([key, blueprint]) => (
+              <button
+                key={key}
+                onClick={() => addItem(targetField, blueprint?.naam || key)}
+                className="px-4 py-2 rounded-xl text-[11px] font-black flex items-center gap-2 shadow-sm border bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100 transition-all uppercase"
+                title={blueprint?.omschrijving || key}
+              >
+                {blueprint?.naam || key} <span className="ml-1 text-blue-400">+</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Informatieve Footer */}
       <div className="p-8 bg-slate-900 rounded-[40px] border border-white/5 flex items-start gap-6 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 p-6 opacity-5">
@@ -150,6 +202,7 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges }) => {
           </p>
         </div>
       </div>
+
     </div>
   );
 };

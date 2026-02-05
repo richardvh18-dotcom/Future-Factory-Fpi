@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { X, UserPlus, Mail, User, Globe, Building2, Send, CheckCircle } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
 
 /**
  * AccountRequestModal - Formulier voor account aanvraag
@@ -55,7 +56,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
 
     try {
       // Sla aanvraag op in Firestore
-      await addDoc(collection(db, "future-factory", "Users", "AccountRequests"), {
+      await addDoc(collection(db, ...PATHS.ACCOUNT_REQUESTS), {
         ...formData,
         status: "pending",
         requestedAt: serverTimestamp(),

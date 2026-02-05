@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper: check of gebruiker is ingelogd
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    // Helper: check of gebruiker een bepaalde rol heeft
+    function hasRole(role) {
+      return request.auth.token.role == role;
+    }
+    // Helper: check of gebruiker een van de toegestane rollen heeft
+    function isUploader() {
+      return request.auth.token.role in ['admin', 'qc', 'engineer'];
+    }
+
+    // Alleen ingelogde gebruikers mogen lezen (downloaden)
+    match /{allPaths=**} {
+      allow read: if isSignedIn();
+      // Alleen admins, QC en engineers mogen uploaden
+      allow write: if isUploader();
+    }
+  }
+}
