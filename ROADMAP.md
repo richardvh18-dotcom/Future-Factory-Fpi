@@ -1,3 +1,30 @@
+---
+
+## 🌟 Roadmap Uitbreidingen (Voorstel)
+
+### 1. Kwaliteit & Compliance (Fase 5 uitbreiding)
+- **Digitale Werkinstructies met Video:** Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.
+- **Realtime SPC (Statistical Process Control):** Waarschuw automatisch als meetwaarden uit BORE_DIMENSIONS of CB_DIMENSIONS richting de tolerantiegrens gaan.
+- **Self-Service Operator Training:** Gebruik FlashcardViewer.jsx om operators te toetsen op veiligheidsvoorschriften of nieuwe procedures voordat ze mogen inloggen.
+
+### 2. Onderhoud & Asset Management
+- **Condition-Based Maintenance:** Logboek voor machine-uren; bij overschrijding automatisch ticket in Communication Hub.
+- **Spare Parts Inventory:** Koppel INVENTORY aan machines; onderdelen direct afboeken via MobileScanner.
+
+### 3. Smart Factory & AI (Fase 6 verdieping)
+- **AI-gestuurde Planning Optimization:** AiAssistantView doet suggesties voor ordervolgorde op basis van actuele bezetting en historische data.
+- **Automatische NCR-herkenning:** AI analyseert defectfoto's en stelt foutcode/ernst voor bij NCR.
+- **Voice-to-Log:** Operators kunnen lognotities inspreken; AI zet deze om in tekst voor ACTIVITY_LOGS.
+
+### 4. Energie & Duurzaamheid
+- **Energy Tracking per Order:** Koppel slimme meters en bereken energieverbruik per lotnummer voor CO2-rapportage.
+- **Afvalregistratie:** Registreer restmateriaal/snĳafval in TRACKING om grondstof-yield te optimaliseren.
+
+### 5. Operator Engagement
+- **Skill Matrix Dashboard:** Visualiseer vaardigheden van personeel in PersonnelManager voor optimale machine-indeling.
+- **Shift Handover Tool:** Gestructureerde overdrachtmodule in DigitalPlanningHub; ploeg draagt status/orders over via MESSAGES.
+
+> Deze uitbreidingen benutten de bestaande dbPaths.js structuur en versterken de app als centrale 'Single Source of Truth' voor de fabriek.
 # 🚀 Master Roadmap: FPi Future Factory
 
 **Status:** 1 februari 2026  
@@ -103,6 +130,9 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 - [ ] Meetwaarde Invoer: Verplichte invoer van toleranties tijdens productie-intervallen.
 - [ ] Real-time validatie tegen BORE_DIMENSIONS, CB/TB_DIMENSIONS specs
 - [ ] SPC (Statistical Process Control) dashboard met trend-visualisatie
+- [ ] Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.
+- [ ] Realtime SPC: Automatische waarschuwing bij trends richting tolerantielimiet.
+- [ ] Self-Service Operator Training: Operators toetsen via FlashcardViewer.jsx op veiligheidsvoorschriften/procedures.
 - **Afhankelijk van:** Fase 4 (query optimization voor grote datasets)
 
 ### 5.2 NCR Workflow
@@ -115,6 +145,8 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 - [ ] Audit Logs: Uitbreiden van het activiteitenlogboek voor ISO-compliance.
 - [ ] Digitale handtekeningen (PDF-sign integration)
 - [ ] Data retention policy (auto-archive na 2 jaar)
+- [ ] Skill Matrix Dashboard: Visualiseer vaardigheden van personeel in PersonnelManager voor optimale machine-indeling.
+- [ ] Shift Handover Tool: Gestructureerde overdrachtmodule in DigitalPlanningHub; ploeg draagt status/orders over via MESSAGES.
 - **Impact:** ISO 9001 compliance klaar
 
 **Prioriteit:** 🟠 Gemiddeld - Essentieel voor kwaliteitscontrole.
@@ -136,12 +168,17 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 - [ ] Machine learning model train op 6+ maanden historische NCR-data
 - [ ] Alert generation voor preventief onderhoud
 - [ ] Downtime voorspelling → 30% minder breakdowns
+- [ ] AI-gestuurde Planning Optimization: AiAssistantView doet suggesties voor ordervolgorde op basis van actuele bezetting en historische data.
+- [ ] Automatische NCR-herkenning: AI analyseert defectfoto's en stelt foutcode/ernst voor bij NCR.
+- [ ] Voice-to-Log: Operators kunnen lognotities inspreken; AI zet deze om in tekst voor ACTIVITY_LOGS.
 
 ### 6.3 Real-time Factory Visibility
 - [ ] IoT Dashboards: Live weergave van machine-status op grote schermen in de fabriek.
 - [ ] WebSocket live metrics (vs polling) → -80% server load
 - [ ] Grafana integration voor monitoring
 - [ ] KPI dashboard: OEE, throughput, defect rates
+- [ ] Energy Tracking per Order: Koppel slimme meters en bereken energieverbruik per lotnummer voor CO2-rapportage.
+- [ ] Afvalregistratie: Registreer restmateriaal/snĳafval in TRACKING om grondstof-yield te optimaliseren.
 
 **Prioriteit:** 🟡 Laag - Innovatie & toekomst.
 **Afhankelijk van:** Fase 4 Performance & Fase 5 QC data.
@@ -160,7 +197,7 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
   - [ ] Real-time sync van in/uitklok tijden en beschikbaarheid.
 - [ ] **Data Import Module (Optie B - CSV/Excel):**
   - [ ] Bulk import van roosters en personeelslijsten.
-  - [ ] Export van gewerkte uren naar payroll formaat.
+
 
 ### 7.2 ERP/Boekhouding (Infor LN)
 - [ ] Export orders/voorraad mutaties naar ERP (Infor LN).
@@ -172,11 +209,14 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 
 ---
 
-## 🛠️ Onderhoud & Professionalisering
+## 🛠️ Onderhoud & Asset Management
 
 **Target:** Doorlopend, parallel aan andere fases
 
 ### Prioriteit 1: Technische Schuld (Q1 2026)
+### Condition-Based Maintenance & Spare Parts
+- [ ] Condition-Based Maintenance: Logboek voor machine-uren; bij overschrijding automatisch ticket in Communication Hub.
+- [ ] Spare Parts Inventory: Koppel INVENTORY aan machines; onderdelen direct afboeken via MobileScanner.
 - [ ] TypeScript Migratie: Start met `useAdminAuth`, `dbPaths`, firestore hooks
   - [ ] Phase 1: Core infrastructure hooks → .ts
   - [ ] Phase 2: Admin components → .tsx (PersonnelManager, Terminal)

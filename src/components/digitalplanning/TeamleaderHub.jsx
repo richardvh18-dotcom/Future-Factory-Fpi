@@ -22,6 +22,7 @@ import {
   UserCheck,
   AlertTriangle,
 } from "lucide-react";
+import GanttPlanning from "./GanttPlanning";
 import { collection, query, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { getISOWeek } from "date-fns";
@@ -296,6 +297,16 @@ const TeamleaderHub = ({
             Personeel
           </button>
           <button
+            onClick={() => setActiveTab("efficiency")}
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === "efficiency"
+                ? "bg-white text-indigo-600 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Efficiëntie
+          </button>
+          <button
             onClick={() => setActiveTab("planning")}
             className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               activeTab === "planning"
@@ -304,6 +315,16 @@ const TeamleaderHub = ({
             }`}
           >
             Volledige Lijst
+          </button>
+          <button
+            onClick={() => setActiveTab("gantt")}
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === "gantt"
+                ? "bg-white text-orange-600 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Gantt-planning
           </button>
         </div>
 
@@ -350,7 +371,29 @@ const TeamleaderHub = ({
                 ].map((item) => (
                   <div
                     key={item.id}
-                    className="bg-white p-6 rounded-[35px] border-2 border-slate-100 shadow-sm text-left group hover:border-blue-200 transition-all"
+                    className="bg-white p-6 rounded-[35px] border-2 border-slate-100 shadow-sm text-left group hover:border-blue-200 transition-all cursor-pointer"
+                    onClick={() => {
+                      // Open modal met bijbehorende lijst
+                      setModalTitle(item.label);
+                      if (item.id === "gepland" || item.id === "in_proces" || item.id === "gereed" || item.id === "afkeur") {
+                        // Orders of producten tonen afhankelijk van KPI
+                        let list = [];
+                        if (item.id === "gepland") {
+                          list = rawOrders;
+                        } else if (item.id === "in_proces") {
+                          list = rawProducts.filter((p) => p.status === "In Production");
+                        } else if (item.id === "gereed") {
+                          list = rawProducts.filter((p) => p.status === "Finished");
+                        } else if (item.id === "afkeur") {
+                          list = rawProducts.filter((p) => p.status === "Rejected");
+                        }
+                        setModalData(list);
+                        setShowTraceModal(true);
+                      } else if (item.id === "bezetting") {
+                        setModalData(bezetting);
+                        setShowTraceModal(true);
+                      }
+                    }}
                   >
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
                       <item.icon size={14} className={item.color} />{" "}
@@ -372,7 +415,6 @@ const TeamleaderHub = ({
                     <div
                       key={machine.id}
                       onClick={() => {
-                        console.log('[TeamleaderHub] Station clicked:', machine.id);
                         setSelectedStationDetail(machine.id);
                       }}
                       className="bg-white border border-slate-200 rounded-[35px] p-6 shadow-sm hover:shadow-xl hover:border-blue-400 transition-all cursor-pointer group relative overflow-hidden text-left"
@@ -421,10 +463,193 @@ const TeamleaderHub = ({
             </div>
           ) : activeTab === "bezetting" ? (
             <div className="h-full overflow-y-auto custom-scrollbar pb-20">
+              <div className="flex items-center justify-between mb-4 px-4">
+                <h2 className="text-lg font-black uppercase tracking-widest text-slate-700">Bezetting per station</h2>
+                <button
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-xs tracking-widest hover:bg-blue-700 transition-all"
+                  onClick={() => {/* TODO: kopieer vorige dag functionaliteit */}}
+                >
+                  Kopie vorige dag
+                </button>
+              </div>
               <PersonnelOccupancy
                 scope={fixedScope}
                 machines={allowedMachines}
+                editable={true}
+                mode="station-grid"
               />
+            </div>
+          ) : activeTab === "efficiency" ? (
+            <div className="h-full overflow-y-auto custom-scrollbar pb-20">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto mt-8">
+                {/* Totaal Beschikbare Uren */}
+                <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Users className="text-slate-600" size={24} />
+                    <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-black">
+                      Totaal
+                    </span>
+                  </div>
+                  <div className="text-4xl font-black text-slate-600 mb-2">
+                    {metrics.bezettingAantal}u
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    Alle uren
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-600">Stations</span>
+                      <span className="font-bold">{metrics.machineGridData.length}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Productie-uren */}
+                <div className="bg-white border-2 border-emerald-200 rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Activity className="text-emerald-600" size={24} />
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-black">
+                      Productie
+                    </span>
+                  </div>
+                  <div className="text-4xl font-black text-emerald-600 mb-2">
+                    {metrics.finishedCount}u
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    Afgerond
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-600">Actief</span>
+                      <span className="font-bold">{metrics.activeCount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Geplande Vraag */}
+                <div className="bg-white border-2 border-blue-200 rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <CalendarDays className="text-blue-600" size={24} />
+                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-black">
+                      Planning
+                    </span>
+                  </div>
+                  <div className="text-4xl font-black text-blue-600 mb-2">
+                    {metrics.totalPlanned}u
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    Geplande uren
+                  </div>
+                </div>
+
+                {/* Efficiëntie */}
+                <div className={`bg-white border-2 rounded-2xl p-6 ${metrics.totalPlanned > metrics.finishedCount ? 'border-rose-200' : 'border-emerald-200'}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    {metrics.totalPlanned > metrics.finishedCount ? (
+                      <AlertTriangle className="text-rose-600" size={24} />
+                    ) : (
+                      <CheckCircle2 className="text-emerald-600" size={24} />
+                    )}
+                    <span className={`px-3 py-1 rounded-full text-xs font-black ${metrics.totalPlanned > metrics.finishedCount ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {metrics.totalPlanned > metrics.finishedCount ? 'Tekort' : 'Overschot'}
+                    </span>
+                  </div>
+                  <div className={`text-4xl font-black mb-2 ${metrics.totalPlanned > metrics.finishedCount ? 'text-rose-600' : 'text-emerald-600'}`}>
+                    {metrics.totalPlanned > 0 ? Math.round(((metrics.finishedCount - metrics.totalPlanned) / metrics.totalPlanned) * 100) : 0}%
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    {metrics.totalPlanned > metrics.finishedCount ? 'Ondercapaciteit' : 'Overcapaciteit'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : activeTab === "gantt" ? (
+            <div className="h-full overflow-y-auto custom-scrollbar pb-20 flex flex-col items-center">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto mt-8 mb-8 w-full">
+                {/* Totaal Beschikbare Uren */}
+                <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Users className="text-slate-600" size={24} />
+                    <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-black">
+                      Totaal
+                    </span>
+                  </div>
+                  <div className="text-4xl font-black text-slate-600 mb-2">
+                    {metrics.bezettingAantal}u
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    Alle uren
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-600">Stations</span>
+                      <span className="font-bold">{metrics.machineGridData.length}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Productie-uren */}
+                <div className="bg-white border-2 border-emerald-200 rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Activity className="text-emerald-600" size={24} />
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-black">
+                      Productie
+                    </span>
+                  </div>
+                  <div className="text-4xl font-black text-emerald-600 mb-2">
+                    {metrics.finishedCount}u
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    Afgerond
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-600">Actief</span>
+                      <span className="font-bold">{metrics.activeCount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Geplande Vraag */}
+                <div className="bg-white border-2 border-blue-200 rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <CalendarDays className="text-blue-600" size={24} />
+                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-black">
+                      Planning
+                    </span>
+                  </div>
+                  <div className="text-4xl font-black text-blue-600 mb-2">
+                    {metrics.totalPlanned}u
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    Geplande uren
+                  </div>
+                </div>
+
+                {/* Efficiëntie */}
+                <div className={`bg-white border-2 rounded-2xl p-6 ${metrics.totalPlanned > metrics.finishedCount ? 'border-rose-200' : 'border-emerald-200'}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    {metrics.totalPlanned > metrics.finishedCount ? (
+                      <AlertTriangle className="text-rose-600" size={24} />
+                    ) : (
+                      <CheckCircle2 className="text-emerald-600" size={24} />
+                    )}
+                    <span className={`px-3 py-1 rounded-full text-xs font-black ${metrics.totalPlanned > metrics.finishedCount ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {metrics.totalPlanned > metrics.finishedCount ? 'Tekort' : 'Overschot'}
+                    </span>
+                  </div>
+                  <div className={`text-4xl font-black mb-2 ${metrics.totalPlanned > metrics.finishedCount ? 'text-rose-600' : 'text-emerald-600'}`}>
+                    {metrics.totalPlanned > 0 ? Math.round(((metrics.finishedCount - metrics.totalPlanned) / metrics.totalPlanned) * 100) : 0}%
+                  </div>
+                  <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                    {metrics.totalPlanned > metrics.finishedCount ? 'Ondercapaciteit' : 'Overcapaciteit'}
+                  </div>
+                </div>
+              </div>
+              <div className="max-w-4xl w-full bg-white rounded-3xl shadow-xl p-8 flex flex-col items-center">
+                <h2 className="text-2xl font-black text-orange-700 mb-4 uppercase tracking-widest">Gantt-planning</h2>
+                <GanttPlanning />
+              </div>
             </div>
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
@@ -461,6 +686,18 @@ const TeamleaderHub = ({
           onClose={() => setSelectedStationDetail(null)}
         />
       )}
+      {/* KPI Pop-up Modal */}
+      <TraceModal
+        isOpen={showTraceModal}
+        onClose={() => setShowTraceModal(false)}
+        title={modalTitle}
+        data={modalData}
+        onRowClick={(item) => {
+          // Toon dossier van order of product
+          setModalTitle(`Dossier: ${item.lotNumber || item.orderId || item.itemCode || item.productId}`);
+          setModalData([item]);
+        }}
+      />
     </div>
   );
 };

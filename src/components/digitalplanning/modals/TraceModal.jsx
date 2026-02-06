@@ -14,7 +14,8 @@ import { format } from "date-fns";
 /**
  * TraceModal - Toont de gedetailleerde lijst die hoort bij een KPI tegel.
  */
-const TraceModal = ({ isOpen, onClose, title, data = [] }) => {
+
+const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
   if (!isOpen) return null;
 
   return (
@@ -68,7 +69,8 @@ const TraceModal = ({ isOpen, onClose, title, data = [] }) => {
                   {data.map((item, idx) => (
                     <tr
                       key={idx}
-                      className="bg-slate-50/50 hover:bg-blue-50 transition-colors group"
+                      className="bg-slate-50/50 hover:bg-blue-100 transition-colors group cursor-pointer"
+                      onClick={() => onRowClick && onRowClick(item)}
                     >
                       <td className="px-6 py-4 rounded-l-2xl">
                         <div className="font-black text-slate-900 text-sm">

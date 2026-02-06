@@ -40,13 +40,61 @@ const RoadmapViewer = ({ user }) => {
       id: "5",
       title: "Kwaliteitsborging & QC",
       status: "📋 Gepland (Q2 2026)",
-      items: ["Meetwaarde Invoer: Tolerantie control", "NCR Workflow: Non-Conformance Reports", "Audit Logs: ISO-compliance"],
+      items: [
+        "Meetwaarde Invoer: Tolerantie control",
+        "NCR Workflow: Non-Conformance Reports",
+        "Audit Logs: ISO-compliance",
+        "Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.",
+        "Realtime SPC: Automatische waarschuwing bij trends richting tolerantielimiet.",
+        "Self-Service Operator Training: Operators toetsen via FlashcardViewer.jsx op veiligheidsvoorschriften/procedures.",
+        "Skill Matrix Dashboard: Visualiseer vaardigheden van personeel in PersonnelManager voor optimale machine-indeling.",
+        "Shift Handover Tool: Gestructureerde overdrachtmodule in DigitalPlanningHub; ploeg draagt status/orders over via MESSAGES."
+      ],
     },
     {
       id: "6",
       title: "Future Factory Intelligence",
       status: "🔮 Toekomst (Q3-Q4 2026)",
-      items: ["Direct ZPL Printing: Zebra integration", "AI Predictive Maintenance", "IoT Dashboards: Real-time monitoring"],
+      items: [
+        "Direct ZPL Printing: Zebra integration",
+        "AI Predictive Maintenance",
+        "IoT Dashboards: Real-time monitoring",
+        "AI-gestuurde Planning Optimization: AiAssistantView doet suggesties voor ordervolgorde op basis van actuele bezetting en historische data.",
+        "Automatische NCR-herkenning: AI analyseert defectfoto's en stelt foutcode/ernst voor bij NCR.",
+        "Voice-to-Log: Operators kunnen lognotities inspreken; AI zet deze om in tekst voor ACTIVITY_LOGS.",
+        "Energy Tracking per Order: Koppel slimme meters en bereken energieverbruik per lotnummer voor CO2-rapportage.",
+        "Afvalregistratie: Registreer restmateriaal/snĳafval in TRACKING om grondstof-yield te optimaliseren.",
+        "Condition-Based Maintenance: Logboek voor machine-uren; bij overschrijding automatisch ticket in Communication Hub.",
+        "Spare Parts Inventory: Koppel INVENTORY aan machines; onderdelen direct afboeken via MobileScanner."
+      ],
+    },
+    {
+      id: "7",
+      title: "QHSE (Quality, Health, Safety, Environment)",
+      status: "🆕 In voorbereiding",
+      items: [
+        "In-line Inspectie Formulieren: Digitale controlelijsten in Terminal.jsx voor lot-afmelding.",
+        "Automatische Tolerantie-checks: Meetwaarden direct koppelen aan BORE_DIMENSIONS/CB_DIMENSIONS, blokkade/melding bij afwijking.",
+        "Digitale Kalibratie-log: Registratie en waarschuwing bij verlopen meetmiddelen.",
+        "Last Minute Risk Analysis (LMRA): Pop-up veiligheidscheck bij shift/taakwissel in MobileScanner/Terminal.",
+        "Incident & Near-miss Rapportage: Foto's van onveilige situaties direct loggen via IMAGE_LIBRARY/ACTIVITY_LOGS.",
+        "PBM Check: Visualisatie van verplichte PBM's per station in WorkstationHub.jsx.",
+        "Afval- en Scrap Registratie: Scrap-veld per order in Tracking module.",
+        "Gevaarlijke Stoffen Register: Koppeling naar MSDS in InventoryView.jsx.",
+        "Energieverbruik Monitoring: Log energieverbruik per machine-uur in time_logs.",
+        "Gecentraliseerd QHSE Dashboard: Overkoepelende view met audit trail, certificering en skill matrix.",
+        "Skill Matrix & Certificering: Vervaldata en blokkade bij verlopen certificaten in PersonnelManager.",
+        "--- MultiBel QHSE Integratie ---",
+        "MultiBel Alarmering: App/SMS/spraak/e-mail oproep voor BHV/TD bij calamiteit via Cloud Function.",
+        "Aanwezigheidsregistratie: Wie is in het pand, tbv ontruiming en BHV.",
+        "Man-down/Alleenwerken: Ondersteuning voor operators in stille uren.",
+        "QHSE Incident Knop: 'Noodgeval' knop in Sidebar.jsx triggert MultiBel API via Cloud Function.",
+        "Machine-Kritieke Storingen: Automatische oproep TD via MultiBel bij kritieke storing.",
+        "Evacuatie-Checklist: Lijst van ingelogde personen per Terminal naar MultiBel bij alarm.",
+        "Audit Trail: MultiBel logs terugschrijven naar ACTIVITY_LOGS voor ISO-audit.",
+        "Gecentraliseerd Beheer: MultiBel-status per plant monitoren in God Mode dashboard.",
+        "Technische koppeling: Firestore event → Cloud Function → MultiBel API → status terug naar app."
+      ],
     },
   ];
 
@@ -55,6 +103,46 @@ const RoadmapViewer = ({ user }) => {
     alert("✅ Idee opgeslagen!");
     setNewIdea("");
   };
+
+  const roadmapExpansions = [
+    {
+      title: "Kwaliteit & Compliance (Fase 5 uitbreiding)",
+      items: [
+        "Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.",
+        "Realtime SPC (Statistical Process Control): Waarschuw automatisch als meetwaarden uit BORE_DIMENSIONS of CB_DIMENSIONS richting de tolerantiegrens gaan.",
+        "Self-Service Operator Training: Gebruik FlashcardViewer.jsx om operators te toetsen op veiligheidsvoorschriften of nieuwe procedures voordat ze mogen inloggen."
+      ]
+    },
+    {
+      title: "Onderhoud & Asset Management",
+      items: [
+        "Condition-Based Maintenance: Logboek voor machine-uren; bij overschrijding automatisch ticket in Communication Hub.",
+        "Spare Parts Inventory: Koppel INVENTORY aan machines; onderdelen direct afboeken via MobileScanner."
+      ]
+    },
+    {
+      title: "Smart Factory & AI (Fase 6 verdieping)",
+      items: [
+        "AI-gestuurde Planning Optimization: AiAssistantView doet suggesties voor ordervolgorde op basis van actuele bezetting en historische data.",
+        "Automatische NCR-herkenning: AI analyseert defectfoto's en stelt foutcode/ernst voor bij NCR.",
+        "Voice-to-Log: Operators kunnen lognotities inspreken; AI zet deze om in tekst voor ACTIVITY_LOGS."
+      ]
+    },
+    {
+      title: "Energie & Duurzaamheid",
+      items: [
+        "Energy Tracking per Order: Koppel slimme meters en bereken energieverbruik per lotnummer voor CO2-rapportage.",
+        "Afvalregistratie: Registreer restmateriaal/snĳafval in TRACKING om grondstof-yield te optimaliseren."
+      ]
+    },
+    {
+      title: "Operator Engagement",
+      items: [
+        "Skill Matrix Dashboard: Visualiseer vaardigheden van personeel in PersonnelManager voor optimale machine-indeling.",
+        "Shift Handover Tool: Gestructureerde overdrachtmodule in DigitalPlanningHub; ploeg draagt status/orders over via MESSAGES."
+      ]
+    }
+  ];
 
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-8">

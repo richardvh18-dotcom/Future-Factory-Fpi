@@ -45,7 +45,7 @@ const FactoryStructureManager = React.lazy(() =>
   import("./FactoryStructureManager")
 );
 const ConversionManager = React.lazy(() => import("./ConversionManager"));
-const PersonnelManager = React.lazy(() => import("./PersonnelManager"));
+const PersonnelManager = React.lazy(() => import("../../Personel/PersonnelManager"));
 const AdminMatrixManager = React.lazy(() =>
   import("./matrixmanager/AdminMatrixManager")
 );
@@ -57,7 +57,7 @@ const AdminLogView = React.lazy(() => import("./AdminLogView"));
 const AdminSettingsView = React.lazy(() => import("./AdminSettingsView"));
 const CapacityPlanningView = React.lazy(() => import("./CapacityPlanningView"));
 const AdminLabelDesigner = React.lazy(() => import("./AdminLabelDesigner"));
-const AiTrainingView = React.lazy(() => import("./AiTrainingView"));
+const AiCenterView = React.lazy(() => import("./AiCenterView"));
 // NIEUW: Referentie Tabel toevoegen
 const AdminReferenceTable = React.lazy(() => import("./AdminReferenceTable"));
 // NIEUW: Monday.com/vPlan-style Planning Views
@@ -362,7 +362,7 @@ const AdminDashboard = () => {
           icon: <BrainCircuit size={24} className="text-fuchsia-600" />,
           color: "bg-fuchsia-50 border-fuchsia-100",
           roles: ["admin", "engineer"],
-          component: AiTrainingView,
+          component: AiCenterView,
         },
       ]
     }

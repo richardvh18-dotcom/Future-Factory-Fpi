@@ -351,18 +351,7 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                     <div className="p-2 bg-slate-800 text-white rounded-xl shadow-md"><Layers size={16} /></div>
                     <h3 className="text-lg font-black text-slate-800 uppercase italic tracking-tight">{dept.name}</h3>
                 </button>
-                {editable && (
-                  <button
-                    onClick={() => {
-                      setSelectedDept(dept);
-                      setAssignModalOpen(true);
-                    }}
-                    className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-xl transition-all"
-                    title="Personeel toevoegen"
-                  >
-                    <PlusCircle size={20} />
-                  </button>
-                )}
+                {/* '+' knop verwijderd, toevoegen gebeurt via station-tegel */}
                 <button onClick={() => setExpandedSections(prev => ({...prev, [dept.id]: !prev[dept.id]}))} className="p-2">
                   <ChevronUp className={`transition-transform duration-300 ${expandedSections[dept.id] !== false ? '' : 'rotate-180'}`} size={20} />
                 </button>
@@ -385,7 +374,18 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                         });
                         
                         return (
-                            <div key={station.id} className={`p-5 rounded-[35px] border-2 transition-all duration-500 relative flex flex-col shadow-sm ${isTL ? (isBusy ? 'bg-slate-900 border-amber-400 ring-4 ring-amber-400/10 shadow-xl' : 'bg-slate-900 border-slate-800 opacity-80 shadow-inner') : (isBusy ? 'bg-white border-blue-500 ring-4 ring-blue-50/50' : 'bg-white border-slate-100 hover:border-blue-200')}`}>
+                            <div
+                              key={station.id}
+                              className={`p-5 rounded-[35px] border-2 transition-all duration-500 relative flex flex-col shadow-sm ${isTL ? (isBusy ? 'bg-slate-900 border-amber-400 ring-4 ring-amber-400/10 shadow-xl' : 'bg-slate-900 border-slate-800 opacity-80 shadow-inner') : (isBusy ? 'bg-white border-blue-500 ring-4 ring-blue-50/50' : 'bg-white border-slate-100 hover:border-blue-200')}`}
+                              style={{ cursor: editable ? 'pointer' : 'default' }}
+                              onClick={() => {
+                                if (editable) {
+                                  setSelectedDept(dept);
+                                  setSelectedStation(station);
+                                  setAssignModalOpen(true);
+                                }
+                              }}
+                            >
                                 <div className="flex justify-between items-start mb-4 text-left">
                                     <div className="text-left"><span className={`text-[8px] font-black uppercase tracking-widest block mb-0.5 ${isTL ? 'text-amber-500 italic' : 'text-slate-400 opacity-60'}`}>{isTL ? 'Regie' : 'Station ID'}</span><h4 className={`text-lg font-black tracking-tighter italic uppercase truncate leading-none ${isTL ? 'text-white' : 'text-slate-900'}`}>{mId}</h4></div>
                                     {isTL ? <ShieldCheck size={20} className={isBusy ? 'text-amber-400' : 'text-slate-600'} /> : <Cpu size={20} className={isBusy ? 'text-blue-600' : 'text-slate-200'} />}
@@ -495,15 +495,34 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                 </select>
               </div>
 
+              {/* Ploegkeuze */}
+              <div>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Ploeg</label>
+                <select
+                  value={selectedDept.selectedShiftId || ""}
+                  onChange={e => {
+                    selectedDept.selectedShiftId = e.target.value;
+                    // Forceer re-render
+                    setSelectedDept({ ...selectedDept });
+                  }}
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600"
+                >
+                  <option value="">Selecteer ploeg...</option>
+                  {(selectedDept.shifts || []).map(s => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Personeelslid</label>
                 <select
                   onChange={(e) => {
                     const person = personnel.find(p => p.id === e.target.value);
-                    if (person && selectedStation) {
-                      // Bereken de juiste shift details voor deze persoon
-                      const shiftInfo = getShiftDetails(person, selectedDept.id);
-                      
+                    if (person && selectedStation && selectedDept.selectedShiftId) {
+                      // Gebruik gekozen ploeg
+                      const shift = (selectedDept.shifts || []).find(s => s.id === selectedDept.selectedShiftId);
+                      const shiftInfo = shift || { label: "DAGDIENST", hours: 8, isPloeg: false };
                       // Voeg toe met timestamp om meerdere shifts per persoon toe te staan
                       const timestamp = Date.now();
                       const occId = `${selectedDept.id}-${selectedStation.id}-${person.id}-${timestamp}`;
@@ -524,9 +543,24 @@ const PersonnelOccupancy = ({ scope, machines = [], editable = true }) => {
                   className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600"
                 >
                   <option value="">Selecteer personeelslid...</option>
-                  {personnel.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  {personnel
+                    .filter(p => {
+                      // Filter op ploeg/dienst
+                      if (!selectedDept.selectedShiftId) return false;
+                      // Medewerkers met ploegrotatie: alleen tonen als deze ploeg nu actief is
+                      if (p.rotationSchedule?.enabled && Array.isArray(p.rotationSchedule.shifts)) {
+                        return p.rotationSchedule.shifts.includes(selectedDept.selectedShiftId);
+                      }
+                      // Medewerkers met vaste shift: alleen tonen als shiftId exact matcht
+                      if (p.shiftId) {
+                        return p.shiftId === selectedDept.selectedShiftId;
+                      }
+                      // Medewerkers zonder ploeg/shift niet tonen
+                      return false;
+                    })
+                    .map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
                 </select>
               </div>
 

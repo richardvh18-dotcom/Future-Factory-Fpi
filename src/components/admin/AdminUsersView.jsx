@@ -148,7 +148,7 @@ const AdminUsersView = () => {
   useEffect(() => {
     if (!isValidPath("USERS")) return;
 
-    const requestsRef = collection(db, ...PATHS.ACCOUNT_REQUESTS);
+    const requestsRef = collection(db, "future-factory", "Users", "AccountRequests");
     const q = query(requestsRef, orderBy("createdAt", "desc"));
 
     const unsubRequests = onSnapshot(
@@ -385,7 +385,7 @@ const AdminUsersView = () => {
       });
 
       // Update de request status
-      await updateDoc(doc(db, ...PATHS.ACCOUNT_REQUESTS, request.id), {
+      await updateDoc(doc(db, "future-factory", "Users", "AccountRequests", request.id), {
         status: "approved",
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || "Admin",
@@ -413,7 +413,7 @@ const AdminUsersView = () => {
     setSaving(true);
 
     try {
-      await updateDoc(doc(db, ...PATHS.ACCOUNT_REQUESTS, requestId), {
+      await updateDoc(doc(db, "future-factory", "Users", "AccountRequests", requestId), {
         status: "rejected",
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || "Admin",

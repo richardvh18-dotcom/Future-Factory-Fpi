@@ -20,7 +20,8 @@ import {
   query,
   serverTimestamp,
 } from "firebase/firestore";
-import { db, auth } from "../../config/firebase";
+import { db, auth, storage } from "../../config/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
 import { aiService } from "../../services/aiService";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
@@ -253,6 +254,12 @@ IMPORTANT RULES:
 
     try {
       let text = "";
+      let fileUrl = null;
+      // Upload bestand naar Firebase Storage
+      const storageRef = ref(storage, `ai_documents/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      fileUrl = await getDownloadURL(storageRef);
+
       if (file.type === "application/pdf") {
         text = await extractTextFromPdf(file);
       } else {
@@ -281,11 +288,12 @@ IMPORTANT RULES:
         tags: analysisResult.analysis?.tags || [],
         fullText: fullTextContent, // Volledige tekst voor context
         characterCount: fullTextContent.length,
+        fileUrl, // downloadlink naar storage
       });
 
       const statusMessage = analysisResult.parsed 
-        ? "✅ Document succesvol geanalyseerd en opgeslagen." 
-        : "⚠️ Document opgeslagen met basis analyse (JSON parsing verbeterd met fallback).";
+        ? "✅ Document succesvol geüpload, geanalyseerd en opgeslagen." 
+        : "⚠️ Document geüpload en opgeslagen met basis analyse (JSON parsing verbeterd met fallback).";
       
       setStatus({
         type: "success",
@@ -295,7 +303,7 @@ IMPORTANT RULES:
       console.error("Upload fout:", err);
       setStatus({
         type: "error",
-        message: "Fout bij analyseren of opslaan van document.",
+        message: "Fout bij uploaden, analyseren of opslaan van document.",
       });
     } finally {
       setUploading(false);
