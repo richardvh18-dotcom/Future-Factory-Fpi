@@ -127,11 +127,19 @@ const TeamleaderHub = ({
 
   const dataStore = useMemo(() => {
     if (!rawOrders) return [];
+    // Filter orders op juiste afdeling (pipes, fittings, spools)
+    const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
+    const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
     return rawOrders
       .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
-      .filter(
-        (o) => allowedNorms.includes(o.normMachine) || allowedNorms.length === 0
-      );
+      .filter((o) => {
+        // Order moet bij juiste afdeling horen
+        if (o.department && typeof o.department === "string") {
+          if (o.department.toLowerCase() !== targetSlug) return false;
+        }
+        // Machine filter
+        return allowedNorms.includes(o.normMachine) || allowedNorms.length === 0;
+      });
   }, [rawOrders, allowedNorms]);
 
   // Dashboard Data Berekening
