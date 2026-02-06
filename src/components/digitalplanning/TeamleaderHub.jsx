@@ -211,13 +211,41 @@ const TeamleaderHub = ({
         })
         .reduce((acc, o) => acc + Number(o.plan || 0), 0),
       activeCount: rawProducts.filter(
-        (p) => p.status === "In Production" && validOrderIds.has(p.orderId)
+        (p) => {
+          const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
+          const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
+          // Alleen juiste afdeling
+          if (p.department && typeof p.department === "string") {
+            if (p.department.toLowerCase() !== targetSlug) return false;
+          } else {
+            return false;
+          }
+          return p.status === "In Production" && validOrderIds.has(p.orderId);
+        }
       ).length,
       finishedCount: rawProducts.filter(
-        (p) => p.status === "Finished" && validOrderIds.has(p.orderId)
+        (p) => {
+          const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
+          const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
+          if (p.department && typeof p.department === "string") {
+            if (p.department.toLowerCase() !== targetSlug) return false;
+          } else {
+            return false;
+          }
+          return p.status === "Finished" && validOrderIds.has(p.orderId);
+        }
       ).length,
       rejectedCount: rawProducts.filter(
-        (p) => p.status === "Rejected" && validOrderIds.has(p.orderId)
+        (p) => {
+          const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
+          const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
+          if (p.department && typeof p.department === "string") {
+            if (p.department.toLowerCase() !== targetSlug) return false;
+          } else {
+            return false;
+          }
+          return p.status === "Rejected" && validOrderIds.has(p.orderId);
+        }
       ).length,
       bezettingAantal: bezetting.filter((b) =>
         stations.some(s => (s.name || "").toLowerCase() === (b.machineId || "").toLowerCase())
