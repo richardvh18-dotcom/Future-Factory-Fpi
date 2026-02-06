@@ -194,9 +194,21 @@ const TeamleaderHub = ({
     });
 
     return {
-      // Totaal Plan: Som van 'plan' veld van alle orders (exclusief geannuleerd/afgekeurd)
+      // Totaal Plan: Som van 'plan' veld van alle orders (exclusief geannuleerd/afgekeurd), alleen juiste afdeling
       totalPlanned: dataStore
-        .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
+        .filter(o => {
+          if (!['cancelled', 'rejected', 'REJECTED'].includes(o.status)) {
+            // Alleen pipes orders meenemen
+            const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
+            const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
+            if (o.department && typeof o.department === "string") {
+              return o.department.toLowerCase() === targetSlug;
+            }
+            // Orders zonder department niet meenemen
+            return false;
+          }
+          return false;
+        })
         .reduce((acc, o) => acc + Number(o.plan || 0), 0),
       activeCount: rawProducts.filter(
         (p) => p.status === "In Production" && validOrderIds.has(p.orderId)
