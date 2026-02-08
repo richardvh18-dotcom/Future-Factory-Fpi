@@ -76,6 +76,42 @@ const WorkloadHeatmapView = () => {
     }, { weekStartsOn: 1 });
   }, [viewStart, weekRange]);
 
+  // Station icon/kleur mapping
+  const stationStyles = {
+    'Teamleade hub': {
+      color: 'bg-yellow-400 text-black border-black',
+      icon: <Users size={20} className="text-black" />
+    },
+    'BM': {
+      color: 'bg-blue-500 text-white border-blue-700',
+      icon: <Cpu size={20} className="text-white" />
+    },
+    'BA': {
+      color: 'bg-blue-500 text-white border-blue-700',
+      icon: <Cpu size={20} className="text-white" />
+    },
+    'BH': {
+      color: 'bg-blue-500 text-white border-blue-700',
+      icon: <Cpu size={20} className="text-white" />
+    },
+    'Mazak': {
+      color: 'bg-red-500 text-white border-red-700',
+      icon: <TrendingUp size={20} className="text-white" />
+    },
+    'Nabewerken': {
+      color: 'bg-green-500 text-white border-green-700',
+      icon: <CheckCircle size={20} className="text-white" />
+    },
+    'Lossen': {
+      color: 'bg-yellow-300 text-black border-yellow-600',
+      icon: <AlertTriangle size={20} className="text-black" />
+    },
+    'Algemeen': {
+      color: 'bg-orange-400 text-white border-orange-700',
+      icon: <Calendar size={20} className="text-white" />
+    }
+  };
+
   // Calculate workload for a machine in a week
   const getMachineWorkload = (machine, weekStart) => {
     const weekNum = getISOWeek(weekStart);
@@ -251,8 +287,10 @@ const WorkloadHeatmapView = () => {
                 <div className="flex">
                   {weeks.map((week, weekIdx) => {
                     const workload = getMachineWorkload(machine, week);
-                    const color = getHeatmapColor(workload.utilization);
-                    const icon = getStatusIcon(workload.utilization);
+                    // Station specifieke kleur/icon
+                    const stationStyle = stationStyles[machine] || {};
+                    const color = stationStyle.color || getHeatmapColor(workload.utilization);
+                    const icon = stationStyle.icon || getStatusIcon(workload.utilization);
 
                     return (
                       <div

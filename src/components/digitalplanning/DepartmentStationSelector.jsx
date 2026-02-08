@@ -11,6 +11,41 @@ import TeamleaderHub from "./TeamleaderHub";
  * Laadt stations dynamisch uit factory_config in Firestore
  */
 const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
+    // Station kleur/icon mapping
+    const stationStyles = {
+      'teamleader': {
+        color: 'bg-yellow-400 text-black border-black',
+        icon: <Users size={40} className="text-black" />
+      },
+      'bm': {
+        color: 'bg-blue-500 text-white border-blue-700',
+        icon: <Cpu size={24} className="text-white" />
+      },
+      'ba': {
+        color: 'bg-blue-500 text-white border-blue-700',
+        icon: <Cpu size={24} className="text-white" />
+      },
+      'bh': {
+        color: 'bg-blue-500 text-white border-blue-700',
+        icon: <Cpu size={24} className="text-white" />
+      },
+      'mazak': {
+        color: 'bg-red-500 text-white border-red-700',
+        icon: <Cpu size={24} className="text-white" />
+      },
+      'nabewerken': {
+        color: 'bg-green-500 text-white border-green-700',
+        icon: <Cpu size={24} className="text-white" />
+      },
+      'lossen': {
+        color: 'bg-yellow-300 text-black border-yellow-600',
+        icon: <Cpu size={24} className="text-black" />
+      },
+      'algemeen': {
+        color: 'bg-orange-400 text-white border-orange-700',
+        icon: <Cpu size={24} className="text-white" />
+      }
+    };
   const [selectedStation, setSelectedStation] = useState(null);
   const [showTeamleader, setShowTeamleader] = useState(false);
   const [factoryConfig, setFactoryConfig] = useState(null);
@@ -101,45 +136,35 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {stations.map((station) => (
-            <button
-              key={station.id}
-              onClick={() => {
-                if (station.name?.toLowerCase() === "teamleader" || station.id?.toLowerCase() === "teamleader") {
-                  setShowTeamleader(true);
-                } else {
-                  setSelectedStation(station.name);
-                }
-              }}
-              className={`group relative p-6 rounded-2xl border-2 border-slate-200 bg-white hover:border-blue-500 hover:shadow-xl text-center transition-all duration-200 ${
-                (station.name?.toLowerCase() === "teamleader" || station.id?.toLowerCase() === "teamleader") ? "col-span-2 row-span-2" : ""
-              }`}
-            >
-              <div className={`${
-                (station.name?.toLowerCase() === "teamleader" || station.id?.toLowerCase() === "teamleader") ? "w-20 h-20" : "w-12 h-12"
-              } rounded-xl flex items-center justify-center text-white mb-3 shadow-md mx-auto transition-transform group-hover:scale-110 ${
-                (station.name?.toLowerCase() === "teamleader" || station.id?.toLowerCase() === "teamleader") ? "bg-blue-600" : "bg-blue-600"
-              }`}
+          {stations.map((station) => {
+            const key = station.name?.toLowerCase() || station.id?.toLowerCase();
+            return (
+              <button
+                key={station.id}
+                onClick={() => {
+                  if (key === "teamleader") {
+                    setShowTeamleader(true);
+                  } else {
+                    setSelectedStation(station.name);
+                  }
+                }}
+                className={`group relative p-6 rounded-2xl border-2 border-slate-200 bg-white text-center transition-all duration-200 hover:border-blue-500 hover:shadow-xl ${key === "teamleader" ? "col-span-2 row-span-2" : ""}`}
               >
-                {(station.name?.toLowerCase() === "teamleader" || station.id?.toLowerCase() === "teamleader") ? (
-                  <Users size={40} />
-                ) : (
-                  <Cpu size={24} />
-                )}
-              </div>
-              <h3 className={`${
-                (station.name?.toLowerCase() === "teamleader" || station.id?.toLowerCase() === "teamleader") ? "text-lg" : "text-sm"
-              } font-black text-slate-800 uppercase tracking-tight group-hover:text-blue-600 transition-colors`}>
-                {(station.name?.toLowerCase() === "teamleader" || station.id?.toLowerCase() === "teamleader") ? (
-                  <>
-                    Teamleader <br /> Hub
-                  </>
-                ) : (
-                  station.name
-                )}
-              </h3>
-            </button>
-          ))}
+                <div className={`${key === "teamleader" ? "w-20 h-20" : "w-12 h-12"} rounded-xl flex items-center justify-center mb-3 shadow-md mx-auto transition-transform group-hover:scale-110 bg-blue-600`}> 
+                  {key === "teamleader" ? <Users size={40} className="text-white" /> : <Cpu size={24} className="text-white" />}
+                </div>
+                <h3 className={`${key === "teamleader" ? "text-lg" : "text-sm"} font-black text-slate-800 uppercase tracking-tight group-hover:text-blue-600 transition-colors`}>
+                  {key === "teamleader" ? (
+                    <>
+                      Teamleader <br /> Hub
+                    </>
+                  ) : (
+                    station.name
+                  )}
+                </h3>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -122,7 +122,8 @@ const App = () => {
   }
 
   // Check for specialized bootstrapping view (Orphaned Admin)
-  if (user?.uid === "pzxPfiwQhnQdEQJcXU77ZgT2Jo32" && role === "guest") {
+  const bootstrapAdminUid = import.meta.env.VITE_BOOTSTRAP_ADMIN_UID;
+  if (user?.uid === bootstrapAdminUid && role === "guest") {
     return <GodModeBootstrap />;
   }
 

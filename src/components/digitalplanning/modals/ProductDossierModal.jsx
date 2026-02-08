@@ -13,6 +13,7 @@ import {
   Folder,
   FileText,
   Calendar,
+  AlertTriangle,
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
 
@@ -117,6 +118,50 @@ const ProductDossierModal = ({ isOpen, product, onClose, orders = [] }) => {
               />
             </div>
           </div>
+
+          {/* Extra Info: Opmerkingen, Metingen & Inspectie */}
+          {(product.note || product.measurements || (product.inspection && product.inspection.reasons)) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               {/* Opmerkingen */}
+               {product.note && (
+                 <div className="p-6 bg-amber-50 rounded-[32px] border border-amber-100">
+                    <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest block mb-2 flex items-center gap-2">
+                      <Info size={14} /> Opmerking
+                    </span>
+                    <p className="text-sm font-medium text-slate-700 italic">"{product.note}"</p>
+                 </div>
+               )}
+
+               {/* Inspectie Redenen (bij afkeur/herstel) */}
+               {product.inspection?.reasons && product.inspection.reasons.length > 0 && (
+                 <div className="p-6 bg-rose-50 rounded-[32px] border border-rose-100">
+                    <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest block mb-2 flex items-center gap-2">
+                      <AlertTriangle size={14} /> Inspectie Bevindingen
+                    </span>
+                    <ul className="list-disc list-inside text-sm font-bold text-rose-700">
+                      {product.inspection.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                    </ul>
+                 </div>
+               )}
+
+               {/* Metingen */}
+               {product.measurements && (
+                 <div className="p-6 bg-indigo-50 rounded-[32px] border border-indigo-100">
+                    <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2 flex items-center gap-2">
+                      <Ruler size={14} /> Metingen
+                    </span>
+                    <div className="space-y-1">
+                      {Object.entries(product.measurements).map(([key, val]) => (
+                        <div key={key} className="flex justify-between text-xs border-b border-indigo-100/50 pb-1 last:border-0">
+                          <span className="font-bold text-slate-600 uppercase">{key}:</span>
+                          <span className="font-mono font-black text-slate-800">{val}</span>
+                        </div>
+                      ))}
+                    </div>
+                 </div>
+               )}
+            </div>
+          )}
 
           {/* History */}
           <div>

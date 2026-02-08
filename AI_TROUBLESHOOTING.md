@@ -21,6 +21,9 @@ Na wijzigingen in `.env` moet je de dev server herstarten:
 # Stop huidige server (Ctrl+C in terminal)
 # Start opnieuw
 npm run dev
+
+# Forceer poort 3000:
+npm run dev -- --port 3000
 ```
 
 ### Stap 3: Test API Direct

@@ -22,7 +22,7 @@ import {
   UserCheck,
   AlertTriangle,
 } from "lucide-react";
-import GanttPlanning from "./GanttPlanning";
+import GanttChartView from "../planning/GanttChartView";
 import { collection, query, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { getISOWeek } from "date-fns";
@@ -37,6 +37,7 @@ import TerminalSelectionModal from "./modals/TerminalSelectionModal";
 import TraceModal from "./modals/TraceModal";
 import PlanningSidebar from "./PlanningSidebar";
 import PlanningImportModal from "./modals/PlanningImportModal";
+import OrderDetail from "./OrderDetail";
 
 /**
  * TeamleaderHub V7.0 - Error Resilience Update
@@ -134,6 +135,11 @@ const TeamleaderHub = ({
       );
   }, [rawOrders, allowedNorms]);
 
+  const selectedOrder = useMemo(() => {
+    if (!selectedOrderId) return null;
+    return dataStore.find((o) => o.id === selectedOrderId || o.orderId === selectedOrderId);
+  }, [dataStore, selectedOrderId]);
+
   // Dashboard Data Berekening
   const metrics = useMemo(() => {
     if (loading)
@@ -190,15 +196,41 @@ const TeamleaderHub = ({
       totalPlanned: dataStore
         .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
         .reduce((acc, o) => acc + Number(o.plan || 0), 0),
-      activeCount: rawProducts.filter(
-        (p) => p.status === "In Production" && validOrderIds.has(p.orderId)
-      ).length,
-      finishedCount: rawProducts.filter(
-        (p) => p.status === "Finished" && validOrderIds.has(p.orderId)
-      ).length,
-      rejectedCount: rawProducts.filter(
-        (p) => p.status === "Rejected" && validOrderIds.has(p.orderId)
-      ).length,
+      
+      // AANGEPAST: Active Count (Lopend)
+      // Telt alles wat niet klaar/afgekeurd is, en nog niet bij BM01 is.
+      activeCount: rawProducts.filter((p) => {
+        if (!validOrderIds.has(p.orderId)) return false;
+        
+        const status = p.status || "";
+        const step = p.currentStep || "";
+        const station = (p.currentStation || "").toUpperCase();
+
+        const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
+        const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
+        
+        if (isFinished || isRejected) return false;
+
+        // Excludeer items die fysiek op BM01/Eindinspectie zijn (grensgeval)
+        if (station === 'BM01' || station === 'STATION BM01' || step === 'Eindinspectie') return false;
+
+        return true;
+      }).length,
+
+      finishedCount: rawProducts.filter((p) => {
+        if (!validOrderIds.has(p.orderId)) return false;
+        const status = p.status || "";
+        const step = p.currentStep || "";
+        return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
+      }).length,
+
+      rejectedCount: rawProducts.filter((p) => {
+        if (!validOrderIds.has(p.orderId)) return false;
+        const status = p.status || "";
+        const step = p.currentStep || "";
+        return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
+      }).length,
+
       bezettingAantal: bezetting.filter((b) =>
         stations.some(s => (s.name || "").toLowerCase() === (b.machineId || "").toLowerCase())
       ).length,
@@ -287,6 +319,16 @@ const TeamleaderHub = ({
             Dashboard
           </button>
           <button
+            onClick={() => setActiveTab("planning")}
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === "planning"
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Volledige Lijst
+          </button>
+          <button
             onClick={() => setActiveTab("bezetting")}
             className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               activeTab === "bezetting"
@@ -305,16 +347,6 @@ const TeamleaderHub = ({
             }`}
           >
             Efficiëntie
-          </button>
-          <button
-            onClick={() => setActiveTab("planning")}
-            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              activeTab === "planning"
-                ? "bg-white text-blue-600 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            Volledige Lijst
           </button>
           <button
             onClick={() => setActiveTab("gantt")}
@@ -381,11 +413,28 @@ const TeamleaderHub = ({
                         if (item.id === "gepland") {
                           list = rawOrders;
                         } else if (item.id === "in_proces") {
-                          list = rawProducts.filter((p) => p.status === "In Production");
+                          // Zelfde logica als activeCount KPI
+                          list = rawProducts.filter((p) => {
+                             const status = p.status || "";
+                             const step = p.currentStep || "";
+                             const station = (p.currentStation || "").toUpperCase();
+                             const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
+                             const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
+                             const isAtBM01 = (station === 'BM01' || station === 'STATION BM01' || step === 'Eindinspectie');
+                             return !isFinished && !isRejected && !isAtBM01;
+                          });
                         } else if (item.id === "gereed") {
-                          list = rawProducts.filter((p) => p.status === "Finished");
+                          list = rawProducts.filter((p) => {
+                             const status = p.status || "";
+                             const step = p.currentStep || "";
+                             return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
+                          });
                         } else if (item.id === "afkeur") {
-                          list = rawProducts.filter((p) => p.status === "Rejected");
+                          list = rawProducts.filter((p) => {
+                             const status = p.status || "";
+                             const step = p.currentStep || "";
+                             return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
+                          });
                         }
                         setModalData(list);
                         setShowTraceModal(true);
@@ -648,7 +697,7 @@ const TeamleaderHub = ({
               </div>
               <div className="max-w-4xl w-full bg-white rounded-3xl shadow-xl p-8 flex flex-col items-center">
                 <h2 className="text-2xl font-black text-orange-700 mb-4 uppercase tracking-widest">Gantt-planning</h2>
-                <GanttPlanning />
+                <GanttChartView />
               </div>
             </div>
           ) : (
@@ -660,11 +709,23 @@ const TeamleaderHub = ({
                   onSelect={setSelectedOrderId}
                 />
               </div>
-              <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col justify-center items-center opacity-40 italic text-center">
-                <ClipboardList size={64} className="mb-4 text-slate-300" />
-                <p className="font-black uppercase tracking-widest text-xs text-slate-400">
-                  Selecteer een order uit de lijst
-                </p>
+              <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+                {selectedOrder ? (
+                  <OrderDetail
+                    order={selectedOrder}
+                    products={rawProducts}
+                    onClose={() => setSelectedOrderId(null)}
+                    isManager={true}
+                    showAllStations={true}
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col justify-center items-center opacity-40 italic text-center">
+                    <ClipboardList size={64} className="mb-4 text-slate-300" />
+                    <p className="font-black uppercase tracking-widest text-xs text-slate-400">
+                      Selecteer een order uit de lijst
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

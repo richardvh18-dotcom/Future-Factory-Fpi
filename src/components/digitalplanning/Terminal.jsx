@@ -54,12 +54,18 @@ const Terminal = ({ initialStation, onBack }) => {
   // Station configuratie
   const stationId = typeof initialStation === "object" ? initialStation.id : initialStation;
   const stationName = typeof initialStation === "object" ? initialStation.name : initialStation;
-  const normalizedStationId = (normalizeMachine(stationId) || "").toUpperCase().trim();
+  const effectiveStationId = stationName || stationId;
+  const normalizedStationId = (normalizeMachine(effectiveStationId) || "").toUpperCase().trim();
+  const cleanStationId = normalizedStationId.replace(/\s/g, "");
 
-  const isNabewerking = normalizedStationId === "NABEWERKING";
+  const isNabewerking = normalizedStationId === "NABEWERKING" || cleanStationId === "NABEWERKING" || normalizedStationId.includes("NABEWERKING") || normalizedStationId.includes("NABEWERKEN");
+  const isMazak = normalizedStationId === "MAZAK" || cleanStationId === "MAZAK";
+  const isLossenStation = normalizedStationId === "LOSSEN";
+  const isSimpleViewStation = isNabewerking || isMazak || isLossenStation;
+  const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || normalizedStationId.includes("BM01");
 
   // State management
-  const [activeTab, setActiveTab] = useState(isNabewerking ? "lossen" : "planning");
+  const [activeTab, setActiveTab] = useState("planning");
   const [allOrders, setAllOrders] = useState([]);
   const [allTracked, setAllTracked] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +86,15 @@ const Terminal = ({ initialStation, onBack }) => {
   const targetYearNum = getISOWeekYear(referenceDate);
 
   const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
+
+  // Forceer tab reset bij station wissel
+  useEffect(() => {
+    if (isBM01) {
+      setActiveTab("planning");
+    } else {
+      setActiveTab("planning");
+    }
+  }, [effectiveStationId, isBM01]);
 
   // RESET EFFECT: Zorg dat de details sluiten bij navigatie acties
   useEffect(() => {
@@ -138,8 +153,9 @@ const Terminal = ({ initialStation, onBack }) => {
 
   // Gefilterde data voor het huidige station
   const myOrders = useMemo(() => {
+    if (isBM01) return allOrders;
     return allOrders.filter(o => (normalizeMachine(o.machine) || "").toUpperCase().trim() === normalizedStationId);
-  }, [allOrders, normalizedStationId]);
+  }, [allOrders, normalizedStationId, isBM01]);
 
   const productionProgressMap = useMemo(() => {
     const map = {};
@@ -163,6 +179,10 @@ const Terminal = ({ initialStation, onBack }) => {
   const filteredOrders = useMemo(() => {
     const base = myOrders.filter((o) => {
       if (o.status !== "pending" && o.status !== "in_progress") return false;
+      
+      // BM01: Geen week filter, toon alles (behalve als search actief is, wat hieronder gebeurt)
+      if (isBM01) return true;
+
       if (showAllWeeks || sidebarSearch) return true;
 
       // Match logica voor weeknummers (bijv. "2026-W3" of "2026-W03")
@@ -178,7 +198,7 @@ const Terminal = ({ initialStation, onBack }) => {
     
     const term = sidebarSearch.toLowerCase();
     return base.filter(o => (o.orderId || "").toLowerCase().includes(term) || (o.item || "").toLowerCase().includes(term));
-  }, [myOrders, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch]);
+  }, [myOrders, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01]);
 
   const selectedOrder = useMemo(() => 
     myOrders.find(o => o.id === selectedOrderId || o.orderId === selectedOrderId), 
@@ -201,7 +221,8 @@ const Terminal = ({ initialStation, onBack }) => {
 
       await setDoc(doc(db, ...PATHS.TRACKING, docId), {
         id: docId, orderId: order.orderId, lotNumber: lot, itemCode: cleanItemCode,
-        machine: normalizedStationId, stationLabel: stationName, status: "In Production",
+        machine: effectiveStationId, stationLabel: stationName, status: "In Production",
+        currentStation: effectiveStationId,
         currentStep: "Wikkelen", createdAt: timestamp, updatedAt: timestamp,
         history: [{
           action: "Start Wikkelen", station: stationName, timestamp: new Date().toISOString(),
@@ -215,7 +236,7 @@ const Terminal = ({ initialStation, onBack }) => {
       });
 
       setShowStartModal(false);
-      if (!isNabewerking) setActiveTab("wikkelen");
+      if (!isNabewerking && !isLossenStation && !isBM01) setActiveTab("wikkelen");
     } catch (err) {
       console.error("Fout bij starten productie:", err);
     }
@@ -227,14 +248,24 @@ const Terminal = ({ initialStation, onBack }) => {
     </div>
   );
 
+  // SIMPELE VIEW VOOR NABEWERKING, MAZAK & LOSSEN
+  if (isSimpleViewStation) {
+    return (
+      <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
+        <div className="flex-1 overflow-hidden h-full text-left">
+          <LossenView stationId={effectiveStationId} appId={appId} products={allTracked} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
       {/* TABS HEADER (ZOEKEN VERWIJDERD) */}
-      {!isNabewerking && (
         <div className="p-4 bg-white border-b border-slate-200 shrink-0 shadow-sm text-left">
           <div className="flex items-center justify-center">
             <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-xl">
-              {["planning", "wikkelen", "lossen"].map((tab) => (
+              {(isBM01 ? ["planning", "aan te bieden"] : ["planning", "wikkelen", "lossen"]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => handleTabChange(tab)}
@@ -248,43 +279,10 @@ const Terminal = ({ initialStation, onBack }) => {
             </div>
           </div>
         </div>
-      )}
 
       {/* CONTENT GEBIED */}
       <div className="flex-1 overflow-hidden flex flex-col">
-        {isNabewerking ? (
-          /* NABEWERKING / LOSSEN FLOW */
-          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-white text-left">
-            <div className="w-full lg:w-1/3 border-r border-slate-100 flex flex-col bg-slate-50/40">
-              <div className="p-6 border-b border-slate-100 bg-white">
-                <div className="flex justify-between items-center mb-4 text-left">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <Inbox size={16} className="text-blue-500" /> Wachtrij Ontvangst
-                  </h3>
-                  <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-md text-[9px] font-black uppercase">
-                    {allTracked.length}
-                  </span>
-                </div>
-                <div className="relative text-left">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                  <input
-                    type="text"
-                    placeholder="Filter lotnummer..."
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold outline-none focus:border-blue-500 transition-all shadow-sm"
-                    value={sidebarSearch}
-                    onChange={(e) => setSidebarSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar text-left">
-                {/* Inbound Items Mapping hier... */}
-              </div>
-            </div>
-            <div className="flex-1 bg-slate-50 overflow-y-auto custom-scrollbar p-6 lg:p-12 text-left">
-               {/* Details hier... */}
-            </div>
-          </div>
-        ) : (
+        {
           /* STANDAARD PLANNING & WIKKELEN FLOW */
           <div className="flex-1 overflow-hidden flex flex-col lg:flex-row text-left">
             {activeTab === "planning" ? (
@@ -301,6 +299,7 @@ const Terminal = ({ initialStation, onBack }) => {
                   </div>
                   
                   {/* Week Selector + Alles Knop */}
+                  {!isBM01 && (
                   <div className="flex items-center gap-2 mb-6 shrink-0 text-left">
                     <div className="flex-1 flex justify-between items-center bg-slate-100 p-2 rounded-[25px] border border-slate-200">
                       <button onClick={() => setReferenceDate(subWeeks(referenceDate, 1))} className="p-3 bg-white rounded-2xl shadow-sm hover:text-blue-500 active:scale-90"><ChevronLeft size={20} /></button>
@@ -320,6 +319,7 @@ const Terminal = ({ initialStation, onBack }) => {
                       <Layers size={20} /> <span className="hidden sm:inline">Alles</span>
                     </button>
                   </div>
+                  )}
 
                   <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1 text-left text-left">
                     {filteredOrders.length === 0 ? (
@@ -346,6 +346,7 @@ const Terminal = ({ initialStation, onBack }) => {
                               <div className="text-left overflow-hidden">
                                 <h4 className="font-black text-sm leading-none flex items-center gap-2 text-left">{order.orderId} {isNew && <Sparkles size={10} className="text-emerald-500" />}</h4>
                                 <p className="text-[10px] font-bold text-slate-400 truncate uppercase text-left">{order.item}</p>
+                                <p className="text-[9px] font-black text-slate-300 uppercase tracking-wider mt-0.5">{order.machine}</p>
                               </div>
                             </div>
                             <div className="flex flex-col items-end gap-1 text-right">
@@ -448,11 +449,11 @@ const Terminal = ({ initialStation, onBack }) => {
             ) : (
               /* TAB LOSSEN */
               <div className="flex-1 overflow-hidden h-full text-left">
-                <LossenView stationId={stationId} appId={appId} />
+                <LossenView stationId={effectiveStationId} appId={appId} products={allTracked} />
               </div>
             )}
           </div>
-        )}
+        }
       </div>
 
       {/* OVERIG (SNEL ZOEKEN & MODALS) */}

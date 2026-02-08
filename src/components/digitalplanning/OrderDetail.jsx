@@ -14,6 +14,7 @@ import {
   Calendar,
   FileText,
   Trash2,
+  User,
 } from "lucide-react";
 
 /**
@@ -35,6 +36,7 @@ const OrderDetail = ({
   onNextStep,
   onDeleteLot,
   loading,
+  showAllStations = false,
 }) => {
   const orderProducts = useMemo(() => {
     if (!order) return [];
@@ -64,6 +66,18 @@ const OrderDetail = ({
       return date.toLocaleDateString("nl-NL");
     }
     return String(val);
+  };
+
+  const formatTime = (val) => {
+    if (!val) return "-";
+    const date = val.toDate ? val.toDate() : new Date(val);
+    if (isNaN(date.getTime())) return "-";
+    return date.toLocaleString("nl-NL", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const getStepStyles = (step) => {
@@ -209,7 +223,14 @@ const OrderDetail = ({
     );
 
   return (
-    <div className="flex flex-col h-full animate-in slide-in-from-right duration-300 text-left">
+    <div className="flex flex-col h-full animate-in slide-in-from-right duration-300 text-left relative">
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all z-10"
+      >
+        <X size={24} />
+      </button>
+
       <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/30 shrink-0 text-left">
         <div className="text-left text-left">
           <div className="flex items-center gap-3 mb-2 text-left">
@@ -224,12 +245,6 @@ const OrderDetail = ({
                 <Tag size={12} /> {order.referenceCode}
               </div>
             )}
-            <button
-              onClick={onClose}
-              className="p-1 hover:bg-slate-200 rounded-lg text-slate-400 transition-all border-none bg-transparent text-left"
-            >
-              <X size={16} />
-            </button>
           </div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tighter italic uppercase leading-tight text-left">
             {order.item}
@@ -302,43 +317,40 @@ const OrderDetail = ({
         <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2 italic text-left text-left">
           <Box size={14} /> Actieve Units (
           {
-            orderProducts.filter((p) => p.currentStation === currentStation?.id)
+            orderProducts.filter((p) => showAllStations || p.currentStation === currentStation?.id)
               .length
           }
           )
         </h4>
         <div className="space-y-3 text-left">
           {orderProducts
-            .filter((p) => p.currentStation === currentStation?.id)
+            .filter((p) => showAllStations || p.currentStation === currentStation?.id)
             .map((p) => (
               <div
                 key={p.lotNumber}
-                className="bg-white border-2 border-slate-100 p-5 rounded-[28px] flex items-center justify-between shadow-sm hover:border-slate-200 transition-all group text-left"
+                className="bg-white border-2 border-slate-100 p-5 rounded-[28px] flex flex-col gap-4 shadow-sm hover:border-slate-200 transition-all group text-left"
               >
-                <div className="flex flex-col text-left">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-left">
-                    Lotnummer
-                  </span>
-                  <span className="font-mono text-sm font-black text-slate-800 tracking-tighter text-left">
-                    {p.lotNumber}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4">
-                  {isManager && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteLot?.(p.lotNumber, p.orderId);
-                      }}
-                      className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onNextStep?.(p)}
-                    className="flex items-center gap-6 text-left text-left text-left"
-                  >
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-left">
+                      Lotnummer
+                    </span>
+                    <span className="font-mono text-sm font-black text-slate-800 tracking-tighter text-left">
+                      {p.lotNumber}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isManager && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteLot?.(p.lotNumber, p.orderId);
+                        }}
+                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                     <div
                       className={`px-4 py-2 rounded-xl border-b-2 font-black text-[9px] uppercase tracking-widest ${getStepStyles(
                         p.currentStep
@@ -346,11 +358,51 @@ const OrderDetail = ({
                     >
                       {p.currentStep}
                     </div>
-                    <div className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all flex items-center gap-2 text-left text-left">
-                      Gereed <CheckCircle2 size={12} />
-                    </div>
-                  </button>
+                  </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
+                  <div>
+                    <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">
+                      Operator
+                    </span>
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <User size={12} /> {p.operator || "Onbekend"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">
+                      Start Productie
+                    </span>
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <Clock size={12} /> {formatTime(p.startTime || p.createdAt)}
+                    </span>
+                  </div>
+                </div>
+
+                {p.history && p.history.length > 0 && (
+                  <div className="pt-2 border-t border-slate-50">
+                    <span className="text-[8px] font-black text-slate-400 uppercase block mb-2">
+                      Verloop
+                    </span>
+                    <div className="space-y-1">
+                      {p.history
+                        .slice()
+                        .reverse()
+                        .map((h, i) => (
+                          <div
+                            key={i}
+                            className="flex justify-between text-[9px] text-slate-500 border-b border-slate-50 pb-1 last:border-0"
+                          >
+                            <span>{h.action || h.details}</span>
+                            <span className="font-mono">
+                              {formatTime(h.timestamp)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
         </div>
