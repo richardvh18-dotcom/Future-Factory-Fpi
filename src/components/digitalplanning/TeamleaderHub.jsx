@@ -277,7 +277,6 @@ const TeamleaderHub = ({
           return false;
         })
         .reduce((acc, o) => acc + Number(o.plan || 0), 0),
-<<<<<<< HEAD
       // AANGEPAST: Active Count (Lopend)
       // Telt alles wat niet klaar/afgekeurd is, en nog niet bij BM01 is.
       activeCount: rawProducts.filter((p) => {
@@ -329,60 +328,6 @@ const TeamleaderHub = ({
             const parsed = parseFloat(val);
             return sum + (isNaN(parsed) ? 8 : parsed);
         }, 0),
-=======
-      
-      // AANGEPAST: Active Count (Lopend)
-      // Telt alles wat niet klaar/afgekeurd is, en nog niet bij BM01 is.
-      activeCount: rawProducts.filter((p) => {
-        if (!validOrderIds.has(p.orderId)) return false;
-        
-        const status = p.status || "";
-        const step = p.currentStep || "";
-        const station = (p.currentStation || "").toUpperCase();
-
-        const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
-        const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
-        
-        if (isFinished || isRejected) return false;
-
-        // Excludeer items die fysiek op BM01/Eindinspectie zijn (grensgeval)
-        if (station === 'BM01' || station === 'STATION BM01' || step === 'Eindinspectie') return false;
-
-        return true;
-      }).length,
-
-      finishedCount: rawProducts.filter((p) => {
-        if (!validOrderIds.has(p.orderId)) return false;
-        const status = p.status || "";
-        const step = p.currentStep || "";
-        return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
-      }).length,
-
-      rejectedCount: rawProducts.filter((p) => {
-        if (!validOrderIds.has(p.orderId)) return false;
-        const status = p.status || "";
-        const step = p.currentStep || "";
-        return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
-      }).length,
-
-      // AANGEPAST: Nu som van uren van VANDAAG
-      bezettingAantal: bezetting.filter((b) => {
-          if (b.date !== todayStr) return false;
-          
-          // Check of deze occupancy bij een van onze stations hoort
-          return stations.some(s => {
-             const sId = (s.id || "").toLowerCase();
-             const sName = (s.name || "").toLowerCase();
-             const bId = (b.machineId || "").toLowerCase();
-             const bName = (b.machineName || "").toLowerCase();
-             return (sId && sId === bId) || (sName && sName === bId) || (sName && sName === bName);
-          });
-        }).reduce((sum, b) => {
-            const val = b.hours ?? b.hoursWorked;
-            const parsed = parseFloat(val);
-            return sum + (isNaN(parsed) ? 8 : parsed);
-        }, 0),
->>>>>>> preview
       machineGridData,
     };
   }, [
