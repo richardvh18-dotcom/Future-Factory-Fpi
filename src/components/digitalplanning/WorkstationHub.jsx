@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   where,
   getDocs,
+  deleteDoc,
 } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -37,12 +38,21 @@ import EfficiencyDashboard from "./EfficiencyDashboard";
 import ProductDetailModal from "../products/ProductDetailModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";
+import BM01Hub from "./BM01Hub";
 
 const COLLECTION_NAME = "digital_planning";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
   return "fittings-app-v1";
+};
+
+// Helper om diameter uit item omschrijving te halen (het eerste getal is de diameter)
+const getDiameter = (str) => {
+  if (!str) return 0;
+  const match = str.match(/(\d+)/);
+  if (match) return parseInt(match[1], 10);
+  return 0;
 };
 
 // Machine Config
@@ -76,6 +86,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const [personnel, setPersonnel] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchFilterOrder, setSearchFilterOrder] = useState(searchOrder || null);
+  const [archivedStats, setArchivedStats] = useState({ done: 0 });
   
   // Huidige datum/tijd voor display
   const currentDate = new Date();
@@ -97,18 +108,19 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const isPostProcessing = [
     "mazak",
     "nabewerking",
+    "nabewerken",
     "bm01",
     "station bm01",
   ].includes((selectedStation || "").toLowerCase());
+
+  const isBM01 = (selectedStation || "").toUpperCase().replace(/\s/g, "") === "BM01" || (selectedStation || "").toUpperCase().includes("BM01");
 
   // Initiele Tab en Station Setup
   useEffect(() => {
     if (initialStationId) {
       setSelectedStation(initialStationId);
       if (
-        ["Mazak", "Nabewerking", "BM01", "Station BM01"].includes(
-          initialStationId
-        )
+        ["Mazak", "Nabewerking"].includes(initialStationId)
       ) {
         setActiveTab("winding");
       } else {
@@ -195,6 +207,26 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       unsubPersonnel();
     };
   }, []);
+
+  // Fetch archive stats for BM01 (Today)
+  useEffect(() => {
+      if (!isBM01) return;
+      
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const year = today.getFullYear();
+      
+      const q = query(
+          collection(db, "future-factory", "production", "archive", String(year), "items"),
+          where("timestamps.finished", ">=", today)
+      );
+      
+      const unsub = onSnapshot(q, (snap) => {
+          setArchivedStats({ done: snap.size });
+      });
+      
+      return () => unsub();
+  }, [isBM01]);
 
   // Reminder Logic
   useEffect(() => {
@@ -386,6 +418,20 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       });
   }, [selectedStation, occupancy, personnel]);
 
+  // NIEUW: Rotatie logica voor operators (elke 10s wisselen)
+  const [currentOperatorIndex, setCurrentOperatorIndex] = useState(0);
+
+  useEffect(() => {
+    if (stationOccupancy.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentOperatorIndex((prev) => (prev + 1) % stationOccupancy.length);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [stationOccupancy.length]);
+
+  // Reset index bij verandering van lijst (bijv. station wissel)
+  useEffect(() => setCurrentOperatorIndex(0), [stationOccupancy]);
+
   // Bereken Derived Data (Memoized)
   const stationOrders = useMemo(() => {
     if (!selectedStation) return [];
@@ -403,7 +449,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       if (!orderStats[p.orderId])
         orderStats[p.orderId] = { started: 0, finished: 0 };
       orderStats[p.orderId].started++;
-      if (p.currentStep === "Finished") orderStats[p.orderId].finished++;
+      
+      // FIX: 'Lossen' verwijderd uit active steps. Zodra een item op 'Lossen' staat, is het klaar voor de machine.
+      const activeMachineSteps = ["Wikkelen", "HOLD_AREA"];
+      const isFinishedForMachine = !activeMachineSteps.includes(p.currentStep) || p.currentStep === "Finished" || p.status === "completed";
+      if (isFinishedForMachine) orderStats[p.orderId].finished++;
     });
 
     return rawOrders
@@ -434,24 +484,168 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       );
   }, [rawOrders, rawProducts, selectedStation]);
 
+  const stationStats = useMemo(() => {
+    const currentStationNorm = normalizeMachine(selectedStation);
+    const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
+    
+    // Check voor downstream stations (Nabewerking, Mazak, Lossen)
+    // BM01 wordt apart afgehandeld via stationOrders (bevat alle orders)
+    const isDownstream = ["NABEWERKING", "MAZAK", "LOSSEN", "NABEWERKEN", "BM01", "STATIONBM01"].includes(cleanStationId) || cleanStationId.includes("NABEWERK") || cleanStationId.includes("BM01");
+    const isLossenStation = cleanStationId === "LOSSEN";
+
+    if (isDownstream) {
+        // BM01 Specifieke KPI Logica
+        if (cleanStationId.includes("BM01")) {
+            // Plan: Totaal van alle orders (want BM01 is centraal)
+            let plan = 0;
+            stationOrders.forEach(o => plan += Number(o.plan || 0));
+            
+            // Todo (Aan te bieden): Items die wachten op BM01
+            let todo = 0;
+            rawProducts.forEach(p => {
+                 const pStationNorm = normalizeMachine(p.currentStation || "");
+                 const pStepUpper = (p.currentStep || "").toUpperCase();
+                 const isActive = p.status !== "completed" && p.currentStep !== "Finished" && p.status !== "rejected" && p.currentStep !== "REJECTED";
+                 
+                 if ((pStationNorm === currentStationNorm || pStepUpper.includes("INSPECTIE") || pStepUpper === "BM01") && isActive) {
+                     todo++;
+                 }
+            });
+            
+            // Done (Gereed): Items uit archief + actieve finished items
+            let done = archivedStats.done;
+            rawProducts.forEach(p => {
+                 if ((p.status === "completed" || p.currentStep === "Finished") && (p.currentStation === "GEREED" || p.lastStation === "BM01")) {
+                     done++;
+                 }
+            });
+            
+            return { plan, todo, done };
+        }
+
+        let todoCount = 0;
+        let doneCount = 0;
+
+        rawProducts.forEach(p => {
+            const pStationNorm = normalizeMachine(p.currentStation || "");
+            const pLastStationNorm = normalizeMachine(p.lastStation || "");
+            const pStep = p.currentStep || "";
+            
+            // Check of item actief is (niet klaar/afgekeurd)
+            const isActive = p.status !== "completed" && p.currentStep !== "Finished" && p.status !== "rejected" && p.currentStep !== "REJECTED";
+
+            // 1. Bereken TODO (Nog)
+            let isHere = false;
+            if (isLossenStation) {
+                // Voor Lossen station: items met stap 'Lossen' EN specifieke herkomst regels
+                if (pStep === "Lossen" && isActive) {
+                    const origin = normalizeMachine(p.originMachine || p.machine || "");
+                    const originLabel = normalizeMachine(p.stationLabel || "");
+                    const current = normalizeMachine(p.currentStation || "");
+                    const targetMachines = ["BH31", "BH16", "BH11", "31", "16", "11"];
+
+                    if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
+                        isHere = true;
+                    } else if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || current === "BH18") {
+                        // Alleen ID groter dan 300mm van BH18
+                        const diameter = getDiameter(p.item || "");
+                        if (diameter > 300) isHere = true;
+                    }
+                }
+            } else {
+                // Voor Nabewerking/Mazak/BM01: items op dit station
+                if (cleanStationId.includes("BM01")) {
+                     const pStepUpper = pStep.toUpperCase();
+                     // BM01 specifieke check: ook kijken naar step 'Eindinspectie' of 'BM01'
+                     if ((pStationNorm === currentStationNorm || pStepUpper.includes("INSPECTIE") || pStepUpper === "BM01") && isActive) {
+                         isHere = true;
+                     }
+                } else {
+                     if (pStationNorm === currentStationNorm && isActive) isHere = true;
+                }
+            }
+            
+            if (isHere) todoCount++;
+
+            // 2. Bereken DONE (Gereed)
+            let wasHere = false;
+            if (isLossenStation) {
+                const origin = normalizeMachine(p.originMachine || p.machine || "");
+                const originLabel = normalizeMachine(p.stationLabel || "");
+                
+                const targetMachines = ["BH31", "BH16", "BH11", "31", "16", "11"];
+                let isRelevant = false;
+
+                if (targetMachines.includes(origin) || targetMachines.includes(originLabel)) {
+                    isRelevant = true;
+                } else if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel)) {
+                    const diameter = getDiameter(p.item || "");
+                    if (diameter > 300) isRelevant = true;
+                }
+
+                // Als relevant en stap is verder dan Lossen (en niet Wikkelen)
+                if (isRelevant && pStep !== "Wikkelen" && pStep !== "Lossen" && pStep !== "HOLD_AREA") {
+                    wasHere = true;
+                }
+            } else {
+                if (pLastStationNorm === currentStationNorm) wasHere = true;
+                if (pStationNorm === currentStationNorm && (p.status === "completed" || p.currentStep === "Finished")) wasHere = true;
+                
+                // BM01 specifieke check voor finished items die naar GEREED zijn gegaan
+                if (cleanStationId.includes("BM01")) {
+                    if ((p.status === "completed" || p.currentStep === "Finished") && (pStationNorm === "GEREED" && pLastStationNorm === "BM01")) {
+                        wasHere = true;
+                    }
+                }
+            }
+            if (wasHere) doneCount++;
+        });
+
+        return { plan: todoCount + doneCount, done: doneCount, todo: todoCount };
+    }
+
+    let plan = 0;
+    let done = 0;
+    
+    stationOrders.forEach(o => {
+      const orderPlan = Number(o.plan || 0);
+      plan += orderPlan;
+      
+      // FIX: Als order status 'completed' is, tel als volledig gereed (ook als tracking data weg is)
+      const status = (o.status || "").toLowerCase();
+      if (['completed', 'shipped', 'ready_to_ship', 'gereed', 'finished'].includes(status)) {
+        done += orderPlan;
+      } else {
+        done += Number(o.liveFinish || 0);
+      }
+    });
+
+    return { plan, done, todo: Math.max(0, plan - done) };
+  }, [stationOrders, rawProducts, selectedStation, archivedStats]);
+
   const activeUnitsHere = useMemo(() => {
     if (!selectedStation) return [];
     const currentStationNorm = normalizeMachine(selectedStation);
+    const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
+
     return rawProducts.filter((p) => {
       if (p.currentStep === "Finished" || p.currentStep === "REJECTED")
         return false;
 
       const pMachine = String(p.originMachine || p.currentStation || "");
       const pMachineNorm = normalizeMachine(pMachine);
+      const pClean = (pMachineNorm || "").toUpperCase().replace(/\s/g, "");
 
-      if (selectedStation === "Mazak")
-        return p.currentStation === "Mazak" || p.currentStation === "MAZAK";
-      if (selectedStation === "Nabewerking")
+      if (cleanStationId === "MAZAK")
+        return pClean === "MAZAK";
+      
+      if (cleanStationId === "NABEWERKING" || cleanStationId === "NABEWERKEN" || cleanStationId.includes("NABEWERK"))
         return (
-          p.currentStation === "Nabewerking" || p.currentStation === "NABW"
+          pClean === "NABEWERKING" || pClean === "NABEWERKEN" || pClean === "NABW" || pClean.includes("NABEWERK")
         );
-      if (selectedStation === "BM01" || selectedStation === "Station BM01")
-        return p.currentStation === "BM01";
+      
+      if (cleanStationId === "BM01" || cleanStationId.includes("BM01"))
+        return pClean === "BM01" || pClean.includes("BM01");
 
       if (selectedStation.startsWith("BH")) {
         return (
@@ -646,9 +840,32 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           updates.currentStep = "Finished";
           updates.status = "completed";
           updates["timestamps.finished"] = serverTimestamp();
+          updates.lastStation = "BM01"; // Ensure lastStation is set for archiving context
+
+          // ARCHIVERING LOGICA VOOR BM01 (indien hier afgehandeld)
+          const year = new Date().getFullYear();
+          const archiveRef = doc(db, "future-factory", "production", "archive", String(year), "items", itemToFinish.id || itemToFinish.lotNumber);
+          
+          const finalData = { 
+              ...itemToFinish, 
+              ...updates,
+              updatedAt: new Date(),
+              timestamps: {
+                  ...itemToFinish.timestamps,
+                  finished: new Date()
+              }
+          };
+
+          await setDoc(archiveRef, finalData);
+          await deleteDoc(productRef);
+          
+          setFinishModalOpen(false);
+          setItemToFinish(null);
+          return;
         } else {
           updates.currentStation = "BM01";
           updates.currentStep = "Eindinspectie";
+          updates.lastStation = selectedStation;
           updates["timestamps.eindinspectie_start"] = serverTimestamp();
         }
       } else if (status === "temp_reject") {
@@ -789,20 +1006,40 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               </span>
             </div>
 
-            {/* Midden: Bezetting Info */}
-            <div className="hidden lg:flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 shadow-sm">
-              <Clock className="w-4 h-4 text-slate-500" />
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {stationOccupancy.map((occ, idx) => (
-                  <div
-                    key={idx}
-                    className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase border ${getShiftColor(occ.shift)}`}
-                    title={`${occ.operatorName} - ${occ.shift}`}
-                  >
-                    {occ.operatorName}
-                  </div>
-                ))}
+            {/* KPI Tegels */}
+            <div className="hidden md:flex items-center gap-2 ml-2 border-l border-slate-200 pl-4">
+              <div className="flex flex-col items-center px-3 py-1 bg-blue-50 rounded-lg border border-blue-100 min-w-[60px]">
+                <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest leading-none mb-0.5">Plan</span>
+                <span className="text-sm font-black text-blue-700 leading-none">{stationStats.plan}</span>
               </div>
+              <div className="flex flex-col items-center px-3 py-1 bg-orange-50 rounded-lg border border-orange-100 min-w-[60px]">
+                <span className="text-[8px] font-black text-orange-400 uppercase tracking-widest leading-none mb-0.5">
+                  {["BM01", "Station BM01", "Mazak", "Nabewerking"].includes(selectedStation) ? "Aan te bieden" : "Nog te doen"}
+                </span>
+                <span className="text-sm font-black text-orange-700 leading-none">{stationStats.todo}</span>
+              </div>
+              <div className="flex flex-col items-center px-3 py-1 bg-emerald-50 rounded-lg border border-emerald-100 min-w-[60px]">
+                <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest leading-none mb-0.5">Gereed</span>
+                <span className="text-sm font-black text-emerald-700 leading-none">{stationStats.done}</span>
+              </div>
+            </div>
+
+            {/* Midden: Bezetting Info */}
+            <div className="hidden lg:flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 shadow-sm min-w-[200px] justify-center">
+              <Clock className="w-4 h-4 text-slate-500" />
+              {stationOccupancy.length > 0 ? (
+                <div
+                  key={currentOperatorIndex}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase border animate-in fade-in slide-in-from-bottom-1 duration-500 ${getShiftColor(
+                    stationOccupancy[currentOperatorIndex]?.shift
+                  )}`}
+                  title={`${stationOccupancy[currentOperatorIndex]?.operatorName} - ${stationOccupancy[currentOperatorIndex]?.shift}`}
+                >
+                  {stationOccupancy[currentOperatorIndex]?.operatorName}
+                </div>
+              ) : (
+                <span className="text-xs font-bold text-slate-400 uppercase italic">Geen operator</span>
+              )}
             </div>
 
             {/* Rechts: Datum, Tijd & Week - helemaal rechts met flex-1 */}
@@ -831,6 +1068,22 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
                 {isMobileMenuOpen && (
                   <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 p-2 flex flex-col gap-1 z-50 animate-in slide-in-from-top-2">
+                    {/* KPI Info voor mobiel */}
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <div className="px-2 py-2 bg-blue-50 rounded-lg border border-blue-100 text-center">
+                        <span className="text-[8px] font-black text-blue-400 uppercase block">Plan</span>
+                        <span className="text-xs font-black text-blue-700">{stationStats.plan}</span>
+                      </div>
+                      <div className="px-2 py-2 bg-orange-50 rounded-lg border border-orange-100 text-center">
+                        <span className="text-[8px] font-black text-orange-400 uppercase block">Aan te bieden</span>
+                        <span className="text-xs font-black text-orange-700">{stationStats.todo}</span>
+                      </div>
+                      <div className="px-2 py-2 bg-emerald-50 rounded-lg border border-emerald-100 text-center">
+                        <span className="text-[8px] font-black text-emerald-400 uppercase block">Gereed</span>
+                        <span className="text-xs font-black text-emerald-700">{stationStats.done}</span>
+                      </div>
+                    </div>
+
                     {/* Bezetting Info voor mobiel */}
                     {stationOccupancy.length > 0 && (
                       <div className="px-3 py-3 bg-slate-50 rounded-lg border border-slate-200 mb-2">
@@ -875,12 +1128,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                           : "text-gray-500"
                       }`}
                     >
-                      {selectedStation === "BM01" ||
-                      selectedStation === "Station BM01"
-                        ? "Inspectie"
-                        : "Productie"}
+                      Productie
                     </button>
-                    {!["BM01", "Station BM01", "Mazak", "Nabewerking"].includes(
+                    {!["BM01", "Station BM01"].includes(
                       selectedStation
                     ) && (
                       <button
@@ -948,12 +1198,20 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             )}
             {activeTab === "terminal" && (
               <div className="h-full">
-                <Terminal
-                  currentUser={currentUser}
-                  initialStation={selectedStation}
-                  products={rawProducts}
-                  onBack={() => setActiveTab("planning")}
-                />
+                {isBM01 ? (
+                  <BM01Hub 
+                    onBack={handleBack} 
+                    orders={rawOrders}
+                    products={rawProducts}
+                  />
+                ) : (
+                  <Terminal
+                    currentUser={currentUser}
+                    initialStation={selectedStation}
+                    products={rawProducts}
+                    onBack={() => setActiveTab("planning")}
+                  />
+                )}
               </div>
             )}
           </>

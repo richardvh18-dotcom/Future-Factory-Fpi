@@ -4,7 +4,9 @@ import {
   AlertTriangle,
   CheckCircle,
   Calendar,
-  Users
+  Users,
+  Cpu,
+  X
 } from "lucide-react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -14,7 +16,8 @@ import {
   startOfWeek, 
   addWeeks,
   eachWeekOfInterval,
-  getISOWeek
+  getISOWeek,
+  isSameWeek
 } from "date-fns";
 import { nl } from "date-fns/locale";
 
@@ -29,6 +32,7 @@ const WorkloadHeatmapView = () => {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState("machine"); // machine | operator
   const [weekRange, setWeekRange] = useState(8); // number of weeks to show
+  const [selectedCell, setSelectedCell] = useState(null);
 
   const viewStart = startOfWeek(new Date(), { weekStartsOn: 1 });
 
@@ -76,32 +80,94 @@ const WorkloadHeatmapView = () => {
     }, { weekStartsOn: 1 });
   }, [viewStart, weekRange]);
 
+  // Station icon/kleur mapping
+  const stationStyles = {
+    'Teamleade hub': {
+      color: 'bg-yellow-400 text-black border-black',
+      icon: <Users size={20} className="text-black" />
+    },
+    'BM': {
+      color: 'bg-blue-500 text-white border-blue-700',
+      icon: <Cpu size={20} className="text-white" />
+    },
+    'BA': {
+      color: 'bg-blue-500 text-white border-blue-700',
+      icon: <Cpu size={20} className="text-white" />
+    },
+    'BH': {
+      color: 'bg-blue-500 text-white border-blue-700',
+      icon: <Cpu size={20} className="text-white" />
+    },
+    'Mazak': {
+      color: 'bg-red-500 text-white border-red-700',
+      icon: <TrendingUp size={20} className="text-white" />
+    },
+    'Nabewerken': {
+      color: 'bg-green-500 text-white border-green-700',
+      icon: <CheckCircle size={20} className="text-white" />
+    },
+    'Lossen': {
+      color: 'bg-yellow-300 text-black border-yellow-600',
+      icon: <AlertTriangle size={20} className="text-black" />
+    },
+    'Algemeen': {
+      color: 'bg-orange-400 text-white border-orange-700',
+      icon: <Calendar size={20} className="text-white" />
+    }
+  };
+
   // Calculate workload for a machine in a week
   const getMachineWorkload = (machine, weekStart) => {
-    const weekNum = getISOWeek(weekStart);
-    const year = weekStart.getFullYear();
-
     // Get capacity (occupancy)
     const capacity = occupancy
-      .filter(o => 
-        o.machine === machine &&
-        o.week === weekNum &&
-        o.year === year
-      )
-      .reduce((sum, o) => sum + (o.productionHours || 0), 0);
+      .filter(o => {
+        const occMachine = o.machine || o.machineName || o.machineId;
+        if (occMachine !== machine) return false;
+        
+        if (o.date) {
+          return isSameWeek(new Date(o.date), weekStart, { weekStartsOn: 1 });
+        }
+        // Fallback legacy
+        const weekNum = getISOWeek(weekStart);
+        const year = weekStart.getFullYear();
+        return o.week === weekNum && o.year === year;
+      })
+      .reduce((sum, o) => sum + (parseFloat(o.hoursWorked || o.hours || o.productionHours || 0)), 0);
 
     // Get demand (planning)
     const demand = planning
       .filter(p => {
         if (p.machine !== machine || !p.plannedDate) return false;
         const planDate = new Date(p.plannedDate.seconds * 1000);
-        const planWeek = getISOWeek(planDate);
-        const planYear = planDate.getFullYear();
-        return planWeek === weekNum && planYear === year;
+        return isSameWeek(planDate, weekStart, { weekStartsOn: 1 });
       })
       .reduce((sum, p) => sum + (p.estimatedHours || p.plan / 10 || 0), 0);
 
     return { capacity, demand, utilization: capacity > 0 ? (demand / capacity) * 100 : 0 };
+  };
+
+  const handleCellClick = (machine, week) => {
+    // Filter occupancy details
+    const cellOccupancy = occupancy.filter(o => {
+      const occMachine = o.machine || o.machineName || o.machineId;
+      if (occMachine !== machine) return false;
+      if (o.date) return isSameWeek(new Date(o.date), week, { weekStartsOn: 1 });
+      return false;
+    });
+
+    // Filter planning details
+    const cellPlanning = planning.filter(p => {
+      if (p.machine !== machine || !p.plannedDate) return false;
+      const planDate = new Date(p.plannedDate.seconds * 1000);
+      return isSameWeek(planDate, week, { weekStartsOn: 1 });
+    });
+
+    setSelectedCell({
+      machine,
+      week,
+      occupancy: cellOccupancy,
+      planning: cellPlanning
+    });
   };
 
   // Get color based on utilization %
@@ -251,12 +317,15 @@ const WorkloadHeatmapView = () => {
                 <div className="flex">
                   {weeks.map((week, weekIdx) => {
                     const workload = getMachineWorkload(machine, week);
-                    const color = getHeatmapColor(workload.utilization);
-                    const icon = getStatusIcon(workload.utilization);
+                    // Station specifieke kleur/icon
+                    const stationStyle = stationStyles[machine] || {};
+                    const color = stationStyle.color || getHeatmapColor(workload.utilization);
+                    const icon = stationStyle.icon || getStatusIcon(workload.utilization);
 
                     return (
                       <div
                         key={weekIdx}
+                        onClick={() => handleCellClick(machine, week)}
                         className={`flex-shrink-0 border-r border-slate-200 p-3 group relative transition-all hover:scale-105 cursor-pointer ${color}`}
                         style={{ minWidth: "100px", minHeight: "80px" }}
                       >
@@ -271,7 +340,7 @@ const WorkloadHeatmapView = () => {
                         </div>
 
                         {/* Tooltip */}
-                        <div className="hidden group-hover:block absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-slate-900 text-white p-3 rounded-lg shadow-xl z-10 whitespace-nowrap text-xs">
+                        <div className="hidden group-hover:block absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-slate-900 text-white p-3 rounded-lg shadow-xl z-10 whitespace-nowrap text-xs pointer-events-none">
                           <div className="font-bold mb-2">{machine} - Week {getISOWeek(week)}</div>
                           <div>Capaciteit: {Math.round(workload.capacity)} uur</div>
                           <div>Vraag: {Math.round(workload.demand)} uur</div>
@@ -370,6 +439,82 @@ const WorkloadHeatmapView = () => {
           </div>
         ))}
       </div>
+
+      {/* Detail Modal */}
+      {selectedCell && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div>
+                <h3 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter">
+                  {selectedCell.machine}
+                </h3>
+                <p className="text-sm font-bold text-slate-500">
+                  Week {getISOWeek(selectedCell.week)} • {format(selectedCell.week, 'dd MMM yyyy', { locale: nl })}
+                </p>
+              </div>
+              <button 
+                onClick={() => setSelectedCell(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X size={24} className="text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Capacity Column */}
+                <div>
+                  <h4 className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <Users size={18} /> Capaciteit ({selectedCell.occupancy.reduce((sum, o) => sum + (parseFloat(o.hoursWorked || o.hours || 0)), 0)}u)
+                  </h4>
+                  <div className="space-y-3">
+                    {selectedCell.occupancy.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">Geen personeel ingepland.</p>
+                    ) : (
+                      selectedCell.occupancy.map((occ, idx) => (
+                        <div key={idx} className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 flex justify-between items-center">
+                          <div>
+                            <div className="font-bold text-slate-700 text-sm">{occ.operatorName}</div>
+                            <div className="text-[10px] text-emerald-600 font-bold uppercase">{occ.shift || "Dagdienst"}</div>
+                          </div>
+                          <div className="font-black text-emerald-700">{occ.hoursWorked || occ.hours || 8}u</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Demand Column */}
+                <div>
+                  <h4 className="text-sm font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <TrendingUp size={18} /> Vraag ({Math.round(selectedCell.planning.reduce((sum, p) => sum + (p.estimatedHours || 0), 0))}u)
+                  </h4>
+                  <div className="space-y-3">
+                    {selectedCell.planning.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">Geen orders gepland.</p>
+                    ) : (
+                      selectedCell.planning.map((order, idx) => (
+                        <div key={idx} className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+                          <div className="flex justify-between items-start mb-1">
+                            <div className="font-bold text-slate-700 text-sm">{order.orderId || order.item}</div>
+                            <div className="font-black text-blue-700">{Math.round(order.estimatedHours || 0)}u</div>
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">{order.itemCode}</div>
+                          <div className="flex justify-between items-center mt-2">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">{order.status}</span>
+                            <span className="text-[10px] font-bold text-blue-600">{order.plan} stuks</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,40 +1,20 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Users,
-  Trash2,
-  Search,
   Loader2,
-  Monitor,
-  Cpu,
   ShieldCheck,
   X,
   Plus,
   UserPlus,
-  Layers,
-  Clock,
-  Settings,
-  Edit3,
-  ArrowRight,
   RotateCcw,
-  UserCircle,
-  ChevronUp,
-  MinusCircle,
   ChevronLeft,
   ChevronRight,
-  Building2,
-  Info,
-  Globe,
-  ChevronDown,
-  Calculator,
   UserCheck,
-  BarChart3,
   CalendarDays,
   TrendingUp,
   Database,
   Copy,
   Save,
-  AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 import { db, auth } from "../../config/firebase";
 import {
@@ -62,6 +42,9 @@ import {
 import { nl } from "date-fns/locale";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { PATHS, isValidPath } from "../../config/dbPaths";
+import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView.jsx";
+import PersonnelListView from "../personnel/PersonnelListView.jsx";
+import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
 
 /**
  * PersonnelManager V26.5 - Root Integrated Edition
@@ -74,10 +57,9 @@ const PersonnelManager = () => {
   const [personnel, setPersonnel] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
   const [structure, setStructure] = useState({ departments: [] });
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("assignment");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [expandedDepts, setExpandedDepts] = useState({});
   const [viewDate, setViewDate] = useState(new Date());
   const [timeMode, setTimeMode] = useState("DAY");
 
@@ -86,6 +68,7 @@ const PersonnelManager = () => {
   const [saving, setSaving] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
   const [status, setStatus] = useState(null);
+  const [modalTab, setModalTab] = useState("profile");
 
   const currentWeek = getISOWeek(viewDate);
   const selectedDateStr = format(viewDate, "yyyy-MM-dd");
@@ -94,6 +77,7 @@ const PersonnelManager = () => {
     name: "",
     employeeNumber: "",
     departmentId: "",
+    linkedUserId: "",
     rotationType: "STATIC",
     shiftId: "DAG",
     isActive: true,
@@ -103,6 +87,14 @@ const PersonnelManager = () => {
       startYear: new Date().getFullYear(),
       shifts: ["DAG"], // Array van shift IDs die roteren
     },
+    loan: {
+      active: false,
+      departmentId: "",
+      shiftId: "",
+      autoReturn: false,
+      returnDate: "",
+      followRotation: false
+    }
   });
 
   // 1. DATA SYNC MET DE ROOT
@@ -127,21 +119,22 @@ const PersonnelManager = () => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setStructure(data);
-          // Automatisch afdelingen openklappen bij eerste load
-          const initialExpanded = {};
-          (data.departments || []).forEach((d) => {
-            initialExpanded[d.id] = true;
-          });
-          setExpandedDepts(initialExpanded);
         }
         setLoading(false);
       }
+    );
+
+    const unsubUsers = onSnapshot(
+      collection(db, ...PATHS.USERS),
+      (snap) =>
+        setUsers(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
     );
 
     return () => {
       unsubPersonnel();
       unsubOccupancy();
       unsubStructure();
+      unsubUsers();
     };
   }, []);
 
@@ -179,14 +172,14 @@ const PersonnelManager = () => {
       const end = parse(activeShift.end, "HH:mm", new Date());
       let diff = (end - start) / (1000 * 60 * 60);
       if (diff < 0) diff += 24;
-      const deduction = 0.75; // Pauze correctie
+      const deduction = DEFAULTS.BREAK_DEDUCTION; // Pauze correctie
       return {
         label: activeShift.label,
         total: Math.max(0, diff - deduction),
         times: `${activeShift.start}-${activeShift.end}`,
       };
     } catch (e) {
-      return { label: "Dagdienst", total: 8.0, times: "07:15-16:00" };
+      return { label: "Dagdienst", total: DEFAULTS.SHIFT_HOURS, times: "07:15-16:00" };
     }
   };
 
@@ -231,15 +224,6 @@ const PersonnelManager = () => {
     return stats;
   }, [occupancy, timeMode, selectedDateStr, viewDate, structure.departments]);
 
-  const countriesData = useMemo(() => {
-    const groups = {};
-    (structure.departments || []).forEach((dept) => {
-      const country = dept.country || "Nederland";
-      if (!groups[country]) groups[country] = [];
-      groups[country].push(dept);
-    });
-    return groups;
-  }, [structure.departments]);
 
   // --- HANDLERS ---
   const handleAssign = async (machineId, operatorNumber, deptId) => {
@@ -284,6 +268,10 @@ const PersonnelManager = () => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleRemoveAssignment = async (assignmentId) => {
+    await deleteDoc(doc(db, ...PATHS.OCCUPANCY, assignmentId));
   };
 
   const handleCopyYesterday = async () => {
@@ -354,10 +342,36 @@ const PersonnelManager = () => {
   };
 
   const openEditPerson = (person) => {
-    setPersonForm(person);
+    setPersonForm({
+      ...person,
+      loan: person.loan || {
+        active: false,
+        departmentId: "",
+        shiftId: "",
+        autoReturn: false,
+        returnDate: "",
+        followRotation: false
+      },
+      linkedUserId: person.linkedUserId || ""
+    });
     setEditingId(person.id);
+    setModalTab("profile");
     setIsPersonModalOpen(true);
   };
+
+  const handleAutoReturnToggle = (checked) => {
+    const newLoan = { ...personForm.loan, autoReturn: checked };
+    if (checked) {
+      newLoan.returnDate = format(addDays(new Date(), 5), "yyyy-MM-dd");
+    } else {
+      newLoan.returnDate = "";
+    }
+    setPersonForm({ ...personForm, loan: newLoan });
+    setIsPersonModalOpen(true);
+  };
+
+  const loanDept = structure.departments?.find(d => d.id === personForm.loan?.departmentId);
+  const loanShifts = loanDept?.shifts || [];
 
   if (loading)
     return (
@@ -428,6 +442,16 @@ const PersonnelManager = () => {
                 Bezetting
               </button>
               <button
+                onClick={() => setActiveTab("loan")}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                  activeTab === "loan"
+                    ? "bg-white text-indigo-900 shadow-sm"
+                    : "text-slate-400"
+                }`}
+              >
+                Uitlenen
+              </button>
+              <button
                 onClick={() => setActiveTab("personnel")}
                 className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
                   activeTab === "personnel"
@@ -435,7 +459,7 @@ const PersonnelManager = () => {
                     : "text-slate-400"
                 }`}
               >
-                Database
+                Personeel
               </button>
             </div>
             <button
@@ -446,6 +470,7 @@ const PersonnelManager = () => {
                   name: "",
                   employeeNumber: "",
                   departmentId: structure.departments[0]?.id || "",
+                  linkedUserId: "",
                   rotationType: "STATIC",
                   shiftId: "DAG",
                   isActive: true,
@@ -455,7 +480,16 @@ const PersonnelManager = () => {
                     startYear: new Date().getFullYear(),
                     shifts: ["DAG"],
                   },
+                  loan: {
+                    active: false,
+                    departmentId: "",
+                    shiftId: "",
+                    autoReturn: false,
+                    returnDate: "",
+                    followRotation: false
+                  }
                 });
+                setModalTab("profile");
                 setIsPersonModalOpen(true);
               }}
               className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-2"
@@ -513,25 +547,41 @@ const PersonnelManager = () => {
           {activeTab === "assignment" && (
             <div className="flex-1 flex items-center gap-4 overflow-x-auto no-scrollbar py-2 justify-end">
               <div className="bg-slate-900 px-6 py-4 rounded-3xl flex items-center gap-6 border border-white/5 shadow-xl shrink-0">
+                {/* Totaal Volume */}
                 <div className="text-left">
-                  <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">
-                    Totaal Volume
-                  </span>
+                  <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Totaal Volume</span>
                   <div className="flex items-baseline gap-1.5 text-white">
-                    <span className="text-2xl font-black italic">
-                      {kpiData.global.hours.toFixed(1)}
-                    </span>
-                    <span className="text-[9px] font-bold text-slate-500 uppercase">
-                      u
-                    </span>
+                    <span className="text-2xl font-black italic">{kpiData.global.hours.toFixed(1)}</span>
+                    <span className="text-[9px] font-bold text-slate-500 uppercase">u</span>
                   </div>
+                  <span className="text-[8px] text-slate-400 font-bold uppercase">{timeMode === 'DAY' ? 'per dag' : 'per week'}</span>
+                </div>
+                <div className="w-px h-8 bg-white/10"></div>
+                {/* Man-uren */}
+                <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
+                  <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Man-uren</span>
+                  <span className="text-xs font-black text-white">{kpiData.global.hours.toFixed(1)}</span>
+                  <span className="text-[7px] text-slate-400 font-bold uppercase">{timeMode === 'DAY' ? 'per dag' : 'per week'}</span>
+                </div>
+                {/* BH Stations */}
+                <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
+                  <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest">BH Stations</span>
+                  <span className="text-xs font-black text-emerald-300">0.0</span>
+                </div>
+                {/* Overig */}
+                <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
+                  <span className="text-[7px] font-black text-blue-500 uppercase tracking-widest">Overig</span>
+                  <span className="text-xs font-black text-blue-300">0.0</span>
+                </div>
+                {/* Efficiency */}
+                <div className="flex flex-col items-center px-3 min-w-[60px]">
+                  <span className="text-[7px] font-black text-purple-500 uppercase tracking-widest">Efficiency</span>
+                  <span className="text-xs font-black text-purple-300">0%</span>
                 </div>
                 <div className="w-px h-8 bg-white/10"></div>
                 <div className="flex items-center gap-3 text-emerald-400">
                   <UserCheck size={20} />
-                  <span className="text-xl font-black italic">
-                    {kpiData.global.count}
-                  </span>
+                  <span className="text-xl font-black italic">{kpiData.global.count}</span>
                 </div>
               </div>
             </div>
@@ -543,375 +593,29 @@ const PersonnelManager = () => {
         <div className="max-w-7xl mx-auto pb-40">
           {/* TAB 1: BEZETTING PER STATION */}
           {activeTab === "assignment" && (
-            <div className="space-y-16">
-              {Object.entries(countriesData)
-                .sort()
-                .map(([country, depts]) => (
-                  <div key={country} className="space-y-8 animate-in fade-in">
-                    <div className="flex items-center gap-4 border-b-2 border-slate-200 pb-4 ml-2">
-                      <Globe size={24} className="text-slate-400" />
-                      <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter">
-                        {country}
-                      </h3>
-                    </div>
-                    <div className="space-y-4">
-                      {depts.map((dept) => {
-                        const isOpen = expandedDepts[dept.id] === true;
-                        const sortedStations = [...(dept.stations || [])].sort(
-                          (a, b) =>
-                            (a.name || "").toLowerCase().includes("teamleader")
-                              ? -1
-                              : 1
-                        );
-                        return (
-                          <div key={dept.id} className="space-y-4">
-                            <button
-                              onClick={() =>
-                                setExpandedDepts((prev) => ({
-                                  ...prev,
-                                  [dept.id]: !prev[dept.id],
-                                }))
-                              }
-                              className={`w-full flex items-center justify-between p-6 rounded-[35px] transition-all border-2 ${
-                                isOpen
-                                  ? "bg-white border-blue-500 shadow-xl"
-                                  : "bg-white border-slate-100 hover:border-blue-200 shadow-sm"
-                              }`}
-                            >
-                              <div className="flex items-center gap-6 flex-1 text-left">
-                                <div
-                                  className={`p-3 rounded-2xl transition-all ${
-                                    isOpen
-                                      ? "bg-blue-600 text-white scale-110"
-                                      : "bg-slate-100 text-slate-400"
-                                  }`}
-                                >
-                                  <Layers size={24} />
-                                </div>
-                                <div className="text-left">
-                                  <h4
-                                    className={`text-lg font-black uppercase italic tracking-tighter ${
-                                      isOpen
-                                        ? "text-slate-900"
-                                        : "text-slate-600"
-                                    }`}
-                                  >
-                                    {dept.name}
-                                  </h4>
-                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">
-                                    {sortedStations.length} Actieve Stations
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-8 mr-10 hidden lg:flex">
-                                <div className="text-right px-6 border-r border-slate-100">
-                                  <span className="text-[9px] font-black text-slate-300 uppercase block mb-1">
-                                    Capaciteit
-                                  </span>
-                                  <span
-                                    className={`text-xl font-black italic ${
-                                      kpiData.byDept[dept.id]?.hours > 0
-                                        ? "text-blue-600"
-                                        : "text-slate-200"
-                                    }`}
-                                  >
-                                    {kpiData.byDept[dept.id]?.hours.toFixed(1)}u
-                                  </span>
-                                </div>
-                                <div className="text-right">
-                                  <span className="text-[9px] font-black text-slate-300 uppercase block mb-1">
-                                    Inzet
-                                  </span>
-                                  <span
-                                    className={`text-xl font-black italic ${
-                                      kpiData.byDept[dept.id]?.count > 0
-                                        ? "text-slate-800"
-                                        : "text-slate-200"
-                                    }`}
-                                  >
-                                    {kpiData.byDept[dept.id]?.count}
-                                  </span>
-                                </div>
-                              </div>
-                              <div
-                                className={`p-2.5 rounded-xl transition-transform duration-500 ${
-                                  isOpen
-                                    ? "rotate-0 bg-blue-100 text-blue-600"
-                                    : "rotate-180 bg-slate-50 text-slate-300"
-                                }`}
-                              >
-                                <ChevronUp size={24} />
-                              </div>
-                            </button>
-
-                            {isOpen && (
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in zoom-in-95 p-2">
-                                {sortedStations.map((station) => {
-                                  const mId = station.name;
-                                  const isTL = mId
-                                    .toLowerCase()
-                                    .includes("teamleader");
-                                  const occList = occupancy.filter(
-                                    (o) =>
-                                      normalizeMachine(o.machineId) ===
-                                        normalizeMachine(mId) &&
-                                      o.date === selectedDateStr &&
-                                      o.departmentId === dept.id
-                                  );
-                                  const isBusy = occList.some(
-                                    (o) => o.operatorNumber
-                                  );
-
-                                  return (
-                                    <div
-                                      key={station.id}
-                                      className={`p-6 rounded-[40px] border-2 transition-all relative flex flex-col shadow-sm text-left ${
-                                        isTL
-                                          ? isBusy
-                                            ? "bg-slate-900 border-amber-400 ring-8 ring-amber-400/10"
-                                            : "bg-slate-900 border-slate-800 opacity-60"
-                                          : isBusy
-                                          ? "bg-white border-blue-500 ring-8 ring-blue-50/50"
-                                          : "bg-white border-slate-100 hover:border-blue-400"
-                                      }`}
-                                    >
-                                      <div className="flex justify-between items-start mb-6">
-                                        <div className="text-left">
-                                          <span
-                                            className={`text-[8px] font-black uppercase tracking-widest block mb-1.5 ${
-                                              isTL
-                                                ? "text-amber-500 italic"
-                                                : "text-slate-400 opacity-60"
-                                            }`}
-                                          >
-                                            {isTL
-                                              ? "Operational Lead"
-                                              : "Workstation"}
-                                          </span>
-                                          <h4
-                                            className={`text-xl font-black italic tracking-tighter uppercase truncate leading-none ${
-                                              isTL
-                                                ? "text-white"
-                                                : "text-slate-900"
-                                            }`}
-                                          >
-                                            {mId}
-                                          </h4>
-                                        </div>
-                                        {isTL ? (
-                                          <ShieldCheck
-                                            size={24}
-                                            className={
-                                              isBusy
-                                                ? "text-amber-400"
-                                                : "text-slate-700"
-                                            }
-                                          />
-                                        ) : (
-                                          <Cpu
-                                            size={24}
-                                            className={
-                                              isBusy
-                                                ? "text-blue-600"
-                                                : "text-slate-200"
-                                            }
-                                          />
-                                        )}
-                                      </div>
-
-                                      <div className="space-y-3 mb-6 flex-1 text-left">
-                                        {occList
-                                          .filter((o) => o.operatorNumber)
-                                          .map((occ) => (
-                                            <div
-                                              key={occ.id}
-                                              className={`p-4 rounded-[22px] border transition-all flex items-center justify-between ${
-                                                isTL
-                                                  ? "bg-white/5 border-white/10 text-white"
-                                                  : "bg-slate-50 border-slate-100"
-                                              }`}
-                                            >
-                                              <div className="text-left overflow-hidden">
-                                                <h5
-                                                  className={`text-base font-black uppercase italic truncate mb-1 ${
-                                                    isTL
-                                                      ? "text-amber-400"
-                                                      : "text-slate-950"
-                                                  }`}
-                                                >
-                                                  {occ.operatorName}
-                                                </h5>
-                                                <div className="flex items-center gap-2 opacity-70">
-                                                  <Clock
-                                                    size={12}
-                                                    className="text-blue-500"
-                                                  />
-                                                  <span className="text-[10px] font-black">
-                                                    {occ.hoursWorked?.toFixed(
-                                                      1
-                                                    ) || 0}
-                                                    u
-                                                  </span>
-                                                </div>
-                                              </div>
-                                              <button
-                                                onClick={() =>
-                                                  deleteDoc(
-                                                    doc(
-                                                      db,
-                                                      ...PATHS.OCCUPANCY,
-                                                      occ.id
-                                                    )
-                                                  )
-                                                }
-                                                className="p-2 text-slate-300 hover:text-rose-500 transition-colors"
-                                              >
-                                                <X size={18} />
-                                              </button>
-                                            </div>
-                                          ))}
-                                        {!isBusy && (
-                                          <div
-                                            className={`py-6 border-2 border-dashed rounded-[25px] flex flex-col items-center justify-center opacity-30 ${
-                                              isTL
-                                                ? "border-white/10"
-                                                : "border-slate-200"
-                                            }`}
-                                          >
-                                            <span
-                                              className={`text-[8px] font-black uppercase tracking-widest ${
-                                                isTL
-                                                  ? "text-slate-600"
-                                                  : "text-slate-400"
-                                              }`}
-                                            >
-                                              Onbemand
-                                            </span>
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      <select
-                                        className={`w-full p-3 rounded-2xl font-black text-[10px] uppercase outline-none transition-all appearance-none cursor-pointer border-2 ${
-                                          isTL
-                                            ? "bg-white/5 border-white/10 text-slate-400 hover:border-amber-400 focus:border-amber-400 shadow-inner"
-                                            : "bg-slate-50 border-slate-100 text-slate-400 hover:border-blue-400 focus:border-blue-500"
-                                        }`}
-                                        value=""
-                                        onChange={(e) =>
-                                          handleAssign(
-                                            mId,
-                                            e.target.value,
-                                            dept.id
-                                          )
-                                        }
-                                      >
-                                        <option value="">
-                                          + Operator Toevoegen
-                                        </option>
-                                        {personnel
-                                          .filter(
-                                            (p) =>
-                                              p.departmentId === dept.id &&
-                                              p.isActive !== false &&
-                                              !occList.some(
-                                                (o) =>
-                                                  o.operatorNumber ===
-                                                  p.employeeNumber
-                                              )
-                                          )
-                                          .map((p) => (
-                                            <option
-                                              key={p.id}
-                                              value={p.employeeNumber}
-                                            >
-                                              {p.name}
-                                            </option>
-                                          ))}
-                                      </select>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-            </div>
+            <PersonnelOccupancyView
+              structure={structure}
+              occupancy={occupancy}
+              personnel={personnel}
+              kpiData={kpiData}
+              users={users}
+              selectedDateStr={selectedDateStr}
+              onAssign={handleAssign}
+              onRemoveAssignment={handleRemoveAssignment}
+            />
           )}
 
           {/* TAB 2: PERSONEELSLIJST (DATABASE) */}
           {activeTab === "personnel" && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="bg-white p-6 rounded-[35px] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
-                <div className="relative flex-1 w-full group">
-                  <Search
-                    className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors"
-                    size={20}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Zoek op naam of personeelsnummer..."
-                    className="w-full pl-14 pr-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {personnel
-                  .filter(
-                    (p) =>
-                      !searchTerm ||
-                      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      p.employeeNumber.includes(searchTerm)
-                  )
-                  .map((p) => (
-                    <div
-                      key={p.id}
-                      className="bg-white p-6 rounded-[40px] border-2 border-slate-100 hover:border-blue-400 transition-all group shadow-sm flex flex-col relative overflow-hidden text-left"
-                    >
-                      <div className="absolute top-0 right-0 p-6 opacity-5 rotate-12">
-                        <UserCircle size={100} />
-                      </div>
-                      <div className="flex items-center gap-4 mb-6">
-                        <div className="p-3 bg-slate-900 text-white rounded-2xl shadow-lg">
-                          <UserCircle size={24} />
-                        </div>
-                        <div className="text-left overflow-hidden">
-                          <h4 className="font-black text-slate-950 text-base uppercase italic truncate leading-none mb-1.5">
-                            {p.name}
-                          </h4>
-                          <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest italic">
-                            {p.employeeNumber}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="pt-4 border-t border-slate-50 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-all">
-                        <button
-                          onClick={() => openEditPerson(p)}
-                          className="p-3 text-slate-400 hover:text-blue-600 bg-slate-50 rounded-xl transition-all"
-                        >
-                          <Edit3 size={18} />
-                        </button>
-                        <button
-                          onClick={async () =>
-                            window.confirm("Verwijderen?") &&
-                            (await deleteDoc(doc(db, ...PATHS.PERSONNEL, p.id)))
-                          }
-                          className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
+            <PersonnelListView
+              personnel={personnel}
+              onEdit={openEditPerson}
+              onDelete={async (id) => {
+                if (window.confirm("Verwijderen?")) {
+                  await deleteDoc(doc(db, ...PATHS.PERSONNEL, id));
+                }
+              }}
+            />
           )}
         </div>
       </div>
@@ -943,11 +647,31 @@ const PersonnelManager = () => {
               </button>
             </div>
 
+            {/* Tabs */}
+            <div className="flex gap-2 px-6 pt-2">
+              <button
+                type="button"
+                onClick={() => setModalTab("profile")}
+                className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${modalTab === "profile" ? "bg-slate-100 text-blue-600" : "text-slate-400 hover:bg-slate-50"}`}
+              >
+                Profiel
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab("loan")}
+                className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${modalTab === "loan" ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50"}`}
+              >
+                Uitlenen
+              </button>
+            </div>
+
             <form
               onSubmit={handleSavePerson}
               className="p-6 space-y-6 text-left overflow-y-auto"
             >
-              <div className="grid grid-cols-2 gap-6">
+              {modalTab === "profile" && (
+                <>
+                <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-1.5 text-left">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">
                     Naam Medewerker
@@ -981,6 +705,24 @@ const PersonnelManager = () => {
                     }
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1.5 text-left">
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">
+                  Koppel User Account
+                </label>
+                <select
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 text-sm cursor-pointer"
+                  value={personForm.linkedUserId || ""}
+                  onChange={(e) => setPersonForm({ ...personForm, linkedUserId: e.target.value })}
+                >
+                  <option value="">Geen koppeling...</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.email})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1.5 text-left">
@@ -1130,8 +872,14 @@ const PersonnelManager = () => {
                       <div className="flex gap-2 flex-wrap">
                         {personForm.rotationSchedule.shifts.map((shiftId, idx) => {
                           const shift = getShiftsForDept(personForm.departmentId).find(s => s.id === shiftId);
+                          const label = (shift?.label || shiftId || "").toUpperCase();
+                          let color = SHIFT_COLORS.DAG;
+                          if (label.includes("OCHTEND") || label.includes("MORNING")) color = SHIFT_COLORS.OCHTEND;
+                          else if (label.includes("AVOND") || label.includes("EVENING")) color = SHIFT_COLORS.AVOND;
+                          else if (label.includes("NACHT") || label.includes("NIGHT")) color = SHIFT_COLORS.NACHT;
+
                           return (
-                            <span key={idx} className="px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold">
+                            <span key={idx} className={`px-3 py-1.5 bg-${color}-100 text-${color}-800 border border-${color}-200 rounded-lg text-xs font-bold`}>
                               Week {idx + 1}: {shift?.label || shiftId}
                             </span>
                           );
@@ -1164,6 +912,82 @@ const PersonnelManager = () => {
                   </label>
                 </div>
               </div>
+              </>
+            )}
+
+            {modalTab === "loan" && (
+                <div className="space-y-6 animate-in slide-in-from-right-4">
+                  <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                    <span className="text-xs font-black text-indigo-800 uppercase">Actief Uitlenen</span>
+                    <input 
+                      type="checkbox" 
+                      className="w-6 h-6 rounded text-indigo-600 focus:ring-indigo-500"
+                      checked={personForm.loan?.active || false}
+                      onChange={e => setPersonForm({...personForm, loan: { ...personForm.loan, active: e.target.checked }})}
+                    />
+                  </div>
+
+                  {personForm.loan?.active && (
+                    <>
+                      <div className="space-y-1.5 text-left">
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Doel Afdeling</label>
+                        <select 
+                          className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-indigo-500 text-sm"
+                          value={personForm.loan.departmentId}
+                          onChange={e => setPersonForm({...personForm, loan: { ...personForm.loan, departmentId: e.target.value }})}
+                        >
+                          <option value="">Kies afdeling...</option>
+                          {structure.departments.filter(d => d.id !== personForm.departmentId).map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5 text-left">
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Doel Ploeg</label>
+                        <select 
+                          className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-indigo-500 text-sm"
+                          value={personForm.loan.shiftId}
+                          onChange={e => setPersonForm({...personForm, loan: { ...personForm.loan, shiftId: e.target.value }})}
+                        >
+                          <option value="">Kies ploeg...</option>
+                          {loanShifts.map(s => (
+                            <option key={s.id} value={s.id}>{s.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-3 pt-2">
+                        <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="w-5 h-5 rounded text-indigo-600"
+                            checked={personForm.loan.followRotation}
+                            onChange={e => setPersonForm({...personForm, loan: { ...personForm.loan, followRotation: e.target.checked }})}
+                          />
+                          <span className="text-xs font-bold text-slate-700">Volg ploegenrooster doelafdeling</span>
+                        </label>
+
+                        <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="w-5 h-5 rounded text-indigo-600"
+                            checked={personForm.loan.autoReturn}
+                            onChange={e => handleAutoReturnToggle(e.target.checked)}
+                          />
+                          <span className="text-xs font-bold text-slate-700">Automatisch terug na 5 dagen</span>
+                        </label>
+                        
+                        {personForm.loan.autoReturn && personForm.loan.returnDate && (
+                          <div className="text-[10px] font-bold text-indigo-600 px-4">
+                            Retour datum: {personForm.loan.returnDate}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               <button
                 type="submit"

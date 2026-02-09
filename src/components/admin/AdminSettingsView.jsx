@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Settings,
   BrainCircuit,
+  Rocket,
 } from "lucide-react";
 import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -274,6 +275,52 @@ const AdminSettingsView = () => {
                   Live Header Preview
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* SYSTEEM TOOLS */}
+          <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-6 text-left">
+            <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
+              <Settings size={16} className="text-blue-500" /> Systeem Tools
+            </h3>
+            
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div>
+                <h4 className="text-sm font-black text-slate-800">Onderhoudsmodus</h4>
+                <p className="text-[10px] text-slate-500 font-medium mt-1">
+                  Blokkeer toegang voor niet-admins tijdens updates.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={settings.maintenanceMode || false}
+                  onChange={(e) =>
+                    setSettings({ ...settings, maintenanceMode: e.target.checked })
+                  }
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div>
+                <h4 className="text-sm font-black text-slate-800">Release Notes</h4>
+                <p className="text-[10px] text-slate-500 font-medium mt-1">
+                  Toon de "Wat is nieuw" popup opnieuw.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('mes_release_version');
+                  window.location.reload();
+                }}
+                className="p-3 bg-white border-2 border-slate-200 text-slate-600 hover:border-blue-500 hover:text-blue-600 rounded-xl transition-all shadow-sm group"
+                title="Reset Release Notes"
+              >
+                <Rocket size={18} className="group-hover:animate-pulse" />
+              </button>
             </div>
           </div>
         </div>

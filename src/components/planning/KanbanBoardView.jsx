@@ -2,9 +2,7 @@ import React, { useState, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import { 
   Clock, 
-  CheckCircle2, 
   AlertCircle, 
-  Truck, 
   Package,
   User,
   Calendar
@@ -22,16 +20,30 @@ const KanbanBoardView = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Helper om statussen te normaliseren naar de kolommen
+  const normalizeStatus = (status) => {
+    if (!status) return "pending";
+    const s = status.toLowerCase();
+    
+    if (s === "planned" || s === "pending" || s === "open") return "pending";
+    if (s === "in_production" || s === "in_progress" || s === "active" || s === "started") return "in_progress";
+    if (s === "quality_check" || s === "inspection" || s === "check") return "quality_check";
+    if (s === "ready_to_ship" || s === "completed" || s === "finished" || s === "gereed") return "completed";
+    if (s === "shipped" || s === "verzonden") return "shipped";
+    
+    return "pending";
+  };
+
   const columns = [
     { 
-      id: "planned", 
+      id: "pending", 
       title: "📅 Gepland", 
       color: "bg-blue-50 border-blue-200",
       icon: Clock,
       wipLimit: null
     },
     { 
-      id: "in_production", 
+      id: "in_progress", 
       title: "⚙️ In Productie", 
       color: "bg-orange-50 border-orange-200",
       icon: Package,
@@ -43,20 +55,6 @@ const KanbanBoardView = () => {
       color: "bg-purple-50 border-purple-200",
       icon: AlertCircle,
       wipLimit: 5
-    },
-    { 
-      id: "ready_to_ship", 
-      title: "✅ Verzendklaar", 
-      color: "bg-emerald-50 border-emerald-200",
-      icon: CheckCircle2,
-      wipLimit: null
-    },
-    { 
-      id: "shipped", 
-      title: "🚚 Verzonden", 
-      color: "bg-slate-50 border-slate-200",
-      icon: Truck,
-      wipLimit: null
     }
   ];
 
@@ -67,7 +65,7 @@ const KanbanBoardView = () => {
         const ordersData = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
-          status: doc.data().status || "planned"
+          status: normalizeStatus(doc.data().status)
         }));
         setOrders(ordersData);
         setLoading(false);
@@ -130,9 +128,9 @@ const KanbanBoardView = () => {
   }
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen">
+    <div className="p-6 bg-slate-50 h-screen flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6 shrink-0">
         <h1 className="text-3xl font-black text-slate-800">
           Kanban Board <span className="text-blue-600">Planning</span>
         </h1>
@@ -143,15 +141,15 @@ const KanbanBoardView = () => {
 
       {/* Kanban Board */}
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-3 gap-4 flex-1 min-h-0">
           {columns.map(column => {
             const columnOrders = getOrdersByStatus(column.id);
             const Icon = column.icon;
             
             return (
-              <div key={column.id} className="flex flex-col">
+              <div key={column.id} className="flex flex-col h-full">
                 {/* Column Header */}
-                <div className={`${column.color} border-2 rounded-t-2xl p-4`}>
+                <div className={`${column.color} border-2 rounded-t-2xl p-4 shrink-0`}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Icon size={16} className="text-slate-700" />
@@ -180,7 +178,7 @@ const KanbanBoardView = () => {
                     <div
                       ref={provided.innerRef}
                       {...provided.droppableProps}
-                      className={`flex-1 ${column.color} border-x-2 border-b-2 rounded-b-2xl p-3 min-h-[500px] ${
+                      className={`flex-1 ${column.color} border-x-2 border-b-2 rounded-b-2xl p-3 overflow-y-auto custom-scrollbar ${
                         snapshot.isDraggingOver ? "bg-blue-100" : ""
                       }`}
                     >
@@ -247,7 +245,7 @@ const KanbanBoardView = () => {
       </DragDropContext>
 
       {/* Stats Footer */}
-      <div className="mt-6 grid grid-cols-5 gap-4">
+      <div className="mt-6 grid grid-cols-3 gap-4 shrink-0">
         {columns.map(column => {
           const columnOrders = getOrdersByStatus(column.id);
           const totalPlan = columnOrders.reduce((sum, o) => sum + (parseInt(o.plan) || 0), 0);

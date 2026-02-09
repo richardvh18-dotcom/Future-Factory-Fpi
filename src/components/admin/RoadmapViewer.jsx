@@ -106,6 +106,16 @@ const RoadmapViewer = ({ user }) => {
 
   const roadmapExpansions = [
     {
+      title: "Technische Gezondheidscheck & Optimalisatie (Code Audit)",
+      items: [
+        "Component Opsplitsing: PersonnelManager (1000+ regels) opsplitsen in beheersbare sub-componenten.",
+        "Performance: Lazy loading implementeren voor zware admin-routes en Firebase hooks optimaliseren.",
+        "Kwaliteit & Stabiliteit: Incrementele migratie naar TypeScript voor kritieke logica (src/utils).",
+        "Testing: Unit tests toevoegen voor rekenmodules zoals efficiencyCalculator.js.",
+        "Onderhoudbaarheid: Alle 'magic numbers' en configuratie centraliseren in constants.js."
+      ]
+    },
+    {
       title: "Kwaliteit & Compliance (Fase 5 uitbreiding)",
       items: [
         "Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.",
@@ -178,6 +188,23 @@ const RoadmapViewer = ({ user }) => {
                 ))}
               </div>
             )}
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-4 pt-4">
+        <h3 className="font-bold text-lg text-slate-800">Thematische Verdieping</h3>
+        {roadmapExpansions.map((expansion, index) => (
+          <div key={index} className="bg-slate-50 border border-slate-200 rounded-lg p-5">
+            <h4 className="font-bold text-slate-900 mb-3">{expansion.title}</h4>
+            <ul className="space-y-2">
+              {expansion.items.map((item, idx) => (
+                <li key={idx} className="text-sm text-slate-600 flex items-start gap-2">
+                  <span className="text-blue-500 mt-1">•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         ))}
       </div>

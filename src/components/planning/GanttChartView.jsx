@@ -7,7 +7,7 @@ import {
   ZoomOut,
   Filter
 } from "lucide-react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { 
@@ -33,6 +33,42 @@ const GanttChartView = () => {
   const [viewStart, setViewStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [viewRange, setViewRange] = useState(14); // days
   const [selectedDepartment, setSelectedDepartment] = useState("ALLES");
+  const [factoryConfig, setFactoryConfig] = useState(null);
+  const [departments, setDepartments] = useState(["ALLES"]);
+
+  // Drag state
+  const [dragState, setDragState] = useState({
+    isDragging: false,
+    orderId: null,
+    startX: 0,
+    currentX: 0,
+    originalLeft: 0
+  });
+
+  // Helper voor robuuste datum parsing
+  const parseDate = (dateInput) => {
+    if (!dateInput) return null;
+    if (dateInput.toDate) return dateInput.toDate(); // Firestore Timestamp
+    if (dateInput instanceof Date) return dateInput;
+    const d = new Date(dateInput);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  useEffect(() => {
+    // Load factory config for departments
+    const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
+    const unsub = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setFactoryConfig(data);
+        const depts = Array.isArray(data.departments) 
+          ? data.departments.filter(d => d.isActive !== false).map(d => d.name)
+          : [];
+        setDepartments(["ALLES", ...depts]);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     // Load orders
@@ -55,6 +91,23 @@ const GanttChartView = () => {
     return () => unsubOrders();
   }, []);
 
+  // Filter machines based on selected department
+  const visibleMachines = useMemo(() => {
+    if (selectedDepartment === "ALLES" || !factoryConfig) {
+      return machines;
+    }
+    
+    const dept = factoryConfig.departments.find(d => d.name === selectedDepartment);
+    if (!dept) return [];
+    
+    // Normalisatie helper voor flexibele matching (bijv. "BH11" vs "BH 11")
+    const normalize = (s) => String(s || "").toUpperCase().replace(/\s/g, "");
+    
+    const deptStationNames = (dept.stations || []).map(s => normalize(s.name));
+    // Filter machines that are in the selected department
+    return machines.filter(m => deptStationNames.includes(normalize(m)));
+  }, [machines, selectedDepartment, factoryConfig]);
+
   // Calculate timeline days
   const timelineDays = useMemo(() => {
     return eachDayOfInterval({
@@ -70,39 +123,128 @@ const GanttChartView = () => {
   const getOrdersForMachine = (machine) => {
     return orders.filter(order => 
       order.machine === machine &&
-      order.plannedDate
+      (order.plannedDate || ((order.status === 'in_progress' || order.status === 'in_production') && order.actualStart))
     );
   };
 
+  // Handle Drag Start
+  const handleDragStart = (e, order) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const dateToUse = order.plannedDate || ((order.status === 'in_progress' || order.status === 'in_production') ? order.actualStart : null);
+    const orderDate = parseDate(dateToUse);
+    
+    if (!orderDate) return;
+
+    const daysFromStart = differenceInDays(orderDate, viewStart);
+    const currentLeft = daysFromStart * dayWidth;
+
+    setDragState({
+      isDragging: true,
+      orderId: order.id,
+      startX: e.clientX,
+      currentX: e.clientX,
+      originalLeft: currentLeft
+    });
+  };
+
+  // Global Drag Listeners
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!dragState.isDragging) return;
+      setDragState(prev => ({ ...prev, currentX: e.clientX }));
+    };
+
+    const handleMouseUp = async (e) => {
+      if (!dragState.isDragging) return;
+
+      const deltaX = e.clientX - dragState.startX;
+      
+      // Alleen updaten als er daadwerkelijk gesleept is (> 5px)
+      if (Math.abs(deltaX) > 5) {
+        const newLeft = dragState.originalLeft + deltaX;
+        const daysShift = Math.round(newLeft / dayWidth);
+        const newDate = addDays(viewStart, daysShift);
+        
+        if (dragState.orderId) {
+          try {
+            const orderRef = doc(db, ...PATHS.PLANNING, dragState.orderId);
+            await updateDoc(orderRef, { plannedDate: newDate });
+          } catch (error) {
+            console.error("Error updating order date:", error);
+          }
+        }
+      }
+
+      setDragState({ isDragging: false, orderId: null, startX: 0, currentX: 0, originalLeft: 0 });
+    };
+
+    if (dragState.isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragState, viewStart, dayWidth]);
+
   // Calculate order position and width
   const getOrderStyle = (order) => {
-    if (!order.plannedDate) return null;
+    // Gebruik plannedDate, of fallback naar actualStart voor lopende orders
+    const dateToUse = order.plannedDate || ((order.status === 'in_progress' || order.status === 'in_production') ? order.actualStart : null);
+    const orderDate = parseDate(dateToUse);
+    
+    if (!orderDate) return null;
 
-    const orderDate = new Date(order.plannedDate.seconds * 1000);
+    const isDraggingThis = dragState.isDragging && dragState.orderId === order.id;
     const daysFromStart = differenceInDays(orderDate, viewStart);
     
-    if (daysFromStart < 0 || daysFromStart >= viewRange) return null;
+    if (!isDraggingThis && (daysFromStart < 0 || daysFromStart >= viewRange)) return null;
 
-    // Estimate duration based on plan count (1 day per 100 pieces as example)
-    const estimatedDays = Math.max(1, Math.ceil((order.plan || 0) / 100));
+    // Bereken duur: gebruik estimatedHours (8u = 1 dag) of fallback naar aantal stuks
+    let estimatedDays = 1;
+    if (order.estimatedHours) {
+      estimatedDays = Math.max(1, Math.ceil(parseFloat(order.estimatedHours) / 8));
+    } else {
+      estimatedDays = Math.max(1, Math.ceil((parseInt(order.plan) || 0) / 100));
+    }
+    
+    let left = daysFromStart * dayWidth;
+    let zIndex = 10;
+    let cursor = 'grab';
+    let boxShadow = '';
+
+    if (isDraggingThis) {
+        const deltaX = dragState.currentX - dragState.startX;
+        left = dragState.originalLeft + deltaX;
+        zIndex = 50;
+        cursor = 'grabbing';
+        boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1)';
+    }
     
     return {
-      left: `${daysFromStart * dayWidth}px`,
-      width: `${estimatedDays * dayWidth - 8}px`
+      left: `${left}px`,
+      width: `${estimatedDays * dayWidth - 8}px`,
+      zIndex,
+      cursor,
+      boxShadow
     };
   };
 
   // Get order color based on status
   const getOrderColor = (order) => {
-    const status = order.status || "planned";
-    const colors = {
-      planned: "bg-blue-500",
-      in_production: "bg-orange-500",
-      quality_check: "bg-purple-500",
-      ready_to_ship: "bg-emerald-500",
-      shipped: "bg-slate-400"
-    };
-    return colors[status] || "bg-slate-500";
+    const status = (order.status || "pending").toLowerCase();
+    
+    if (status.includes("plan") || status.includes("pending") || status.includes("open")) return "bg-blue-500";
+    if (status.includes("prod") || status.includes("progress") || status.includes("active") || status.includes("start")) return "bg-orange-500";
+    if (status.includes("check") || status.includes("qual") || status.includes("inspect")) return "bg-purple-500";
+    if (status.includes("ready") || status.includes("compl") || status.includes("finish") || status.includes("gereed")) return "bg-emerald-500";
+    if (status.includes("ship") || status.includes("verzonden")) return "bg-slate-400";
+    
+    return "bg-blue-500";
   };
 
   // Navigation
@@ -133,6 +275,19 @@ const GanttChartView = () => {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Department Selector */}
+            <select
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {departments.map(dept => (
+                <option key={dept} value={dept}>
+                  {dept}
+                </option>
+              ))}
+            </select>
+
             {/* View Range */}
             <div className="flex items-center gap-2">
               <button
@@ -229,7 +384,7 @@ const GanttChartView = () => {
 
         {/* Gantt Rows */}
         <div className="max-h-[600px] overflow-y-auto">
-          {machines.map((machine, idx) => {
+          {visibleMachines.map((machine, idx) => {
             const machineOrders = getOrdersForMachine(machine);
             
             return (
@@ -272,6 +427,7 @@ const GanttChartView = () => {
                       return (
                         <div
                           key={order.id}
+                          onMouseDown={(e) => handleDragStart(e, order)}
                           className={`absolute top-2 ${getOrderColor(order)} rounded-lg p-2 shadow-md hover:shadow-lg transition-shadow cursor-pointer group`}
                           style={style}
                         >
@@ -289,7 +445,7 @@ const GanttChartView = () => {
                             <div>Aantal: {order.plan} stuks</div>
                             <div>Machine: {order.machine}</div>
                             {order.plannedDate && (
-                              <div>Datum: {format(new Date(order.plannedDate.seconds * 1000), 'dd-MM-yyyy')}</div>
+                              <div>Datum: {format(parseDate(order.plannedDate), 'dd-MM-yyyy')}</div>
                             )}
                           </div>
                         </div>

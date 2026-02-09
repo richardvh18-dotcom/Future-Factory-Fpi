@@ -1,88 +1,68 @@
-export const GLOBAL_TOLERANCES_DEFAULT = {
-  L: "+/- 5 mm",
-  Lnom: "+/- 5 mm",
-  H: "+/- 5 mm",
-  W: "+/- 5 mm",
-  TW: "min",
-  TWtb: "min",
-  TWcb: "min",
-  ID: "+/- 1.5 mm",
-  BD: "+/- 1.0 mm",
-  B1: "+ 5 / - 0 mm",
-  B2: "+ 5 / - 0 mm",
-  r1: "min 3 mm",
-  α: "+/- 0.5°",
-  Weight: "+/- 5%",
+/**
+ * Centrale Constanten voor FPi Future Factory
+ * Bevat alle "magic numbers", configuratiewaarden en specifieke strings.
+ */
+
+// --- DATABASE PADEN (Keys voor dbPaths.js) ---
+export const DB_COLLECTIONS = {
+  PRODUCTS: "products",
+  PLANNING: "digital_planning",
+  TRACKING: "tracked_products",
+  USERS: "user_roles",
+  SETTINGS: "settings",
+  INVENTORY: "inventory",
+  ACTIVITY_LOGS: "activity_logs",
+  MESSAGES: "messages",
+  PERSONNEL: "personnel",
+  OCCUPANCY: "machine_occupancy",
+  FACTORY_CONFIG: "factory_config",
+  AI_DOCUMENTS: "ai_documents",
+  AI_KNOWLEDGE_BASE: "ai_knowledge_base",
 };
 
-export const TOLERANCES_BY_TYPE_DEFAULT = {
-  Elbow: {
-    TW: "+3 / -0 mm",
-    L: null,
-    Lnom: null,
-    Lo: "+4 / -1 mm",
-    R: null,
-    Weight: null,
-    B1: "+0 / -0.5 mm",
-    B2: "+0 / -0.5 mm",
-    Ba: "+4 / -1 mm",
-    r1: null,
-    α: null,
-    TWtb: "+3 / -0 mm",
-    BD: null,
-    W: "+3 / -0.5W",
-  },
+// --- PRODUCT STATUS ---
+export const PRODUCT_STATUS = {
+  PENDING: "pending",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  REJECTED: "rejected",
+  HOLD: "hold",
 };
 
-export const BORE_TOLERANCES = {
-  DU: "+1.5 / -0 mm",
-  DBC: "+/- 0.5 mm",
-  HOD: "+1.0 / -0 mm",
-  N: "",
-  TF: "+/- 1.5 mm",
+// --- VERIFICATIE STATUS ---
+export const VERIFICATION_STATUS = {
+  CONCEPT: "concept",
+  PENDING: "pending_review",
+  VERIFIED: "verified",
+  REJECTED: "rejected",
 };
 
-export const CONNECTION_TYPES = [
-  "CB/CB",
-  "TB/TB",
-  "CB/TB",
-  "CB/FL",
-  "TB/FL",
-  "CB/CB/CB",
-  "CB/CB/TB",
-  "TB/TB/CB",
-  "TB/TB/CB",
-  "TB/TB/TB",
-  "BL/BL",
-  "CS/CS",
-  "TS/TS",
-];
+// --- GEBRUIKERSROLLEN ---
+export const USER_ROLES = {
+  ADMIN: "admin",
+  ENGINEER: "engineer",
+  TEAMLEADER: "teamleader",
+  OPERATOR: "operator",
+  GUEST: "guest",
+};
 
-export const DRILLING_TYPES = [
-  "ASA 150",
-  "ASA 300",
-  "ASA 600",
-  "DIN 6",
-  "DIN 10",
-  "DIN 16",
-  "DIN 25",
-  "DIN 40",
-  "DIN 50",
-  "DIN 63",
-  "JIS 5K",
-  "JIS 10K",
-];
+// --- STANDAARD WAARDEN ---
+export const DEFAULTS = {
+  SHIFT_HOURS: 8,
+  BREAK_DEDUCTION: 0.75,
+  MAX_FILE_SIZE_MB: 5,
+  AI_MAX_CHARS: 50000,
+};
 
-export const STANDARD_DIAMETERS = [
-  25, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600,
-  700, 800, 900, 1000, 1100, 1200, 1400,
-];
+// --- KLEUREN (Tailwind classes) ---
+export const SHIFT_COLORS = {
+  OCHTEND: "amber",
+  AVOND: "indigo",
+  NACHT: "purple",
+  DAG: "blue",
+};
 
-export const STANDARD_PRESSURES = [8, 12.5, 16, 20, 25, 32, 40, 50];
-
-export const ELBOW_ANGLES = [11, 15, 30, 45, 90];
-
-export const ELBOW_RATIOS = ["1.5D", "1.0D"];
+// --- PRODUCT CONFIGURATIE ---
 
 export const ALL_PRODUCT_TYPES = [
   "Elbow",
@@ -108,7 +88,21 @@ export const PRODUCT_LABELS = [
   "Specials",
 ];
 
-export const COUPLING_TYPES_OPTIONS = ["Geen", "TB", "CB", "TS"];
+export const CONNECTION_TYPES = [
+  "CB/CB",
+  "TB/TB",
+  "CB/TB",
+  "CB/FL",
+  "TB/FL",
+  "CB/CB/CB",
+  "CB/CB/TB",
+  "TB/TB/CB",
+  "TB/TB/CB",
+  "TB/TB/TB",
+  "BL/BL",
+  "CS/CS",
+  "TS/TS",
+];
 
 export const TYPES_WITH_SECOND_DIAMETER = [
   "T-Unequal",
@@ -116,13 +110,6 @@ export const TYPES_WITH_SECOND_DIAMETER = [
   "Y-Piece",
   "Concentric Reducer",
   "Eccentric Reducer",
-];
-
-export const FLANGE_TYPES = [
-  "Standard Flange",
-  "Blind Flange",
-  "Stub Flange",
-  "Specials",
 ];
 
 export const BELL_KEYS = [
@@ -144,233 +131,23 @@ export const BELL_KEYS = [
   "Alpha",
 ];
 
-export const FITTING_KEYS = [
-  "TW",
-  "L",
-  "Lnom",
-  "Lo",
-  "R",
-  "C",
-  "Weight",
-  "α",
-  "Alpha",
+export const STANDARD_DIAMETERS = [
+  25, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600,
+  700, 800, 900, 1000, 1100, 1200, 1400,
 ];
 
-export const TYPE_CATEGORY_MAP = {
-  elbow: "elbow",
-  "t-equal": "tee",
-  "t-unequal": "tee",
-  "w-equal": "tee",
-  "w-unequal": "tee",
-  "y-piece": "tee",
-  "concentric reducer": "tee",
-  "eccentric reducer": "tee",
-  coupler: "coupler",
-  "standard flange": "flange",
-  "blind flange": "flange",
-  "stub flange": "flange",
-};
+export const STANDARD_PRESSURES = [8, 12.5, 16, 20, 25, 32, 40, 50];
 
-export const USER_ROLES = [
-  { id: "admin", label: "Admin (Volledige toegang)" },
-  { id: "editor", label: "Editor (Producten bewerken)" },
-  { id: "inspector", label: "Testing Inspector (PDF Extra)" },
-  { id: "user", label: "User (Alleen lezen)" },
-];
-
-export const TOLERANCE_CATEGORY_GROUPS = {
-  Elbow: "Elbow",
-  "T-Equal": "Tee_Reducer",
-  "T-Unequal": "Tee_Reducer",
-  "Y-Piece": "Tee_Reducer",
-  "Concentric Reducer": "Tee_Reducer",
-  "Eccentric Reducer": "Tee_Reducer",
-  "W-Equal": "Tee_Reducer",
-  "W-Unequal": "Tee_Reducer",
-  Coupler: "Coupler",
-  Adaptor: "Coupler",
-  "Standard Flange": "Flange",
-  "Blind Flange": "Flange",
-  "Stub Flange": "Flange",
-  Specials: "Specials",
-};
-
-export const DEFAULT_SPECS_BY_TYPE = {
-  Elbow: [
-    "TW",
-    "Lnom",
-    "Lo",
-    "R",
-    "C",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-  ],
-  "T-Equal": [
-    "TW",
-    "L",
-    "H",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-  ],
-  "T-Unequal": [
-    "TW",
-    "L",
-    "H",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-    "TWtb_2",
-    "TWcb_2",
-    "BD_2",
-    "W_2",
-    "B1_2",
-    "B2_2",
-  ],
-  "Y-Piece": [
-    "TW",
-    "L",
-    "H",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-    "TWtb_2",
-    "TWcb_2",
-    "BD_2",
-    "W_2",
-    "B1_2",
-    "B2_2",
-  ],
-  "Concentric Reducer": [
-    "TW",
-    "L",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-    "TWtb_2",
-    "TWcb_2",
-    "BD_2",
-    "W_2",
-    "B1_2",
-    "B2_2",
-  ],
-  "Eccentric Reducer": [
-    "TW",
-    "L",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "Alpha",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-    "TWtb_2",
-    "TWcb_2",
-    "BD_2",
-    "W_2",
-    "B1_2",
-    "B2_2",
-  ],
-  Coupler: [
-    "TW",
-    "L",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-  ],
-  "W-Equal": [
-    "TW",
-    "L",
-    "H",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-  ],
-  "W-Unequal": [
-    "TW",
-    "L",
-    "H",
-    "Weight",
-    "B1",
-    "B2",
-    "Ba",
-    "r1",
-    "α",
-    "TWtb",
-    "TWcb",
-    "BD",
-    "W",
-    "TWtb_2",
-    "TWcb_2",
-    "BD_2",
-    "W_2",
-    "B1_2",
-    "B2_2",
-  ],
-  Adaptor: ["TW", "L", "Weight"],
-  "Standard Flange": ["DU", "DBC", "HOD", "N", "TF", "TWcb", "BD", "W"],
-  "Blind Flange": ["DBC", "N", "DU", "HOD", "TF"],
-  "Stub Flange": ["DBC", "N", "DU", "HOD", "TF", "L"],
-  Specials: ["L", "TW", "Note"],
-};
-
-// NIEUW: Statussen voor Vier-ogen principe
-export const VERIFICATION_STATUS = {
-  CONCEPT: "concept", // Pas aangemaakt, nog niet klaar voor review
-  PENDING: "pending_review", // Klaar voor review door 2e persoon
-  VERIFIED: "verified", // Goedgekeurd door 2e persoon
-  REJECTED: "rejected", // Afgekeurd, moet worden aangepast
-};
+// Legacy exports to prevent breaking changes if still used somewhere
+export const GLOBAL_TOLERANCES_DEFAULT = {};
+export const TOLERANCES_BY_TYPE_DEFAULT = {};
+export const BORE_TOLERANCES = {};
+export const DRILLING_TYPES = [];
+export const ELBOW_ANGLES = [];
+export const ELBOW_RATIOS = [];
+export const COUPLING_TYPES_OPTIONS = [];
+export const FLANGE_TYPES = [];
+export const FITTING_KEYS = [];
+export const TYPE_CATEGORY_MAP = {};
+export const TOLERANCE_CATEGORY_GROUPS = {};
+export const DEFAULT_SPECS_BY_TYPE = {};

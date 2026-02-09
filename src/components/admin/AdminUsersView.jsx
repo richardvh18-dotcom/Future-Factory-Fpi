@@ -22,6 +22,7 @@ import {
   Globe,
   Key,
   RefreshCcw,
+  Layers,
 } from "lucide-react";
 import { db, auth, firebaseConfig } from "../../config/firebase";
 import { initializeApp, deleteApp } from "firebase/app";
@@ -55,6 +56,7 @@ const AdminUsersView = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(null);
+  const [editModalTab, setEditModalTab] = useState("profile");
   const [activeTab, setActiveTab] = useState("users"); // 'users' of 'requests'
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -96,6 +98,21 @@ const AdminUsersView = () => {
     "Management",
     "Administratie",
     "Anders"
+  ];
+
+  const EXTRA_MODULES = [
+    { id: "quality_control", label: "Kwaliteitscontrole (QC)", description: "Toegang tot meetwaarden en NCR" },
+    { id: "inventory_management", label: "Voorraadbeheer", description: "Beheer van gereedschap en materialen" },
+    { id: "digital_planning", label: "Digitale Planning", description: "Toegang tot planning modules" },
+    { id: "ai_assistant", label: "AI Assistent", description: "Toegang tot de AI helper" },
+    { id: "maintenance", label: "Onderhoud", description: "Meldingen en onderhoudsbeheer" },
+  ];
+
+  const ADMIN_TOOLS = [
+    { id: "admin_products", label: "Product Beheer", description: "Product & Matrix Manager toegang" },
+    { id: "admin_factory", label: "Fabriek & Personeel", description: "Beheer shifts, lijnen en medewerkers" },
+    { id: "admin_settings", label: "Systeem Instellingen", description: "Globale configuratie en berichten" },
+    { id: "admin_logs", label: "Logs & Database", description: "Systeemlogs en database inspectie" },
   ];
 
   // 1. Live Sync met de Root Accounts collectie
@@ -317,7 +334,8 @@ const AdminUsersView = () => {
 
   // 3. Handlers
   const handleEdit = (user) => {
-    setSelectedUser({ ...user });
+    setSelectedUser({ ...user, modules: user.modules || [] });
+    setEditModalTab("profile");
     setIsEditing(true);
   };
 
@@ -436,6 +454,7 @@ const AdminUsersView = () => {
       await updateDoc(userRef, {
         name: selectedUser.name,
         role: selectedUser.role,
+        modules: selectedUser.modules || [],
         lastAdminUpdate: serverTimestamp(),
         updatedBy: auth.currentUser?.email || "Master Admin",
       });
@@ -624,15 +643,22 @@ const AdminUsersView = () => {
                                   <h4 className="font-black text-slate-900 uppercase italic truncate text-lg leading-none mb-1.5">
                                     {u.name || "Identiteit Onbekend"}
                                   </h4>
-                                  <span
-                                    className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white shadow-sm ${
-                                      USER_ROLES.find((r) => r.id === u.role)?.color ||
-                                      "bg-slate-400"
-                                    }`}
-                                  >
-                                    {USER_ROLES.find((r) => r.id === u.role)?.label ||
-                                      u.role}
-                                  </span>
+                                  <div className="flex flex-wrap gap-2">
+                                    <span
+                                      className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white shadow-sm ${
+                                        USER_ROLES.find((r) => r.id === u.role)?.color ||
+                                        "bg-slate-400"
+                                      }`}
+                                    >
+                                      {USER_ROLES.find((r) => r.id === u.role)?.label ||
+                                        u.role}
+                                    </span>
+                                    {u.modules && u.modules.length > 0 && (
+                                      <span className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-purple-50 text-purple-600 border border-purple-100 flex items-center gap-1">
+                                        <Layers size={10} /> {u.modules.length}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
 
@@ -763,9 +789,9 @@ const AdminUsersView = () => {
       {/* EDIT MODAL OVERLAY */}
       {isEditing && selectedUser && (
         <div className="fixed inset-0 z-[1000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-xl rounded-[50px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10">
-            <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-              <div className="flex items-center gap-5">
+          <div className="bg-white w-full max-w-xl rounded-[50px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10 flex flex-col max-h-[90vh]">
+            <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-5 overflow-hidden">
                 <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-xl">
                   <ShieldAlert size={28} />
                 </div>
@@ -786,7 +812,25 @@ const AdminUsersView = () => {
               </button>
             </div>
 
-            <div className="p-10 space-y-8 text-left">
+            {/* TABS */}
+            <div className="flex border-b border-slate-100 px-10 shrink-0">
+              <button
+                onClick={() => setEditModalTab("profile")}
+                className={`py-4 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${editModalTab === "profile" ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+              >
+                Profiel & Rol
+              </button>
+              <button
+                onClick={() => setEditModalTab("modules")}
+                className={`py-4 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${editModalTab === "modules" ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+              >
+                Extra Modules
+              </button>
+            </div>
+
+            <div className="p-10 space-y-8 text-left overflow-y-auto custom-scrollbar">
+              {editModalTab === "profile" && (
+                <>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
                   Volledige Naam
@@ -848,6 +892,72 @@ const AdminUsersView = () => {
                   ))}
                 </div>
               </div>
+                </>
+              )}
+
+              {editModalTab === "modules" && (
+                <div className="space-y-8">
+                  {/* Functionele Modules */}
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
+                      <Layers size={14} /> Functionele Modules
+                    </label>
+                    <div className="grid grid-cols-1 gap-3">
+                      {EXTRA_MODULES.map(module => (
+                        <label key={module.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:border-blue-200 transition-all group">
+                          <div>
+                            <div className="font-bold text-sm text-slate-700 group-hover:text-blue-700 transition-colors">{module.label}</div>
+                            <div className="text-[10px] text-slate-400 font-medium">{module.description}</div>
+                          </div>
+                          <div className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              className="sr-only peer" 
+                              checked={selectedUser.modules?.includes(module.id)}
+                              onChange={(e) => {
+                                const currentModules = selectedUser.modules || [];
+                                const newModules = e.target.checked ? [...currentModules, module.id] : currentModules.filter(id => id !== module.id);
+                                setSelectedUser({ ...selectedUser, modules: newModules });
+                              }}
+                            />
+                            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Admin Tools */}
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
+                      <ShieldAlert size={14} /> Admin Tools
+                    </label>
+                    <div className="grid grid-cols-1 gap-3">
+                      {ADMIN_TOOLS.map(tool => (
+                        <label key={tool.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:border-purple-200 transition-all group">
+                          <div>
+                            <div className="font-bold text-sm text-slate-700 group-hover:text-purple-700 transition-colors">{tool.label}</div>
+                            <div className="text-[10px] text-slate-400 font-medium">{tool.description}</div>
+                          </div>
+                          <div className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              className="sr-only peer" 
+                              checked={selectedUser.modules?.includes(tool.id)}
+                              onChange={(e) => {
+                                const currentModules = selectedUser.modules || [];
+                                const newModules = e.target.checked ? [...currentModules, tool.id] : currentModules.filter(id => id !== tool.id);
+                                setSelectedUser({ ...selectedUser, modules: newModules });
+                              }}
+                            />
+                            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <button
                 onClick={handleUpdateUser}

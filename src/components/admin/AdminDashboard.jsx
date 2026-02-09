@@ -45,7 +45,7 @@ const FactoryStructureManager = React.lazy(() =>
   import("./FactoryStructureManager")
 );
 const ConversionManager = React.lazy(() => import("./ConversionManager"));
-const PersonnelManager = React.lazy(() => import("../../Personel/PersonnelManager"));
+const PersonnelManager = React.lazy(() => import("./PersonnelManager"));
 const AdminMatrixManager = React.lazy(() =>
   import("./matrixmanager/AdminMatrixManager")
 );
@@ -55,7 +55,7 @@ const AdminDatabaseView = React.lazy(() => import("./AdminDatabaseView"));
 const DataMigrationTool = React.lazy(() => import("./DataMigrationTool"));
 const AdminLogView = React.lazy(() => import("./AdminLogView"));
 const AdminSettingsView = React.lazy(() => import("./AdminSettingsView"));
-const CapacityPlanningView = React.lazy(() => import("./CapacityPlanningView"));
+const CapacityPlanningView = React.lazy(() => import("../planning/CapacityPlanningView"));
 const AdminLabelDesigner = React.lazy(() => import("./AdminLabelDesigner"));
 const AiCenterView = React.lazy(() => import("./AiCenterView"));
 // NIEUW: Referentie Tabel toevoegen
@@ -107,6 +107,7 @@ const AdminDashboard = () => {
           color: "bg-purple-50 border-purple-100",
           roles: ["admin", "engineer", "teamleader"],
           component: CapacityPlanningView,
+          requiredModule: "digital_planning",
         },
         {
           id: "kanban",
@@ -116,6 +117,7 @@ const AdminDashboard = () => {
           color: "bg-blue-50 border-blue-100",
           roles: ["admin", "engineer", "teamleader"],
           component: KanbanBoardView,
+          requiredModule: "digital_planning",
         },
         {
           id: "gantt",
@@ -125,6 +127,7 @@ const AdminDashboard = () => {
           color: "bg-emerald-50 border-emerald-100",
           roles: ["admin", "engineer", "teamleader"],
           component: GanttChartView,
+          requiredModule: "digital_planning",
         },
         {
           id: "heatmap",
@@ -134,6 +137,7 @@ const AdminDashboard = () => {
           color: "bg-orange-50 border-orange-100",
           roles: ["admin", "engineer", "teamleader"],
           component: WorkloadHeatmapView,
+          requiredModule: "digital_planning",
         },
         {
           id: "dependencies",
@@ -143,6 +147,7 @@ const AdminDashboard = () => {
           color: "bg-purple-50 border-purple-100",
           roles: ["admin", "engineer", "teamleader"],
           component: OrderDependenciesView,
+          requiredModule: "digital_planning",
         },
         {
           id: "timetracking",
@@ -152,6 +157,7 @@ const AdminDashboard = () => {
           color: "bg-teal-50 border-teal-100",
           roles: ["admin", "engineer", "teamleader"],
           component: TimeTrackingView,
+          requiredModule: "digital_planning",
         },
         {
           id: "scenarios",
@@ -161,6 +167,7 @@ const AdminDashboard = () => {
           color: "bg-purple-50 border-purple-100",
           roles: ["admin", "engineer"],
           component: ScenarioPlanningView,
+          requiredModule: "digital_planning",
         },
       ]
     },
@@ -275,6 +282,7 @@ const AdminDashboard = () => {
           color: "bg-indigo-50 border-indigo-100",
           roles: ["admin", "engineer", "teamleader"],
           component: ShopFloorMobileApp,
+          requiredModule: "quality_control",
         },
       ]
     },
@@ -363,6 +371,7 @@ const AdminDashboard = () => {
           color: "bg-fuchsia-50 border-fuchsia-100",
           roles: ["admin", "engineer"],
           component: AiCenterView,
+          requiredModule: "ai_assistant",
         },
       ]
     }
@@ -376,9 +385,16 @@ const AdminDashboard = () => {
   
   const filteredCategories = menuCategories.map(category => ({
     ...category,
-    items: category.items.filter(item => 
-      item.roles.some(r => r.toLowerCase() === currentRole)
-    )
+    items: category.items.filter(item => {
+      const hasRole = item.roles.some(r => r.toLowerCase() === currentRole);
+      
+      // Module check: Admin heeft altijd toegang, anders check modules array
+      if (item.requiredModule && currentRole !== 'admin') {
+        return hasRole && user?.modules?.includes(item.requiredModule);
+      }
+      
+      return hasRole;
+    })
   })).filter(category => category.items.length > 0); // Only show categories with accessible items
 
   // --- RENDERING: SUB-MODULE ---
