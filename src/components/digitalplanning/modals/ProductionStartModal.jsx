@@ -12,6 +12,7 @@ import {
   Keyboard,
   Activity,
   FileText,
+  Code,
 } from "lucide-react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../../config/firebase";
@@ -20,6 +21,7 @@ import {
   processLabelData,
   resolveLabelContent,
 } from "../../../utils/labelHelpers";
+import { generateZPL, downloadZPL } from "../../../utils/zplHelper";
 
 const PIXELS_PER_MM = 3.78;
 const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
@@ -187,6 +189,12 @@ const ProductionStartModal = ({
     `;
     printWindow.document.write(htmlContent);
     printWindow.document.close();
+  };
+
+  const handleZPLDownload = () => {
+    if (!selectedLabel) return;
+    const zpl = generateZPL(selectedLabel, previewData);
+    downloadZPL(zpl, `label_${order.orderId}_${lotNumber}.zpl`);
   };
 
   if (!isOpen || !order) return null;
@@ -458,15 +466,26 @@ const ProductionStartModal = ({
               </span>
             </div>
 
-            <button
-              onClick={handlePrint}
-              disabled={!selectedLabel}
-              className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm tracking-[0.2em] shadow-2xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-30"
-            >
-              <Printer size={22} />
-              Print Label
-            </button>
+            <div className="flex gap-2">
+                <button
+                onClick={handlePrint}
+                disabled={!selectedLabel}
+                className="flex-1 py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm tracking-[0.2em] shadow-2xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-30"
+                >
+                <Printer size={22} />
+                Print
+                </button>
 
+                <button
+                onClick={handleZPLDownload}
+                disabled={!selectedLabel}
+                className="px-4 py-4 bg-slate-800 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-slate-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+                title="Download ZPL (Zebra)"
+                >
+                <Code size={18} />
+                ZPL
+                </button>
+            </div>
             <p className="text-[8px] text-slate-500 text-center font-bold uppercase tracking-tighter opacity-50">
               Selecteer aantal bij print prompt
             </p>

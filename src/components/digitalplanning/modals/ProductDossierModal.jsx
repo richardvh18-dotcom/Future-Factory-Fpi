@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   X,
   Info,
@@ -14,13 +14,18 @@ import {
   FileText,
   Calendar,
   AlertTriangle,
+  Plus,
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
 
 /**
  * ProductDossierModal: Toont proces-stappen, kwaliteitsmetingen en order-info.
+ * Ondersteunt nu ook het toevoegen van QC rapporten/klachten.
  */
-const ProductDossierModal = ({ isOpen, product, onClose, orders = [] }) => {
+const ProductDossierModal = ({ isOpen, product, onClose, orders = [], onAddNote }) => {
+  const [newNote, setNewNote] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+
   if (!isOpen || !product) return null;
 
   const parentOrder = orders.find((o) => o.orderId === product.orderId) || {};
@@ -161,6 +166,72 @@ const ProductDossierModal = ({ isOpen, product, onClose, orders = [] }) => {
                  </div>
                )}
             </div>
+          )}
+
+          {/* QC / Klachten Sectie (Alleen als onAddNote beschikbaar is of er notities zijn) */}
+          {(onAddNote || (product.qcNotes && product.qcNotes.length > 0)) && (
+             <div className="p-8 bg-rose-50 rounded-[40px] border border-rose-100">
+                <h4 className="flex items-center gap-3 font-black text-sm uppercase text-rose-800 mb-6 pb-4 border-b border-rose-200">
+                  <AlertTriangle className="text-rose-500" size={20} /> Kwaliteitsrapporten & Klachten
+                </h4>
+                
+                {product.qcNotes && product.qcNotes.length > 0 ? (
+                    <div className="space-y-4 mb-6">
+                        {product.qcNotes.map((note, idx) => (
+                            <div key={idx} className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">{note.user || "Systeem"}</span>
+                                    <span className="text-[10px] font-mono text-slate-400">{new Date(note.timestamp).toLocaleString()}</span>
+                                </div>
+                                <p className="text-sm text-slate-700 font-medium whitespace-pre-wrap">{note.text}</p>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-sm text-rose-400 italic mb-6">Nog geen meldingen geregistreerd in dit dossier.</p>
+                )}
+
+                {onAddNote && (
+                    isAdding ? (
+                        <div className="bg-white p-4 rounded-2xl border border-rose-200 animate-in fade-in slide-in-from-bottom-2">
+                            <textarea
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-rose-500 min-h-[100px] mb-3"
+                                placeholder="Beschrijf de klacht, oorzaak en actie..."
+                                value={newNote}
+                                onChange={(e) => setNewNote(e.target.value)}
+                                autoFocus
+                            />
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => {
+                                        if(newNote.trim()) {
+                                            onAddNote(newNote);
+                                            setNewNote("");
+                                            setIsAdding(false);
+                                        }
+                                    }}
+                                    className="px-6 py-2 bg-rose-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-rose-700 transition-all"
+                                >
+                                    Rapport Opslaan
+                                </button>
+                                <button
+                                    onClick={() => setIsAdding(false)}
+                                    className="px-6 py-2 bg-white text-slate-500 border border-slate-200 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all"
+                                >
+                                    Annuleren
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setIsAdding(true)}
+                            className="px-6 py-3 bg-white text-rose-600 border-2 border-rose-100 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-rose-50 hover:border-rose-200 transition-all flex items-center gap-2"
+                        >
+                            <Plus size={16} /> Nieuwe Melding Toevoegen
+                        </button>
+                    )
+                )}
+             </div>
           )}
 
           {/* History */}

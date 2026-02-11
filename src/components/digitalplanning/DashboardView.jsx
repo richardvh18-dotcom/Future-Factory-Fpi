@@ -46,48 +46,48 @@ const DashboardView = ({ metrics, onStationSelect }) => {
     <div
       key={machine.id}
       onClick={() => onStationSelect && onStationSelect(machine.id)}
-      className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer group"
+      className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer group"
     >
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex justify-between items-start mb-2">
         <div>
-          <h4 className="font-black text-slate-800 text-lg uppercase tracking-tight group-hover:text-blue-600 transition-colors">
+          <h4 className="font-black text-slate-800 text-sm uppercase tracking-tight group-hover:text-blue-600 transition-colors">
             {machine.id}
           </h4>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-            {machine.running > 0 ? "Productie Actief" : "Standby"}
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            {machine.running > 0 ? "Actief" : "Standby"}
           </p>
         </div>
         <div
-          className={`p-2 rounded-xl ${
+          className={`p-1.5 rounded-xl ${
             machine.running > 0
               ? "bg-green-50 text-green-600 animate-pulse"
               : "bg-slate-50 text-slate-400"
           }`}
         >
-          <Zap size={20} fill={machine.running > 0 ? "currentColor" : "none"} />
+          <Zap size={16} fill={machine.running > 0 ? "currentColor" : "none"} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <span className="block text-[10px] font-black text-slate-400 uppercase mb-1">
-            Planning
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+          <span className="block text-[8px] font-black text-slate-400 uppercase mb-0.5">
+            Plan
           </span>
-          <span className="block text-xl font-black text-slate-800">
+          <span className="block text-base font-black text-slate-800">
             {Math.round(machine.plan)}
           </span>
         </div>
-        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-          <span className="block text-[10px] font-black text-blue-400 uppercase mb-1">
+        <div className="bg-blue-50 p-2 rounded-xl border border-blue-100">
+          <span className="block text-[8px] font-black text-blue-400 uppercase mb-0.5">
             Gereed
           </span>
-          <span className="block text-xl font-black text-blue-700">
+          <span className="block text-base font-black text-blue-700">
             {machine.fin}
           </span>
         </div>
       </div>
 
-      <div className="mt-4 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+      <div className="mt-3 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
         <div
           className="h-full bg-blue-500 rounded-full transition-all duration-1000"
           style={{

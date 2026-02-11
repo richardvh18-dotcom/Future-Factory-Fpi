@@ -69,6 +69,7 @@ const PersonnelManager = () => {
   const [isCopying, setIsCopying] = useState(false);
   const [status, setStatus] = useState(null);
   const [modalTab, setModalTab] = useState("profile");
+  const [listExpandedSections, setListExpandedSections] = useState({});
 
   const currentWeek = getISOWeek(viewDate);
   const selectedDateStr = format(viewDate, "yyyy-MM-dd");
@@ -119,6 +120,10 @@ const PersonnelManager = () => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setStructure(data);
+          // Initialize expanded sections for list view
+          const initialExpanded = {};
+          (data.departments || []).forEach(d => { initialExpanded[d.id] = true; });
+          setListExpandedSections(prev => Object.keys(prev).length === 0 ? initialExpanded : prev);
         }
         setLoading(false);
       }
@@ -186,7 +191,7 @@ const PersonnelManager = () => {
   const kpiData = useMemo(() => {
     const startWeek = startOfISOWeek(viewDate);
     const endWeek = endOfISOWeek(viewDate);
-    const stats = { global: { hours: 0, count: 0 }, byDept: {} };
+    const stats = { global: { hours: 0, count: 0 }, byDept: {}, production: 0, support: 0, efficiency: 0 };
 
     (structure.departments || []).forEach((d) => {
       stats.byDept[d.id] = {
@@ -215,12 +220,28 @@ const PersonnelManager = () => {
           stats.byDept[occ.departmentId].hours += netHours;
           stats.byDept[occ.departmentId].operators.add(occ.operatorNumber);
         }
+
+        // Productie vs Ondersteuning logica
+        const machineId = (occ.machineId || "").toUpperCase().replace(/\s/g, "");
+        const isBH = machineId.includes("BH");
+        const isBA = machineId.includes("BA") && !machineId.includes("NABEWERKING") && !machineId.includes("NABW");
+        
+        if (isBH || isBA) {
+            stats.production += netHours;
+        } else {
+            stats.support += netHours;
+        }
       }
     });
     stats.global.count = globalOperators.size;
     Object.keys(stats.byDept).forEach((id) => {
       stats.byDept[id].count = stats.byDept[id].operators.size;
     });
+
+    if (stats.global.hours > 0) {
+        stats.efficiency = (stats.production / stats.global.hours) * 100;
+    }
+
     return stats;
   }, [occupancy, timeMode, selectedDateStr, viewDate, structure.departments]);
 
@@ -274,13 +295,18 @@ const PersonnelManager = () => {
     await deleteDoc(doc(db, ...PATHS.OCCUPANCY, assignmentId));
   };
 
-  const handleCopyYesterday = async () => {
+  const handleCopyYesterday = async (targetDeptId = null) => {
     const yesterdayStr = format(subDays(viewDate, 1), "yyyy-MM-dd");
-    const yesterdayData = occupancy.filter(
+    let yesterdayData = occupancy.filter(
       (o) => o.date === yesterdayStr && o.operatorNumber
     );
+
+    if (targetDeptId && typeof targetDeptId === 'string') {
+      yesterdayData = yesterdayData.filter(o => o.departmentId === targetDeptId);
+    }
+
     if (yesterdayData.length === 0)
-      return alert("Geen bezetting van gisteren gevonden.");
+      return alert("Geen bezetting van gisteren gevonden" + (typeof targetDeptId === 'string' ? " voor deze afdeling." : "."));
 
     setIsCopying(true);
     try {
@@ -566,17 +592,17 @@ const PersonnelManager = () => {
                 {/* BH Stations */}
                 <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
                   <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest">BH Stations</span>
-                  <span className="text-xs font-black text-emerald-300">0.0</span>
+                  <span className="text-xs font-black text-emerald-300">{kpiData.production.toFixed(1)}</span>
                 </div>
                 {/* Overig */}
                 <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
                   <span className="text-[7px] font-black text-blue-500 uppercase tracking-widest">Overig</span>
-                  <span className="text-xs font-black text-blue-300">0.0</span>
+                  <span className="text-xs font-black text-blue-300">{kpiData.support.toFixed(1)}</span>
                 </div>
                 {/* Efficiency */}
                 <div className="flex flex-col items-center px-3 min-w-[60px]">
                   <span className="text-[7px] font-black text-purple-500 uppercase tracking-widest">Efficiency</span>
-                  <span className="text-xs font-black text-purple-300">0%</span>
+                  <span className="text-xs font-black text-purple-300">{kpiData.efficiency.toFixed(0)}%</span>
                 </div>
                 <div className="w-px h-8 bg-white/10"></div>
                 <div className="flex items-center gap-3 text-emerald-400">
@@ -609,6 +635,9 @@ const PersonnelManager = () => {
           {activeTab === "personnel" && (
             <PersonnelListView
               personnel={personnel}
+              departments={structure.departments || []}
+              expandedDepts={listExpandedSections}
+              onToggleDept={(id) => setListExpandedSections(prev => ({...prev, [id]: !prev[id]}))}
               onEdit={openEditPerson}
               onDelete={async (id) => {
                 if (window.confirm("Verwijderen?")) {
@@ -759,6 +788,7 @@ const PersonnelManager = () => {
                       type="button"
                       onClick={() => setPersonForm({ 
                         ...personForm, 
+                        rotationType: "STATIC",
                         rotationSchedule: { ...personForm.rotationSchedule, enabled: false }
                       })}
                       className={`flex-1 p-4 rounded-xl border-2 transition-all font-bold text-xs ${
@@ -773,6 +803,7 @@ const PersonnelManager = () => {
                       type="button"
                       onClick={() => setPersonForm({ 
                         ...personForm, 
+                        rotationType: "ROTATION",
                         rotationSchedule: { 
                           ...personForm.rotationSchedule, 
                           enabled: true,
@@ -809,7 +840,6 @@ const PersonnelManager = () => {
                         setPersonForm({ ...personForm, shiftId: e.target.value })
                       }
                     >
-                      <option value="DAG">Dagdienst</option>
                       {personForm.departmentId &&
                         getShiftsForDept(personForm.departmentId).map((s) => (
                           <option key={s.id} value={s.id}>

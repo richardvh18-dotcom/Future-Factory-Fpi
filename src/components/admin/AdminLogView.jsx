@@ -95,6 +95,8 @@ const AdminLogView = () => {
         },
         (err) => {
           console.error("Audit Sync Error:", err);
+          // FIX: Voorkom foutmelding bij uitloggen
+          if (err.code === 'permission-denied') return;
           if (err.code === "failed-precondition") {
             setError(
               "Filter-index ontbreekt. Gebruik 'Alle Activiteiten' of maak de index aan in Firebase."

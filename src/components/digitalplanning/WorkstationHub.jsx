@@ -1169,7 +1169,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       </div>
 
       {/* CONTENT AREA */}
-      <div className="flex-1 overflow-y-auto w-full p-2 sm:p-6 lg:p-8">
+      <div className={`flex-1 overflow-y-auto w-full ${activeTab === 'terminal' ? 'p-0' : 'p-2 sm:p-6 lg:p-8'}`}>
         {loading ? (
           <div className="flex flex-col justify-center items-center h-full">
             <Loader2 className="animate-spin rounded-full h-12 w-12 text-blue-600 mb-4" />

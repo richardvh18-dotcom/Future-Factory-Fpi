@@ -34,6 +34,12 @@ const RoadmapViewer = ({ user }) => {
         "Firestore Query Optimization: Indexen & caching",
         "React.memo & useCallback audit",
         "Bundle Size Reduction: Tree-shake constants",
+        // Bugfixes / Issues (2026)
+        "Bugfixes: KPI Teamleader werkt niet",
+        "Bugfixes: Datum import Excel wordt niet weergegeven",
+        "Bugfixes: Product handmatig naar een ander station sturen, zelfs in de productie flow",
+        "Bugfixes: Exportmogelijkheden voor Teamleader",
+        "Bugfixes: Aangeboden BM01 uitbreiden met een week-knop en export"
       ],
     },
     {
@@ -56,7 +62,7 @@ const RoadmapViewer = ({ user }) => {
       title: "Future Factory Intelligence",
       status: "🔮 Toekomst (Q3-Q4 2026)",
       items: [
-        "Direct ZPL Printing: Zebra integration",
+        "✅ Direct ZPL Printing: Zebra integration",
         "AI Predictive Maintenance",
         "IoT Dashboards: Real-time monitoring",
         "AI-gestuurde Planning Optimization: AiAssistantView doet suggesties voor ordervolgorde op basis van actuele bezetting en historische data.",

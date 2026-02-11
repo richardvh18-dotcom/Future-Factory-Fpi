@@ -295,7 +295,7 @@ const Terminal = ({ initialStation, onBack }) => {
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
       {/* TABS HEADER (ZOEKEN VERWIJDERD) */}
-        <div className="p-4 bg-white border-b border-slate-200 shrink-0 shadow-sm text-left">
+        <div className="p-2 bg-white border-b border-slate-200 shrink-0 shadow-sm text-left">
           <div className="flex items-center justify-center">
             <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-xl">
               {(isBM01 ? ["planning", "aan te bieden"] : ["planning", "wikkelen", "lossen"]).map((tab) => (

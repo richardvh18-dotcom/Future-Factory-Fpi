@@ -5,10 +5,11 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   ClipboardList,
+  Download,
 } from "lucide-react";
-import { collection, query, onSnapshot, doc } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
-import { getISOWeek, format } from "date-fns";
+import { getISOWeek, format, subDays } from "date-fns";
 import { PATHS } from "../../config/dbPaths";
 
 // Helpers & Modals
@@ -23,6 +24,7 @@ import TeamleaderEfficiencyView from "../teamleader/TeamleaderEfficiencyView";
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView";
 import PlanningSidebar from "./PlanningSidebar";
 import OrderDetail from "./OrderDetail";
+import ProductDossierModal from "./modals/ProductDossierModal";
 
 /**
  * TeamleaderHub V7.0 - Error Resilience Update
@@ -44,12 +46,16 @@ const TeamleaderHub = ({
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState(null);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [isCopying, setIsCopying] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   // Modals state
   const [showTraceModal, setShowTraceModal] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalData, setModalData] = useState([]);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [viewingDossier, setViewingDossier] = useState(null);
+  const [returnToTrace, setReturnToTrace] = useState(false);
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
 
   useEffect(() => {
@@ -61,6 +67,8 @@ const TeamleaderHub = ({
       },
       (err) => {
         console.error("Planning Sync Error:", err);
+        // FIX: Voorkom foutmelding bij uitloggen (permission-denied)
+        if (err.code === 'permission-denied') return;
         setDbError(err.code);
         setLoading(false);
       }
@@ -70,13 +78,19 @@ const TeamleaderHub = ({
       collection(db, ...PATHS.TRACKING),
       (snap) =>
         setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      (err) => console.warn("Tracked Products Sync Error:", err.code)
+      (err) => {
+        if (err.code === 'permission-denied') return;
+        console.warn("Tracked Products Sync Error:", err.code);
+      }
     );
 
     const unsubOcc = onSnapshot(
       collection(db, ...PATHS.OCCUPANCY),
       (snap) => setBezetting(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      (err) => console.warn("Occupancy Sync Error:", err.code)
+      (err) => {
+        if (err.code === 'permission-denied') return;
+        console.warn("Occupancy Sync Error:", err.code);
+      }
     );
 
     const unsubConfig = onSnapshot(
@@ -84,7 +98,10 @@ const TeamleaderHub = ({
       (snap) => {
         if (snap.exists()) setFactoryConfig(snap.data());
       },
-      (err) => console.warn("Factory Config Sync Error:", err)
+      (err) => {
+        if (err.code === 'permission-denied') return;
+        console.warn("Factory Config Sync Error:", err);
+      }
     );
 
     return () => {
@@ -263,19 +280,7 @@ const TeamleaderHub = ({
     return {
       // Totaal Plan: Som van 'plan' veld van alle orders (exclusief geannuleerd/afgekeurd), alleen juiste afdeling
       totalPlanned: dataStore
-        .filter(o => {
-          if (!['cancelled', 'rejected', 'REJECTED'].includes(o.status)) {
-            // Alleen pipes orders meenemen
-            const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
-            const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
-            if (o.department && typeof o.department === "string") {
-              return o.department.toLowerCase() === targetSlug;
-            }
-            // Orders zonder department niet meenemen
-            return false;
-          }
-          return false;
-        })
+        .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
         .reduce((acc, o) => acc + Number(o.plan || 0), 0),
       // AANGEPAST: Active Count (Lopend)
       // Telt alles wat niet klaar/afgekeurd is, en nog niet bij BM01 is.
@@ -311,23 +316,85 @@ const TeamleaderHub = ({
         return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
       }).length,
 
-      // AANGEPAST: Nu som van uren van VANDAAG
-      bezettingAantal: bezetting.filter((b) => {
-          if (b.date !== todayStr) return false;
-          
-          // Check of deze occupancy bij een van onze stations hoort
-          return stations.some(s => {
-             const sId = (s.id || "").toLowerCase();
-             const sName = (s.name || "").toLowerCase();
-             const bId = (b.machineId || "").toLowerCase();
-             const bName = (b.machineName || "").toLowerCase();
-             return (sId && sId === bId) || (sName && sName === bId) || (sName && sName === bName);
-          });
-        }).reduce((sum, b) => {
+      tempRejectedCount: rawProducts.filter((p) => {
+        if (!validOrderIds.has(p.orderId)) return false;
+        return p.inspection?.status === "Tijdelijke afkeur";
+      }).length,
+
+      // UITGEBREIDE PERSONEEL METRICS
+      ...(() => {
+        let totalHours = 0;
+        let productionHours = 0;
+        let supportHours = 0;
+        
+        let weeklyTotalHours = 0;
+        let weeklyProductionHours = 0;
+        let weeklySupportHours = 0;
+
+        const relevantOccupancy = bezetting.filter((b) => {
+            if (!b.date) return false;
+            
+            return stations.some(s => {
+               const sId = (s.id || "").toLowerCase();
+               const sName = (s.name || "").toLowerCase();
+               const bId = (b.machineId || "").toLowerCase();
+               const bName = (b.machineName || "").toLowerCase();
+               return (sId && sId === bId) || (sName && sName === bId) || (sName && sName === bName);
+            });
+        });
+
+        relevantOccupancy.forEach(b => {
             const val = b.hours ?? b.hoursWorked;
-            const parsed = parseFloat(val);
-            return sum + (isNaN(parsed) ? 8 : parsed);
-        }, 0),
+            const hours = parseFloat(val);
+            const netHours = isNaN(hours) ? 8 : hours;
+            
+            // Dag totalen
+            if (b.date === todayStr) {
+                totalHours += netHours;
+
+                const machineId = (b.machineId || "").toUpperCase().replace(/\s/g, "");
+                const isBH = machineId.includes("BH");
+                const isBA = machineId.includes("BA") && !machineId.includes("NABEWERKING") && !machineId.includes("NABW");
+                
+                if (isBH || isBA) {
+                    productionHours += netHours;
+                } else {
+                    supportHours += netHours;
+                }
+            }
+
+            // Week totalen
+            const bDate = new Date(b.date);
+            if (getISOWeek(bDate) === currentWeek) {
+                weeklyTotalHours += netHours;
+
+                const machineId = (b.machineId || "").toUpperCase().replace(/\s/g, "");
+                const isBH = machineId.includes("BH");
+                const isBA = machineId.includes("BA") && !machineId.includes("NABEWERKING") && !machineId.includes("NABW");
+                
+                if (isBH || isBA) {
+                    weeklyProductionHours += netHours;
+                } else {
+                    weeklySupportHours += netHours;
+                }
+            }
+        });
+
+        const efficiency = totalHours > 0 ? (productionHours / totalHours) * 100 : 0;
+        const weeklyEfficiency = weeklyTotalHours > 0 ? (weeklyProductionHours / weeklyTotalHours) * 100 : 0;
+
+        return {
+            bezettingAantal: totalHours,
+            productionHours,
+            supportHours,
+            efficiency,
+            weeklyTotalHours,
+            weeklyProductionHours,
+            weeklySupportHours,
+            weeklyEfficiency
+        };
+      })(),
+
       machineGridData,
     };
   }, [
@@ -387,6 +454,128 @@ const TeamleaderHub = ({
         }));
       setModalData(todayData);
       setShowTraceModal(true);
+    }
+  };
+
+  // Handler voor CSV Export
+  const handleExport = () => {
+    if (dataStore.length === 0) {
+      alert("Geen data om te exporteren.");
+      return;
+    }
+    
+    const headers = ["Order", "Item", "Item Code", "Machine", "Plan", "Gereed", "Status", "Datum", "Afdeling"];
+    const rows = dataStore.map(o => {
+      const dateStr = o.dateObj ? format(o.dateObj, "yyyy-MM-dd") : "";
+      return [
+        o.orderId || "",
+        `"${(o.item || "").replace(/"/g, '""')}"`,
+        o.itemCode || "",
+        o.machine || "",
+        o.plan || 0,
+        o.finishValue || 0,
+        o.status || "",
+        dateStr,
+        o.department || ""
+      ];
+    });
+    
+    const csvContent = "data:text/csv;charset=utf-8," 
+        + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+        
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `teamleader_export_${fixedScope}_${format(new Date(), "yyyy-MM-dd")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Handler voor kopiëren van gisteren (Teamleader Specifiek)
+  const handleCopyYesterday = async (targetDeptId) => {
+    const yesterdayStr = format(subDays(new Date(), 1), "yyyy-MM-dd");
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    
+    // Filter occupancy uit de lokale state
+    const yesterdayData = bezetting.filter(
+      (o) => o.date === yesterdayStr && o.operatorNumber && o.departmentId === targetDeptId
+    );
+
+    if (yesterdayData.length === 0) {
+      alert("Geen bezetting van gisteren gevonden voor deze afdeling.");
+      return;
+    }
+
+    if (!window.confirm(`Wil je ${yesterdayData.length} toewijzingen van gisteren kopiëren naar vandaag?`)) return;
+
+    setIsCopying(true);
+    try {
+      const batch = writeBatch(db);
+      yesterdayData.forEach((old) => {
+        const newId = `${todayStr}_${old.departmentId}_${old.machineId}_${old.operatorNumber}`.replace(/[^a-zA-Z0-9]/g, "_");
+        const newRef = doc(db, ...PATHS.OCCUPANCY, newId);
+        batch.set(newRef, {
+          ...old,
+          id: newId,
+          date: todayStr,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error("Fout bij kopiëren:", err);
+      alert("Fout bij kopiëren: " + err.message);
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
+  // Handler voor wissen van vandaag (Reset)
+  const handleClearToday = async (targetDeptId) => {
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    
+    const todayData = bezetting.filter(
+      (o) => o.date === todayStr && o.departmentId === targetDeptId
+    );
+
+    if (todayData.length === 0) {
+      alert("Geen bezetting gevonden voor vandaag om te wissen.");
+      return;
+    }
+
+    if (!window.confirm(`Weet je zeker dat je de bezetting van VANDAAG (${todayData.length} items) voor deze afdeling wilt wissen?`)) return;
+
+    setIsClearing(true);
+    try {
+      const batch = writeBatch(db);
+      todayData.forEach((docItem) => {
+        const ref = doc(db, ...PATHS.OCCUPANCY, docItem.id);
+        batch.delete(ref);
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error("Fout bij wissen:", err);
+      alert("Fout bij wissen: " + err.message);
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  // Handler voor handmatig verplaatsen van product (Admin/Teamleader actie)
+  const handleMoveLot = async (lotNumber, newStation) => {
+    if (!lotNumber || !newStation) return;
+    try {
+      const productRef = doc(db, ...PATHS.TRACKING, lotNumber);
+      await updateDoc(productRef, {
+        currentStation: newStation,
+        updatedAt: serverTimestamp(),
+        note: `Handmatig verplaatst naar ${newStation} door ${user?.email || 'Teamleader'}`
+      });
+      alert(`Product ${lotNumber} verplaatst naar ${newStation}`);
+    } catch (err) {
+      console.error("Fout bij verplaatsen:", err);
+      alert("Fout bij verplaatsen: " + err.message);
     }
   };
 
@@ -501,6 +690,13 @@ const TeamleaderHub = ({
           {/* Rechts: Acties */}
           <div className="flex items-center gap-3 w-full xl:w-auto justify-end">
             <button
+              onClick={handleExport}
+              className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all"
+              title="Exporteer CSV"
+            >
+              <Download size={20} />
+            </button>
+            <button
               onClick={() => setShowImportModal(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"
             >
@@ -512,7 +708,7 @@ const TeamleaderHub = ({
 
       <div className="flex-1 overflow-hidden p-6 w-full flex flex-col text-left">
 
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-y-auto custom-scrollbar relative">
           {activeTab === "dashboard" ? (
             <TeamleaderDashboard 
               metrics={metrics}
@@ -520,7 +716,13 @@ const TeamleaderHub = ({
               onStationSelect={setSelectedStationDetail}
             />
           ) : activeTab === "bezetting" ? (
-            <PersonnelOccupancyView scope={fixedScope} />
+            <PersonnelOccupancyView 
+              scope={fixedScope} 
+              onCopyYesterday={handleCopyYesterday}
+              isCopying={isCopying}
+              onClearToday={handleClearToday}
+              isClearing={isClearing}
+            />
           ) : activeTab === "efficiency" ? (
             <TeamleaderEfficiencyView departmentName={departmentName} />
           ) : activeTab === "gantt" ? (
@@ -541,6 +743,7 @@ const TeamleaderHub = ({
                     products={rawProducts}
                     onClose={() => setSelectedOrderId(null)}
                     isManager={true}
+                    onMoveLot={handleMoveLot}
                     showAllStations={true}
                   />
                 ) : (
@@ -575,15 +778,30 @@ const TeamleaderHub = ({
       {/* KPI Pop-up Modal */}
       <TraceModal
         isOpen={showTraceModal}
-        onClose={() => setShowTraceModal(false)}
+        onClose={() => {
+          setShowTraceModal(false);
+          setReturnToTrace(false);
+        }}
         title={modalTitle}
         data={modalData}
         onRowClick={(item) => {
-          // Toon dossier van order of product
-          setModalTitle(`Dossier: ${item.lotNumber || item.orderId || item.itemCode || item.productId}`);
-          setModalData([item]);
+          // Sluit de KPI lijst en open het volledige dossier van het product
+          setShowTraceModal(false);
+          setViewingDossier(item);
+          setReturnToTrace(true);
         }}
       />
+      {viewingDossier && (
+        <ProductDossierModal
+          isOpen={true}
+          product={viewingDossier}
+          onClose={() => {
+            setViewingDossier(null);
+            if (returnToTrace) setShowTraceModal(true);
+          }}
+          orders={rawOrders}
+        />
+      )}
     </div>
   );
 };

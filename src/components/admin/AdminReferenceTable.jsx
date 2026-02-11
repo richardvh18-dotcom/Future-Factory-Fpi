@@ -91,6 +91,8 @@ const AdminReferenceTable = () => {
         },
         (err) => {
           console.error(`❌ Error loading ${activeTab}:`, err.code, err.message);
+          // FIX: Voorkom foutmelding bij uitloggen
+          if (err.code === 'permission-denied') return;
           setError(`Error: ${err.message}`);
           setLoading(false);
         }

@@ -20,9 +20,9 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white w-full max-w-5xl max-h-[85vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+      <div className="bg-white w-full max-w-5xl h-[95vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
         {/* Header */}
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-slate-900 text-white rounded-2xl shadow-lg">
               <FileText size={24} />
@@ -58,11 +58,11 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
               <table className="w-full text-left text-xs border-separate border-spacing-y-2">
                 <thead>
                   <tr className="text-slate-400 font-black uppercase tracking-widest">
-                    <th className="px-6 py-2">Identificatie</th>
-                    <th className="px-6 py-2">Product Info</th>
-                    <th className="px-6 py-2">Station</th>
-                    <th className="px-6 py-2">Status</th>
-                    <th className="px-6 py-2 text-right">Laatste Update</th>
+                    <th className="px-6 py-2 sticky top-0 bg-white z-10">Identificatie</th>
+                    <th className="px-6 py-2 sticky top-0 bg-white z-10">Product Info</th>
+                    <th className="px-6 py-2 sticky top-0 bg-white z-10">Station</th>
+                    <th className="px-6 py-2 sticky top-0 bg-white z-10">Status</th>
+                    <th className="px-6 py-2 text-right sticky top-0 bg-white z-10">Laatste Update</th>
                   </tr>
                 </thead>
                 <tbody>

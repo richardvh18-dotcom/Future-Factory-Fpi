@@ -68,6 +68,8 @@ const FactoryStructureManager = () => {
       },
       (err) => {
         console.error("Firestore Sync Error:", err);
+        // FIX: Voorkom foutmelding bij uitloggen
+        if (err.code === 'permission-denied') return;
         setStatus({ type: "error", msg: `Access Denied: ${err.code}` });
         setLoading(false);
       }

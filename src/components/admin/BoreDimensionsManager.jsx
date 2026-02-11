@@ -75,6 +75,8 @@ const BoreDimensionsManager = () => {
       },
       (err) => {
         console.error("Fout bij laden boringen:", err);
+        // FIX: Voorkom foutmelding bij uitloggen
+        if (err.code === 'permission-denied') return;
         setStatus({ type: "error", msg: "Database toegang geweigerd." });
         setLoading(false);
       }

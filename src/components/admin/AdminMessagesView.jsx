@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   Loader2,
   AlertCircle,
+  AlertTriangle,
+  MessageSquare,
 } from "lucide-react";
 import {
   doc,
@@ -39,11 +41,13 @@ import { nl } from "date-fns/locale";
  * AdminMessagesView V6.0 - Master Communication Hub
  * Beheert de inbox en verzending via de root: /future-factory/production/messages/
  */
-const AdminMessagesView = () => {
-  const { user } = useAdminAuth();
+const AdminMessagesView = ({ user: propUser }) => {
+  const { user: authUser, isAdmin } = useAdminAuth();
+  const user = propUser || authUser;
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("inbox"); // 'inbox', 'archived'
+  const [filterType, setFilterType] = useState('all'); // 'all', 'crash'
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
 
@@ -66,11 +70,18 @@ const AdminMessagesView = () => {
           timestamp: doc.data().timestamp?.toDate() || new Date(),
         }));
 
-        // Filteren op basis van ontvanger (admin ziet alles aan admin of specifiek aan hem/haar)
-        const visibleMsgs = msgs.filter(
-          (m) =>
-            m.to === "admin" || m.to === user?.email || m.senderId === user?.uid
-        );
+        // Filteren op basis van rechten
+        const visibleMsgs = msgs.filter((m) => {
+          const isOwn = m.to === user?.email || m.senderId === user?.uid;
+          // Admin berichten zijn voor 'admin', de groep 'admins' of systeem errors
+          const isForAdmins = m.to === "admin" || m.targetGroup === "admins" || m.type === "SYSTEM_ERROR";
+          
+          // Admins zien alles voor admins + eigen berichten
+          if (isAdmin) return isOwn || isForAdmins;
+          
+          // Niet-admins zien alleen eigen berichten
+          return isOwn;
+        });
 
         setMessages(visibleMsgs);
         setLoading(false);
@@ -82,7 +93,7 @@ const AdminMessagesView = () => {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isAdmin]);
 
   // 2. Bericht Acties
   const handleMarkAsRead = async (msg) => {
@@ -125,9 +136,10 @@ const AdminMessagesView = () => {
     return messages.filter((m) => {
       if (activeTab === "inbox") return !m.archived;
       if (activeTab === "archived") return m.archived;
+      if (filterType === "crash") return m.type === "SYSTEM_ERROR";
       return true;
     });
-  }, [messages, activeTab]);
+  }, [messages, activeTab, filterType]);
 
   if (loading)
     return (
@@ -160,6 +172,32 @@ const AdminMessagesView = () => {
               <Plus size={20} strokeWidth={3} />
             </button>
           </div>
+
+          {/* Filter Knoppen (Crash Reports) */}
+          {isAdmin && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setFilterType('all')}
+                className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border ${
+                  filterType === 'all' 
+                    ? 'bg-slate-800 text-white border-slate-800' 
+                    : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <MessageSquare size={12} /> Alles
+              </button>
+              <button
+                onClick={() => setFilterType('crash')}
+                className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border ${
+                  filterType === 'crash' 
+                    ? 'bg-red-600 text-white border-red-600 shadow-sm' 
+                    : 'bg-white text-red-400 border-red-100 hover:bg-red-50'
+                }`}
+              >
+                <AlertTriangle size={12} /> Crashes
+              </button>
+            </div>
+          )}
 
           <div className="flex bg-slate-100 p-1 rounded-2xl">
             <button
@@ -214,6 +252,7 @@ const AdminMessagesView = () => {
                   }}
                   className={`p-6 border-b border-slate-50 cursor-pointer transition-all hover:bg-slate-50 group relative
                     ${isUnread ? "bg-blue-50/40" : ""}
+                    ${msg.type === 'SYSTEM_ERROR' ? "bg-red-50/30 hover:bg-red-50/50" : ""}
                     ${
                       selectedMessage?.id === msg.id
                         ? "bg-blue-50 border-l-4 border-l-blue-600"
@@ -242,8 +281,9 @@ const AdminMessagesView = () => {
                       isUnread
                         ? "font-black text-blue-700"
                         : "font-bold text-slate-700"
-                    }`}
+                    } ${msg.type === 'SYSTEM_ERROR' ? "text-red-700" : ""}`}
                   >
+                    {msg.type === 'SYSTEM_ERROR' && "🔥 "}
                     {msg.subject || "Geen onderwerp"}
                   </h4>
                   <p className="text-xs text-slate-400 line-clamp-1 font-medium italic">
@@ -284,6 +324,11 @@ const AdminMessagesView = () => {
                     {selectedMessage.priority === "urgent" && (
                       <span className="bg-rose-100 text-rose-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase animate-pulse border border-rose-200">
                         Spoed
+                      </span>
+                    )}
+                    {selectedMessage.type === "SYSTEM_ERROR" && (
+                      <span className="bg-red-600 text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-red-700 shadow-sm">
+                        Systeem Crash
                       </span>
                     )}
                   </div>
@@ -344,9 +389,16 @@ const AdminMessagesView = () => {
                 <div className="absolute top-0 right-0 p-8 opacity-5 -rotate-12">
                   <Mail size={200} />
                 </div>
-                <div className="relative z-10 prose prose-slate max-w-none text-slate-700 leading-relaxed text-base italic font-medium whitespace-pre-wrap">
-                  "{selectedMessage.content}"
-                </div>
+                
+                {selectedMessage.type === 'SYSTEM_ERROR' ? (
+                  <pre className="relative z-10 bg-slate-900 text-red-400 p-6 rounded-2xl overflow-x-auto font-mono text-xs leading-relaxed border border-slate-800 shadow-inner">
+                    {selectedMessage.content}
+                  </pre>
+                ) : (
+                  <div className="relative z-10 prose prose-slate max-w-none text-slate-700 leading-relaxed text-base italic font-medium whitespace-pre-wrap">
+                    "{selectedMessage.content}"
+                  </div>
+                )}
 
                 {selectedMessage.type === "validation_alert" && (
                   <div className="mt-12 p-8 bg-emerald-50 border-2 border-emerald-100 rounded-[30px] flex flex-col md:flex-row items-center gap-8 shadow-lg shadow-emerald-100 animate-in zoom-in">

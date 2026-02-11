@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Loader2 } from "lucide-react";
-import { format, isValid, isSameDay, subDays, addDays } from "date-fns";
+import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Loader2, Download } from "lucide-react";
+import { format, isValid, isSameDay, subDays, addDays, startOfISOWeek, endOfISOWeek, isWithinInterval } from "date-fns";
 import { nl } from "date-fns/locale";
 import OrderDetail from "./OrderDetail";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
+import ProductDossierModal from "./modals/ProductDossierModal";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot, arrayUnion } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
@@ -16,10 +17,12 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [viewingDossier, setViewingDossier] = useState(null);
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [archivedProducts, setArchivedProducts] = useState([]);
+  const [viewMode, setViewMode] = useState("day"); // 'day' or 'week'
 
   const filteredOrders = useMemo(() => {
     let res = orders;
@@ -70,17 +73,26 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
     if (activeTab !== "completed") return;
 
     const year = selectedDate.getFullYear();
-    const startOfDay = new Date(selectedDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(selectedDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    let start, end;
 
-    // Luister naar de archief collectie voor de geselecteerde dag
+    if (viewMode === "day") {
+        start = new Date(selectedDate);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(selectedDate);
+        end.setHours(23, 59, 59, 999);
+    } else {
+        start = startOfISOWeek(selectedDate);
+        start.setHours(0, 0, 0, 0);
+        end = endOfISOWeek(selectedDate);
+        end.setHours(23, 59, 59, 999);
+    }
+
+    // Luister naar de archief collectie voor de geselecteerde periode
     const archiveRef = collection(db, "future-factory", "production", "archive", String(year), "items");
     const q = query(
         archiveRef,
-        where("timestamps.finished", ">=", startOfDay),
-        where("timestamps.finished", "<=", endOfDay)
+        where("timestamps.finished", ">=", start),
+        where("timestamps.finished", "<=", end)
     );
 
     const unsub = onSnapshot(q, (snap) => {
@@ -91,7 +103,7 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
     });
 
     return () => unsub();
-  }, [selectedDate, activeTab]);
+  }, [selectedDate, activeTab, viewMode]);
 
   // Filter producten die gereed zijn (Aangeboden tab) op basis van geselecteerde datum
   // Combineert actieve producten (die nog niet gearchiveerd zijn) en gearchiveerde producten
@@ -110,7 +122,13 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
 
         if (!finishDate) return false;
 
-        return isSameDay(finishDate, selectedDate);
+        if (viewMode === "day") {
+            return isSameDay(finishDate, selectedDate);
+        } else {
+            const start = startOfISOWeek(selectedDate);
+            const end = endOfISOWeek(selectedDate);
+            return isWithinInterval(finishDate, { start, end });
+        }
     });
 
     // Combineer met gearchiveerde producten (voorkom dubbelen op ID)
@@ -126,7 +144,7 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
         const tB = b.timestamps?.finished?.seconds || b.updatedAt?.seconds || 0;
         return tB - tA;
     });
-  }, [products, archivedProducts, selectedDate]);
+  }, [products, archivedProducts, selectedDate, viewMode]);
 
   const handleItemClick = (item) => {
     setSelectedProduct(item);
@@ -234,10 +252,79 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
     }
   };
 
+  const handleExport = () => {
+      if (completedProducts.length === 0) return;
+      
+      const headers = ["Order", "Lot", "Item", "Item Code", "Gereed Datum", "Tijd"];
+      const rows = completedProducts.map(p => {
+          const date = p.timestamps?.finished?.toDate ? p.timestamps.finished.toDate() : new Date(p.timestamps?.finished || p.updatedAt);
+          return [
+              p.orderId || "",
+              p.lotNumber || "",
+              `"${(p.item || "").replace(/"/g, '""')}"`,
+              p.itemCode || "",
+              format(date, "yyyy-MM-dd"),
+              format(date, "HH:mm")
+          ];
+      });
+      
+      const csvContent = "data:text/csv;charset=utf-8," 
+          + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+          
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `bm01_export_${viewMode}_${format(selectedDate, "yyyy-MM-dd")}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  const handleAddQcNote = async (noteText) => {
+      if (!viewingDossier || !noteText.trim()) return;
+      
+      try {
+          const product = viewingDossier;
+          let ref;
+          
+          // Check of het product in het archief zit (op basis van ID in de geladen archivedProducts lijst)
+          const isArchived = archivedProducts.some(p => p.id === product.id);
+          
+          if (isArchived) {
+              // Bepaal jaar voor archief pad
+              const date = product.timestamps?.finished?.toDate ? product.timestamps.finished.toDate() : new Date(product.timestamps?.finished || product.updatedAt);
+              const year = date.getFullYear();
+              ref = doc(db, "future-factory", "production", "archive", String(year), "items", product.id);
+          } else {
+              // Actieve tracking
+              ref = doc(db, ...PATHS.TRACKING, product.id);
+          }
+
+          const noteObj = {
+              text: noteText,
+              timestamp: new Date().toISOString(),
+              user: user?.email || "BM01 Operator"
+          };
+
+          await updateDoc(ref, {
+              qcNotes: arrayUnion(noteObj)
+          });
+          
+          // Update lokale state voor directe feedback in de modal
+          setViewingDossier(prev => ({
+              ...prev,
+              qcNotes: [...(prev.qcNotes || []), noteObj]
+          }));
+      } catch (err) {
+          console.error("Fout bij opslaan notitie:", err);
+          alert("Kon rapport niet opslaan: " + err.message);
+      }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
       {/* Custom Tabs Header voor BM01 */}
-      <div className="p-4 bg-white border-b border-slate-200 shrink-0 shadow-sm">
+      <div className="p-2 bg-white border-b border-slate-200 shrink-0 shadow-sm">
         <div className="flex justify-center overflow-x-auto">
             <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-2xl min-w-[320px]">
                 <button 
@@ -264,8 +351,8 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
 
       <div className="flex-1 overflow-hidden relative">
         {activeTab === "planning" ? (
-            <div className="h-full flex flex-col p-6 max-w-6xl mx-auto w-full">
-                <div className="relative mb-6 shrink-0">
+            <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full">
+                <div className="relative mb-4 shrink-0">
                     <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                     <input 
                         type="text" 
@@ -284,7 +371,17 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
                         </div>
                     ) : (
                         filteredOrders.map(order => {
-                            const dDate = order.deliveryDate?.toDate ? order.deliveryDate.toDate() : (order.deliveryDate ? new Date(order.deliveryDate) : null);
+                            // Robust date parsing for Excel imports
+                            let dDate = null;
+                            const rawDate = order.deliveryDate;
+                            if (rawDate) {
+                                if (rawDate.toDate) dDate = rawDate.toDate();
+                                else if (!isNaN(rawDate) && Number(rawDate) > 30000 && Number(rawDate) < 100000) {
+                                    dDate = new Date(Math.round((Number(rawDate) - 25569) * 86400 * 1000));
+                                } else {
+                                    dDate = new Date(rawDate);
+                                }
+                            }
                             const plan = Number(order.plan || 0);
                             const produced = products.filter(p => p.orderId === order.orderId).length;
                             const remaining = Math.max(0, plan - produced);
@@ -331,7 +428,7 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
             </div>
         ) : activeTab === "inspectie" ? (
             <div className="h-full w-full">
-                <div className="h-full flex flex-col p-6 max-w-6xl mx-auto w-full overflow-y-auto custom-scrollbar space-y-3">
+                <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full overflow-y-auto custom-scrollbar space-y-3">
                     {bm01Products.length === 0 ? (
                         <div className="text-center py-20 opacity-40">
                             <Package size={64} className="mx-auto mb-4 text-slate-300" />
@@ -378,37 +475,66 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
             </div>
         ) : (
             /* AANGEBODEN / GEREED TAB */
-            <div className="h-full flex flex-col p-6 max-w-6xl mx-auto w-full">
+            <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full">
                 {/* Datum Navigatie */}
-                <div className="flex items-center justify-center gap-4 mb-6 bg-white p-2 rounded-2xl shadow-sm border border-slate-100 w-fit mx-auto">
-                    <button onClick={() => setSelectedDate(d => subDays(d, 1))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500">
-                        <ChevronLeft size={20} />
-                    </button>
-                    <div className="flex items-center gap-2 px-4 min-w-[180px] justify-center">
-                        <Calendar size={16} className="text-emerald-500" />
-                        <span className="font-black text-slate-700 uppercase tracking-wide text-xs">
-                            {format(selectedDate, "EEEE d MMMM", { locale: nl })}
-                        </span>
+                <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-4">
+                    <div className="flex items-center bg-white p-2 rounded-2xl shadow-sm border border-slate-100">
+                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500">
+                            <ChevronLeft size={20} />
+                        </button>
+                        <div className="flex items-center gap-2 px-4 min-w-[200px] justify-center">
+                            <Calendar size={16} className="text-emerald-500" />
+                            <span className="font-black text-slate-700 uppercase tracking-wide text-xs">
+                                {viewMode === 'day' 
+                                    ? format(selectedDate, "EEEE d MMMM", { locale: nl })
+                                    : `Week ${format(selectedDate, "w")} (${format(startOfISOWeek(selectedDate), "d MMM")} - ${format(endOfISOWeek(selectedDate), "d MMM")})`
+                                }
+                            </span>
+                        </div>
+                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500">
+                            <ChevronRight size={20} />
+                        </button>
                     </div>
-                    <button onClick={() => setSelectedDate(d => addDays(d, 1))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500">
-                        <ChevronRight size={20} />
-                    </button>
                     
-                    <div className="w-px h-8 bg-slate-200 mx-2"></div>
-                    <button 
-                        onClick={() => setShowPrintModal(true)}
-                        className="p-2 hover:bg-blue-50 text-blue-600 rounded-xl transition-colors"
-                        title="Print QR Overzicht"
-                    >
-                        <Printer size={20} />
-                    </button>
+                    <div className="flex gap-2">
+                        <div className="flex bg-white p-1 rounded-xl border border-slate-100 shadow-sm">
+                            <button 
+                                onClick={() => setViewMode("day")}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === "day" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                            >
+                                Dag
+                            </button>
+                            <button 
+                                onClick={() => setViewMode("week")}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === "week" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                            >
+                                Week
+                            </button>
+                        </div>
+
+                        <button 
+                            onClick={handleExport}
+                            className="p-3 bg-white hover:bg-emerald-50 text-emerald-600 border border-slate-100 rounded-xl transition-colors shadow-sm"
+                            title="Export CSV"
+                        >
+                            <Download size={20} />
+                        </button>
+                        
+                        <button 
+                            onClick={() => setShowPrintModal(true)}
+                            className="p-3 bg-white hover:bg-blue-50 text-blue-600 border border-slate-100 rounded-xl transition-colors shadow-sm"
+                            title="Print QR Overzicht"
+                        >
+                            <Printer size={20} />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
                     {completedProducts.length === 0 ? (
                         <div className="text-center py-20 opacity-40">
                             <CheckCircle2 size={64} className="mx-auto mb-4 text-slate-300" />
-                            <p className="font-black uppercase tracking-widest text-slate-400">Geen aangeboden items op deze dag</p>
+                            <p className="font-black uppercase tracking-widest text-slate-400">Geen aangeboden items in deze periode</p>
                         </div>
                     ) : (
                         completedProducts.map(item => (
@@ -429,6 +555,15 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
                                             <span className="text-[10px] text-emerald-600 font-bold uppercase">
                                                 Gereedgemeld om {item.timestamps?.finished ? format(item.timestamps.finished.toDate ? item.timestamps.finished.toDate() : new Date(item.timestamps.finished), "HH:mm") : "--:--"}
                                             </span>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setViewingDossier(item);
+                                                }}
+                                                className="ml-4 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg transition-colors"
+                                            >
+                                                <FileText size={12} /> Dossier
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -459,6 +594,16 @@ const BM01Hub = ({ onBack, orders = [], products = [] }) => {
             onClose={handleCloseModal}
             onConfirm={handlePostProcessingFinish}
             currentStation="BM01"
+        />
+      )}
+
+      {viewingDossier && (
+        <ProductDossierModal
+            isOpen={true}
+            product={viewingDossier}
+            onClose={() => setViewingDossier(null)}
+            onAddNote={handleAddQcNote}
+            orders={orders}
         />
       )}
 
