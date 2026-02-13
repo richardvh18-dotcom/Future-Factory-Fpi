@@ -47,12 +47,15 @@ const RoadmapViewer = ({ user }) => {
       title: "Kwaliteitsborging & QC",
       status: "📋 Gepland (Q2 2026)",
       items: [
-        "Meetwaarde Invoer: Tolerantie control",
-        "NCR Workflow: Non-Conformance Reports",
-        "Audit Logs: ISO-compliance",
-        "Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.",
-        "Realtime SPC: Automatische waarschuwing bij trends richting tolerantielimiet.",
-        "Self-Service Operator Training: Operators toetsen via FlashcardViewer.jsx op veiligheidsvoorschriften/procedures.",
+        "Firestore Rules: QC-rol mag alleen keuringsvelden in tracked_products aanpassen (veld-specifieke write)",
+        "Data-integriteit: Product kan alleen op 'Gereed' als positief inspectieresultaat is vastgelegd (validatieregel)",
+        "Audit Trail: logActivity uitbreiden voor non-conformiteiten, reden van afkeur en verantwoordelijke QC-medewerker (ISO 9001)",
+        "Immutable Inspecties: Inspectieresultaten na invoer alleen-lezen of versiegeschiedenis vastleggen",
+        "Keuringslijsten: QC-interface met parameters per producttype (maatvoering, visuele controle, druktest)",
+        "Hold-status Management: Producten met afkeur direct in quarantaine, blokkade in planning",
+        "Rapportage: First Pass Yield (FPY) en Pareto-analyse van afkeur (ISO 22400)",
+        "Productpaspoort: PDF-keuringsrapport genereren en digitaal versturen (jspdf)",
+        "ISO 9001/22400: Volledige traceerbaarheid, audit trail en rapportage",
         "Skill Matrix Dashboard: Visualiseer vaardigheden van personeel in PersonnelManager voor optimale machine-indeling.",
         "Shift Handover Tool: Gestructureerde overdrachtmodule in DigitalPlanningHub; ploeg draagt status/orders over via MESSAGES."
       ],
@@ -122,11 +125,15 @@ const RoadmapViewer = ({ user }) => {
       ]
     },
     {
-      title: "Kwaliteit & Compliance (Fase 5 uitbreiding)",
+      title: "Quality Control (QC) & ISO Roadmap Update",
       items: [
-        "Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.",
-        "Realtime SPC (Statistical Process Control): Waarschuw automatisch als meetwaarden uit BORE_DIMENSIONS of CB_DIMENSIONS richting de tolerantiegrens gaan.",
-        "Self-Service Operator Training: Gebruik FlashcardViewer.jsx om operators te toetsen op veiligheidsvoorschriften of nieuwe procedures voordat ze mogen inloggen."
+        "Firestore: veld-specifieke schrijfrechten voor QC in tracked_products (alleen keuringsvelden)",
+        "Validatie: Productstatus 'Gereed' vereist positief inspectieresultaat",
+        "Audit Trail: logActivity uitbreiden voor non-conformiteiten, reden van afkeur en verantwoordelijke QC-medewerker (ISO 9001)",
+        "Immutable Inspecties: Inspectieresultaten na invoer alleen-lezen of versiegeschiedenis vastleggen",
+        "UI: Keuringslijsten/checklists per producttype, hold-status/quarantaine direct in database",
+        "Rapportage: FPY, Pareto-analyse, PDF-keuringsrapport (jspdf)",
+        "ISO 9001/22400: Volledige traceerbaarheid, audit trail en rapportage, digitaal productpaspoort"
       ]
     },
     {
