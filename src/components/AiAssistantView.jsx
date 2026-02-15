@@ -164,7 +164,27 @@ Waar kan ik je mee helpen?`,
         return <br key={i} />;
       }
       // Normal text - with order number parsing
-      return <p key={i} className="mb-2">{parseOrderNumbers(line)}</p>;
+
+      // Maak alinea's klikbaar voor verdieping (als ze lang genoeg zijn)
+      const isClickable = line.length > 30;
+
+      if (isClickable) {
+        return (
+          <div 
+            key={i} 
+            className="group relative mb-2 hover:bg-blue-50/80 rounded-lg px-3 -mx-3 transition-all cursor-help border border-transparent hover:border-blue-100"
+            onClick={() => handleSendChat(null, `Kun je dit verder toelichten: "${line}"`)}
+            title="Klik voor verdieping over dit onderwerp"
+          >
+            <p className="group-hover:text-blue-900 transition-colors">{parseOrderNumbers(line)}</p>
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-[9px] font-black uppercase tracking-widest text-blue-500 bg-white px-2 py-1 rounded-lg shadow-sm border border-blue-100 pointer-events-none transition-all transform translate-x-2 group-hover:translate-x-0">
+              ✨ Vraag Detail
+            </span>
+          </div>
+        );
+      }
+
+      return <p key={i} className="mb-2 px-3 -mx-3">{parseOrderNumbers(line)}</p>;
     });
   };
 
@@ -199,7 +219,7 @@ Waar kan ik je mee helpen?`,
 BELANGRIJK: Gebruik altijd proper Markdown formatting in je antwoorden:
 - Gebruik **vetgedrukt** voor belangrijke termen
 - Gebruik genummerde lijsten (1. 2. 3.) voor stappen
-- Gebruik bullet points (- of *) voor opsommingen
+- Gebruik bullet points (- of *) voor opsommingen en overzichtelijke samenvattingen
 - Gebruik ## voor hoofdkoppen en ### voor subkoppen
 - Laat lege regels tussen alinea's voor leesbaarheid
 - Gebruik code formatting voor technische termen en knoppen
