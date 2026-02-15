@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Check, Layers, Activity, Hash, Info, AlertCircle } from "lucide-react";
+import { Check, Layers, Activity, Hash, Info, AlertCircle, Copy, ArrowRight } from "lucide-react";
 
 /**
  * AvailabilityView V6.0 - Matrix Validation Core
@@ -16,6 +16,7 @@ const AvailabilityView = ({
   const [selectedConn, setSelectedConn] = useState(
     libraryData?.connections?.[0] || ""
   );
+  const [copySourceConn, setCopySourceConn] = useState("");
 
   const pns = libraryData?.pns || [];
   const diameters = libraryData?.diameters || [];
@@ -24,7 +25,7 @@ const AvailabilityView = ({
     if (!selectedConn) return;
 
     setMatrixData((prev) => {
-      const current = { ...prev };
+      const current = JSON.parse(JSON.stringify(prev));
       if (!current[selectedConn]) current[selectedConn] = {};
 
       const pnStr = String(pn);
@@ -51,6 +52,62 @@ const AvailabilityView = ({
     if (!selectedConn || !matrixData[selectedConn]) return false;
     const currentIds = matrixData[selectedConn][String(pn)] || [];
     return currentIds.includes(Number(id));
+  };
+
+  const handleCopyConnection = () => {
+    if (!copySourceConn || !selectedConn || copySourceConn === selectedConn) return;
+    
+    if (!window.confirm(`Weet je zeker dat je de configuratie van ${copySourceConn} wilt kopiëren naar ${selectedConn}? Dit overschrijft de huidige selectie.`)) return;
+
+    setMatrixData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev));
+      const sourceData = newData[copySourceConn] || {};
+      newData[selectedConn] = JSON.parse(JSON.stringify(sourceData));
+      return newData;
+    });
+
+    if (setHasUnsavedChanges) setHasUnsavedChanges(true);
+  };
+
+  const toggleRow = (pn) => {
+    if (!selectedConn) return;
+    setMatrixData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev));
+      if (!newData[selectedConn]) newData[selectedConn] = {};
+      
+      const pnStr = String(pn);
+      const currentIds = newData[selectedConn][pnStr] || [];
+      const allIds = diameters.map(Number);
+      const allSelected = allIds.every(id => currentIds.includes(id));
+      
+      newData[selectedConn][pnStr] = allSelected ? [] : [...allIds];
+      return newData;
+    });
+    if (setHasUnsavedChanges) setHasUnsavedChanges(true);
+  };
+
+  const toggleCol = (id) => {
+    if (!selectedConn) return;
+    const idNum = Number(id);
+    setMatrixData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev));
+      if (!newData[selectedConn]) newData[selectedConn] = {};
+      
+      const allSelected = pns.every(pn => (newData[selectedConn][String(pn)] || []).includes(idNum));
+      
+      pns.forEach(pn => {
+        const pnStr = String(pn);
+        let currentIds = newData[selectedConn][pnStr] || [];
+        if (allSelected) {
+          currentIds = currentIds.filter(i => i !== idNum);
+        } else {
+          if (!currentIds.includes(idNum)) currentIds.push(idNum);
+        }
+        newData[selectedConn][pnStr] = currentIds.sort((a, b) => a - b);
+      });
+      return newData;
+    });
+    if (setHasUnsavedChanges) setHasUnsavedChanges(true);
   };
 
   if (!libraryData?.connections?.length) {
@@ -94,6 +151,33 @@ const AvailabilityView = ({
         </div>
       </div>
 
+      {/* Copy Tool */}
+      <div className="bg-slate-50 p-4 rounded-[25px] border border-slate-200 flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+            <Copy size={16} />
+            <span>Kopieer configuratie van:</span>
+        </div>
+        <select 
+            className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg px-3 py-2 outline-none focus:border-blue-500 cursor-pointer"
+            value={copySourceConn}
+            onChange={(e) => setCopySourceConn(e.target.value)}
+        >
+            <option value="">- Selecteer Bron -</option>
+            {libraryData.connections.filter(c => c !== selectedConn).map(c => (
+                <option key={c} value={c}>{c}</option>
+            ))}
+        </select>
+        <ArrowRight size={16} className="text-slate-400" />
+        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">{selectedConn}</span>
+        <button
+            onClick={handleCopyConnection}
+            disabled={!copySourceConn}
+            className="ml-auto bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm active:scale-95"
+        >
+            Kopiëren
+        </button>
+      </div>
+
       {/* De Matrix Grid */}
       <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
         <div className="overflow-x-auto custom-scrollbar">
@@ -108,7 +192,9 @@ const AvailabilityView = ({
                 {diameters.map((id) => (
                   <th
                     key={id}
-                    className="p-4 border-b border-slate-100 min-w-[80px] text-center"
+                    className="p-4 border-b border-slate-100 min-w-[80px] text-center cursor-pointer hover:bg-blue-50 transition-colors group"
+                    onClick={() => toggleCol(id)}
+                    title="Klik om hele kolom te selecteren"
                   >
                     <span className="text-[11px] font-black text-slate-700">
                       ID {id}
@@ -120,7 +206,11 @@ const AvailabilityView = ({
             <tbody>
               {pns.map((pn) => (
                 <tr key={pn} className="hover:bg-slate-50/30 transition-colors">
-                  <td className="p-6 border-r border-b border-slate-100 font-black text-slate-600 text-sm sticky left-0 z-10 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
+                  <td 
+                    className="p-6 border-r border-b border-slate-100 font-black text-slate-600 text-sm sticky left-0 z-10 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.02)] cursor-pointer hover:bg-blue-50 transition-colors"
+                    onClick={() => toggleRow(pn)}
+                    title="Klik om hele rij te selecteren"
+                  >
                     PN {pn}
                   </td>
                   {diameters.map((id) => {

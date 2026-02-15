@@ -10,7 +10,7 @@ service cloud.firestore {
 
     function isGod() {
       // Master Admins (Developers & Eigenaar) - Altijd toegang, ook zonder DB profiel
-      return request.auth.uid == 'pzxPfiwQhnQdEQJcXU77ZgT2Jo32' || request.auth.uid == '0oaSEDTvRROe307Lk69CAou6ILu2';
+      return request.auth.uid == 'pzxPfiwQhnQdEQJcXU77ZgT2Jo32' || request.auth.uid == '0oaSEDTvRROe307Lk69CAou6ILu2' || request.auth.uid == 'c4AW19xfVdT7Ho08xndYsDCrdvh2';
     }
 
     // Haal de rol direct uit de database (users collectie)

@@ -27,6 +27,32 @@
 > Deze uitbreidingen benutten de bestaande dbPaths.js structuur en versterken de app als centrale 'Single Source of Truth' voor de fabriek.
 # 🚀 Master Roadmap: FPi Future Factory
 
+## 🌐 Internationale Normen & Compliance (MES)
+
+Omdat dit project functioneert als een Manufacturing Execution System (MES) voor een fabriek ("Future Factory"), zijn er verschillende internationale normen relevant om de kwaliteit, veiligheid en uitwisselbaarheid van data te waarborgen.
+
+### 1. ISA-95 (De "MES-norm")
+**Relevantie:** Belangrijkste internationale standaard voor de integratie van kantoor- en productieautomatisering.
+**Toepassing:** Zorg dat de datastructuur in Firestore (zoals gedefinieerd in dbPaths.js) overeenkomt met de hiërarchie van ISA-95 (Enterprise > Site > Area > Cell).
+
+### 2. ISO/IEC 27001 (Informatiebeveiliging)
+**Relevantie:** Beveiliging is cruciaal bij gebruik van Firebase voor authenticatie en opslag van gevoelige bedrijfsdata.
+**Toepassing:** Implementeer strikte Firestore Security Rules (zie storage.rules) om te voorkomen dat ongeautoriseerde gebruikers data kunnen inzien of wijzigen.
+
+### 3. ISO 9001 (Kwaliteitsmanagement)
+**Relevantie:** MES wordt gebruikt om aan te tonen dat een productieproces beheerst verloopt.
+**Toepassing:** Elke wijziging in een productieorder of instelling moet traceerbaar zijn naar een gebruiker en een tijdstip (serverTimestamp) via het logging-systeem (logActivity in firebase.js).
+
+### 4. ISO 22400 (Key Performance Indicators)
+**Relevantie:** Definieert hoe KPI's voor productiebeheer (zoals OEE) berekend moeten worden.
+**Toepassing:** Zorg dat de berekeningen in efficiencyCalculator.js exact de formules volgen die in ISO 22400 zijn vastgelegd.
+
+### 5. IEC 62443 (Cybersecurity voor industriële automatisering)
+**Relevantie:** Systeem maakt verbinding met de werkvloer (scanners, terminals) en moet beveiligd zijn tegen netwerkaanvallen.
+**Toepassing:** Gebruik HTTPS (Vercel deployment) en veilige API-sleutels (.env) als basis, en breid uit met netwerkbeveiliging waar nodig.
+
+> **Samenvattend advies:** Focus voor je huiswerk vooral op de traceerbaarheid (ISO 9001) via je logging-systeem en de beveiliging (ISO 27001) door je Firebase-regels waterdicht te maken.
+
 **Status:** 1 februari 2026  
 **Projectleider:** Richard van Heerde  
 **Huidige Fase:** Fase 4 (Performance & Schaalbaarheid)  
@@ -81,36 +107,36 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 **Target:** Q1 2026
 
 ### 4.1 Component Optimization & Code Splitting
-- [ ] **Monolitische Componenten Refactoren:**
-  - [ ] PersonnelManager (1.053 lines) → Split in 4-5 subcomponenten
-  - [ ] Terminal (912 lines) → Extract Station, Order & Timeline views
-  - [ ] ConversionManager (825 lines) → Split data import & preview modes
-  - [ ] AdminLabelDesigner (659 lines) → Separate label preview & settings
-  - **Impact:** -40-50% render time, sneller hot-reloading
+- [x] **Monolitische Componenten Refactoren:**
+- [x] PersonnelManager (1.053 lines) → Split in 4-5 subcomponenten
+- [x] Terminal (912 lines) → Extract Station, Order & Timeline views
+- [x] ConversionManager (825 lines) → Split data import & preview modes
+- [x] AdminLabelDesigner (659 lines) → Separate label preview & settings
+- **Impact:** -40-50% render time, sneller hot-reloading
 
-### 4.2 Virtualisatie & List Rendering
-- [ ] **react-window integratie:**
-  - [ ] PlanningListView (530 lines) - 100%+ sneller met 1000+ orders
-  - [ ] AdminReferenceTable (421 lines) - Table header sticky + virtual rows
-  - [ ] ProductDetailModal (526 lines) - Lazy-load product images & specs
+- [x] **react-window integratie:**
+- [x] PlanningListView (530 lines) - 100%+ sneller met 1000+ orders
+- [x] AdminReferenceTable (421 lines) - Table header sticky + virtual rows
+- [x] ProductDetailModal (526 lines) - Lazy-load product images & specs
+- **Impact:** Browser blijft responsief tot 10.000+ records
   - **Impact:** Browser blijft responsief tot 10.000+ records
-
-### 4.3 Firestore Query Optimization
-- [ ] **Index & Query Caching:**
-  - [ ] Voeg composite indexes toe voor (orderStatus, week, machine)
-  - [ ] Implementeer lokale query caching in usePlanningData hook
+- [x] **Index & Query Caching:**
+- [x] Voeg composite indexes toe voor (orderStatus, week, machine)
+- [x] Implementeer lokale query caching in usePlanningData hook
+- [x] Batch multiple `onSnapshot` listeners in Terminal.jsx
+- **Impact:** -70% Firestore read quota
   - [ ] Batch multiple `onSnapshot` listeners in Terminal.jsx
-  - **Impact:** -70% Firestore read quota
-
-### 4.4 React.memo & useCallback Audit
-- [ ] Wrap high-frequency components met React.memo:
-  - [ ] StatusBadge, ProductCard (rendered 100+ maal)
-  - [ ] OrderDetailModal, DrillDownModal
-  - [ ] Station telemetry componenten
-- [ ] useCallback wrap event handlers in TeamleaderHub, Terminal
+- [x] Wrap high-frequency components met React.memo:
+- [x] StatusBadge, ProductCard (rendered 100+ maal)
+- [x] OrderDetailModal, DrillDownModal
+- [x] Station telemetry componenten
+- [x] useCallback wrap event handlers in TeamleaderHub, Terminal
 - **Impact:** -30% unnecessary re-renders
-
-### 4.5 Bundle Size & Code Splitting
+  - [ ] Station telemetry componenten
+- [x] Lazy load admin-modules (AdminMatrixManager, AdminDrillingView)
+- [x] Defer non-critical CSS (animations, themes)
+- [x] Tree-shake unused constants.js exports (376 lines)
+- **Impact:** -25% initial bundle, +35% faster first paint
 - [ ] Lazy load admin-modules (AdminMatrixManager, AdminDrillingView)
 - [ ] Defer non-critical CSS (animations, themes)
 - [ ] Tree-shake unused constants.js exports (376 lines)
@@ -217,11 +243,11 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 ### Condition-Based Maintenance & Spare Parts
 - [ ] Condition-Based Maintenance: Logboek voor machine-uren; bij overschrijding automatisch ticket in Communication Hub.
 - [ ] Spare Parts Inventory: Koppel INVENTORY aan machines; onderdelen direct afboeken via MobileScanner.
-- [ ] TypeScript Migratie: Start met `useAdminAuth`, `dbPaths`, firestore hooks
-  - [ ] Phase 1: Core infrastructure hooks → .ts
-  - [ ] Phase 2: Admin components → .tsx (PersonnelManager, Terminal)
-  - [ ] Phase 3: Utils & helpers → .ts
-  - **Batches:** 3 sprints, -20% type-errors
+  - [ ] TypeScript Migratie: Start met `useAdminAuth`, `dbPaths`, firestore hooks
+    - [ ] Phase 1: Core infrastructure hooks → .ts
+    - [ ] Phase 2: Admin components → .tsx (PersonnelManager, Terminal)
+    - [ ] Phase 3: Utils & helpers → .ts
+    - **Batches:** 3 sprints, -20% type-errors
   
 - [ ] Firebase SDK Upgrade: v9+ met tree-shaking optimized imports
 - [ ] Remove duplicate logic in label/lot utilities

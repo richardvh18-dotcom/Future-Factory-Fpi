@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 import ProductJourneyModal from "./modals/ProductJourneyModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
+import ProductDetailModal from "../products/ProductDetailModal";
+import { FileImage } from "lucide-react";
+import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
 import { nl } from "date-fns/locale";
 
@@ -24,7 +27,7 @@ import { nl } from "date-fns/locale";
  * Toont details van een order en de voortgang van de producten.
  */
 
-const OrderDetail = ({
+const OrderDetail = React.memo(({
   order,
   products = [],
   onClose,
@@ -38,6 +41,8 @@ const OrderDetail = ({
 }) => {
   const [viewingJourney, setViewingJourney] = useState(null);
   const [viewingDossier, setViewingDossier] = useState(null);
+  const [viewingDrawing, setViewingDrawing] = useState(null);
+  const [drawingLoading, setDrawingLoading] = useState(false);
 
   const orderProducts = useMemo(() => {
     if (!order) return [];
@@ -142,6 +147,21 @@ const OrderDetail = ({
               
               <div className="flex items-center gap-2">
                 <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setDrawingLoading(true);
+                    const drawing = await findDrawingForProduct(p.itemCode || p.item || "");
+                    setDrawingLoading(false);
+                    if (drawing) setViewingDrawing(drawing);
+                    else alert("Geen tekening gevonden voor dit product.");
+                  }}
+                  className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
+                  title="Bekijk tekening/productkaart"
+                  disabled={drawingLoading}
+                >
+                  <FileImage size={16} />
+                </button>
+                <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setViewingDossier(p);
@@ -229,8 +249,17 @@ const OrderDetail = ({
           onMoveLot={onMoveLot}
         />
       )}
+
+      {viewingDrawing && (
+        <ProductDetailModal
+          product={viewingDrawing}
+          onClose={() => setViewingDrawing(null)}
+          userRole={isManager ? "admin" : "operator"}
+        />
+      )}
+
     </div>
   );
-};
+});
 
 export default OrderDetail;

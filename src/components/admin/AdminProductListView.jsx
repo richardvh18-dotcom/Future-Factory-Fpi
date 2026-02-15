@@ -288,14 +288,21 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                               />
                             </td>
                             <td className="px-8 py-5">
-                              <div className="flex items-center gap-2 font-mono font-bold text-slate-600">
-                                <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 italic">
-                                  DN {p.dn || p.diameter}
-                                </span>
-                                <span className="text-slate-300">/</span>
-                                <span className="bg-blue-50 px-2 py-1 rounded text-blue-700 italic">
-                                  PN {p.pn || p.pressure || "-"}
-                                </span>
+                              <div className="flex flex-col gap-1.5">
+                                <div className="flex items-center gap-2 font-mono font-bold text-slate-600">
+                                  <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 italic">
+                                    DN {p.dn || p.diameter}
+                                  </span>
+                                  <span className="text-slate-300">/</span>
+                                  <span className="bg-blue-50 px-2 py-1 rounded text-blue-700 italic">
+                                    PN {p.pn || p.pressure || "-"}
+                                  </span>
+                                </div>
+                                {p.extraCode && p.extraCode !== "-" && (
+                                  <span className="text-[9px] font-black text-purple-600 bg-purple-50 px-2 py-0.5 rounded w-fit border border-purple-100">
+                                    Code: {p.extraCode}
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="px-8 py-5">

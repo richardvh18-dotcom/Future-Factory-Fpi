@@ -107,6 +107,7 @@ const BlueprintsView = ({
         connectionType: "",
         extraCode: "",
         fields: blueprints[key].fields || [],
+        angle: "",
       });
     } else {
       setDesignMode("fitting");
@@ -428,7 +429,7 @@ const BlueprintsView = ({
                   ))}
                 </select>
               </div>
-              <div className="col-span-2 space-y-2 text-left">
+              <div className="space-y-2 text-left">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
                   3. Extra Code (Optioneel)
                 </label>

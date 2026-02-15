@@ -1,4 +1,4 @@
-# 🤖 Automation Rules Migration Guide
+<!-- VERWIJDEREN: Data migratie niet meer nodig. Bestand kan worden verwijderd. -->
 
 ## Overzicht
 

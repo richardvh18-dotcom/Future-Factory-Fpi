@@ -36,6 +36,8 @@ import { PATHS, isValidPath } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { format } from "date-fns";
 import { nl } from "date-fns/locale";
+import { storage } from "../../config/firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 /**
  * AdminMessagesView V6.0 - Master Communication Hub
@@ -50,6 +52,8 @@ const AdminMessagesView = ({ user: propUser }) => {
   const [filterType, setFilterType] = useState('all'); // 'all', 'crash'
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
+  const [attachment, setAttachment] = useState(null);
+  const [attachmentPreview, setAttachmentPreview] = useState(null);
 
   // 1. Live Sync met de Root Messages collectie
   useEffect(() => {
@@ -480,6 +484,8 @@ const ComposeModal = ({ onClose, user }) => {
   });
   const [sending, setSending] = useState(false);
   const [userList, setUserList] = useState([]);
+  const [attachment, setAttachment] = useState(null);
+  const [attachmentPreview, setAttachmentPreview] = useState(null);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -505,6 +511,8 @@ const ComposeModal = ({ onClose, user }) => {
         read: false,
         archived: false,
         type: "user_message",
+        attachmentUrl: attachmentUrl || null,
+        attachmentMeta: attachmentMeta || null,
       });
       onClose();
     } catch (err) {
@@ -513,6 +521,17 @@ const ComposeModal = ({ onClose, user }) => {
       setSending(false);
     }
   };
+
+  // Preview tonen voor afbeeldingen
+  useEffect(() => {
+    if (attachment && attachment.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => setAttachmentPreview(e.target.result);
+      reader.readAsDataURL(attachment);
+    } else {
+      setAttachmentPreview(null);
+    }
+  }, [attachment]);
 
   return (
     <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
@@ -610,6 +629,24 @@ const ComposeModal = ({ onClose, user }) => {
                 setFormData({ ...formData, content: e.target.value })
               }
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+              Bijlage (foto of bestand)
+            </label>
+            <input
+              type="file"
+              accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.csv,.txt,.zip,.rar,.7z,.doc,.docx,.xls,.xlsx"
+              className="w-full p-2 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-blue-500 transition-all text-xs"
+              onChange={e => setAttachment(e.target.files[0])}
+            />
+            {attachmentPreview && (
+              <img src={attachmentPreview} alt="Preview" className="mt-2 max-h-40 rounded-xl border border-slate-200 shadow" />
+            )}
+            {attachment && !attachmentPreview && (
+              <div className="mt-2 text-xs text-slate-500">Bestand geselecteerd: {attachment.name}</div>
+            )}
           </div>
 
           <div className="pt-6 border-t border-slate-100 flex justify-end gap-4">

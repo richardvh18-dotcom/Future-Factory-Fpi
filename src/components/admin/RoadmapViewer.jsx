@@ -29,11 +29,43 @@ const RoadmapViewer = ({ user }) => {
       title: "Performance & Schaalbaarheid",
       status: "🚀 Actief",
       items: [
-        "Component Optimization: Split monolitische files (PersonnelManager, Terminal)",
-        "Virtualisatie: react-window integratie voor lijsten",
-        "Firestore Query Optimization: Indexen & caching",
-        "React.memo & useCallback audit",
-        "Bundle Size Reduction: Tree-shake constants",
+        {
+          title: "Component Optimization: Split monolitische files",
+          subtasks: [
+            { label: "PersonnelManager opsplitsen", status: "completed" },
+            { label: "Terminal opsplitsen", status: "completed" }
+          ]
+        },
+        {
+          title: "Virtualisatie: react-window integratie voor lijsten",
+          subtasks: [
+            { label: "PlanningListView virtualiseren", status: "completed" },
+            { label: "AdminReferenceTable virtualiseren", status: "completed" }
+          ]
+        },
+        {
+          title: "Firestore Query Optimization: Indexen & caching",
+          subtasks: [
+            { label: "Composite indexes toevoegen", status: "completed" },
+            { label: "Lokale query caching", status: "completed" },
+            { label: "Batch onSnapshot listeners", status: "completed" }
+          ]
+        },
+        {
+          title: "React.memo & useCallback audit",
+          subtasks: [
+            { label: "StatusBadge optimaliseren", status: "completed" },
+            { label: "ProductCard optimaliseren", status: "completed" },
+            { label: "OrderDetailModal optimaliseren", status: "completed" },
+            { label: "DrillDownModal optimaliseren", status: "completed" }
+          ]
+        },
+        {
+          title: "Bundle Size Reduction: Tree-shake constants",
+          subtasks: [
+            { label: "constants.js opschonen", status: "completed" }
+          ]
+        },
         // Bugfixes / Issues (2026)
         "Bugfixes: KPI Teamleader werkt niet",
         "Bugfixes: Datum import Excel wordt niet weergegeven",
@@ -193,12 +225,33 @@ const RoadmapViewer = ({ user }) => {
             </button>
             {expandedPhase === phase.id && (
               <div className="mt-4 space-y-2 border-t pt-4">
-                {phase.items.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-3 text-sm text-slate-700">
-                    <span className="text-emerald-600 font-bold">→</span>
-                    <span>{item}</span>
-                  </div>
-                ))}
+                {phase.items.map((item, idx) => {
+                  if (typeof item === "string") {
+                    return (
+                      <div key={idx} className="flex items-start gap-3 text-sm text-slate-700">
+                        <span className="text-emerald-600 font-bold">→</span>
+                        <span>{item}</span>
+                      </div>
+                    );
+                  }
+                  // Subtasks rendering
+                  return (
+                    <div key={idx} className="mb-2">
+                      <div className="flex items-start gap-3 text-sm text-slate-700 font-semibold">
+                        <span className="text-emerald-600 font-bold">→</span>
+                        <span>{item.title}</span>
+                      </div>
+                      <ul className="ml-7 mt-1 space-y-1">
+                        {item.subtasks.map((sub, subIdx) => (
+                          <li key={subIdx} className="flex items-center gap-2 text-xs text-slate-600">
+                            <span className="inline-block w-2 h-2 rounded-full bg-gray-300" />
+                            <span>{sub.label}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

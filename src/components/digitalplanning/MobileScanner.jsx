@@ -14,10 +14,12 @@ import {
   Volume2,
   CheckCircle2,
   Maximize,
+  FileImage,
 } from "lucide-react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import ProductDetailModal from "../products/ProductDetailModal";
 
 /**
  * MobileScanner V26 - Focus op Helderheid & Snelheid.
@@ -36,6 +38,7 @@ const MobileScanner = () => {
   const [isSuccess, setIsSuccess] = useState(false);
   const [hasFlash, setHasFlash] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
+  const [viewingProduct, setViewingProduct] = useState(null);
   // jsQrLoaded niet meer nodig, want we importeren het direct
 
   // Refs voor de engine
@@ -283,6 +286,26 @@ const MobileScanner = () => {
     }
   };
 
+  const handleViewDrawing = async (e, productId) => {
+    e.stopPropagation();
+    if (!productId) return;
+    try {
+      if (typeof productId === 'object') {
+        setViewingProduct(productId);
+        return;
+      }
+      const docRef = doc(db, ...PATHS.PRODUCTS, productId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        setViewingProduct({ id: snap.id, ...snap.data() });
+      } else {
+        alert("Product niet gevonden in catalogus.");
+      }
+    } catch (err) {
+      console.error("Fout bij laden product:", err);
+    }
+  };
+
   if (loading)
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white">
@@ -399,8 +422,18 @@ const MobileScanner = () => {
                     <span className="text-[10px] font-black bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl uppercase tracking-tighter border border-slate-200">
                       {item.machine || "Planning"}
                     </span>
-                    <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-inner">
-                      <ArrowRight size={20} />
+                    <div className="flex items-center gap-2">
+                      {item.drawing && (
+                        <button
+                          onClick={(e) => handleViewDrawing(e, item.drawing)}
+                          className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 hover:bg-blue-100 transition-all shadow-inner"
+                        >
+                          <FileImage size={20} />
+                        </button>
+                      )}
+                      <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-inner">
+                        <ArrowRight size={20} />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -541,6 +574,14 @@ const MobileScanner = () => {
             </button>
           </div>
         </div>
+      )}
+
+      {viewingProduct && (
+        <ProductDetailModal
+          product={viewingProduct}
+          onClose={() => setViewingProduct(null)}
+          userRole="operator"
+        />
       )}
 
       <style>{`

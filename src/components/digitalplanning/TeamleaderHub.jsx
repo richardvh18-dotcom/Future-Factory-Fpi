@@ -30,7 +30,7 @@ import ProductDossierModal from "./modals/ProductDossierModal";
  * TeamleaderHub V7.0 - Error Resilience Update
  * Fix voor wit scherm: Voegt extra checks toe voor database paden en appId.
  */
-const TeamleaderHub = ({
+const TeamleaderHub = React.memo(({
   onBack,
   onExit,
   fixedScope = "all",
@@ -856,6 +856,6 @@ const TeamleaderHub = ({
       )}
     </div>
   );
-};
+});
 
 export default TeamleaderHub;

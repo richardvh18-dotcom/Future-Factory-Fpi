@@ -52,12 +52,11 @@ const AdminMatrixManager = React.lazy(() =>
 const AdminUsersView = React.lazy(() => import("./AdminUsersView"));
 const AdminMessagesManagement = React.lazy(() => import("./AdminMessagesManagement"));
 const AdminDatabaseView = React.lazy(() => import("./AdminDatabaseView"));
-const DataMigrationTool = React.lazy(() => import("./DataMigrationTool"));
 const AdminLogView = React.lazy(() => import("./AdminLogView"));
 const AdminSettingsView = React.lazy(() => import("./AdminSettingsView"));
 const CapacityPlanningView = React.lazy(() => import("../planning/CapacityPlanningView"));
 const AdminLabelDesigner = React.lazy(() => import("./AdminLabelDesigner"));
-const AiCenterView = React.lazy(() => import("./AiCenterView"));
+const AiCenterView = React.lazy(() => import("../ai/AiCenterView"));
 // NIEUW: Referentie Tabel toevoegen
 const AdminReferenceTable = React.lazy(() => import("./AdminReferenceTable"));
 // NIEUW: Monday.com/vPlan-style Planning Views
@@ -194,6 +193,15 @@ const AdminDashboard = () => {
           color: "bg-yellow-50 border-yellow-100",
           roles: ["admin", "engineer"],
           component: AutomationRulesView,
+        },
+        {
+          id: "manual_sync_drawings",
+          title: "Handmatige Sync Tekeningen",
+          desc: "Start direct een sync tussen conversiematrix en tekeningen.",
+          icon: <DatabaseZap size={24} className="text-green-600" />,
+          color: "bg-green-50 border-green-100",
+          roles: ["admin"],
+          component: React.lazy(() => import("./ManualSyncDrawings")),
         },
       ]
     },
@@ -336,15 +344,6 @@ const AdminDashboard = () => {
           color: "bg-red-50 border-red-100",
           roles: ["admin"],
           component: AdminDatabaseView,
-        },
-        {
-          id: "migration",
-          title: "Data Migratie",
-          desc: "Legacy data importeren.",
-          icon: <DatabaseZap size={24} className="text-orange-600" />,
-          color: "bg-orange-50 border-orange-100",
-          roles: ["admin"],
-          component: DataMigrationTool,
         },
       ]
     },

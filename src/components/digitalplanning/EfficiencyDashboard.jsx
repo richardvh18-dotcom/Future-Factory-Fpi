@@ -28,7 +28,7 @@ import {
  * EfficiencyDashboard
  * Toont real-time efficiency metrics op basis van verwachte vs werkelijke productietijden
  */
-const EfficiencyDashboard = ({ selectedStation, dateRange = 'today' }) => {
+const EfficiencyDashboard = React.memo(({ selectedStation, dateRange = 'today' }) => {
   const [loading, setLoading] = useState(true);
   const [timeStandards, setTimeStandards] = useState([]);
   const [completedProducts, setCompletedProducts] = useState([]);
@@ -362,6 +362,6 @@ const EfficiencyDashboard = ({ selectedStation, dateRange = 'today' }) => {
       )}
     </div>
   );
-};
+});
 
 export default EfficiencyDashboard;

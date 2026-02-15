@@ -12,6 +12,7 @@ import {
   UserCircle,
   ShieldAlert,
   ChevronRight,
+  ChevronDown,
   Database,
   Fingerprint,
   CheckCircle2,
@@ -23,6 +24,8 @@ import {
   Key,
   RefreshCcw,
   Layers,
+  Briefcase,
+  MapPin,
 } from "lucide-react";
 import { db, auth, firebaseConfig } from "../../config/firebase";
 import { initializeApp, deleteApp } from "firebase/app";
@@ -42,9 +45,11 @@ import { PATHS, isValidPath } from "../../config/dbPaths";
 import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth";
 
 /**
- * AdminUsersView V6.0 - Account Request Queue
+ * AdminUsersView V6.2 - Access Controller
  * Beheert alle toegangsrechten en profielen in de root-omgeving.
  * + Wachtrij voor account aanvragen
+ * + Uitgebreide filters (Rol, Afdeling)
+ * + Inklapbare landgroepen
  * Pad: /future-factory/Users/Accounts/
  */
 const AdminUsersView = () => {
@@ -52,6 +57,8 @@ const AdminUsersView = () => {
   const [accountRequests, setAccountRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("");
+  const [selectedRole, setSelectedRole] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -59,6 +66,8 @@ const AdminUsersView = () => {
   const [editModalTab, setEditModalTab] = useState("profile");
   const [activeTab, setActiveTab] = useState("users"); // 'users' of 'requests'
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [expandedCountries, setExpandedCountries] = useState({}); // State voor inklapbare groepen
+
   const [newUser, setNewUser] = useState({
     name: "",
     email: "",
@@ -140,13 +149,19 @@ const AdminUsersView = () => {
 
   // Filtering en Grouping
   const filteredUsers = useMemo(() => {
-    return users.filter(
-      (u) =>
+    return users.filter((u) => {
+      const matchesSearch =
         u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.role?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [users, searchTerm]);
+        u.role?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.id?.toLowerCase().includes(searchTerm.toLowerCase()); // Zoek ook op UID
+
+      const matchesDept = selectedDepartment ? u.department === selectedDepartment : true;
+      const matchesRole = selectedRole ? u.role === selectedRole : true;
+
+      return matchesSearch && matchesDept && matchesRole;
+    });
+  }, [users, searchTerm, selectedDepartment, selectedRole]);
 
   // Groepeer gebruikers per land
   const usersByCountry = useMemo(() => {
@@ -454,6 +469,8 @@ const AdminUsersView = () => {
       await updateDoc(userRef, {
         name: selectedUser.name,
         role: selectedUser.role,
+        country: selectedUser.country,
+        department: selectedUser.department,
         modules: selectedUser.modules || [],
         lastAdminUpdate: serverTimestamp(),
         updatedBy: auth.currentUser?.email || "Master Admin",
@@ -523,7 +540,7 @@ const AdminUsersView = () => {
           </div>
 
           {/* Search + Add User Button */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 w-full md:w-auto">
             <div className="relative flex-1">
               <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -534,12 +551,43 @@ const AdminUsersView = () => {
                 className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-400"
               />
             </div>
+
+            <div className="relative hidden xl:block min-w-[200px]">
+              <Briefcase size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+              <select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                className="w-full pl-12 pr-10 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all appearance-none cursor-pointer text-slate-600"
+              >
+                <option value="">Alle Afdelingen</option>
+                {DEPARTMENTS.map((dept) => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+
+            <div className="relative hidden xl:block min-w-[200px]">
+              <ShieldCheck size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+              <select
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+                className="w-full pl-12 pr-10 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all appearance-none cursor-pointer text-slate-600"
+              >
+                <option value="">Alle Rollen</option>
+                {USER_ROLES.map((role) => (
+                  <option key={role.id} value={role.id}>{role.label}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+
             <button
               onClick={() => setShowAddUserModal(true)}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center gap-2 shadow-lg"
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center gap-2 shadow-lg whitespace-nowrap"
             >
               <UserPlus size={18} />
-              Gebruiker Toevoegen
+              <span className="hidden md:inline">Gebruiker Toevoegen</span>
             </button>
           </div>
         </div>
@@ -611,95 +659,108 @@ const AdminUsersView = () => {
               ) : (
                 <div className="space-y-8">
                   {Object.entries(usersByCountry).map(([country, countryUsers]) => (
-                    <div key={country}>
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-slate-800 rounded-xl">
-                          <Globe size={20} className="text-white" />
+                    <div key={country} className="bg-white rounded-[30px] border border-slate-200 overflow-hidden shadow-sm transition-all">
+                      <div 
+                        onClick={() => setExpandedCountries(prev => ({...prev, [country]: !prev[country]}))}
+                        className="flex items-center justify-between p-6 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-slate-800 rounded-xl">
+                            <Globe size={20} className="text-white" />
+                          </div>
+                          <h3 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">
+                            {country}
+                          </h3>
+                          <span className="text-sm font-bold text-slate-400">
+                            ({countryUsers.length})
+                          </span>
                         </div>
-                        <h3 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">
-                          {country}
-                        </h3>
-                        <span className="text-sm font-bold text-slate-400">
-                          ({countryUsers.length})
-                        </span>
+                        <div className={`p-2 rounded-full bg-slate-100 text-slate-400 transition-transform duration-300 ${expandedCountries[country] ? 'rotate-180' : ''}`}>
+                          <ChevronDown size={20} />
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                        {countryUsers.map((u) => (
-                          <div
-                            key={u.id}
-                            className="bg-white p-7 rounded-[40px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-400 transition-all group flex flex-col justify-between relative overflow-hidden"
-                          >
-                            <div className="absolute top-0 right-0 p-6 opacity-5 rotate-12 group-hover:opacity-10 transition-opacity">
-                              <Database size={100} />
-                            </div>
+                      {expandedCountries[country] && (
+                        <div className="p-6 border-t border-slate-100 bg-slate-50/30 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in slide-in-from-top-2">
+                          {countryUsers.map((u) => (
+                            <div
+                              key={u.id}
+                              className="bg-white p-7 rounded-[30px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-400 transition-all group flex flex-col justify-between relative overflow-hidden"
+                            >
+                              <div className="absolute top-0 right-0 p-6 opacity-5 rotate-12 group-hover:opacity-10 transition-opacity">
+                                <Database size={100} />
+                              </div>
 
-                            <div>
-                              <div className="flex items-center gap-4 mb-8">
-                                <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                                  <Fingerprint size={28} />
-                                </div>
-                                <div className="text-left overflow-hidden">
-                                  <h4 className="font-black text-slate-900 uppercase italic truncate text-lg leading-none mb-1.5">
-                                    {u.name || "Identiteit Onbekend"}
-                                  </h4>
-                                  <div className="flex flex-wrap gap-2">
-                                    <span
-                                      className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white shadow-sm ${
-                                        USER_ROLES.find((r) => r.id === u.role)?.color ||
-                                        "bg-slate-400"
-                                      }`}
-                                    >
-                                      {USER_ROLES.find((r) => r.id === u.role)?.label ||
-                                        u.role}
-                                    </span>
-                                    {u.modules && u.modules.length > 0 && (
-                                      <span className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-purple-50 text-purple-600 border border-purple-100 flex items-center gap-1">
-                                        <Layers size={10} /> {u.modules.length}
+                              <div>
+                                <div className="flex items-center gap-4 mb-8">
+                                  <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                                    <Fingerprint size={28} />
+                                  </div>
+                                  <div className="text-left overflow-hidden">
+                                    <h4 className="font-black text-slate-900 uppercase italic truncate text-lg leading-none mb-1.5">
+                                      {u.name || "Identiteit Onbekend"}
+                                    </h4>
+                                    <div className="flex flex-wrap gap-2">
+                                      <span
+                                        className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white shadow-sm ${
+                                          USER_ROLES.find((r) => r.id === u.role)?.color ||
+                                          "bg-slate-400"
+                                        }`}
+                                      >
+                                        {USER_ROLES.find((r) => r.id === u.role)?.label ||
+                                          u.role}
                                       </span>
-                                    )}
+                                      {u.modules && u.modules.length > 0 && (
+                                        <span className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-purple-50 text-purple-600 border border-purple-100 flex items-center gap-1">
+                                          <Layers size={10} /> {u.modules.length}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-4 border-t border-slate-50 pt-6">
+                                  <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
+                                    <Mail size={14} className="text-blue-500" /> {u.email}
+                                  </div>
+                                  <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
+                                    <Briefcase size={14} className="text-blue-500" /> {u.department || "Geen afdeling"}
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-[8px] font-mono text-slate-300 uppercase bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+                                      UID: {u.id}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
 
-                              <div className="space-y-4 border-t border-slate-50 pt-6">
-                                <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
-                                  <Mail size={14} className="text-blue-500" /> {u.email}
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-[8px] font-mono text-slate-300 uppercase bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
-                                    UID: {u.id}
-                                  </span>
-                                </div>
+                              <div className="mt-8 pt-6 border-t border-slate-50 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                <button
+                                  onClick={() => handleResetPassword(u.email)}
+                                  className="p-3 bg-slate-50 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all"
+                                  title="Wachtwoord Resetten"
+                                >
+                                  <Key size={18} />
+                                </button>
+                                <button
+                                  onClick={() => handleEdit(u)}
+                                  className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                  title="Bewerken"
+                                >
+                                  <Edit3 size={18} />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(u.id)}
+                                  className="p-3 bg-slate-50 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                  title="Account Verwijderen"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
                               </div>
                             </div>
-
-                            <div className="mt-8 pt-6 border-t border-slate-50 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                              <button
-                                onClick={() => handleResetPassword(u.email)}
-                                className="p-3 bg-slate-50 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all"
-                                title="Wachtwoord Resetten"
-                              >
-                                <Key size={18} />
-                              </button>
-                              <button
-                                onClick={() => handleEdit(u)}
-                                className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                                title="Bewerken"
-                              >
-                                <Edit3 size={18} />
-                              </button>
-                              <button
-                                onClick={() => handleDelete(u.id)}
-                                className="p-3 bg-slate-50 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                                title="Account Verwijderen"
-                              >
-                                <Trash2 size={18} />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -847,6 +908,47 @@ const AdminUsersView = () => {
                       setSelectedUser({ ...selectedUser, name: e.target.value })
                     }
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
+                    Land
+                  </label>
+                  <div className="relative group">
+                    <MapPin
+                      className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500"
+                      size={18}
+                    />
+                    <select
+                      className="w-full pl-12 pr-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-[20px] font-bold text-xs outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                      value={selectedUser.country || ""}
+                      onChange={(e) => setSelectedUser({ ...selectedUser, country: e.target.value })}
+                    >
+                      <option value="">Selecteer land...</option>
+                      {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
+                    Afdeling
+                  </label>
+                  <div className="relative group">
+                    <Briefcase
+                      className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500"
+                      size={18}
+                    />
+                    <select
+                      className="w-full pl-12 pr-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-[20px] font-bold text-xs outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                      value={selectedUser.department || ""}
+                      onChange={(e) => setSelectedUser({ ...selectedUser, department: e.target.value })}
+                    >
+                      <option value="">Selecteer afdeling...</option>
+                      {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
 

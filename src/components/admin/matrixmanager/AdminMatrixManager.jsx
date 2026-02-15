@@ -145,7 +145,9 @@ const AdminMatrixManager = ({ onBack }) => {
         "pns",
         "diameters",
         "borings",
-        "codes"
+        "codes",
+        "angles",
+        "productLabels"
       ]; // Voeg hier extra keys toe als je meer bibliotheekvelden wilt ondersteunen
       // Haal site config velden uit libraryData (en bewaar ze apart)
       const { logo, siteName, color, logoUrl, themeColor, uploadedLogos, appName, ...filtered } = libraryData;

@@ -1,5 +1,7 @@
 import React from "react";
-import { Search, ChevronLeft, ChevronRight, Layers, FileText, Sparkles, ArrowLeft, PlayCircle, AlertCircle, ArrowUpCircle } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Layers, FileText, Sparkles, ArrowLeft, PlayCircle, AlertCircle, ArrowUpCircle, FileImage, X, RefreshCw, Copy } from "lucide-react";
+import { findDrawingForProduct } from "../../../utils/findDrawingForProduct";
+import { manualSyncDrawings } from "../../../utils/manualSyncDrawings";
 import { format, differenceInDays, isValid } from "date-fns";
 import { nl } from "date-fns/locale";
 import StatusBadge from "../common/StatusBadge";
@@ -17,7 +19,8 @@ const TerminalPlanningView = ({
   productionProgressMap,
   isBM01,
   onStartProduction,
-  selectedOrder
+  selectedOrder,
+  onViewDrawing
 }) => {
   // Helpers inside component to avoid prop drilling for simple logic
   const parseDateSafe = (dateInput) => {
@@ -70,6 +73,36 @@ const TerminalPlanningView = ({
     });
   }, [orders]);
 
+  const [drawingLoading, setDrawingLoading] = React.useState(false);
+  const [isSyncing, setIsSyncing] = React.useState(false);
+  const [syncProgress, setSyncProgress] = React.useState(0);
+  const [missingItems, setMissingItems] = React.useState([]);
+  const [showMissingModal, setShowMissingModal] = React.useState(false);
+
+  const handleManualSync = async () => {
+    if (isSyncing || !confirm("Wil je handmatig zoeken naar tekeningen voor alle items in de planning?")) return;
+    setIsSyncing(true);
+    try {
+      const results = await manualSyncDrawings((current, total) => {
+        setSyncProgress(Math.round((current / total) * 100));
+      });
+      const foundCount = results.filter(r => r.found).length;
+      const missing = results.filter(r => !r.found);
+      
+      if (missing.length > 0) {
+        setMissingItems(missing);
+        setShowMissingModal(true);
+      }
+      alert(`Sync voltooid!\n${foundCount} gevonden, ${missing.length} niet gevonden.`);
+    } catch (error) {
+      console.error("Sync error:", error);
+      alert("Er ging iets mis tijdens de sync.");
+    } finally {
+      setIsSyncing(false);
+      setSyncProgress(0);
+    }
+  };
+
   return (
     <>
       {/* Sidebar Planning */}
@@ -81,6 +114,18 @@ const TerminalPlanningView = ({
             className="w-full pl-12 pr-10 py-4 bg-slate-50 border-2 border-slate-100 rounded-[20px] text-sm font-bold outline-none focus:border-blue-500 transition-all shadow-sm"
             value={searchTerm} onChange={(e) => onSearchChange(e.target.value)}
           />
+        </div>
+
+        {/* Handmatige Sync Knop */}
+        <div className="flex justify-end mb-4 px-2">
+            <button 
+                onClick={handleManualSync} 
+                disabled={isSyncing}
+                className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-50"
+            >
+                <RefreshCw size={12} className={isSyncing ? "animate-spin" : ""} />
+                {isSyncing ? `Syncen... ${syncProgress}%` : "Sync Tekeningen"}
+            </button>
         </div>
         
         {/* Week Selector + Alles Knop */}
@@ -128,8 +173,9 @@ const TerminalPlanningView = ({
 
               return (
                 <div
-                  key={order.id} onClick={() => onSelectOrder(order.id)}
-                  className={`p-4 md:p-5 rounded-[25px] border-2 transition-all cursor-pointer flex items-center justify-between relative overflow-hidden ${
+                  key={order.id}
+                  onClick={() => onSelectOrder(order.id)}
+                  className={`p-4 md:p-5 rounded-[25px] border-2 transition-all flex items-center justify-between relative overflow-hidden cursor-pointer ${
                     selectedOrderId === order.id 
                       ? "bg-blue-50 border-blue-500 shadow-sm" 
                       : isPriority 
@@ -139,9 +185,21 @@ const TerminalPlanningView = ({
                 >
                   {isNew && <div className="absolute top-0 left-0 px-2 py-0.5 bg-emerald-500 text-white text-[7px] font-black uppercase tracking-tighter rounded-br-lg z-10 text-left">Nieuw</div>}
                   <div className="flex items-center gap-4 text-left overflow-hidden">
-                    <div className={`p-3 rounded-2xl shrink-0 ${selectedOrderId === order.id ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-400"}`}>
-                      <FileText size={20} />
-                    </div>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setDrawingLoading(true);
+                        const drawing = await findDrawingForProduct(order.itemCode || order.item || "");
+                        setDrawingLoading(false);
+                        if (drawing && onViewDrawing) onViewDrawing(drawing);
+                        else alert("Geen tekening gevonden voor dit order.");
+                      }}
+                      className={`p-3 rounded-2xl shrink-0 ${(order.linkedProductId || order.drawing) ? "bg-blue-100 text-blue-600" : "bg-slate-50 text-slate-400"}`}
+                      title="Bekijk tekening/productkaart"
+                      disabled={drawingLoading}
+                    >
+                      <FileImage size={20} />
+                    </button>
                     <div className="text-left overflow-hidden">
                       <h4 className="font-black text-sm leading-none flex items-center gap-2 text-left">
                         {order.orderId}
@@ -259,6 +317,37 @@ const TerminalPlanningView = ({
           </div>
         )}
       </div>
+
+      {showMissingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowMissingModal(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl p-6 max-w-lg w-full relative max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <button className="absolute top-3 right-3 p-2 text-slate-400 hover:text-red-500" onClick={() => setShowMissingModal(false)}><X size={20} /></button>
+            
+            <h3 className="text-lg font-black text-slate-800 mb-4">Niet gevonden items ({missingItems.length})</h3>
+            <p className="text-xs text-slate-500 mb-4">Deze codes komen voor in de planning maar hebben geen match in de productcatalogus.</p>
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 rounded-xl p-4 border border-slate-100 mb-4">
+               {missingItems.map((item, idx) => (
+                 <div key={idx} className="text-xs font-mono text-slate-600 py-1 border-b border-slate-100 last:border-0 flex justify-between">
+                   <span>{item.code}</span>
+                 </div>
+               ))}
+            </div>
+            
+            <button 
+              onClick={() => {
+                const text = missingItems.map(i => i.code).join("\n");
+                navigator.clipboard.writeText(text);
+                alert("Lijst gekopieerd naar klembord!");
+              }}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-blue-500 flex items-center justify-center gap-2"
+            >
+              <Copy size={16} /> Kopieer Lijst
+            </button>
+          </div>
+        </div>
+      )}
+
     </>
   );
 };

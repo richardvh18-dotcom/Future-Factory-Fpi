@@ -11,7 +11,7 @@ import {
  * ProductCard: Toont een product in de catalogus.
  * GEFIXT: Afbeelding is nu zichtbaar in het overzicht.
  */
-const ProductCard = ({ product, onClick }) => {
+const ProductCard = React.memo(({ product, onClick }) => {
   return (
     <div
       onClick={() => onClick(product)}
@@ -23,7 +23,7 @@ const ProductCard = ({ product, onClick }) => {
           <img
             src={product.imageUrl}
             alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 gap-2">
@@ -58,7 +58,7 @@ const ProductCard = ({ product, onClick }) => {
               Druk
             </span>
             <span className="text-xs font-black text-slate-700 leading-none">
-              PN {product.pressure}
+              PN {product.pressure || product.pn}
             </span>
           </div>
           <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 flex flex-col">
@@ -66,7 +66,7 @@ const ProductCard = ({ product, onClick }) => {
               Maat
             </span>
             <span className="text-xs font-black text-slate-700 leading-none">
-              ID {product.diameter}
+              ID {product.diameter || product.dn}
             </span>
           </div>
         </div>
@@ -91,7 +91,8 @@ const ProductCard = ({ product, onClick }) => {
         </div>
       </div>
     </div>
+
   );
-};
+});
 
 export default ProductCard;

@@ -10,6 +10,8 @@ import {
   Info,
   Settings2,
   Activity,
+  Tag,
+  RotateCw,
 } from "lucide-react";
 import LibrarySection from "./LibrarySection";
 
@@ -96,6 +98,20 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, bluepr
       placeholder: "Bijv. A1S1...",
       key: "codes",
     },
+    {
+      id: "angles",
+      title: "Graden (Hoeken)",
+      icon: <RotateCw size={18} />,
+      placeholder: "Bijv. 45, 90...",
+      key: "angles",
+    },
+    {
+      id: "labels",
+      title: "Product Labels",
+      icon: <Tag size={18} />,
+      placeholder: "Bijv. Wavistrong...",
+      key: "productLabels",
+    },
   ];
 
   return (
@@ -162,6 +178,8 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, bluepr
               <option value="diameters">Diameters (ID)</option>
               <option value="pns">Drukklassen (PN)</option>
               <option value="codes">Extra Codes</option>
+              <option value="angles">Graden (Hoeken)</option>
+              <option value="productLabels">Product Labels</option>
             </select>
           </div>
           <div className="flex flex-wrap gap-2">

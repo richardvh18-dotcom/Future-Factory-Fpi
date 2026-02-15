@@ -10,7 +10,7 @@ import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, set
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
-const BM01Hub = ({ onBack, orders = [], products = [], onMoveLot }) => {
+const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) => {
   const { user } = useAdminAuth();
   // AANGEPAST: Standaard view op 'inspectie' (Aan te bieden)
   const [activeTab, setActiveTab] = useState("inspectie");
@@ -699,6 +699,6 @@ const BM01Hub = ({ onBack, orders = [], products = [], onMoveLot }) => {
       )}
     </div>
   );
-};
+});
 
 export default BM01Hub;

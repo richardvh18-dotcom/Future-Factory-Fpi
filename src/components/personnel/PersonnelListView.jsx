@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
+import { FixedSizeGrid } from "react-window";
 import { Search, UserCircle, Edit3, Trash2, Plus, ChevronDown, ChevronUp, Layers, Filter, RotateCcw, ArrowRight } from "lucide-react";
 import { getISOWeek } from "date-fns";
 
-const PersonnelListView = ({ 
-  personnel = [], 
-  departments = [], 
-  onEdit, 
-  onDelete, 
+const PersonnelListView = React.memo(({
+  personnel = [],
+  departments = [],
+  onEdit,
+  onDelete,
   onAdd,
   expandedDepts: propExpandedDepts,
   onToggleDept
@@ -64,7 +65,7 @@ const PersonnelListView = ({
     return shift ? shift.label : shiftId;
   };
 
-  const renderCard = (p) => {
+  const renderCard = React.useCallback((p) => {
     const displayShiftId = getEffectiveShift(p);
     const displayLabel = resolveShiftLabel(displayShiftId, p.departmentId);
     return (
@@ -126,7 +127,7 @@ const PersonnelListView = ({
         </button>
       </div>
     </div>
-  )};
+  )}, [onEdit, onDelete, currentWeek, departments]);
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -231,20 +232,33 @@ const PersonnelListView = ({
             );
           })}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredPersonnel.length === 0 ? (
-            <div className="col-span-full py-20 text-center opacity-50">
-              <UserCircle size={64} className="mx-auto mb-4 text-slate-300" />
-              <p className="text-sm font-black uppercase tracking-widest text-slate-400">
-                Geen medewerkers gevonden
-              </p>
-            </div>
-          ) : (
-            filteredPersonnel.map(p => renderCard(p))
-          )}
-        </div>
-      )}
+      ) :
+        filteredPersonnel.length === 0 ? (
+          <div className="col-span-full py-20 text-center opacity-50">
+            <UserCircle size={64} className="mx-auto mb-4 text-slate-300" />
+            <p className="text-sm font-black uppercase tracking-widest text-slate-400">
+              Geen medewerkers gevonden
+            </p>
+          </div>
+        ) : (
+          <FixedSizeGrid
+            columnCount={4}
+            rowCount={Math.ceil(filteredPersonnel.length / 4)}
+            columnWidth={320}
+            rowHeight={260}
+            width={1320}
+            height={800}
+            className="mx-auto"
+          >
+            {({ columnIndex, rowIndex, style }) => {
+              const idx = rowIndex * 4 + columnIndex;
+              if (idx >= filteredPersonnel.length) return null;
+              const p = filteredPersonnel[idx];
+              return <div style={style}>{renderCard(p)}</div>;
+            }}
+          </FixedSizeGrid>
+        )
+      }
     </div>
   );
 };

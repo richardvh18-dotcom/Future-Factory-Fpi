@@ -44,6 +44,9 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView.jsx";
 import PersonnelListView from "../personnel/PersonnelListView.jsx";
+import PersonnelTeamView from "../personnel/subviews/PersonnelTeamView.jsx";
+import PersonnelScheduleView from "../personnel/subviews/PersonnelScheduleView.jsx";
+import PersonnelImportView from "../personnel/subviews/PersonnelImportView.jsx";
 import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
 
 /**
@@ -487,6 +490,36 @@ const PersonnelManager = () => {
               >
                 Personeel
               </button>
+              <button
+                onClick={() => setActiveTab("team")}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                  activeTab === "team"
+                    ? "bg-white text-emerald-900 shadow-sm"
+                    : "text-slate-400"
+                }`}
+              >
+                Team
+              </button>
+              <button
+                onClick={() => setActiveTab("schedule")}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                  activeTab === "schedule"
+                    ? "bg-white text-purple-900 shadow-sm"
+                    : "text-slate-400"
+                }`}
+              >
+                Rooster
+              </button>
+              <button
+                onClick={() => setActiveTab("import")}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                  activeTab === "import"
+                    ? "bg-white text-blue-900 shadow-sm"
+                    : "text-slate-400"
+                }`}
+              >
+                Import
+              </button>
             </div>
             <button
               onClick={() => {
@@ -645,6 +678,27 @@ const PersonnelManager = () => {
                 }
               }}
             />
+          )}
+
+          {/* TAB 3: Teamindeling */}
+          {activeTab === "team" && (
+            <PersonnelTeamView
+              personnel={personnel}
+              departments={structure.departments || []}
+            />
+          )}
+
+          {/* TAB 4: Rooster Overzicht */}
+          {activeTab === "schedule" && (
+            <PersonnelScheduleView
+              personnel={personnel}
+              viewDate={viewDate}
+            />
+          )}
+
+          {/* TAB 5: Import */}
+          {activeTab === "import" && (
+            <PersonnelImportView onImport={() => alert("Import coming soon!")} />
           )}
         </div>
       </div>

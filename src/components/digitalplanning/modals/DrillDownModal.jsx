@@ -23,7 +23,7 @@ import StatusBadge from "../common/StatusBadge";
  * DrillDownModal V2.0 - Industrial Performance Edition
  * Beheert diepe inkijk in lotnummer-data met O(1) lookup en render-limiting.
  */
-const DrillDownModal = ({
+const DrillDownModal = React.memo(({
   isOpen,
   onClose,
   title,
@@ -373,6 +373,6 @@ const DrillDownModal = ({
       </div>
     </div>
   );
-};
+});
 
 export default DrillDownModal;

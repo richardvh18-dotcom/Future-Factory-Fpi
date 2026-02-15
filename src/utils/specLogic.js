@@ -1,32 +1,31 @@
-import {
-  DEFAULT_SPECS_BY_TYPE,
-  GLOBAL_TOLERANCES_DEFAULT,
-} from "../data/constants";
+
 
 /**
  * Geeft een lijst van technische specificatie-sleutels terug voor een bepaald producttype.
  * Bijv. voor "Elbow" krijg je ['TW', 'L', 'Angle', ...]
+ * Haalt de structuur uit specConfig (meestal generalConfig.specsByType)
  */
-export const getSpecKeysForType = (type) => {
+export const getSpecKeysForType = (type, specConfig) => {
   if (!type) return [];
-
-  // Zoek in de constante lijst
-  const specs = DEFAULT_SPECS_BY_TYPE[type];
-
-  // Als het type gevonden is, geef de array terug
-  if (specs && Array.isArray(specs)) {
-    return specs;
+  if (specConfig && typeof specConfig === 'object') {
+    const specs = specConfig[type];
+    if (specs && Array.isArray(specs)) {
+      return specs;
+    }
   }
-
   // Fallback voor onbekende types
   return ["L", "Weight", "Note"];
 };
 
 /**
  * Haalt de standaard tolerantie op voor een specifiek veld
+ * (Nu: altijd leeg, tenzij je een config object meegeeft)
  */
-export const getToleranceForField = (fieldKey) => {
-  return GLOBAL_TOLERANCES_DEFAULT[fieldKey] || "";
+export const getToleranceForField = (fieldKey, toleranceConfig) => {
+  if (toleranceConfig && typeof toleranceConfig === 'object') {
+    return toleranceConfig[fieldKey] || "";
+  }
+  return "";
 };
 
 /**

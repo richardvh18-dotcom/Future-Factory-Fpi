@@ -139,15 +139,4 @@ export const STANDARD_DIAMETERS = [
 export const STANDARD_PRESSURES = [8, 12.5, 16, 20, 25, 32, 40, 50];
 
 // Legacy exports to prevent breaking changes if still used somewhere
-export const GLOBAL_TOLERANCES_DEFAULT = {};
-export const TOLERANCES_BY_TYPE_DEFAULT = {};
-export const BORE_TOLERANCES = {};
-export const DRILLING_TYPES = [];
-export const ELBOW_ANGLES = [];
-export const ELBOW_RATIOS = [];
-export const COUPLING_TYPES_OPTIONS = [];
-export const FLANGE_TYPES = [];
-export const FITTING_KEYS = [];
-export const TYPE_CATEGORY_MAP = {};
-export const TOLERANCE_CATEGORY_GROUPS = {};
-export const DEFAULT_SPECS_BY_TYPE = {};
+

@@ -74,29 +74,12 @@ const AiDocumentUploadView = () => {
   const extractJson = (text) => {
     if (!text) return null;
     
-    // Verwijder alle markdown code blocks markers eerst
-    let cleaned = text.trim()
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim();
+    // Robuustere JSON extractie: zoek naar eerste { en laatste }
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
     
-    // Als het begint en eindigt met {}, is het waarschijnlijk pure JSON
-    if (cleaned.startsWith("{") && cleaned.endsWith("}")) {
-      return cleaned;
-    }
-    
-    // Probeer JSON object te vinden met verbeterde regex
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/m);
-    if (jsonMatch) {
-      let extracted = jsonMatch[0].trim();
-      
-      // Extra cleaning: verwijder trailing text na de laatste }
-      const lastBrace = extracted.lastIndexOf('}');
-      if (lastBrace !== -1) {
-        extracted = extracted.substring(0, lastBrace + 1);
-      }
-      
-      return extracted;
+    if (start !== -1 && end !== -1 && end > start) {
+      return text.substring(start, end + 1);
     }
     
     return null;
@@ -125,8 +108,8 @@ JSON Structure:
 IMPORTANT RULES:
 - Return ONLY the JSON object, nothing else
 - NO markdown formatting, NO code blocks, NO explanations
-- summary: minimaal 500 karakters met alle belangrijke details
-- fullContext: volledige gestructureerde samenvatting (max 10000 karakters)
+- summary: samenvatting van het document (max 1000 karakters)
+- fullContext: uitgebreide analyse van de inhoud (max 3000 karakters)
 - keyFacts: alle belangrijke feiten, specificaties en details
 - Arrays van strings voor specifieke categorieën
 - Taal: Nederlands
@@ -261,7 +244,12 @@ IMPORTANT RULES:
       fileUrl = await getDownloadURL(storageRef);
 
       if (file.type === "application/pdf") {
-        text = await extractTextFromPdf(file);
+        try {
+          text = await extractTextFromPdf(file);
+        } catch (pdfErr) {
+          console.error("PDF parsing error:", pdfErr);
+          throw new Error(`Kon PDF niet lezen (check worker configuratie): ${pdfErr.message}`);
+        }
       } else {
         text = await new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -301,9 +289,15 @@ IMPORTANT RULES:
       });
     } catch (err) {
       console.error("Upload fout:", err);
+      
+      let errorMessage = err.message || "Onbekende fout bij verwerken";
+      if (err.code === "storage/unauthorized") {
+        errorMessage = "Geen rechten (storage/unauthorized). Check Firebase Storage Rules voor 'ai_documents/'.";
+      }
+
       setStatus({
         type: "error",
-        message: "Fout bij uploaden, analyseren of opslaan van document.",
+        message: `Fout: ${errorMessage}`,
       });
     } finally {
       setUploading(false);

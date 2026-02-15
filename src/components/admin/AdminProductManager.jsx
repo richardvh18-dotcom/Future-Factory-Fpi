@@ -1,13 +1,10 @@
 import React, { useState } from "react";
 import {
   Plus,
-  ArrowLeft,
   Package,
   Loader2,
   ShieldCheck,
   Database,
-  Search,
-  LayoutDashboard,
   Zap,
 } from "lucide-react";
 import AdminProductListView from "./AdminProductListView";

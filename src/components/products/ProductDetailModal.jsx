@@ -16,13 +16,16 @@ import {
   Layers,
   AlertCircle,
   CircleDot, // Icoon voor boringen
+  Tag,
 } from "lucide-react";
 
 import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db, storage } from "../../config/firebase";
 import { generateProductPDF } from "../../utils/pdfGenerator";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { PATHS } from "../../config/dbPaths";
 import { aiService } from "../../services/aiService";
+import VerificationBadge from "../admin/VerificationBadge";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -56,59 +59,57 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
       try {
         const connKey =
           product.connection?.split("/")[0]?.toUpperCase() || "CB";
-        const pnStr = `PN${product.pressure}`;
-        const idStr = `ID${product.diameter}`;
+        const pnStr = `PN${product.pressure || product.pn}`;
+        const idStr = `ID${product.diameter || product.dn}`;
+        const extraCodeSuffix = product.extraCode && product.extraCode !== "-" 
+          ? `_${product.extraCode.toUpperCase()}` 
+          : "";
 
-        const baseTypeRaw = product.type
-          ?.replace("_Socket", "")
-          .replace("_SOCKET", "")
-          .toUpperCase();
-        const isElbowType = baseTypeRaw.includes("ELBOW");
-        const anglePart =
-          isElbowType && product.angle && product.angle !== "-"
-            ? `${product.angle}_`
-            : "";
+        // ID Constructie (Match met ProductForm.jsx logic)
+        const bellId = `${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
+        
+        // Generieke Fitting ID: TYPE_[ANGLE_]CONN_PN_ID
+        let fittingId = `${product.type.toUpperCase()}`;
+        if (product.angle && product.angle !== "-") {
+          fittingId += `_${product.angle}`;
+        }
+        fittingId += `_${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
 
-        const standardFitId = `${baseTypeRaw}_${anglePart}${connKey}_${pnStr}_${idStr}`;
-        const socketFitId = `${baseTypeRaw}_SOCKET_${connKey}_${pnStr}_${idStr}`;
-        const bellId = `${connKey}_${pnStr}_${idStr}`;
-        const bellCol =
-          connKey.toLowerCase() === "cb" ? "cb_dimensions" : "tb_dimensions";
+        // Socket ID
+        const socketId = `${product.type.toUpperCase()}_SOCKET_${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
 
-        const [bellSnap, fitStandardSnap, fitSocketSnap] = await Promise.all([
-          getDoc(
-            doc(db, "artifacts", appId, "public", "data", bellCol, bellId)
-          ),
-          getDoc(
-            doc(
-              db,
-              "artifacts",
-              appId,
-              "public",
-              "data",
-              "standard_fitting_specs",
-              standardFitId
-            )
-          ),
-          getDoc(
-            doc(
-              db,
-              "artifacts",
-              appId,
-              "public",
-              "data",
-              "standard_socket_specs",
-              socketFitId
-            )
-          ),
-        ]);
+        // Bepaal paden
+        let bellPath = null;
+        if (connKey === "TB") bellPath = PATHS.TB_DIMENSIONS;
+        else if (connKey === "CB") bellPath = PATHS.CB_DIMENSIONS;
+
+        const promises = [];
+        
+        // 1. Bell Dimensions
+        if (bellPath) {
+          promises.push(getDoc(doc(db, ...bellPath, bellId)).then(snap => snap.exists() ? snap.data() : {}));
+        } else {
+          promises.push(Promise.resolve({}));
+        }
+
+        // 2. Fitting Specs
+        if (PATHS.FITTING_SPECS) {
+          promises.push(getDoc(doc(db, ...PATHS.FITTING_SPECS, fittingId)).then(snap => snap.exists() ? snap.data() : {}));
+        } else {
+          promises.push(Promise.resolve({}));
+        }
+
+        // 3. Socket Specs
+        if (PATHS.SOCKET_SPECS) {
+          promises.push(getDoc(doc(db, ...PATHS.SOCKET_SPECS, socketId)).then(snap => snap.exists() ? snap.data() : {}));
+        } else {
+          promises.push(Promise.resolve({}));
+        }
+
+        const [bellData, fitStandardData, fitSocketData] = await Promise.all(promises);
 
         let merged = {};
-        if (bellSnap.exists()) merged = { ...merged, ...bellSnap.data() };
-        if (fitStandardSnap.exists())
-          merged = { ...merged, ...fitStandardSnap.data() };
-        if (fitSocketSnap.exists())
-          merged = { ...merged, ...fitSocketSnap.data() };
+        merged = { ...merged, ...bellData, ...fitStandardData, ...fitSocketData };
 
         // NIEUW: Boringen apart ophalen en opslaan
         let boreData = null;
@@ -227,8 +228,8 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
   );
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 lg:p-10 animate-in fade-in duration-300">
-      <div className="bg-white w-full max-w-6xl rounded-[40px] shadow-2xl border border-slate-200 overflow-hidden flex flex-col h-[90vh] text-left">
+    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 lg:p-10 animate-in fade-in duration-300">
+      <div className="bg-white w-full max-w-[90vw] rounded-[40px] shadow-2xl border border-slate-200 overflow-hidden flex flex-col h-[90vh] text-left">
         {/* MODAL HEADER */}
         <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
           <div className="text-left">
@@ -242,6 +243,11 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
               {product.articleCode && (
                 <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 uppercase">
                   ERP: {product.articleCode}
+                </span>
+              )}
+              {product.label && product.label !== '-' && (
+                <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-100 uppercase">
+                  {product.label}
                 </span>
               )}
               {/* PDF Upload knop alleen voor admin/qc/engineer */}
@@ -322,7 +328,7 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                     <img
                       src={product.imageUrl}
                       alt={product.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain p-4"
                     />
                   ) : (
                     <div className="text-slate-300 text-center opacity-20">
@@ -335,19 +341,22 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                 </div>
               </div>
               <div className="lg:col-span-5 space-y-3">
+                <div className="mb-4">
+                  <VerificationBadge status={product.verificationStatus} verifiedBy={product.verifiedBy} />
+                </div>
                 <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] italic mb-4 flex items-center gap-2">
                   <Info size={14} /> Kerngegevens
                 </h4>
                 {[
                   {
                     l: "Diameter",
-                    v: `ID ${product.diameter} mm`,
+                    v: `ID ${product.diameter || product.dn} mm`,
                     i: <Target size={18} />,
                     c: "text-blue-600",
                   },
                   {
                     l: "Druk",
-                    v: `PN ${product.pressure}`,
+                    v: `PN ${product.pressure || product.pn}`,
                     i: <Zap size={18} />,
                     c: "text-emerald-600",
                   },
@@ -358,11 +367,17 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                     c: "text-slate-600",
                   },
                   {
+                    l: "Label",
+                    v: product.label || "-",
+                    i: <Tag size={18} />,
+                    c: "text-orange-600",
+                  },
+                  ...((product.type?.toLowerCase().includes("flange") || product.type?.toUpperCase().startsWith("FL")) ? [{
                     l: "Boring",
                     v: product.drilling || "N.v.t.",
                     i: <Layers size={18} />,
                     c: "text-purple-600",
-                  },
+                  }] : []),
                 ].map((item, idx) => (
                   <div
                     key={idx}
@@ -390,10 +405,25 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                       Documentatie
                     </h4>
                     <div className="space-y-2">
-                      {product.sourcePdfs.map((pdf, i) => (
+                      {product.sourcePdfs.map((pdf, i) => {
+                        // Support voor zowel string URLs als objecten {name, url}
+                        const url = typeof pdf === 'string' ? pdf : pdf.url;
+                        let name = typeof pdf === 'string' ? `PDF Document ${i + 1}` : pdf.name;
+
+                        // Probeer bestandsnaam uit URL te halen als het een string is
+                        if (typeof pdf === 'string' && pdf.includes('/o/')) {
+                          try {
+                            const path = pdf.split('/o/')[1].split('?')[0];
+                            const decodedPath = decodeURIComponent(path);
+                            const fileName = decodedPath.split('/').pop();
+                            name = fileName.replace(/^\d+_/, ''); // Verwijder timestamp prefix
+                          } catch (e) { /* fallback */ }
+                        }
+
+                        return (
                         <a
                           key={i}
-                          href={pdf.url}
+                          href={url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:bg-blue-50 transition-all group shadow-sm"
@@ -401,7 +431,7 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                           <div className="flex items-center gap-2">
                             <FileText size={14} className="text-blue-500" />
                             <span className="text-[10px] font-bold uppercase truncate max-w-[200px]">
-                              {pdf.name}
+                              {name}
                             </span>
                           </div>
                           <ExternalLink
@@ -409,7 +439,8 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                             className="text-slate-300 group-hover:text-blue-500"
                           />
                         </a>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

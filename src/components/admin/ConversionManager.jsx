@@ -27,14 +27,14 @@ import {
 } from "lucide-react";
 import {
   parseCSV,
-  parseExcel,
   uploadConversionBatch,
   lookupProductByManufacturedId,
   fetchConversions,
 } from "../../utils/conversionLogic";
-import { doc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, deleteDoc, serverTimestamp, collection, query, where, limit, getDocs, writeBatch } from "firebase/firestore";
 import { db, auth } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import * as XLSX from "xlsx";
 
 /**
  * ConversionManager V6.0 - Root Integrated
@@ -51,6 +51,9 @@ export default function ConversionManager() {
   const [status, setStatus] = useState("idle");
   const [testCode, setTestCode] = useState("");
   const [testResult, setTestResult] = useState(null);
+  const [sheetNames, setSheetNames] = useState([]);
+  const [selectedSheets, setSelectedSheets] = useState([]);
+  const [workbook, setWorkbook] = useState(null);
 
   // Beheer State
   const [conversions, setConversions] = useState([]);
@@ -66,6 +69,61 @@ export default function ConversionManager() {
   const [hasMore, setHasMore] = useState(true);
   const PAGE_SIZE = 50;
 
+  // Helper: Valideer en zet data
+  const validateAndSetData = (data) => {
+    if (data.length > 0) {
+      const firstRow = data[0];
+      const hasOldCode = firstRow["Old Item Code"] || firstRow["Item Code"] || firstRow["manufacturedId"];
+      if (!hasOldCode)
+        throw new Error("Kolom 'Old Item Code' of 'manufacturedId' niet gevonden.");
+    } else {
+      throw new Error("Het bestand is leeg of het tabblad bevat geen data.");
+    }
+    setFileData(data);
+    setStatus("ready");
+  };
+
+  // Helper: Process imported data (add label + normalize keys)
+  const processImportData = (data, label) => {
+    return data.map((item) => {
+      const newItem = { ...item };
+      if (label) newItem.label = label;
+      
+      // Mapping van Excel kolommen naar interne veldnamen
+      if (item["Old Item Code"]) newItem.manufacturedId = item["Old Item Code"];
+      if (item["Item Code"]) newItem.manufacturedId = item["Item Code"];
+      
+      if (item["New Item Code"]) newItem.targetProductId = item["New Item Code"];
+      if (item["Target Code"]) newItem.targetProductId = item["Target Code"];
+
+      if (item["Description"]) newItem.description = item["Description"];
+      if (item["Item Description"]) newItem.description = item["Item Description"];
+      if (item["Omschrijving"]) newItem.description = item["Omschrijving"];
+      if (item["Type Description"]) newItem.description = item["Type Description"];
+
+      if (item["Type"]) newItem.type = item["Type"];
+      if (item["Serie"]) newItem.serie = item["Serie"];
+      
+      if (item["DN"]) newItem.dn = item["DN"];
+      if (item["DN [mm]"]) newItem.dn = item["DN [mm]"];
+
+      if (item["PN"]) newItem.pn = item["PN"];
+      if (item["PN [bar]"]) newItem.pn = item["PN [bar]"];
+
+      if (item["Ends"]) newItem.ends = item["Ends"];
+
+      // Normaliseer dimensies A-N naar lowercase a-n
+      ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"].forEach((key) => {
+        // Check zowel uppercase key als lowercase key in bron data
+        const val = item[key] !== undefined ? item[key] : item[key.toLowerCase()];
+        if (val !== undefined) {
+          newItem[key.toLowerCase()] = val;
+        }
+      });
+      return newItem;
+    });
+  };
+
   // --- UPLOAD HANDLERS ---
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
@@ -79,7 +137,19 @@ export default function ConversionManager() {
     try {
       let parsedData = [];
       if (isExcel) {
-        parsedData = await parseExcel(file);
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data, { type: "array" });
+        
+        if (wb.SheetNames.length > 1) {
+          setWorkbook(wb);
+          setSheetNames(wb.SheetNames);
+          setSelectedSheets([]);
+          setStatus("selecting_sheet");
+          return;
+        }
+        const sheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        parsedData = processImportData(XLSX.utils.sheet_to_json(ws), sheetName);
       } else {
         const text = await new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -87,24 +157,39 @@ export default function ConversionManager() {
           reader.onerror = reject;
           reader.readAsText(file);
         });
-        parsedData = parseCSV(text);
+        parsedData = processImportData(parseCSV(text), null);
       }
-
-      if (parsedData.length > 0) {
-        const firstRow = parsedData[0];
-        const hasOldCode = firstRow["Old Item Code"] || firstRow["Item Code"];
-        if (!hasOldCode)
-          throw new Error("Kolom 'Old Item Code' niet gevonden.");
-      } else {
-        throw new Error("Het bestand is leeg.");
-      }
-
-      setFileData(parsedData);
-      setStatus("ready");
+      
+      validateAndSetData(parsedData);
     } catch (err) {
       console.error(err);
       alert("Fout bij lezen bestand: " + err.message);
       setStatus("error");
+    }
+  };
+
+  const handleToggleSheet = (sheetName) => {
+    setSelectedSheets((prev) =>
+      prev.includes(sheetName)
+        ? prev.filter((n) => n !== sheetName)
+        : [...prev, sheetName]
+    );
+  };
+
+  const handleConfirmSheetSelection = () => {
+    if (selectedSheets.length === 0) return;
+
+    try {
+      let allData = [];
+      selectedSheets.forEach((name) => {
+        const ws = workbook.Sheets[name];
+        const data = processImportData(XLSX.utils.sheet_to_json(ws), name);
+        allData = [...allData, ...data];
+      });
+      validateAndSetData(allData);
+    } catch (err) {
+      alert("Fout bij laden tabbladen: " + err.message);
+      resetUpload();
     }
   };
 
@@ -114,15 +199,49 @@ export default function ConversionManager() {
     setStatus("uploading");
 
     try {
-      // De util uploadConversionBatch moet PATHS.CONVERSION_MATRIX gebruiken
-      await uploadConversionBatch(fileData, null, (prog) => setProgress(prog));
+      // We implementeren de upload lokaal om zeker te zijn dat alle velden (a-n, label) mee gaan.
+      const BATCH_SIZE = 400;
+      const total = fileData.length;
+      let processed = 0;
+
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        const chunk = fileData.slice(i, i + BATCH_SIZE);
+        const batch = writeBatch(db);
+
+        chunk.forEach((item) => {
+          // Zorg dat we een ID hebben
+          const docId = (item.manufacturedId || item["Old Item Code"] || item["Item Code"] || "").toString().trim().toUpperCase();
+          if (!docId) return;
+
+          const docRef = doc(db, ...PATHS.CONVERSION_MATRIX, docId);
+          
+          // Schoon item op voor opslag en voeg metadata toe
+          const storageItem = {
+            ...item,
+            manufacturedId: docId,
+            lastUpdated: serverTimestamp(),
+            updatedBy: auth.currentUser?.email || "Import",
+          };
+          
+          // Verwijder undefined waarden
+          Object.keys(storageItem).forEach(key => storageItem[key] === undefined && delete storageItem[key]);
+
+          batch.set(docRef, storageItem, { merge: true });
+        });
+
+        await batch.commit();
+        processed += chunk.length;
+        setProgress(Math.round((processed / total) * 100));
+      }
+
       setStatus("done");
       alert(
-        `Import voltooid! ${fileData.length} records naar de root geschreven.`
+        `Import voltooid! ${total} records naar de root geschreven.`
       );
       resetUpload();
     } catch (error) {
       console.error(error);
+      alert("Fout tijdens uploaden: " + error.message);
       setStatus("error");
     } finally {
       setUploading(false);
@@ -134,6 +253,9 @@ export default function ConversionManager() {
       setStatus("idle");
       setFileData([]);
       setProgress(0);
+      setWorkbook(null);
+      setSheetNames([]);
+      setSelectedSheets([]);
     }, 2000);
   };
 
@@ -141,6 +263,22 @@ export default function ConversionManager() {
     if (!testCode) return;
     const result = await lookupProductByManufacturedId(null, testCode);
     setTestResult(result || { error: "Geen match gevonden" });
+  };
+
+  const handleCreateNew = () => {
+    setEditingItem({
+      manufacturedId: "",
+      targetProductId: "",
+      type: "",
+      serie: "",
+      dn: "",
+      pn: "",
+      description: "",
+      label: "",
+      a: "", b: "", c: "", d: "", e: "", f: "", g: "",
+      h: "", i: "", j: "", k: "", l: "", m: "", n: ""
+    });
+    setIsCreating(true);
   };
 
   // --- BEHEER HANDLERS ---
@@ -182,9 +320,91 @@ export default function ConversionManager() {
     }
   };
 
+  // Live Search Effect
   useEffect(() => {
-    if (activeTab === "manage") loadInitialConversions();
-  }, [activeTab]);
+    if (activeTab !== "manage") return;
+
+    const timer = setTimeout(async () => {
+      if (searchTerm.length >= 3) {
+        setLoadingList(true);
+        try {
+          const term = searchTerm.trim().toUpperCase();
+          
+          // Zoek op LN Code (Manufactured ID)
+          const q1 = query(
+            collection(db, ...PATHS.CONVERSION_MATRIX),
+            where("manufacturedId", ">=", term),
+            where("manufacturedId", "<=", term + "\uf8ff"),
+            limit(50)
+          );
+          
+          // Zoek op Tekening Code (Target Product ID)
+          const q2 = query(
+            collection(db, ...PATHS.CONVERSION_MATRIX),
+            where("targetProductId", ">=", term),
+            where("targetProductId", "<=", term + "\uf8ff"),
+            limit(50)
+          );
+
+          const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+          
+          const resultsMap = new Map();
+          snap1.docs.forEach((doc) => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
+          snap2.docs.forEach((doc) => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
+          
+          setConversions(Array.from(resultsMap.values()));
+          setHasMore(false);
+        } catch (err) {
+          console.error("Search error:", err);
+        } finally {
+          setLoadingList(false);
+        }
+      } else if (searchTerm === "") {
+        loadInitialConversions();
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [activeTab, searchTerm]);
+
+  const handleDeleteAll = async () => {
+    const confirmation = window.prompt("⚠️ WAARSCHUWING: Dit verwijdert ALLE conversie-items uit de database!\n\nTyp 'DELETE' om te bevestigen:");
+    
+    if (confirmation !== "DELETE") {
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const colRef = collection(db, ...PATHS.CONVERSION_MATRIX);
+      const snapshot = await getDocs(colRef);
+      
+      if (snapshot.size === 0) {
+        alert("Database is al leeg.");
+        setUploading(false);
+        return;
+      }
+
+      const batchSize = 400;
+      const total = snapshot.size;
+      
+      for (let i = 0; i < total; i += batchSize) {
+        const batch = writeBatch(db);
+        snapshot.docs.slice(i, i + batchSize).forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+
+      alert("Alle items zijn verwijderd.");
+      setConversions([]);
+      setLastDoc(null);
+      loadInitialConversions();
+    } catch (err) {
+      console.error(err);
+      alert("Fout bij verwijderen: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSaveEdit = async () => {
     if (!editingItem?.manufacturedId) return;
@@ -299,26 +519,85 @@ export default function ConversionManager() {
                 Bestand laden
               </h3>
               <div className="border-4 border-dashed border-slate-50 rounded-[40px] p-12 text-center bg-slate-50/50 hover:border-teal-400 transition-all cursor-pointer group flex-1 flex flex-col items-center justify-center">
-                <FileSpreadsheet
-                  size={64}
-                  className="text-slate-200 group-hover:scale-110 group-hover:text-teal-500 transition-all mb-6"
-                />
-                <p className="text-sm font-black text-slate-600 uppercase tracking-widest mb-2">
-                  Sleep Excel of CSV Bestand
-                </p>
-                <p className="text-xs text-slate-400 font-medium max-w-[200px] leading-relaxed italic">
-                  Kolommen: 'Old Item Code' & 'New Item Code'
-                </p>
-                <label className="mt-8 bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest cursor-pointer hover:bg-teal-600 transition-all shadow-xl active:scale-95">
-                  Bestand Kiezen
-                  <input
-                    type="file"
-                    accept=".csv, .xlsx, .xls"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                  />
-                </label>
+                {status === "processing" ? (
+                  <div className="flex flex-col items-center animate-in fade-in">
+                    <Loader2 size={64} className="text-teal-500 animate-spin mb-6" />
+                    <p className="text-sm font-black text-slate-600 uppercase tracking-widest">
+                      Bestand verwerken...
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <FileSpreadsheet
+                      size={64}
+                      className="text-slate-200 group-hover:scale-110 group-hover:text-teal-500 transition-all mb-6"
+                    />
+                    <p className="text-sm font-black text-slate-600 uppercase tracking-widest mb-2">
+                      Sleep Excel of CSV Bestand
+                    </p>
+                    <p className="text-xs text-slate-400 font-medium max-w-[200px] leading-relaxed italic">
+                      Kolommen: 'Old Item Code' & 'New Item Code'
+                    </p>
+                    <label className="mt-8 bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest cursor-pointer hover:bg-teal-600 transition-all shadow-xl active:scale-95">
+                      Bestand Kiezen
+                      <input
+                        type="file"
+                        accept=".csv, .xlsx, .xls"
+                        className="hidden"
+                        onChange={handleFileUpload}
+                        onClick={(e) => (e.target.value = null)}
+                      />
+                    </label>
+                  </>
+                )}
               </div>
+
+              {status === "selecting_sheet" && (
+                <div className="animate-in slide-in-from-bottom-4 space-y-4">
+                  <div className="bg-blue-50 text-blue-700 p-4 rounded-2xl border border-blue-100 font-bold text-xs uppercase tracking-wide text-center">
+                    Meerdere tabbladen gevonden. Selecteer welke je wilt importeren:
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {sheetNames.map((name) => {
+                      const isSelected = selectedSheets.includes(name);
+                      return (
+                      <button
+                        key={name}
+                        onClick={() => handleToggleSheet(name)}
+                        className={`p-4 border-2 rounded-xl text-left transition-all group relative ${
+                          isSelected 
+                            ? "bg-teal-50 border-teal-500" 
+                            : "bg-white border-slate-100 hover:border-teal-300"
+                        }`}
+                      >
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Sheet</span>
+                        <span className={`font-bold ${isSelected ? "text-teal-700" : "text-slate-800"}`}>{name}</span>
+                        {isSelected && (
+                          <div className="absolute top-2 right-2 text-teal-600">
+                            <CheckCircle2 size={16} />
+                          </div>
+                        )}
+                      </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                     <button
+                      onClick={() => setSelectedSheets(sheetNames)}
+                      className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
+                    >
+                      Alles Selecteren
+                    </button>
+                    <button
+                      onClick={handleConfirmSheetSelection}
+                      disabled={selectedSheets.length === 0}
+                      className="flex-[2] py-3 bg-teal-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-teal-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Importeer {selectedSheets.length} Sheet{selectedSheets.length !== 1 && 's'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {status === "ready" && (
                 <div className="animate-in slide-in-from-bottom-4">
@@ -462,6 +741,14 @@ export default function ConversionManager() {
                   <Plus size={18} strokeWidth={3} /> Handmatig Toevoegen
                 </button>
                 <button
+                  onClick={handleDeleteAll}
+                  disabled={uploading || loadingList}
+                  className="p-3.5 bg-white text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl border border-slate-200 transition-all shadow-sm disabled:opacity-50"
+                  title="Alles Verwijderen"
+                >
+                  {uploading ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={20} />}
+                </button>
+                <button
                   onClick={loadInitialConversions}
                   className="p-3.5 bg-white text-slate-400 hover:text-teal-600 rounded-2xl border border-slate-200 transition-all shadow-sm"
                 >
@@ -510,6 +797,11 @@ export default function ConversionManager() {
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                             DN{item.dn} / PN{item.pn}
                           </span>
+                          {item.label && (
+                            <span className="text-[8px] font-bold text-teal-600 uppercase tracking-widest mt-0.5">
+                              {item.label}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-10 py-4 text-right">
@@ -659,6 +951,35 @@ export default function ConversionManager() {
                   </p>
                 </div>
               </div>
+              
+              <div className="pt-6 border-t border-slate-50">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-1">
+                  Extra Eigenschappen
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { key: "Sheet", label: "Sheet" },
+                    { key: "Rev", label: "Revisie" },
+                    { key: "Variant", label: "Variant" },
+                    { key: "Item Code Total", label: "Full Code" },
+                    { key: "DN1 [mm]", label: "DN1" },
+                    { key: "Drilling", label: "Drilling" },
+                    { key: "End1", label: "End 1" },
+                    { key: "End2", label: "End 2" },
+                    { key: "PN/PU [bar]", label: "PN/PU" },
+                    { key: "PU [bar]", label: "PU" }
+                  ].map(({ key, label }) => {
+                    const val = detailItem[key];
+                    if (!val) return null;
+                    return (
+                      <div key={key} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">{label}</p>
+                        <p className="text-xs font-bold text-slate-700 break-all">{val}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -754,6 +1075,38 @@ export default function ConversionManager() {
                     }
                     className="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-xl font-bold outline-none focus:border-blue-500"
                   />
+                </div>
+              </div>
+
+              <div className="space-y-1.5 text-left pt-6 border-t border-slate-50">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
+                  Label / Groep
+                </label>
+                <input
+                  value={editingItem.label || ""}
+                  onChange={(e) =>
+                    setEditingItem({ ...editingItem, label: e.target.value })
+                  }
+                  className="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-xl font-bold outline-none focus:border-blue-500"
+                  placeholder="Bijv. Wavistrong"
+                />
+              </div>
+
+              <div className="pt-6 border-t border-slate-50">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">
+                  Dimensies (a-n)
+                </p>
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
+                  {["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"].map((key) => (
+                    <div key={key} className="space-y-1">
+                      <label className="text-[8px] font-black uppercase text-slate-400 ml-1 block text-center">{key.toUpperCase()}</label>
+                      <input
+                        value={editingItem[key] || ""}
+                        onChange={(e) => setEditingItem({ ...editingItem, [key]: e.target.value })}
+                        className="w-full p-2 bg-slate-50 border-2 border-slate-100 rounded-lg font-mono text-xs font-bold text-center outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  ))}
                 </div>
               </div>
 

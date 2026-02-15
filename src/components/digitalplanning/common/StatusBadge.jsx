@@ -15,7 +15,7 @@ import {
  * Ondersteunt zowel productie-statussen als kwaliteitslabels.
  * Design: font-black, uppercase, italic, tracking-widest.
  */
-const StatusBadge = ({ status, showIcon = true }) => {
+const StatusBadge = React.memo(({ status, showIcon = true }) => {
   if (!status) return null;
 
   // Mapping van statussen naar stijlen, labels en iconen
@@ -98,7 +98,8 @@ const StatusBadge = ({ status, showIcon = true }) => {
       {showIcon && config.icon}
       <span className="leading-none">{config.label}</span>
     </div>
+
   );
-};
+});
 
 export default StatusBadge;

@@ -10,6 +10,7 @@ import {
   updateDoc,
   serverTimestamp,
   setDoc,
+  getDoc,
 } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -25,6 +26,7 @@ import {
 import { nl } from "date-fns/locale";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
+import ProductDetailModal from "../products/ProductDetailModal";
 import LossenView from "./LossenView";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { normalizeMachine } from "../../utils/hubHelpers";
@@ -67,6 +69,7 @@ const Terminal = ({ initialStation, onBack }) => {
   const [manualInputValue, setManualInputValue] = useState("");
   const [showStartModal, setShowStartModal] = useState(false);
   const [productToRelease, setProductToRelease] = useState(null);
+  const [viewingProduct, setViewingProduct] = useState(null);
 
   // Planning filters (Week / Alles)
   const [referenceDate, setReferenceDate] = useState(new Date());
@@ -259,6 +262,25 @@ const Terminal = ({ initialStation, onBack }) => {
     setActiveTab(tab);
   };
 
+  const handleViewDrawing = async (productId) => {
+    if (!productId) return;
+    try {
+      if (typeof productId === 'object') {
+        setViewingProduct(productId);
+        return;
+      }
+      const docRef = doc(db, ...PATHS.PRODUCTS, productId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        setViewingProduct({ id: snap.id, ...snap.data() });
+      } else {
+        alert("Product niet gevonden in catalogus.");
+      }
+    } catch (err) {
+      console.error("Fout bij laden product:", err);
+    }
+  };
+
   const handleStartProduction = async (order, lot) => {
     try {
       const timestamp = serverTimestamp();
@@ -307,6 +329,7 @@ const Terminal = ({ initialStation, onBack }) => {
   }
 
   return (
+    <>
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
       {/* TABS HEADER (ZOEKEN VERWIJDERD) */}
         <div className="p-2 bg-white border-b border-slate-200 shrink-0 shadow-sm text-left">
@@ -348,6 +371,7 @@ const Terminal = ({ initialStation, onBack }) => {
                 isBM01={isBM01}
                 onStartProduction={() => setShowStartModal(true)}
                 selectedOrder={selectedOrder}
+                onViewDrawing={handleViewDrawing}
               />
             ) : activeTab === "wikkelen" ? (
               /* TAB WIKKELEN */
@@ -367,6 +391,7 @@ const Terminal = ({ initialStation, onBack }) => {
           </div>
         }
       </div>
+    </div>
 
       {/* OVERIG (SNEL ZOEKEN & MODALS) */}
       <TerminalManualInput
@@ -395,7 +420,15 @@ const Terminal = ({ initialStation, onBack }) => {
           appId={appId}
         />
       )}
-    </div>
+
+      {viewingProduct && (
+        <ProductDetailModal
+          product={viewingProduct}
+          onClose={() => setViewingProduct(null)}
+          userRole={user?.role || "operator"}
+        />
+      )}
+    </>
   );
 };
 

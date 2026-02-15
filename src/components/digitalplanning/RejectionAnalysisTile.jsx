@@ -5,7 +5,7 @@ import { AlertOctagon } from "lucide-react";
  * RejectionAnalysisTile
  * Toont een visuele analyse van de afkeurredenen op het dashboard.
  */
-const RejectionAnalysisTile = ({ products = [] }) => {
+const RejectionAnalysisTile = React.memo(({ products = [] }) => {
   // 1. Filter alle afgekeurde producten (Veilige check op array)
   const rejected = Array.isArray(products)
     ? products.filter(
@@ -71,6 +71,6 @@ const RejectionAnalysisTile = ({ products = [] }) => {
       </div>
     </div>
   );
-};
+});
 
 export default RejectionAnalysisTile;

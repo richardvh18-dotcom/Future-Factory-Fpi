@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
 /**
  * TeamleaderPipesHub - V2 (Future Factory Path)
  */
-const TeamleaderPipesHub = (props) => {
+const TeamleaderPipesHub = React.memo((props) => {
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -66,6 +66,6 @@ const TeamleaderPipesHub = (props) => {
       allowedMachines={machineIds}
     />
   );
-};
+});
 
 export default TeamleaderPipesHub;
