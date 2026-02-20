@@ -39,7 +39,8 @@ export const PATHS = {
   AI_CONFIG: [BASE, "settings", "ai_config", "main"],
 
   // --- LOGGING & AUDIT (Collecties: oneven segmenten) ---
-  ACTIVITY_LOGS: [BASE, "production", "activity_logs"],
+  ACTIVITY_LOGS: [BASE, "logs", "activity_logs"],
+  ACTIVITY_LOGS_ARCHIVE: [BASE, "logs", "activity_logs_archive"],
 
   // --- CONVERSIES & MEDIA (Sub-collecties: oneven segmenten) ---
   CONVERSION_MATRIX: [BASE, "settings", "conversions", "mapping", "records"],

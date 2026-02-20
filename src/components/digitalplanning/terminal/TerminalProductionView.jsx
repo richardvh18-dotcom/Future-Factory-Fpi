@@ -2,7 +2,7 @@ import React from "react";
 import { Zap, ChevronRight, ArrowLeft, ClipboardCheck } from "lucide-react";
 
 const TerminalProductionView = ({
-  activeWikkelingen,
+  activeWikkelingen = [],
   selectedTrackedId,
   onSelectTracked,
   selectedWikkeling,

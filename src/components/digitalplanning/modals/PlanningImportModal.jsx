@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import {
   X,
@@ -12,6 +12,7 @@ import {
   PlusCircle,
   Info,
   Calendar,
+  Filter,
 } from "lucide-react";
 import {
   collection,
@@ -37,6 +38,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [importing, setImporting] = useState(false);
   const [existingIds, setExistingIds] = useState(new Set());
   const [importMode, setImportMode] = useState("new_only");
+  const [selectedSheet, setSelectedSheet] = useState("All");
   const fileInputRef = useRef(null);
   const location = useLocation();
 
@@ -113,65 +115,92 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       try {
         const bstr = evt.target.result;
         const wb = XLSX.read(bstr, { type: "binary", cellDates: true });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        
+        let allData = [];
+        let sheetsFound = 0;
 
-        const headerIndex = rawRows.findIndex(
-          (row) => row.includes("Machine") && row.includes("order")
-        );
+        // Iterate over all sheets instead of just the first one
+        wb.SheetNames.forEach(sheetName => {
+          const ws = wb.Sheets[sheetName];
+          const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
-        if (headerIndex === -1) {
+          const headerIndex = rawRows.findIndex(
+            (row) => row.includes("Machine") && row.includes("order")
+          );
+
+          if (headerIndex !== -1) {
+            sheetsFound++;
+            const headers = rawRows[headerIndex];
+            const dataRows = rawRows.slice(headerIndex + 1);
+
+            const sheetData = dataRows
+              .filter(
+                (row) =>
+                  row[headers.indexOf("order")] && row[headers.indexOf("Machine")]
+              )
+              .map((row) => {
+                const orderId = String(row[headers.indexOf("order")]).trim();
+                const manufacturedItem = String(
+                  row[headers.indexOf("Manufactured Item")]
+                ).trim();
+                const docId = `${orderId}_${manufacturedItem}`.replace(
+                  /[^a-zA-Z0-9]/g,
+                  "_"
+                );
+
+                const rawDateVal = row[headers.indexOf("datum")];
+                const { delivery, planned } = processDates(rawDateVal);
+
+                // Calculate Plan Quantity
+                const rawPlan = row[headers.indexOf("Plan")];
+                let quantity = typeof rawPlan === 'string' ? parseFloat(rawPlan.replace(',', '.')) : parseFloat(rawPlan);
+                if (isNaN(quantity)) quantity = 1;
+
+                const machine = normalizeMachine(row[headers.indexOf("Machine")]);
+                const description = (row[headers.indexOf("Item Desc")] || "").toLowerCase();
+                
+                // BA Machines (Pipes) logic: Meters to Pieces conversion
+                const PIPE_MACHINES = ['BA05', 'BA07', 'BA08', 'BA09'];
+                if (PIPE_MACHINES.includes(machine)) {
+                  quantity = quantity / 10;
+                }
+
+                return {
+                  id: docId,
+                  orderId: orderId,
+                  machine: machine,
+                  deliveryDate: delivery,
+                  plannedDate: planned,
+                  weekNumber: parseInt(row[headers.indexOf("week")]) || parseInt(row[headers.indexOf("Week")]) || null,
+                  itemCode: manufacturedItem,
+                  item: row[headers.indexOf("Item Desc")] || "-",
+                  extraCode: row[headers.indexOf("code")] || "-",
+                  plan: quantity,
+                  notes: row[headers.indexOf("Po text")] || "",
+                  project: row[headers.indexOf("Project")] || "",
+                  projectDesc: row[headers.indexOf("Project Desc")] || "",
+                  drawing: row[headers.indexOf("Drawing")] || "",
+                  status: "pending",
+                  isExisting: existingIds.has(docId),
+                  sourceSheet: sheetName,
+                };
+              });
+            
+            allData = [...allData, ...sheetData];
+          }
+        });
+
+        if (sheetsFound === 0) {
           alert(
-            "Header niet gevonden. Zorg dat de kolommen 'Machine' en 'order' aanwezig zijn."
+            "Geen geldige sheets gevonden. Zorg dat de kolommen 'Machine' en 'order' aanwezig zijn in ten minste één tabblad."
           );
           setLoading(false);
           return;
         }
 
-        const headers = rawRows[headerIndex];
-        const dataRows = rawRows.slice(headerIndex + 1);
-
-        const formatted = dataRows
-          .filter(
-            (row) =>
-              row[headers.indexOf("order")] && row[headers.indexOf("Machine")]
-          )
-          .map((row) => {
-            const orderId = String(row[headers.indexOf("order")]).trim();
-            const manufacturedItem = String(
-              row[headers.indexOf("Manufactured Item")]
-            ).trim();
-            const docId = `${orderId}_${manufacturedItem}`.replace(
-              /[^a-zA-Z0-9]/g,
-              "_"
-            );
-
-            const rawDateVal = row[headers.indexOf("datum")];
-            const { delivery, planned } = processDates(rawDateVal);
-
-            return {
-              id: docId,
-              orderId: orderId,
-              machine: normalizeMachine(row[headers.indexOf("Machine")]),
-              deliveryDate: delivery,
-              plannedDate: planned,
-              weekNumber: parseInt(row[headers.indexOf("week")]) || parseInt(row[headers.indexOf("Week")]) || null,
-              itemCode: manufacturedItem,
-              item: row[headers.indexOf("Item Desc")] || "-",
-              extraCode: row[headers.indexOf("code")] || "-",
-              plan: parseInt(row[headers.indexOf("Plan")]) || 1,
-              notes: row[headers.indexOf("Po text")] || "",
-              project: row[headers.indexOf("Project")] || "",
-              projectDesc: row[headers.indexOf("Project Desc")] || "",
-              drawing: row[headers.indexOf("Drawing")] || "",
-              status: "pending",
-              isExisting: existingIds.has(docId),
-            };
-          });
-
-        setFileData(formatted);
+        setFileData(allData);
       } catch (err) {
+        console.error(err);
         alert("Fout bij het verwerken van het bestand.");
       } finally {
         setLoading(false);
@@ -181,14 +210,24 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     reader.readAsBinaryString(file);
   };
 
+  const uniqueSheets = useMemo(() => {
+    const sheets = new Set(fileData.map((item) => item.sourceSheet).filter(Boolean));
+    return ["All", ...Array.from(sheets)];
+  }, [fileData]);
+
+  const filteredData = useMemo(() => {
+    if (selectedSheet === "All") return fileData;
+    return fileData.filter((item) => item.sourceSheet === selectedSheet);
+  }, [fileData, selectedSheet]);
+
   const startImport = async () => {
-    if (fileData.length === 0 || importing) return;
+    if (filteredData.length === 0 || importing) return;
     setImporting(true);
 
     const dataToProcess =
       importMode === "new_only"
-        ? fileData.filter((item) => !item.isExisting)
-        : fileData;
+        ? filteredData.filter((item) => !item.isExisting)
+        : filteredData;
 
     if (dataToProcess.length === 0) {
       alert("Geen nieuwe orders om te importeren.");
@@ -234,8 +273,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
   if (!isOpen || location.pathname.includes("/login")) return null;
 
-  const newCount = fileData.filter((i) => !i.isExisting).length;
-  const existingCount = fileData.filter((i) => i.isExisting).length;
+  const newCount = filteredData.filter((i) => !i.isExisting).length;
+  const existingCount = filteredData.filter((i) => i.isExisting).length;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in">
@@ -346,7 +385,23 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
               <div className="bg-white border border-slate-200 rounded-[30px] overflow-hidden shadow-sm">
                 <div className="bg-slate-100 px-6 py-3 border-b border-slate-200 flex justify-between items-center font-black uppercase text-[10px] text-slate-500 tracking-widest">
-                  <span>Preview & Urgentie Controle</span>
+                  <div className="flex items-center gap-4">
+                    <span>Preview & Urgentie Controle</span>
+                    {uniqueSheets.length > 2 && (
+                      <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-sm">
+                        <Filter size={12} className="text-blue-500" />
+                        <select
+                          value={selectedSheet}
+                          onChange={(e) => setSelectedSheet(e.target.value)}
+                          className="bg-transparent outline-none font-bold text-slate-700 cursor-pointer text-[10px] uppercase"
+                        >
+                          {uniqueSheets.map((sheet) => (
+                            <option key={sheet} value={sheet}>{sheet}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
                   <Table size={16} className="opacity-30" />
                 </div>
                 <div className="overflow-x-auto">
@@ -354,6 +409,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                     <thead>
                       <tr className="bg-white text-slate-400 font-black uppercase tracking-widest border-b border-slate-100">
                         <th className="px-6 py-4">Status</th>
+                        <th className="px-6 py-4">Sheet</th>
                         <th className="px-6 py-4">Order</th>
                         <th className="px-6 py-4">Leverdatum (E)</th>
                         <th className="px-6 py-4">Productie Start (-2w)</th>
@@ -361,7 +417,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {fileData.slice(0, 15).map((row, idx) => (
+                      {filteredData.slice(0, 15).map((row, idx) => (
                         <tr
                           key={idx}
                           className="hover:bg-slate-50/50 transition-colors"
@@ -376,6 +432,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                             >
                               {row.isExisting ? "Bestaand" : "Nieuw"}
                             </span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-500 text-[10px] font-bold uppercase">
+                            {row.sourceSheet}
                           </td>
                           <td className="px-6 py-4 font-black text-slate-900">
                             {row.orderId}
@@ -449,7 +508,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             </button>
             <button
               onClick={startImport}
-              disabled={fileData.length === 0 || importing}
+              disabled={filteredData.length === 0 || importing}
               className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center gap-3 disabled:opacity-50"
             >
               {importing ? (
@@ -460,7 +519,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
               {importing
                 ? "Importeren..."
                 : `Importeer ${
-                    importMode === "new_only" ? newCount : fileData.length
+                    importMode === "new_only" ? newCount : filteredData.length
                   } Regels`}
             </button>
           </div>

@@ -8,9 +8,28 @@ import {
   MessageSquare,
   Paperclip,
   Download,
+  X as LucideX,
 } from "lucide-react";
 import * as XLSX from 'xlsx';
-import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, serverTimestamp } from "firebase/firestore";
+// Feedback functie: stuur afgekeurd AI-antwoord naar Firestore
+const logRejectedAnswer = async ({ content, userInput, context, userId }) => {
+  try {
+    const colRef = collection(db, ...PATHS.AI_KNOWLEDGE_BASE);
+    await addDoc(colRef, {
+      type: "rejected",
+      answer: content,
+      userInput,
+      context,
+      userId: userId || null,
+      timestamp: serverTimestamp(),
+      status: "rejected"
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("Kon afgekeurd AI-antwoord niet loggen:", err);
+  }
+};
 import { db, auth } from "../config/firebase";
 import FlashcardViewer from "./ai/FlashcardViewer";
 import { FLASHCARD_SYSTEM_PROMPT, GENERAL_SYSTEM_PROMPT, MOCK_FLASHCARDS } from "../data/aiPrompts";
@@ -82,50 +101,79 @@ Waar kan ik je mee helpen?`,
   // Formatter voor AI responses met order links
   const formatResponse = (text) => {
     
-    // Helper functie om ordernummers (N##### formaat) om te zetten naar knoppen
-    const parseOrderNumbers = (line) => {
-      // Regex om N20023990 formaat te vinden
-      const orderRegex = /N\d{8,}/gi;
+    // Helper functie om entiteiten (Orders, Machines, Afdelingen) om te zetten naar interactieve elementen
+    const parseEntities = (line) => {
+      // Regex voor Orders (N...) en Machines/Afdelingen
+      const entityRegex = /(N\d{8,})|\b(BH\d+|Mazak|Robot|CNC|Spuitgieten|Verpakking|Lossen|Nabewerking)\b/gi;
       
-      if (!orderRegex.test(line)) {
+      if (!entityRegex.test(line)) {
         return line;
       }
       
       // Reset regex position
-      orderRegex.lastIndex = 0;
+      entityRegex.lastIndex = 0;
       const parts = [];
       let lastIndex = 0;
       let match;
       
-      while ((match = orderRegex.exec(line)) !== null) {
+      while ((match = entityRegex.exec(line)) !== null) {
         // Add text before match
         if (match.index > lastIndex) {
           parts.push(line.substring(lastIndex, match.index));
         }
         
-        // Add order button
-        const orderNumber = match[0];
+        const text = match[0];
+        const isOrder = text.toUpperCase().startsWith('N') && /\d/.test(text);
+        
+        // Zoek afdeling ID op indien beschikbaar (voor deep linking)
+        let targetDepartment = null;
+        if (!isOrder && factoryStructure?.departments) {
+          const lowerText = text.toLowerCase();
+          const foundDept = factoryStructure.departments.find(d => 
+            d.name.toLowerCase() === lowerText || 
+            d.stations?.some(s => s.name.toLowerCase() === lowerText)
+          );
+          if (foundDept) targetDepartment = foundDept.id;
+        }
+        
+        // Add button
         parts.push(
           <button
-            key={`order-${match.index}`}
-            onClick={() => {
-              // Navigeer naar planning met search order
-              navigate('/planning', { 
-                state: { 
-                  searchOrder: orderNumber,
-                  initialView: 'FITTINGS'
-                } 
-              });
+            key={`entity-${match.index}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isOrder) {
+                // Navigeer naar planning met search order
+                navigate('/planning', { 
+                  state: { 
+                    searchOrder: text,
+                    initialView: 'FITTINGS'
+                  } 
+                });
+              } else {
+                // Navigeer naar planning voor machine/afdeling
+                navigate('/planning', { 
+                  state: { 
+                    searchMachine: text,
+                    initialView: 'WORKSTATIONS',
+                    targetDepartment // Geef afdeling mee voor correcte tab selectie
+                  } 
+                });
+              }
             }}
-            className="inline-flex items-center gap-1 px-2 py-0.5 mx-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100"
-            title={`Ga naar order ${orderNumber}`}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 mx-1 text-xs font-bold border rounded-md transition-colors ${
+              isOrder 
+                ? "text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100"
+                : "text-purple-700 bg-purple-50 border-purple-200 hover:bg-purple-100"
+            }`}
+            title={isOrder ? `Ga naar order ${text}` : `Bekijk planning voor ${text}`}
           >
-            <span>📦</span>
-            <span>{orderNumber}</span>
+            <span>{isOrder ? "📦" : "🏭"}</span>
+            <span>{text}</span>
           </button>
         );
         
-        lastIndex = match.index + match[0].length;
+        lastIndex = match.index + text.length;
       }
       
       // Add remaining text
@@ -136,6 +184,29 @@ Waar kan ik je mee helpen?`,
       return parts;
     };
     
+    // Reusable Clickable Wrapper
+    const ClickableLine = ({ children, text, className = "" }) => {
+      const isClickable = text.length > 20; // Drempelwaarde voor klikbaarheid
+      
+      if (!isClickable) return <div className={className}>{children}</div>;
+
+      return (
+        <div 
+          className={`group relative hover:bg-blue-50/80 rounded-lg px-2 -mx-2 transition-all cursor-help border border-transparent hover:border-blue-100 ${className}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleSendChat(null, `Kun je dit verder toelichten: "${text.replace(/^[-*]\s|^\d+\.\s/, '')}"`);
+          }}
+          title="Klik voor verdieping"
+        >
+          <div className="group-hover:text-blue-900 transition-colors">{children}</div>
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-[9px] font-black uppercase tracking-widest text-blue-500 bg-white px-2 py-1 rounded-lg shadow-sm border border-blue-100 pointer-events-none transition-all transform translate-x-2 group-hover:translate-x-0 z-10">
+            ✨ Vraag Detail
+          </span>
+        </div>
+      );
+    };
+
     return text.split('\n').map((line, i) => {
       // Headers
       if (line.startsWith('### ')) {
@@ -150,10 +221,24 @@ Waar kan ik je mee helpen?`,
       }
       // Lists
       if (line.match(/^\d+\./)) {
-        return <li key={i} className="ml-6 mb-1 list-decimal">{parseOrderNumbers(line.replace(/^\d+\.\s/, ''))}</li>;
+        const content = line.replace(/^\d+\.\s/, '');
+        return (
+          <li key={i} className="ml-6 mb-1 list-decimal">
+            <ClickableLine text={content} className="inline-block w-full">
+              {parseEntities(content)}
+            </ClickableLine>
+          </li>
+        );
       }
       if (line.startsWith('- ') || line.startsWith('* ')) {
-        return <li key={i} className="ml-6 mb-1 list-disc">{parseOrderNumbers(line.substring(2))}</li>;
+        const content = line.substring(2);
+        return (
+          <li key={i} className="ml-6 mb-1 list-disc">
+            <ClickableLine text={content} className="inline-block w-full">
+              {parseEntities(content)}
+            </ClickableLine>
+          </li>
+        );
       }
       // Horizontal rule
       if (line === '---') {
@@ -163,38 +248,33 @@ Waar kan ik je mee helpen?`,
       if (line.trim() === '') {
         return <br key={i} />;
       }
-      // Normal text - with order number parsing
-
-      // Maak alinea's klikbaar voor verdieping (als ze lang genoeg zijn)
-      const isClickable = line.length > 30;
-
-      if (isClickable) {
-        return (
-          <div 
-            key={i} 
-            className="group relative mb-2 hover:bg-blue-50/80 rounded-lg px-3 -mx-3 transition-all cursor-help border border-transparent hover:border-blue-100"
-            onClick={() => handleSendChat(null, `Kun je dit verder toelichten: "${line}"`)}
-            title="Klik voor verdieping over dit onderwerp"
-          >
-            <p className="group-hover:text-blue-900 transition-colors">{parseOrderNumbers(line)}</p>
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-[9px] font-black uppercase tracking-widest text-blue-500 bg-white px-2 py-1 rounded-lg shadow-sm border border-blue-100 pointer-events-none transition-all transform translate-x-2 group-hover:translate-x-0">
-              ✨ Vraag Detail
-            </span>
-          </div>
-        );
-      }
-
-      return <p key={i} className="mb-2 px-3 -mx-3">{parseOrderNumbers(line)}</p>;
+      
+      // Normal text
+      return (
+        <div key={i} className="mb-2">
+          <ClickableLine text={line}>
+            {parseEntities(line)}
+          </ClickableLine>
+        </div>
+      );
     });
   };
 
   // --- AI CONTEXT LADEN ---
   const [systemContext, setSystemContext] = useState("");
+  const [factoryStructure, setFactoryStructure] = useState(null);
 
   useEffect(() => {
     const fetchContext = async () => {
       try {
-        // Probeer context uit Firebase te halen
+        // 1. Haal fabrieksstructuur op voor slimme navigatie (machine -> afdeling lookup)
+        const factoryRef = doc(db, ...PATHS.FACTORY_CONFIG);
+        const factorySnap = await getDoc(factoryRef);
+        if (factorySnap.exists()) {
+          setFactoryStructure(factorySnap.data());
+        }
+
+        // 2. Probeer AI context uit Firebase te halen
         const docRef = doc(db, ...PATHS.AI_CONFIG);
         const docSnap = await getDoc(docRef);
         
@@ -224,6 +304,7 @@ BELANGRIJK: Gebruik altijd proper Markdown formatting in je antwoorden:
 - Laat lege regels tussen alinea's voor leesbaarheid
 - Gebruik code formatting voor technische termen en knoppen
 - Gebruik --- voor visuele scheiding tussen secties waar nuttig
+- **Cruciaal:** Als een gebruiker vraagt naar een machine (bijv. BH11, Mazak) of order (N...), noem deze dan expliciet in je antwoord. Het systeem maakt hier automatisch klikbare links van.
 
 ## PRODUCTIE INFORMATIE:
 
@@ -233,17 +314,8 @@ BELANGRIJK: Gebruik altijd proper Markdown formatting in je antwoorden:
 - CST = Canadian Standard Time specificaties (zwart, geleidend)
 - Belangrijke producten: Wavistrong (drukriool), Bocht 87.5°, T-stukken, Moffen
 
-**Afdelingen:**
-- Spuitgieten: Productie van PVC componenten
-- Verpakking: Afwerking en verpakken
-- Lossen: Eindcontrole en verzending
-- Nabewerking: Post-processing
-
-**Ploegendiensten:**
-- Ochtend: 05:30-14:00 (amber kleur)
-- Avond: 14:00-22:30 (indigo kleur)
-- Nacht: 22:30-05:30 (paars kleur)
-- Dag: 07:15-16:00 (blauw kleur)
+**Fabrieksstructuur:**
+De actuele afdelingen, machines en ploegendiensten worden dynamisch geladen uit de database. Gebruik deze data voor antwoorden over locaties en machines.
 
 ## SYSTEEM HANDLEIDING:
 
@@ -774,6 +846,69 @@ IMPORTANT RULES:
 
       // Haal live planning context op en voeg toe aan system prompt
       let currentSystemContext = systemContext || DEFAULT_CONTEXT;
+      
+      // 1. Fabrieksstructuur ophalen (Afdelingen & Machines)
+      try {
+        const factoryRef = doc(db, ...PATHS.FACTORY_CONFIG);
+        const factorySnap = await getDoc(factoryRef);
+        
+        if (factorySnap.exists()) {
+          const data = factorySnap.data();
+          const departments = data.departments || [];
+          
+          let structureContext = "\n\n## ACTUELE FABRIEKSSTRUCTUUR (LIVE DATABASE):\n";
+          structureContext += "Gebruik onderstaande lijst als de enige waarheid voor afdelingen en machines.\n\n";
+          
+          departments.forEach(dept => {
+            structureContext += `### Afdeling: ${dept.name}\n`;
+            if (dept.stations && dept.stations.length > 0) {
+              structureContext += `Machines: ${dept.stations.map(s => s.name).join(", ")}\n`;
+            } else {
+              structureContext += "Machines: Geen machines geconfigureerd.\n";
+            }
+            if (dept.shifts && dept.shifts.length > 0) {
+               structureContext += `Ploegen: ${dept.shifts.map(s => s.label).join(", ")}\n`;
+            }
+            structureContext += "\n";
+          });
+          
+          currentSystemContext += structureContext;
+          console.log("✅ Fabrieksstructuur toegevoegd aan prompt:", structureContext);
+        }
+      } catch (err) {
+        console.error("Kon fabrieksstructuur niet ophalen:", err);
+      }
+
+      // 2. Actuele Bezetting (Occupancy) ophalen
+      try {
+        const occupancyRef = collection(db, ...PATHS.OCCUPANCY);
+        const occupancySnap = await getDocs(occupancyRef);
+        
+        const today = new Date().toISOString().slice(0, 10);
+        const activeOperators = [];
+        
+        occupancySnap.forEach(doc => {
+          const data = doc.data();
+          if (data.date === today) {
+            activeOperators.push(data);
+          }
+        });
+
+        if (activeOperators.length > 0) {
+          let occupancyContext = "\n\n## ACTUELE PERSONEELSBEZETTING (VANDAAG):\n";
+          occupancyContext += "Gebruik deze lijst om te weten wie waar werkt:\n";
+          
+          activeOperators.forEach(op => {
+            occupancyContext += `- ${op.operatorName} (${op.operatorNumber}) -> ${op.machineId} [${op.shift}]\n`;
+          });
+          
+          currentSystemContext += occupancyContext;
+          console.log("✅ Bezetting context toegevoegd aan prompt:", activeOperators.length, "operators");
+        }
+      } catch (err) {
+        console.error("Kon bezetting niet ophalen:", err);
+      }
+
       try {
         const planningContext = await getLivePlanningContext();
         currentSystemContext += `\n\n${planningContext}`;
@@ -929,6 +1064,9 @@ IMPORTANT RULES:
           <p className="text-slate-500 font-medium text-sm mt-1">
             Stel vragen, vraag om uitleg, of start een trainingssessie.
           </p>
+          <p className="text-xs text-orange-500 mt-1 font-medium">
+            AI is aan het leren, fouten kunnen voorkomen.
+          </p>
         </div>
 
         {/* TABS */}
@@ -979,7 +1117,7 @@ IMPORTANT RULES:
                   }`}
                 >
                   <div
-                    className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
+                    className={`relative max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
                       msg.role === "user"
                         ? "bg-blue-600 text-white rounded-br-none"
                         : "bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm"
@@ -988,9 +1126,28 @@ IMPORTANT RULES:
                     {msg.role === "user" ? (
                       msg.content
                     ) : (
-                      <div className="prose prose-sm max-w-none">
-                        {formatResponse(msg.content)}
-                      </div>
+                      <>
+                        <div className="prose prose-sm max-w-none">
+                          {formatResponse(msg.content)}
+                        </div>
+                        {/* X-knop voor feedback */}
+                        <button
+                          title="Markeer als foutief/hallucinatie"
+                          onClick={async () => {
+                            await logRejectedAnswer({
+                              content: msg.content,
+                              userInput: messages[idx - 1]?.content || "",
+                              context: systemContext,
+                              userId: auth.currentUser?.uid || null
+                            });
+                            showSuccess("Antwoord gemarkeerd voor AI review.");
+                          }}
+                          className="absolute top-2 right-2 p-1 rounded-full bg-red-50 hover:bg-red-200 text-red-600 border border-red-100 shadow-sm transition-all"
+                          style={{ zIndex: 10 }}
+                        >
+                          <LucideX size={16} />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>

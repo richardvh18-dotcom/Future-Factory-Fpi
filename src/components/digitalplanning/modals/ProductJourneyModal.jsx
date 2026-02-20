@@ -1,12 +1,74 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, MapPin, User, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "../../../config/firebase";
+import { PATHS } from "../../../config/dbPaths";
 
 const ProductJourneyModal = ({ product, onClose }) => {
+  const [enrichedHistory, setEnrichedHistory] = useState([]);
+
+  // Effect: Verrijk historie met operator data uit occupancy als deze ontbreekt
+  useEffect(() => {
+    const enrichHistory = async () => {
+      if (!product?.history) {
+        setEnrichedHistory([]);
+        return;
+      }
+
+      const enriched = await Promise.all(product.history.map(async (entry) => {
+        // Als operator al bekend is in de entry, gebruik die
+        if (entry.operator || entry.operatorNumber || entry.operatorName) return entry;
+        
+        // Als we geen station of tijd hebben, kunnen we niet zoeken
+        if (!entry.station || (!entry.timestamp && !entry.time)) return entry;
+
+        try {
+          const ts = entry.timestamp?.toDate ? entry.timestamp.toDate() : new Date(entry.timestamp || entry.time);
+          if (isNaN(ts.getTime())) return entry;
+          
+          const dateStr = ts.toISOString().split('T')[0];
+          const station = entry.station;
+
+          // Zoek in occupancy (eerst exact, dan uppercase)
+          let q = query(
+            collection(db, ...PATHS.OCCUPANCY),
+            where("date", "==", dateStr),
+            where("machineId", "==", station)
+          );
+          let snap = await getDocs(q);
+
+          if (snap.empty) {
+             q = query(collection(db, ...PATHS.OCCUPANCY), where("date", "==", dateStr), where("machineId", "==", station.toUpperCase()));
+             snap = await getDocs(q);
+          }
+
+          if (!snap.empty) {
+            const opData = snap.docs[0].data();
+            return { ...entry, operatorName: opData.operatorName, operatorNumber: opData.operatorNumber };
+          }
+        } catch (e) {
+          console.warn("Kon historie niet verrijken:", e);
+        }
+        return entry;
+      }));
+      
+      // Sorteer de verrijkte historie
+      const sorted = enriched.sort((a, b) => {
+        const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+        const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+        return tA - tB;
+      });
+      
+      setEnrichedHistory(sorted);
+    };
+    enrichHistory();
+  }, [product]);
+
   if (!product) return null;
 
-  const history = [...(product.history || [])].sort((a, b) => {
+  const history = enrichedHistory.length > 0 ? enrichedHistory : [...(product.history || [])].sort((a, b) => {
     const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
     const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
     return tA - tB;
@@ -60,7 +122,10 @@ const ProductJourneyModal = ({ product, onClose }) => {
                         </div>
 
                         {/* Card */}
-                        <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 group-hover:border-blue-200 group-hover:shadow-md transition-all">
+                        <div 
+                            className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 group-hover:border-blue-200 group-hover:shadow-md transition-all cursor-help"
+                            title={`Operator: ${step.operatorName || step.operator || (step.user && step.user.includes('@') ? step.user.split('@')[0] : step.user) || "Onbekend"}${step.operatorNumber ? ` (${step.operatorNumber})` : ""}`}
+                        >
                             <div className="flex justify-between items-start mb-2">
                                 <span className="font-black text-slate-800 uppercase text-xs tracking-tight">
                                     {step.action || "Actie onbekend"}
@@ -75,10 +140,12 @@ const ProductJourneyModal = ({ product, onClose }) => {
                                     <MapPin size={12} className="text-blue-400" />
                                     {step.station || step.machine || "Station?"}
                                 </div>
-                                {step.user && (
+                                {(step.user || step.operatorName || step.operatorNumber) && (
                                     <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 justify-end">
                                         <User size={12} className="text-slate-400" />
-                                        <span className="truncate max-w-[80px]">{step.user.split('@')[0]}</span>
+                                        <span className="truncate max-w-[80px]">
+                                            {step.operatorName || step.operatorNumber || (step.user && step.user.includes('@') ? step.user.split('@')[0] : step.user)}
+                                        </span>
                                     </div>
                                 )}
                             </div>

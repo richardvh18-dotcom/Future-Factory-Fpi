@@ -24,7 +24,7 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
             {
               id: "gepland",
               label: "Planning",
-              val: metrics.totalPlanned,
+              val: Math.round(metrics.totalPlanned),
               icon: Layers,
               color: "text-slate-400",
             },
@@ -188,7 +188,7 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
                         Plan
                       </span>
                       <span className="text-xs font-black text-slate-700 italic">
-                        {machine.planned}
+                        {Math.round(machine.planned)}
                       </span>
                     </div>
                   )}

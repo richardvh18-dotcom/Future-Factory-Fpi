@@ -15,9 +15,10 @@ import {
   FileText,
   Code,
 } from "lucide-react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { generateLotNumber } from "../../../utils/lotLogic";
+import { getLotPlaceholder } from "../../../utils/lotPlaceholder";
 import {
   processLabelData,
   resolveLabelContent,
@@ -45,10 +46,13 @@ const ProductionStartModal = ({
   stationId = "",
   existingProducts = [],
 }) => {
-  const [mode, setMode] = useState("auto");
+  const [mode, setMode] = useState("manual");
   const [lotNumber, setLotNumber] = useState("");
   const [stringCount, setStringCount] = useState(1);
   const [manualLotInput, setManualLotInput] = useState("");
+  const [manualOrderInput, setManualOrderInput] = useState("");
+  const [assignedOperators, setAssignedOperators] = useState([]);
+  const [operatorInput, setOperatorInput] = useState("");
 
   const [availableLabels, setAvailableLabels] = useState([]);
   const [selectedLabelId, setSelectedLabelId] = useState("");
@@ -64,14 +68,9 @@ const ProductionStartModal = ({
       if (!isOpen) return;
       setLoadingLabels(true);
       try {
-        const labelsRef = collection(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          "label_templates"
-        );
+        // Gebruik hetzelfde Firestore-path als AdminLabelDesigner
+        // /future-factory/settings/label_templates
+        const labelsRef = collection(db, "future-factory", "settings", "label_templates");
         const querySnapshot = await getDocs(labelsRef);
         const labels = querySnapshot.docs.map((doc) => ({
           id: doc.id,
@@ -82,7 +81,7 @@ const ProductionStartModal = ({
         if (labels.length > 0) {
           // Kies standaard een smal label voor de meeste stations
           let defaultLabel = labels.find(
-            (l) => l.name.toLowerCase().includes("smal") || l.height < 45
+            (l) => l.name?.toLowerCase().includes("smal") || l.height < 45
           );
           setSelectedLabelId(defaultLabel?.id || labels[0].id);
         }
@@ -93,7 +92,43 @@ const ProductionStartModal = ({
       }
     };
     fetchLabels();
-  }, [isOpen, appId]);
+  }, [isOpen]);
+
+  // 1b. Operators ophalen voor dit station
+  useEffect(() => {
+    const fetchOccupancy = async () => {
+      if (!isOpen || !stationId) return;
+      
+      const today = new Date().toISOString().split('T')[0];
+      
+      try {
+        const q = query(
+          collection(db, "future-factory", "production", "machine_occupancy"),
+          where("machineId", "==", stationId),
+          where("date", "==", today)
+        );
+        
+        const snapshot = await getDocs(q);
+        const operators = snapshot.docs.map(doc => ({
+          number: doc.data().operatorNumber,
+          name: doc.data().operatorName
+        }));
+        
+        setAssignedOperators(operators);
+        
+        // Als er precies 1 operator is, vul deze alvast in
+        if (operators.length === 1) {
+          setOperatorInput(operators[0].number);
+        } else {
+          setOperatorInput("");
+        }
+      } catch (err) {
+        console.error("Kon operators niet ophalen", err);
+      }
+    };
+    
+    fetchOccupancy();
+  }, [isOpen, stationId]);
 
   // 2. Lotnummer generatie
   useEffect(() => {
@@ -105,6 +140,10 @@ const ProductionStartModal = ({
       } else {
         setLotNumber(generateLotNumber(stationId, existingProducts || []));
       }
+    }
+    if (isOpen && mode === "manual") {
+      setManualLotInput("");
+      setManualOrderInput("");
     }
   }, [isOpen, order, mode, stationId, existingProducts]);
 
@@ -205,6 +244,9 @@ const ProductionStartModal = ({
     downloadZPL(zpl, `label_${order.orderId}_${lotNumber}.zpl`);
   };
 
+  // Helper voor weergave geselecteerde operator
+  const selectedOperatorName = assignedOperators.find(op => op.number === operatorInput)?.name;
+
   if (!isOpen || !order || location.pathname.includes("/login")) return null;
 
   return (
@@ -250,6 +292,40 @@ const ProductionStartModal = ({
                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Actueel Lot</span>
                  <span className="text-xs font-mono font-black text-blue-600">{lotNumber || "-"}</span>
               </div>
+            </div>
+
+            {/* Operator Selection */}
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                Operator (Nr)
+              </label>
+              {assignedOperators.length > 1 ? (
+                <div className="relative">
+                  <select
+                    value={operatorInput}
+                    onChange={(e) => setOperatorInput(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-600 shadow-sm appearance-none cursor-pointer"
+                  >
+                    <option value="">Kies operator...</option>
+                    {assignedOperators.map((op) => (
+                      <option key={op.number} value={op.number}>
+                        {op.number} - {op.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">
+                    ▼
+                  </div>
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={operatorInput}
+                  onChange={(e) => setOperatorInput(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-600 shadow-sm"
+                  placeholder="Personeelsnummer"
+                />
+              )}
             </div>
 
             {/* Mode switcher */}
@@ -312,7 +388,20 @@ const ProductionStartModal = ({
               <div className="space-y-3 animate-in slide-in-from-top-2 text-left">
                 <div className="space-y-1 text-left">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
-                    Lot Handmatig Invoeren
+                    Ordernummer (scannen of invullen)
+                  </label>
+                  <input
+                    type="text"
+                    value={manualOrderInput}
+                    onChange={(e) => setManualOrderInput(e.target.value.toUpperCase())}
+                    placeholder={"N2000000"}
+                    className="w-full p-3 bg-white border-2 border-slate-100 rounded-2xl font-mono text-lg font-black uppercase outline-none focus:border-blue-600 shadow-sm text-center"
+                    required
+                  />
+                </div>
+                <div className="space-y-1 text-left">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
+                    Lotnummer (scannen of invullen)
                   </label>
                   <input
                     type="text"
@@ -321,8 +410,9 @@ const ProductionStartModal = ({
                       setManualLotInput(e.target.value.toUpperCase());
                       setLotNumber(e.target.value.toUpperCase());
                     }}
-                    placeholder="YY-WW-XXXX"
-                    className="w-full p-3 bg-white border-2 border-slate-100 rounded-2xl font-mono text-xl font-black uppercase outline-none focus:border-blue-600 shadow-sm text-center"
+                    placeholder={getLotPlaceholder(stationId)}
+                    className="w-full p-3 bg-white border-2 border-slate-100 rounded-2xl font-mono text-xl font-black uppercase outline-none focus:border-blue-600 shadow-sm text-center placeholder:text-slate-300"
+                    required
                   />
                 </div>
               </div>
@@ -365,13 +455,19 @@ const ProductionStartModal = ({
                 onStart(
                   order,
                   mode === "auto" ? lotNumber : manualLotInput,
-                  stringCount
+                  stringCount,
+                  manualOrderInput,
+                  operatorInput,
+                  selectedOperatorName // Geef ook de naam mee voor historie
                 )
               }
-              disabled={!lotNumber}
+              disabled={
+                (mode === "manual" && (!manualOrderInput || !manualLotInput)) ||
+                (mode === "auto" && !lotNumber)
+              }
               className="flex-[2] py-5 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-[0.15em] shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
             >
-              <PlayCircle size={20} /> Order Starten
+              <PlayCircle size={20} /> {selectedOperatorName ? `Start (${operatorInput})` : "Order Starten"}
             </button>
           </div>
         </div>
@@ -386,84 +482,128 @@ const ProductionStartModal = ({
           </div>
 
           <div className="flex-1 flex items-center justify-center w-full min-h-0 py-8">
-            {selectedLabel ? (
-              <div
-                className="bg-white shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center overflow-hidden border-2 border-white/10"
-                style={{
-                  width: `${
-                    selectedLabel.width * PIXELS_PER_MM * previewZoom
-                  }px`,
-                  height: `${
-                    selectedLabel.height * PIXELS_PER_MM * previewZoom
-                  }px`,
-                }}
-              >
-                {selectedLabel.elements?.map((el, index) => {
-                  const resolved = resolveLabelContent(el, previewData);
-                  const displayContent = resolved.content;
-                  const baseStyle = {
-                    position: "absolute",
-                    left: `${el.x * PIXELS_PER_MM * previewZoom}px`,
-                    top: `${el.y * PIXELS_PER_MM * previewZoom}px`,
-                    width: el.width
-                      ? `${el.width * PIXELS_PER_MM * previewZoom}px`
-                      : "auto",
-                    height: el.height
-                      ? `${el.height * PIXELS_PER_MM * previewZoom}px`
-                      : "auto",
-                    color: "black",
-                    transform: `rotate(${el.rotation || 0}deg)`,
-                    transformOrigin: "top left",
-                    overflow: "hidden",
-                    textAlign: "left",
-                  };
+            {mode === "manual" ? null : (
+              selectedLabel ? (
+                <div
+                  className="bg-white shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center overflow-hidden border-2 border-white/10"
+                  style={{
+                    width: `${
+                      selectedLabel.width * PIXELS_PER_MM * previewZoom
+                    }px`,
+                    height: `${
+                      selectedLabel.height * PIXELS_PER_MM * previewZoom
+                    }px`,
+                  }}
+                >
+                  {selectedLabel.elements?.map((el, index) => {
+                    const resolved = resolveLabelContent(el, previewData);
+                    const displayContent = resolved.content;
+                    const baseStyle = {
+                      position: "absolute",
+                      left: `${el.x * PIXELS_PER_MM * previewZoom}px`,
+                      top: `${el.y * PIXELS_PER_MM * previewZoom}px`,
+                      width: el.width
+                        ? `${el.width * PIXELS_PER_MM * previewZoom}px`
+                        : "auto",
+                      height: el.height
+                        ? `${el.height * PIXELS_PER_MM * previewZoom}px`
+                        : "auto",
+                      color: "black",
+                      transform: `rotate(${el.rotation || 0}deg)`,
+                      transformOrigin: "top left",
+                      overflow: "hidden",
+                      textAlign: "left",
+                    };
 
-                  if (el.type === "text")
-                    return (
-                      <div
-                        key={index}
-                        style={{
-                          ...baseStyle,
-                          fontSize: `${el.fontSize * previewZoom}px`,
-                          fontFamily: "sans-serif",
-                          fontWeight: el.isBold ? "900" : "normal",
-                          whiteSpace: "nowrap",
-                          lineHeight: "1",
-                        }}
-                      >
-                        {displayContent}
-                      </div>
-                    );
+                    if (el.type === "text")
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            ...baseStyle,
+                            fontSize: `${el.fontSize * previewZoom}px`,
+                            fontWeight: el.isBold ? "900" : "normal",
+                            fontFamily: el.fontFamily || "Arial, sans-serif",
+                            width: `${el.width * PIXELS_PER_MM * previewZoom}px`,
+                            height: el.height
+                              ? `${el.height * PIXELS_PER_MM * previewZoom}px`
+                              : "auto",
+                            textAlign: el.align || "left",
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            lineHeight: "1",
+                          }}
+                        >
+                          {displayContent}
+                        </div>
+                      );
 
-                  if (el.type === "barcode")
-                    return (
-                      <div key={index} style={baseStyle}>
-                        <img
-                          src={getBarcodeUrl(displayContent)}
-                          alt="BC"
-                          className="w-full h-full object-fill"
+                    if (el.type === "line")
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            ...baseStyle,
+                            width: `${el.width * PIXELS_PER_MM * previewZoom}px`,
+                            height: `${el.height * PIXELS_PER_MM * previewZoom}px`,
+                            backgroundColor: "black",
+                          }}
                         />
-                      </div>
-                    );
+                      );
 
-                  if (el.type === "qr")
-                    return (
-                      <div key={index} style={baseStyle}>
-                        <img
-                          src={getQRCodeUrl(displayContent)}
-                          alt="QR"
-                          className="w-full h-full object-contain"
+                    if (el.type === "box")
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            ...baseStyle,
+                            width: `${el.width * PIXELS_PER_MM * previewZoom}px`,
+                            height: `${el.height * PIXELS_PER_MM * previewZoom}px`,
+                            border: `${(el.thickness || 1) * PIXELS_PER_MM * previewZoom}px solid black`,
+                            boxSizing: "border-box",
+                          }}
                         />
-                      </div>
-                    );
+                      );
 
-                  return null;
-                })}
-              </div>
-            ) : (
-              <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] animate-pulse text-xs uppercase font-black tracking-widest italic">
-                Ontwerp laden...
-              </div>
+                    if (el.type === "barcode" || el.type === "qr")
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            ...baseStyle,
+                            width: `${(el.width || 30) * PIXELS_PER_MM * previewZoom}px`,
+                            height: `${(el.height || 30) * PIXELS_PER_MM * previewZoom}px`,
+                            background: "#f8fafc",
+                            border: "1px solid #cbd5e1",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          {el.type === "barcode" ? (
+                            <img
+                              src={getBarcodeUrl(displayContent)}
+                              alt="BC"
+                              style={{ width: "80%", height: "80%", objectFit: "fill" }}
+                            />
+                          ) : (
+                            <img
+                              src={getQRCodeUrl(displayContent)}
+                              alt="QR"
+                              style={{ width: "80%", height: "80%", objectFit: "contain" }}
+                            />
+                          )}
+                        </div>
+                      );
+
+                    return null;
+                  })}
+                </div>
+              ) : (
+                <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] animate-pulse text-xs uppercase font-black tracking-widest italic">
+                  Ontwerp laden...
+                </div>
+              )
             )}
           </div>
 

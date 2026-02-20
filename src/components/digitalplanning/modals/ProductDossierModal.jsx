@@ -53,6 +53,7 @@ const ProductDossierModal = ({
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [catalogProduct, setCatalogProduct] = useState(null);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [historyWithOperators, setHistoryWithOperators] = useState([]);
   const { role } = useAdminAuth();
   const canEditPriority = ["admin", "planner", "teamleader"].includes(role);
 
@@ -147,6 +148,55 @@ const ProductDossierModal = ({
 
     return uniqueStations.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
   }, []);
+
+  // Effect: Verrijk historie met operator data uit occupancy als deze ontbreekt
+  React.useEffect(() => {
+    const enrichHistory = async () => {
+      if (!product?.history) {
+        setHistoryWithOperators([]);
+        return;
+      }
+
+      const enriched = await Promise.all(product.history.map(async (entry) => {
+        // Als operator al bekend is in de entry, gebruik die
+        if (entry.operator || entry.operatorNumber || entry.operatorName) return entry;
+        
+        // Als we geen station of tijd hebben, kunnen we niet zoeken
+        if (!entry.station || (!entry.timestamp && !entry.time)) return entry;
+
+        try {
+          const ts = entry.timestamp?.toDate ? entry.timestamp.toDate() : new Date(entry.timestamp || entry.time);
+          if (isNaN(ts.getTime())) return entry;
+          
+          const dateStr = ts.toISOString().split('T')[0];
+          const station = entry.station;
+
+          // Zoek in occupancy (eerst exact, dan uppercase)
+          let q = query(
+            collection(db, ...PATHS.OCCUPANCY),
+            where("date", "==", dateStr),
+            where("machineId", "==", station)
+          );
+          let snap = await getDocs(q);
+
+          if (snap.empty) {
+             q = query(collection(db, ...PATHS.OCCUPANCY), where("date", "==", dateStr), where("machineId", "==", station.toUpperCase()));
+             snap = await getDocs(q);
+          }
+
+          if (!snap.empty) {
+            const opData = snap.docs[0].data();
+            return { ...entry, operatorName: opData.operatorName, operatorNumber: opData.operatorNumber };
+          }
+        } catch (e) {
+          console.warn("Kon historie niet verrijken:", e);
+        }
+        return entry;
+      }));
+      setHistoryWithOperators(enriched);
+    };
+    enrichHistory();
+  }, [product, isOpen]);
 
   const formatDeadline = (val) => {
     if (!val) return "-";
@@ -502,18 +552,21 @@ const ProductDossierModal = ({
                 <History className="text-blue-500" /> Volledige Proces Historie
               </h4>
               <div className="space-y-3">
-                {product.history?.map((entry, idx) => (
+                {(historyWithOperators.length > 0 ? historyWithOperators : product.history)?.map((entry, idx) => (
                   <div key={idx} className="flex gap-4 items-start">
                     <div className="w-10 h-10 rounded-full bg-slate-100 border-2 border-white shadow-sm flex items-center justify-center shrink-0">
                       <div className="w-2 h-2 rounded-full bg-blue-500" />
                     </div>
-                    <div className="bg-slate-50 flex-1 p-5 rounded-2xl border border-slate-100 flex justify-between items-center">
+                    <div 
+                      className="bg-slate-50 flex-1 p-5 rounded-2xl border border-slate-100 flex justify-between items-center hover:bg-blue-50/50 transition-colors cursor-help"
+                      title={`Operator: ${entry.operatorName || entry.operator || (entry.user && entry.user.includes('@') ? entry.user.split('@')[0] : entry.user) || "Onbekend"}`}
+                    >
                       <div>
                         <p className="text-xs font-black text-slate-700 uppercase">
                           {entry.station}
                         </p>
                         <p className="text-[10px] font-bold text-slate-400">
-                          {entry.user || "Systeem"}
+                          {entry.operatorNumber || entry.operatorName || entry.operator || (entry.user && entry.user.includes('@') ? entry.user.split('@')[0] : entry.user) || "Systeem"}
                         </p>
                         {(entry.action || entry.details) && (
                           <p className="text-[10px] font-medium text-slate-600 mt-1 italic">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, CheckCircle, ArrowRight, AlertTriangle, Ruler, AlertOctagon, FileText } from "lucide-react";
-import { doc, updateDoc, arrayUnion, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 
@@ -49,6 +49,38 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
     try {
       if (!product || !product.id) throw new Error("Geen geldig product ID");
 
+      // 1. Haal actieve operator op voor dit station (voor in de historie)
+      let activeOperator = "Operator"; // Default fallback
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        // Gebruik currentStation of machine als fallback
+        const stationId = product.currentStation || product.machine;
+        
+        if (stationId) {
+            let q = query(
+                collection(db, ...PATHS.OCCUPANCY),
+                where("machineId", "==", stationId),
+                where("date", "==", today)
+            );
+            let snap = await getDocs(q);
+            
+            // Fallback: Probeer uppercase als exact niet gevonden is
+            if (snap.empty) {
+                q = query(collection(db, ...PATHS.OCCUPANCY), where("machineId", "==", stationId.toUpperCase()), where("date", "==", today));
+                snap = await getDocs(q);
+            }
+
+            if (!snap.empty) {
+                // Pak de eerste operator (of logica voor meerdere)
+                const opData = snap.docs[0].data();
+                // Voorkeur voor nummer, anders naam
+                activeOperator = opData.operatorNumber || opData.operatorName || "Operator";
+            }
+        }
+      } catch (err) {
+        console.warn("Kon operator niet ophalen voor historie:", err);
+      }
+
       const productRef = doc(db, ...PATHS.TRACKING, product.id);
       const updates = {
         lastUpdated: serverTimestamp(),
@@ -84,7 +116,7 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
         updates.history = arrayUnion({
           action: "Stap Voltooid",
           timestamp: new Date(),
-          user: "Operator",
+          user: activeOperator, // Gebruik de opgehaalde operator
           details: `Doorgestuurd van ${currentStep} naar ${nextStep}`
         });
 
@@ -104,7 +136,7 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
         updates.history = arrayUnion({
           action: "Tijdelijke Afkeur",
           timestamp: new Date(),
-          user: "Operator",
+          user: activeOperator, // Gebruik de opgehaalde operator
           details: `Reden: ${reason} - ${comment}`
         });
 
@@ -120,7 +152,7 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
         updates.history = arrayUnion({
           action: "Definitieve Afkeur",
           timestamp: new Date(),
-          user: "Operator",
+          user: activeOperator, // Gebruik de opgehaalde operator
           details: `Reden: ${reason} - ${comment}`
         });
       }

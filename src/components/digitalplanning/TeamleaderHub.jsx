@@ -7,7 +7,7 @@ import {
   ClipboardList,
   Download,
 } from "lucide-react";
-import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek } from "date-fns";
 import { PATHS } from "../../config/dbPaths";
@@ -27,8 +27,9 @@ import OrderDetail from "./OrderDetail";
 import ProductDossierModal from "./modals/ProductDossierModal";
 
 /**
- * TeamleaderHub V7.0 - Error Resilience Update
- * Fix voor wit scherm: Voegt extra checks toe voor database paden en appId.
+ * TeamleaderHub V7.2 - Strict Filtering Update
+ * Fix voor dubbele planning en vervuiling tussen afdelingen.
+ * Gebruikt 'effectiveStations' als centrale bron van waarheid.
  */
 const TeamleaderHub = React.memo(({
   onBack,
@@ -36,10 +37,16 @@ const TeamleaderHub = React.memo(({
   fixedScope = "all",
   departmentName = "Algemeen",
   allowedMachines = [],
+  title = "Teamleader Hub",
 }) => {
   const { user } = useAdminAuth();
+  // Debug: toon user rol en modules
+  console.log("[TeamleaderHub] User:", user);
+  if (user) {
+    console.log("[TeamleaderHub] Rol:", user.role);
+    console.log("[TeamleaderHub] Modules:", user.modules);
+  }
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [rawOrders, setRawOrders] = useState([]);
   const [rawProducts, setRawProducts] = useState([]);
   const [bezetting, setBezetting] = useState([]);
   const [archivedProducts, setArchivedProducts] = useState([]);
@@ -63,12 +70,11 @@ const TeamleaderHub = React.memo(({
     const unsubOrders = onSnapshot(
       collection(db, ...PATHS.PLANNING),
       (snap) => {
-        setRawOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setRawOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); 
         setLoading(false);
       },
       (err) => {
         console.error("Planning Sync Error:", err);
-        // FIX: Voorkom foutmelding bij uitloggen (permission-denied)
         if (err.code === 'permission-denied') return;
         setDbError(err.code);
         setLoading(false);
@@ -85,15 +91,6 @@ const TeamleaderHub = React.memo(({
       }
     );
 
-    const unsubOcc = onSnapshot(
-      collection(db, ...PATHS.OCCUPANCY),
-      (snap) => setBezetting(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      (err) => {
-        if (err.code === 'permission-denied') return;
-        console.warn("Occupancy Sync Error:", err.code);
-      }
-    );
-
     const unsubConfig = onSnapshot(
       doc(db, ...PATHS.FACTORY_CONFIG),
       (snap) => {
@@ -105,7 +102,6 @@ const TeamleaderHub = React.memo(({
       }
     );
 
-    // FIX: Luister naar het archief van de huidige week om de 'Gereed' KPI correct te vullen
     const now = new Date();
     const start = startOfISOWeek(now);
     const end = endOfISOWeek(now);
@@ -132,38 +128,125 @@ const TeamleaderHub = React.memo(({
     };
   }, []);
 
-  // Voorkom crashes door lege arrays of undefined machines
-  const allowedNorms = useMemo(
-    () => (allowedMachines || []).map((m) => normalizeMachine(m)),
-    [allowedMachines]
-  );
+  // 1. CENTRALE STATION LOGICA
+  // Bepaal welke stations van toepassing zijn. Dit is de enige bron van waarheid.
+  // Verplaats deze declaraties naar boven zodat ze overal beschikbaar zijn in de useMemo
+  const safeScope = (fixedScope || "all").toLowerCase();
+  const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools", pipe: "pipes" };
+  const targetSlug = scopeMap[safeScope] || safeScope;
+  const effectiveStations = useMemo(() => {
+    // DEBUG: Toon welke afdeling en stations uit de config worden gevonden
+    if (factoryConfig && factoryConfig.departments) {
+      const debugDept = factoryConfig.departments.find(
+        (d) => d.slug === targetSlug || d.id === targetSlug || d.name?.toLowerCase() === targetSlug
+      );
+      console.log('[TeamleaderHub][DEBUG] fixedScope:', safeScope);
+      if (debugDept) {
+        console.log('[TeamleaderHub][DEBUG] Afdeling gevonden:', debugDept.name, debugDept);
+        console.log('[TeamleaderHub][DEBUG] Stations in afdeling:', debugDept.stations);
+      } else {
+        console.log('[TeamleaderHub][DEBUG] Geen afdeling gevonden voor:', targetSlug);
+      }
+    }
+    let stations = [];
+
+    // Zoek de juiste afdeling (indien niet 'all')
+    let deptStations = [];
+    if (factoryConfig && factoryConfig.departments && safeScope !== 'all') {
+      const dept = factoryConfig.departments.find(
+        (d) => d.slug === targetSlug || d.id === targetSlug || d.name?.toLowerCase() === targetSlug
+      );
+      deptStations = dept ? (dept.stations || []) : [];
+    } else if (factoryConfig && factoryConfig.departments) {
+      deptStations = factoryConfig.departments.flatMap(d => d.stations || []);
+    }
+
+    // A. Gebruik props als die er zijn (doorgegeven vanuit parent Hub)
+    if (allowedMachines && allowedMachines.length > 0) {
+      // Filter allowedMachines op alleen stations uit de juiste afdeling
+      stations = allowedMachines.map(m => {
+        const found = deptStations.find(s => normalizeMachine(s.name) === normalizeMachine(m));
+        return found || null;
+      }).filter(Boolean); // Verwijder nulls
+    }
+    // B. Fallback naar Factory Config op basis van scope (als props leeg zijn)
+    else {
+      stations = deptStations;
+    }
+
+    // C. FAILSAFE FILTERING OP NAAMCONVENTIES
+    // Dit voorkomt dat configuratiefouten in de database leiden tot vervuiling in de UI
+    if (safeScope === 'fittings') {
+      // Fittings mag GEEN BA05, BA07, BA08, BA09 (pipes) tonen
+      const excludedBA = ["BA05", "BA07", "BA08", "BA09"];
+      stations = stations.filter(s => {
+        const n = normalizeMachine(s.name || "");
+        return !excludedBA.includes(n);
+      });
+    } else if (safeScope === 'pipes' || safeScope === 'pipe') {
+      // Pipes mag GEEN 'BM' (Bovenloop), 'Mazak' of 'Nabewerking' bevatten
+      stations = stations.filter(s => {
+        const n = normalizeMachine(s.name || "");
+        return !n.startsWith("BM") && !n.includes("MAZAK") && !n.includes("NABEWERK");
+      });
+    }
+
+    return stations;
+  }, [allowedMachines, factoryConfig, fixedScope]);
+
+  // 2. Genereer genormaliseerde lijst voor filtering
+  const effectiveAllowedNorms = useMemo(() => {
+     return effectiveStations
+        .map(s => normalizeMachine(s.name))
+        .filter(n => n && n !== "TEAMLEADER" && n !== "ALGEMEEN");
+  }, [effectiveStations]);
 
   useEffect(() => {
     console.log('[TeamleaderHub] fixedScope:', fixedScope);
-    console.log('[TeamleaderHub] allowedMachines:', allowedMachines);
-    console.log('[TeamleaderHub] allowedNorms:', allowedNorms);
-  }, [fixedScope, allowedMachines, allowedNorms]);
-
-  useEffect(() => {
-    console.log('[TeamleaderHub] selectedStationDetail changed:', selectedStationDetail);
-  }, [selectedStationDetail]);
+    console.log('[TeamleaderHub] effectiveStations:', effectiveStations.length);
+    console.log('[TeamleaderHub] effectiveAllowedNorms:', effectiveAllowedNorms);
+  }, [fixedScope, effectiveStations, effectiveAllowedNorms]);
 
   const dataStore = useMemo(() => {
     if (!rawOrders) return [];
-    // Filter orders op juiste afdeling (pipes, fittings, spools)
     const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
-    const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
+    const safeScope = (fixedScope || "all").toLowerCase();
+    const targetSlug = scopeMap[safeScope] || safeScope;
+
     return rawOrders
       .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
       .filter((o) => {
         // Order moet bij juiste afdeling horen
-        if (o.department && typeof o.department === "string") {
+        if (targetSlug !== "all" && o.department && typeof o.department === "string") {
           if (o.department.toLowerCase() !== targetSlug) return false;
         }
+
+        // 1. HARD EXCLUDES OP BASIS VAN SCOPE (FAILSAFE)
+        // Dit voorkomt dat BA orders in Fittings verschijnen, zelfs als de config niet klopt
+        if (targetSlug === 'fittings') {
+            if (o.normMachine.startsWith("BA")) return false;
+            // Extra failsafe: als station BA is, altijd uitsluiten
+            if (o.station && normalizeMachine(o.station).startsWith("BA")) return false;
+        }
+        if (targetSlug === 'pipes' || targetSlug === 'pipe') {
+            if (o.normMachine.startsWith("BM") || o.normMachine.includes("MAZAK") || o.normMachine.includes("NABEWERK")) return false;
+            if (o.station && (normalizeMachine(o.station).startsWith("BM") || normalizeMachine(o.station).includes("MAZAK") || normalizeMachine(o.station).includes("NABEWERK"))) return false;
+        }
+
         // Machine filter
-        return allowedNorms.includes(o.normMachine) || allowedNorms.length === 0;
+        if (targetSlug === "all") return true;
+
+        if (effectiveAllowedNorms.length > 0) {
+          if (o.normMachine) {
+            return effectiveAllowedNorms.includes(o.normMachine);
+          }
+          // Als order GEEN machine heeft (backlog), toon hem wel (zodat planning niet 0 is)
+          return true;
+        }
+        // Als er geen stations bekend zijn (en scope is niet 'all'), toon niets om vervuiling te voorkomen
+        return false;
       });
-  }, [rawOrders, allowedNorms]);
+  }, [rawOrders, effectiveAllowedNorms, fixedScope]);
 
   const selectedOrder = useMemo(() => {
     if (!selectedOrderId) return null;
@@ -186,27 +269,23 @@ const TeamleaderHub = React.memo(({
     const todayStr = format(new Date(), 'yyyy-MM-dd');
     const validOrderIds = new Set(dataStore.map((o) => o.orderId));
 
-    // Get stations from factory config based on fixedScope
-    let stations = [];
-    if (factoryConfig && factoryConfig.departments) {
-      if (!fixedScope || fixedScope === 'all') {
-         // Als geen scope, pak alle stations van alle afdelingen
-         stations = factoryConfig.departments.flatMap(d => d.stations || []);
-      } else {
-          const scopeMap = { fittings: "fittings", pipes: "pipes", spools: "spools" };
-          const targetSlug = scopeMap[fixedScope.toLowerCase()] || fixedScope.toLowerCase();
-          
-          const dept = factoryConfig.departments.find(
-            (d) => d.slug === targetSlug || d.id === targetSlug || d.name?.toLowerCase() === targetSlug
-          );
-          stations = dept ? (dept.stations || []) : [];
+    // Gebruik de centraal berekende stations
+    const stations = effectiveStations.filter(s => {
+      const name = (s.name || "").toLowerCase();
+      // Failsafe: als scope fittings is, sluit BA-machines uit
+      if (safeScope === 'fittings') {
+        if (name.startsWith('ba')) return false;
+        // Alleen stations uit de afdeling 'fittings'
+        if (s.department && s.department.toLowerCase() !== 'fittings') return false;
       }
-      // Filter teamleader stations eruit voor de KPI's
-      stations = stations.filter(s => {
-        const name = (s.name || "").toLowerCase();
-        return name !== "teamleader" && name !== "algemeen";
-      });
-    }
+      if (safeScope === 'pipes' || safeScope === 'pipe') {
+        // Alleen stations uit de afdeling 'pipes'
+        if (s.department && s.department.toLowerCase() !== 'pipes') return false;
+      }
+      // Voor andere scopes, filter op afdeling indien beschikbaar
+      if (safeScope !== 'all' && s.department && s.department.toLowerCase() !== safeScope) return false;
+      return name !== "teamleader" && name !== "algemeen";
+    });
 
     const machineGridData = stations.map((station) => {
       const stationName = station.name;
@@ -220,7 +299,6 @@ const TeamleaderHub = React.memo(({
         (p) => (p.machine || p.originMachine || "").toLowerCase() === stationName.toLowerCase()
       );
       
-      // Verbeterde matching voor occupancy (ID of Naam)
       const currentOccupancy = bezetting.filter((b) => {
           if (b.date !== todayStr) return false;
           const bId = (b.machineId || "").toLowerCase();
@@ -238,7 +316,6 @@ const TeamleaderHub = React.memo(({
       const isLossen = nameUpper.includes("LOSSEN");
       const isAlgemeen = nameUpper.includes("ALGEMEEN");
       
-      // Groepeer stations die geen 'Plan' hebben maar 'Aanbod'
       const isDownstream = isBM01 || isNabewerking || isMazak || isLossen;
 
       let planned = 0;
@@ -248,13 +325,11 @@ const TeamleaderHub = React.memo(({
       if (isDownstream) {
           planned = 0;
           
-          // Downstream Actief: Items die wachten op dit station (Aanbod)
           const checkActive = (p) => {
              const pStation = (p.currentStation || "").toUpperCase();
              const pStep = (p.currentStep || "").toUpperCase();
              const pStatus = (p.status || "").toUpperCase();
              
-             // Check of item actief is
              const isActiveItem = !['COMPLETED', 'FINISHED', 'GEREED', 'REJECTED', 'AFKEUR'].includes(pStatus) && pStep !== 'FINISHED' && pStep !== 'REJECTED';
              if (!isActiveItem) return false;
 
@@ -267,7 +342,6 @@ const TeamleaderHub = React.memo(({
           };
           active = rawProducts.filter(checkActive).length;
 
-          // Downstream Klaar: Items die verwerkt zijn door dit station
           const checkFinished = (p) => {
              const pStatus = (p.status || "").toUpperCase();
              const pStep = (p.currentStep || "").toUpperCase();
@@ -283,7 +357,6 @@ const TeamleaderHub = React.memo(({
           };
           finished = rawProducts.filter(checkFinished).length + archivedProducts.filter(checkFinished).length;
       } else if (!isAlgemeen) {
-          // Standaard Productie Machines (niet Algemeen)
           planned = dataStore
             .filter((o) => (o.machine || "").toLowerCase() === stationName.toLowerCase())
             .reduce((acc, o) => acc + Number(o.plan || 0), 0);
@@ -304,15 +377,24 @@ const TeamleaderHub = React.memo(({
     });
 
     return {
-      // Totaal Plan: Som van 'plan' veld van alle orders (exclusief geannuleerd/afgekeurd), alleen juiste afdeling
       totalPlanned: dataStore
         .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
         .reduce((acc, o) => acc + Number(o.plan || 0), 0),
-      // AANGEPAST: Active Count (Lopend)
-      // Telt alles wat niet klaar/afgekeurd is, en nog niet bij BM01 is.
+      
       activeCount: rawProducts.filter((p) => {
         if (!validOrderIds.has(p.orderId)) return false;
         
+        // STRICT FILTER OP MACHINE
+        if (effectiveAllowedNorms.length > 0) {
+            const m1 = normalizeMachine(p.machine || "");
+            const m2 = normalizeMachine(p.originMachine || "");
+            const m3 = normalizeMachine(p.currentStation || "");
+            
+            if (!effectiveAllowedNorms.includes(m1) && !effectiveAllowedNorms.includes(m2) && !effectiveAllowedNorms.includes(m3)) {
+                return false;
+            }
+        }
+
         const status = p.status || "";
         const step = p.currentStep || "";
         const station = (p.currentStation || "").toUpperCase();
@@ -321,8 +403,6 @@ const TeamleaderHub = React.memo(({
         const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
         
         if (isFinished || isRejected) return false;
-
-        // Excludeer items die fysiek op BM01/Eindinspectie zijn (grensgeval)
         if (station === 'BM01' || station === 'STATION BM01' || step === 'Eindinspectie') return false;
 
         return true;
@@ -331,6 +411,14 @@ const TeamleaderHub = React.memo(({
       finishedCount: (() => {
         const activeFinished = rawProducts.filter((p) => {
           if (!validOrderIds.has(p.orderId)) return false;
+          
+          if (effectiveAllowedNorms.length > 0) {
+            const m1 = normalizeMachine(p.machine || "");
+            const m2 = normalizeMachine(p.originMachine || "");
+            const m3 = normalizeMachine(p.currentStation || "");
+            if (!effectiveAllowedNorms.includes(m1) && !effectiveAllowedNorms.includes(m2) && !effectiveAllowedNorms.includes(m3)) return false;
+          }
+
           const status = p.status || "";
           const step = p.currentStep || "";
           return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
@@ -341,6 +429,14 @@ const TeamleaderHub = React.memo(({
 
       rejectedCount: rawProducts.filter((p) => {
         if (!validOrderIds.has(p.orderId)) return false;
+        
+        if (effectiveAllowedNorms.length > 0) {
+            const m1 = normalizeMachine(p.machine || "");
+            const m2 = normalizeMachine(p.originMachine || "");
+            const m3 = normalizeMachine(p.currentStation || "");
+            if (!effectiveAllowedNorms.includes(m1) && !effectiveAllowedNorms.includes(m2) && !effectiveAllowedNorms.includes(m3)) return false;
+        }
+
         const status = p.status || "";
         const step = p.currentStep || "";
         return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
@@ -351,19 +447,16 @@ const TeamleaderHub = React.memo(({
         return p.inspection?.status === "Tijdelijke afkeur";
       }).length,
 
-      // UITGEBREIDE PERSONEEL METRICS
       ...(() => {
         let totalHours = 0;
         let productionHours = 0;
         let supportHours = 0;
-        
         let weeklyTotalHours = 0;
         let weeklyProductionHours = 0;
         let weeklySupportHours = 0;
 
         const relevantOccupancy = bezetting.filter((b) => {
             if (!b.date) return false;
-            
             return stations.some(s => {
                const sId = (s.id || "").toLowerCase();
                const sName = (s.name || "").toLowerCase();
@@ -378,14 +471,11 @@ const TeamleaderHub = React.memo(({
             const hours = parseFloat(val);
             const netHours = isNaN(hours) ? 8 : hours;
             
-            // Dag totalen
             if (b.date === todayStr) {
                 totalHours += netHours;
-
                 const machineId = (b.machineId || "").toUpperCase().replace(/\s/g, "");
                 const isBH = machineId.includes("BH");
                 const isBA = machineId.includes("BA") && !machineId.includes("NABEWERKING") && !machineId.includes("NABW");
-                
                 if (isBH || isBA) {
                     productionHours += netHours;
                 } else {
@@ -393,15 +483,12 @@ const TeamleaderHub = React.memo(({
                 }
             }
 
-            // Week totalen
             const bDate = new Date(b.date);
             if (getISOWeek(bDate) === currentWeek) {
                 weeklyTotalHours += netHours;
-
                 const machineId = (b.machineId || "").toUpperCase().replace(/\s/g, "");
                 const isBH = machineId.includes("BH");
                 const isBA = machineId.includes("BA") && !machineId.includes("NABEWERKING") && !machineId.includes("NABW");
-                
                 if (isBH || isBA) {
                     weeklyProductionHours += netHours;
                 } else {
@@ -435,15 +522,38 @@ const TeamleaderHub = React.memo(({
     factoryConfig,
     fixedScope,
     archivedProducts,
+    effectiveAllowedNorms,
+    effectiveStations
   ]);
 
-  // Handler voor KPI tegels (opent trace modal met juiste data)
   const handleKpiClick = (kpiId, label) => {
-    console.log("KPI Click:", kpiId);
     setModalTitle(label);
-    
     if (kpiId === "gepland") {
-      setModalData(rawOrders);
+      // Zelfde filtering als dataStore, zodat alleen relevante stations/orders getoond worden
+      const filteredOrders = rawOrders
+        .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
+        .filter((o) => {
+          if (targetSlug !== "all" && o.department && typeof o.department === "string") {
+            if (o.department.toLowerCase() !== targetSlug) return false;
+          }
+          if (targetSlug === 'fittings') {
+            if (o.normMachine.startsWith("BA")) return false;
+            if (o.station && normalizeMachine(o.station).startsWith("BA")) return false;
+          }
+          if (targetSlug === 'pipes' || targetSlug === 'pipe') {
+            if (o.normMachine.startsWith("BM") || o.normMachine.includes("MAZAK") || o.normMachine.includes("NABEWERK")) return false;
+            if (o.station && (normalizeMachine(o.station).startsWith("BM") || normalizeMachine(o.station).includes("MAZAK") || normalizeMachine(o.station).includes("NABEWERK"))) return false;
+          }
+          if (targetSlug === "all") return true;
+          if (effectiveAllowedNorms.length > 0) {
+            if (o.normMachine) {
+              return effectiveAllowedNorms.includes(o.normMachine);
+            }
+            return true;
+          }
+          return false;
+        });
+      setModalData(filteredOrders);
       setShowTraceModal(true);
     } else if (kpiId === "in_proces") {
       const list = rawProducts.filter((p) => {
@@ -463,14 +573,9 @@ const TeamleaderHub = React.memo(({
          const step = p.currentStep || "";
          return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
       });
-      
-      // Voeg gearchiveerde items toe die bij deze afdeling horen
       const validOrderIds = new Set(dataStore.map((o) => o.orderId));
       const archivedList = archivedProducts.filter(p => validOrderIds.has(p.orderId));
-      
-      // Combineer lijsten
       const combined = [...activeList, ...archivedList];
-      
       setModalData(combined);
       setShowTraceModal(true);
     } else if (kpiId === "afkeur") {
@@ -484,9 +589,7 @@ const TeamleaderHub = React.memo(({
     } else if (kpiId === "tijdelijke_afkeur" || kpiId === "temp_rejected" || kpiId === "tijdelijke afkeur" || kpiId === "tijdelijk_afkeur") {
       const list = rawProducts
         .filter((p) => p.inspection?.status === "Tijdelijke afkeur")
-        .sort((a, b) => {
-          return new Date(a.inspection?.timestamp || 0) - new Date(b.inspection?.timestamp || 0);
-        });
+        .sort((a, b) => new Date(a.inspection?.timestamp || 0) - new Date(b.inspection?.timestamp || 0));
       setModalData(list);
       setShowTraceModal(true);
     } else if (kpiId === "bezetting") {
@@ -505,13 +608,11 @@ const TeamleaderHub = React.memo(({
     }
   };
 
-  // Handler voor CSV Export
   const handleExport = () => {
     if (dataStore.length === 0) {
       alert("Geen data om te exporteren.");
       return;
     }
-    
     const headers = ["Order", "Item", "Item Code", "Machine", "Plan", "Gereed", "Status", "Datum", "Afdeling"];
     const rows = dataStore.map(o => {
       const dateStr = o.dateObj ? format(o.dateObj, "yyyy-MM-dd") : "";
@@ -527,10 +628,7 @@ const TeamleaderHub = React.memo(({
         o.department || ""
       ];
     });
-    
-    const csvContent = "data:text/csv;charset=utf-8," 
-        + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-        
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -540,12 +638,9 @@ const TeamleaderHub = React.memo(({
     document.body.removeChild(link);
   };
 
-  // Handler voor kopiëren van gisteren (Teamleader Specifiek)
   const handleCopyYesterday = async (targetDeptId) => {
     const yesterdayStr = format(subDays(new Date(), 1), "yyyy-MM-dd");
     const todayStr = format(new Date(), "yyyy-MM-dd");
-    
-    // Filter occupancy uit de lokale state
     const yesterdayData = bezetting.filter(
       (o) => o.date === yesterdayStr && o.operatorNumber && o.departmentId === targetDeptId
     );
@@ -554,7 +649,6 @@ const TeamleaderHub = React.memo(({
       alert("Geen bezetting van gisteren gevonden voor deze afdeling.");
       return;
     }
-
     if (!window.confirm(`Wil je ${yesterdayData.length} toewijzingen van gisteren kopiëren naar vandaag?`)) return;
 
     setIsCopying(true);
@@ -563,12 +657,7 @@ const TeamleaderHub = React.memo(({
       yesterdayData.forEach((old) => {
         const newId = `${todayStr}_${old.departmentId}_${old.machineId}_${old.operatorNumber}`.replace(/[^a-zA-Z0-9]/g, "_");
         const newRef = doc(db, ...PATHS.OCCUPANCY, newId);
-        batch.set(newRef, {
-          ...old,
-          id: newId,
-          date: todayStr,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
+        batch.set(newRef, { ...old, id: newId, date: todayStr, updatedAt: serverTimestamp() }, { merge: true });
       });
       await batch.commit();
     } catch (err) {
@@ -579,10 +668,8 @@ const TeamleaderHub = React.memo(({
     }
   };
 
-  // Handler voor wissen van vandaag (Reset)
   const handleClearToday = async (targetDeptId) => {
     const todayStr = format(new Date(), "yyyy-MM-dd");
-    
     const todayData = bezetting.filter(
       (o) => o.date === todayStr && o.departmentId === targetDeptId
     );
@@ -591,7 +678,6 @@ const TeamleaderHub = React.memo(({
       alert("Geen bezetting gevonden voor vandaag om te wissen.");
       return;
     }
-
     if (!window.confirm(`Weet je zeker dat je de bezetting van VANDAAG (${todayData.length} items) voor deze afdeling wilt wissen?`)) return;
 
     setIsClearing(true);
@@ -610,7 +696,6 @@ const TeamleaderHub = React.memo(({
     }
   };
 
-  // Handler voor handmatig verplaatsen van product (Admin/Teamleader actie)
   const handleMoveLot = async (lotNumber, newStation) => {
     if (!lotNumber || !newStation) return;
     try {
@@ -629,7 +714,6 @@ const TeamleaderHub = React.memo(({
     }
   };
 
-  // Render Logica
   if (loading)
     return (
       <div className="flex h-full flex-col items-center justify-center bg-slate-50 gap-4">
@@ -644,16 +728,9 @@ const TeamleaderHub = React.memo(({
     return (
       <div className="h-full flex flex-col items-center justify-center p-10 text-center">
         <AlertTriangle size={48} className="text-rose-500 mb-4" />
-        <h3 className="text-xl font-black uppercase italic">
-          Database Verbindingsfout
-        </h3>
-        <p className="text-slate-500 text-sm mt-2 max-w-xs">
-          De app kon geen verbinding maken met Firestore (Fout: {dbError}).
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-8 px-8 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl"
-        >
+        <h3 className="text-xl font-black uppercase italic">Database Verbindingsfout</h3>
+        <p className="text-slate-500 text-sm mt-2 max-w-xs">De app kon geen verbinding maken met Firestore (Fout: {dbError}).</p>
+        <button onClick={() => window.location.reload()} className="mt-8 px-8 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">
           Opnieuw Proberen
         </button>
       </div>
@@ -661,118 +738,39 @@ const TeamleaderHub = React.memo(({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-left w-full animate-in fade-in duration-300 overflow-hidden relative">
-      {/* HEADER MET GEINTEGREERDE TABS */}
       <div className="bg-white border-b border-slate-200 shrink-0 z-40 shadow-sm px-6 py-3">
         <div className="flex flex-col xl:flex-row justify-between items-center gap-4">
-          
-          {/* Links: Titel & Back */}
           <div className="flex items-center gap-6 w-full xl:w-auto">
-            <button
-              onClick={onBack || onExit}
-              className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl transition-all active:scale-90 shrink-0"
-            >
+            <button onClick={onBack || onExit} className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl transition-all active:scale-90 shrink-0">
               <ArrowLeft size={24} />
             </button>
             <div className="text-left">
-              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none whitespace-nowrap">
-                Teamleader Hub
-              </h2>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 truncate">
-                {departmentName} Dashboard
-              </p>
+              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none whitespace-nowrap">{title}</h2>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 truncate">{departmentName} Dashboard</p>
             </div>
           </div>
 
-          {/* Midden: Tabs (Scrollable op mobiel) */}
           <div className="flex bg-slate-100 p-1 rounded-2xl overflow-x-auto max-w-full no-scrollbar w-full xl:w-auto justify-start xl:justify-center">
-            <button
-              onClick={() => setActiveTab("dashboard")}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                activeTab === "dashboard"
-                  ? "bg-white text-blue-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab("planning")}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                activeTab === "planning"
-                  ? "bg-white text-blue-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Volledige Lijst
-            </button>
-            <button
-              onClick={() => setActiveTab("bezetting")}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                activeTab === "bezetting"
-                  ? "bg-white text-emerald-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Personeel
-            </button>
-            <button
-              onClick={() => setActiveTab("efficiency")}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                activeTab === "efficiency"
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Efficiëntie
-            </button>
-            <button
-              onClick={() => setActiveTab("gantt")}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                activeTab === "gantt"
-                  ? "bg-white text-orange-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Gantt-planning
-            </button>
+            <button onClick={() => setActiveTab("dashboard")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "dashboard" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Dashboard</button>
+            <button onClick={() => setActiveTab("planning")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Volledige Lijst</button>
+            <button onClick={() => setActiveTab("bezetting")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "bezetting" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Personeel</button>
+            <button onClick={() => setActiveTab("efficiency")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "efficiency" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Efficiëntie</button>
+            <button onClick={() => setActiveTab("gantt")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "gantt" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Gantt-planning</button>
           </div>
 
-          {/* Rechts: Acties */}
           <div className="flex items-center gap-3 w-full xl:w-auto justify-end">
-            <button
-              onClick={handleExport}
-              className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all"
-              title="Exporteer CSV"
-            >
-              <Download size={20} />
-            </button>
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"
-            >
-              <FileSpreadsheet size={16} /> <span className="hidden sm:inline">Import</span>
-            </button>
+            <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title="Exporteer CSV"><Download size={20} /></button>
+            <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">Import</span></button>
           </div>
         </div>
       </div>
 
       <div className="flex-1 overflow-hidden p-6 w-full flex flex-col text-left">
-
         <div className="flex-1 overflow-y-auto custom-scrollbar relative">
           {activeTab === "dashboard" ? (
-            <TeamleaderDashboard 
-              metrics={metrics}
-              onKpiClick={handleKpiClick}
-              onStationSelect={setSelectedStationDetail}
-            />
+            <TeamleaderDashboard metrics={metrics} onKpiClick={handleKpiClick} onStationSelect={setSelectedStationDetail} />
           ) : activeTab === "bezetting" ? (
-            <PersonnelOccupancyView 
-              scope={fixedScope} 
-              onCopyYesterday={handleCopyYesterday}
-              isCopying={isCopying}
-              onClearToday={handleClearToday}
-              isClearing={isClearing}
-            />
+            <PersonnelOccupancyView scope={fixedScope} onCopyYesterday={handleCopyYesterday} isCopying={isCopying} onClearToday={handleClearToday} isClearing={isClearing} />
           ) : activeTab === "efficiency" ? (
             <TeamleaderEfficiencyView departmentName={departmentName} />
           ) : activeTab === "gantt" ? (
@@ -780,29 +778,15 @@ const TeamleaderHub = React.memo(({
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
               <div className="w-80 shrink-0 flex flex-col min-h-0">
-                <PlanningSidebar
-                  orders={dataStore}
-                  selectedOrderId={selectedOrderId}
-                  onSelect={setSelectedOrderId}
-                />
+                <PlanningSidebar orders={dataStore} selectedOrderId={selectedOrderId} onSelect={setSelectedOrderId} />
               </div>
               <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden">
                 {selectedOrder ? (
-                  <OrderDetail
-                    order={selectedOrder}
-                    products={rawProducts}
-                    onClose={() => setSelectedOrderId(null)}
-                    isManager={true}
-                    onMoveLot={handleMoveLot}
-                    onOpenDossier={setViewingDossier}
-                    showAllStations={true}
-                  />
+                  <OrderDetail order={selectedOrder} products={rawProducts} onClose={() => setSelectedOrderId(null)} isManager={true} onMoveLot={handleMoveLot} onOpenDossier={setViewingDossier} showAllStations={true} />
                 ) : (
                   <div className="flex-1 flex flex-col justify-center items-center opacity-40 italic text-center">
                     <ClipboardList size={64} className="mb-4 text-slate-300" />
-                    <p className="font-black uppercase tracking-widest text-xs text-slate-400">
-                      Selecteer een order uit de lijst
-                    </p>
+                    <p className="font-black uppercase tracking-widest text-xs text-slate-400">Selecteer een order uit de lijst</p>
                   </div>
                 )}
               </div>
@@ -811,49 +795,10 @@ const TeamleaderHub = React.memo(({
         </div>
       </div>
 
-      {/* MODALS (Simplified) */}
-      {showImportModal && (
-        <PlanningImportModal
-          isOpen={true}
-          onClose={() => setShowImportModal(false)}
-        />
-      )}
-      {selectedStationDetail && (
-        <StationDetailModal
-          stationId={selectedStationDetail}
-          allOrders={dataStore}
-          allProducts={rawProducts}
-          onClose={() => setSelectedStationDetail(null)}
-        />
-      )}
-      {/* KPI Pop-up Modal */}
-      <TraceModal
-        isOpen={showTraceModal}
-        onClose={() => {
-          setShowTraceModal(false);
-          setReturnToTrace(false);
-        }}
-        title={modalTitle}
-        data={modalData}
-        onRowClick={(item) => {
-          // Sluit de KPI lijst en open het volledige dossier van het product
-          setShowTraceModal(false);
-          setViewingDossier(item);
-          setReturnToTrace(true);
-        }}
-      />
-      {viewingDossier && (
-        <ProductDossierModal
-          isOpen={true}
-          product={viewingDossier}
-          onClose={() => {
-            setViewingDossier(null);
-            if (returnToTrace) setShowTraceModal(true);
-          }}
-          orders={rawOrders}
-          onMoveLot={handleMoveLot}
-        />
-      )}
+      {showImportModal && <PlanningImportModal isOpen={true} onClose={() => setShowImportModal(false)} />}
+      {selectedStationDetail && <StationDetailModal stationId={selectedStationDetail} allOrders={dataStore} allProducts={rawProducts} onClose={() => setSelectedStationDetail(null)} />}
+      <TraceModal isOpen={showTraceModal} onClose={() => { setShowTraceModal(false); setReturnToTrace(false); }} title={modalTitle} data={modalData} onRowClick={(item) => { setShowTraceModal(false); setViewingDossier(item); setReturnToTrace(true); }} />
+      {viewingDossier && <ProductDossierModal isOpen={true} product={viewingDossier} onClose={() => { setViewingDossier(null); if (returnToTrace) setShowTraceModal(true); }} orders={rawOrders} onMoveLot={handleMoveLot} />}
     </div>
   );
 });

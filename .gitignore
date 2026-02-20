@@ -4,3 +4,5 @@ node_modules
 desktop.ini
 dist
 coverage
+.vercel
+.env*.local

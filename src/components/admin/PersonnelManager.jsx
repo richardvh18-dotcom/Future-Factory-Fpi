@@ -15,6 +15,7 @@ import {
   Database,
   Copy,
   Save,
+  AlertCircle,
 } from "lucide-react";
 import { db, auth } from "../../config/firebase";
 import {
@@ -44,9 +45,6 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView.jsx";
 import PersonnelListView from "../personnel/PersonnelListView.jsx";
-import PersonnelTeamView from "../personnel/subviews/PersonnelTeamView.jsx";
-import PersonnelScheduleView from "../personnel/subviews/PersonnelScheduleView.jsx";
-import PersonnelImportView from "../personnel/subviews/PersonnelImportView.jsx";
 import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
 
 /**
@@ -100,6 +98,11 @@ const PersonnelManager = () => {
       followRotation: false
     }
   });
+
+  const isDuplicateNumber = useMemo(() => {
+    if (!personForm.employeeNumber) return false;
+    return personnel.some(p => p.employeeNumber === personForm.employeeNumber && p.id !== editingId);
+  }, [personForm.employeeNumber, personnel, editingId]);
 
   // 1. DATA SYNC MET DE ROOT
   useEffect(() => {
@@ -299,22 +302,39 @@ const PersonnelManager = () => {
   };
 
   const handleCopyYesterday = async (targetDeptId = null) => {
-    const yesterdayStr = format(subDays(viewDate, 1), "yyyy-MM-dd");
-    let yesterdayData = occupancy.filter(
-      (o) => o.date === yesterdayStr && o.operatorNumber
+    // Als het maandag is (1), kopieer van vrijdag (3 dagen terug), anders gisteren (1 dag)
+    const isMonday = viewDate.getDay() === 1;
+    const daysBack = isMonday ? 3 : 1;
+    const sourceDateStr = format(subDays(viewDate, daysBack), "yyyy-MM-dd");
+    
+    let sourceData = occupancy.filter(
+      (o) => o.date === sourceDateStr && o.operatorNumber
     );
 
     if (targetDeptId && typeof targetDeptId === 'string') {
-      yesterdayData = yesterdayData.filter(o => o.departmentId === targetDeptId);
+      sourceData = sourceData.filter(o => o.departmentId === targetDeptId);
     }
 
-    if (yesterdayData.length === 0)
-      return alert("Geen bezetting van gisteren gevonden" + (typeof targetDeptId === 'string' ? " voor deze afdeling." : "."));
+    if (sourceData.length === 0)
+      return alert(`Geen bezetting van ${isMonday ? 'vrijdag' : 'gisteren'} gevonden` + (typeof targetDeptId === 'string' ? " voor deze afdeling." : "."));
 
     setIsCopying(true);
     try {
       const batch = writeBatch(db);
-      yesterdayData.forEach((old) => {
+      sourceData.forEach((old) => {
+        // Zoek persoon op om rotatie te checken en shift te herberekenen voor VANDAAG
+        const person = personnel.find(p => p.employeeNumber === old.operatorNumber);
+        
+        let newShiftLabel = old.shift;
+        let newHours = old.hoursWorked;
+
+        if (person) {
+            // Herbereken shift voor de DOEL datum (viewDate) op basis van rotatie schema
+            const shiftInfo = getShiftHours(person, old.departmentId, viewDate);
+            newShiftLabel = shiftInfo.label;
+            newHours = shiftInfo.total;
+        }
+
         const newId =
           `${selectedDateStr}_${old.departmentId}_${old.machineId}_${old.operatorNumber}`.replace(
             /[^a-zA-Z0-9]/g,
@@ -326,6 +346,8 @@ const PersonnelManager = () => {
             ...old,
             id: newId,
             date: selectedDateStr,
+            shift: newShiftLabel, // Gebruik herberekende shift (juiste rotatie)
+            hoursWorked: newHours,
             updatedAt: serverTimestamp(),
           },
           { merge: true }
@@ -334,7 +356,7 @@ const PersonnelManager = () => {
       await batch.commit();
       setStatus({
         type: "success",
-        msg: `${yesterdayData.length} lopers overgezet!`,
+        msg: `${sourceData.length} lopers overgezet van ${isMonday ? 'vrijdag' : 'gisteren'}!`,
       });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
@@ -346,6 +368,12 @@ const PersonnelManager = () => {
 
   const handleSavePerson = async (e) => {
     e.preventDefault();
+
+    if (isDuplicateNumber) {
+      alert(`Het personeelsnummer ${personForm.employeeNumber} is al in gebruik.`);
+      return;
+    }
+
     setSaving(true);
     try {
       const docId = editingId || `P_${personForm.employeeNumber}`;
@@ -490,36 +518,6 @@ const PersonnelManager = () => {
               >
                 Personeel
               </button>
-              <button
-                onClick={() => setActiveTab("team")}
-                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                  activeTab === "team"
-                    ? "bg-white text-emerald-900 shadow-sm"
-                    : "text-slate-400"
-                }`}
-              >
-                Team
-              </button>
-              <button
-                onClick={() => setActiveTab("schedule")}
-                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                  activeTab === "schedule"
-                    ? "bg-white text-purple-900 shadow-sm"
-                    : "text-slate-400"
-                }`}
-              >
-                Rooster
-              </button>
-              <button
-                onClick={() => setActiveTab("import")}
-                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                  activeTab === "import"
-                    ? "bg-white text-blue-900 shadow-sm"
-                    : "text-slate-400"
-                }`}
-              >
-                Import
-              </button>
             </div>
             <button
               onClick={() => {
@@ -587,14 +585,18 @@ const PersonnelManager = () => {
           <button
             onClick={handleCopyYesterday}
             disabled={isCopying}
-            className="px-6 py-3 bg-white border-2 border-slate-100 text-slate-400 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:border-blue-500 hover:text-blue-600 transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+            className={`px-6 py-3 border-2 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 shadow-sm ${
+              viewDate.getDay() === 1
+                ? "bg-orange-50 border-orange-200 text-orange-600 hover:border-orange-400 hover:text-orange-700"
+                : "bg-white border-slate-100 text-slate-400 hover:border-blue-500 hover:text-blue-600"
+            }`}
           >
             {isCopying ? (
               <Loader2 className="animate-spin" size={16} />
             ) : (
               <Copy size={16} />
             )}{" "}
-            Herhaal Gisteren
+            {viewDate.getDay() === 1 ? "Herhaal Vrijdag" : "Herhaal Gisteren"}
           </button>
 
           {status && (
@@ -679,27 +681,6 @@ const PersonnelManager = () => {
               }}
             />
           )}
-
-          {/* TAB 3: Teamindeling */}
-          {activeTab === "team" && (
-            <PersonnelTeamView
-              personnel={personnel}
-              departments={structure.departments || []}
-            />
-          )}
-
-          {/* TAB 4: Rooster Overzicht */}
-          {activeTab === "schedule" && (
-            <PersonnelScheduleView
-              personnel={personnel}
-              viewDate={viewDate}
-            />
-          )}
-
-          {/* TAB 5: Import */}
-          {activeTab === "import" && (
-            <PersonnelImportView onImport={() => alert("Import coming soon!")} />
-          )}
         </div>
       </div>
 
@@ -777,8 +758,11 @@ const PersonnelManager = () => {
                   </label>
                   <input
                     required
-                    disabled={!!editingId}
-                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-800 outline-none focus:border-blue-500 transition-all text-sm disabled:opacity-50"
+                    className={`w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-800 outline-none transition-all text-sm ${
+                      isDuplicateNumber 
+                        ? "border-rose-300 focus:border-rose-500 bg-rose-50/10" 
+                        : "border-slate-100 focus:border-blue-500"
+                    }`}
                     value={personForm.employeeNumber}
                     onChange={(e) =>
                       setPersonForm({
@@ -787,6 +771,11 @@ const PersonnelManager = () => {
                       })
                     }
                   />
+                  {isDuplicateNumber && (
+                    <p className="text-[10px] font-bold text-rose-500 ml-2 mt-1 flex items-center gap-1">
+                      <AlertCircle size={12} /> Dit nummer is al in gebruik!
+                    </p>
+                  )}
                 </div>
               </div>
 

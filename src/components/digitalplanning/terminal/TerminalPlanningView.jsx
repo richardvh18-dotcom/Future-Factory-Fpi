@@ -7,7 +7,7 @@ import { nl } from "date-fns/locale";
 import StatusBadge from "../common/StatusBadge";
 
 const TerminalPlanningView = ({
-  orders,
+  orders = [],
   selectedOrderId,
   onSelectOrder,
   searchTerm,
@@ -16,7 +16,7 @@ const TerminalPlanningView = ({
   showAllWeeks,
   onToggleAllWeeks,
   targetWeekNum,
-  productionProgressMap,
+  productionProgressMap = {},
   isBM01,
   onStartProduction,
   selectedOrder,

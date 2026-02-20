@@ -20,6 +20,22 @@ const StationDetailModal = ({ stationId, allOrders, allProducts, onClose }) => {
   const [historyFilter, setHistoryFilter] = useState("week");
   const stationNorm = normalizeMachine(stationId);
 
+  // Failsafe: als stationNorm een BA-station is en de parent scope is 'fittings', render niets
+  const urlParams = new URLSearchParams(window.location.search);
+  const scope = urlParams.get('scope') || '';
+  if (scope.toLowerCase() === 'fittings' && stationNorm.startsWith('ba')) {
+    return (
+      <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh] items-center justify-center p-10">
+          <AlertCircle size={48} className="text-rose-400 mb-4" />
+          <h2 className="text-xl font-black text-rose-600 mb-2">Niet toegestaan</h2>
+          <p className="text-slate-500 text-sm mb-6">Dit station hoort niet bij de afdeling Fittings.</p>
+          <button onClick={onClose} className="px-6 py-2 bg-slate-900 text-white rounded-xl font-black uppercase text-xs tracking-widest">Sluiten</button>
+        </div>
+      </div>
+    );
+  }
+
   // 1. Nu Actief (Live)
   const activeItems = useMemo(() => {
     return allProducts.filter((p) => {

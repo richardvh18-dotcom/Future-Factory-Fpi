@@ -25,9 +25,7 @@ export const PIPE_MACHINES = ["BH05", "BH07", "BH08", "BH09"];
 // --- HULPFUNCTIES ---
 export const normalizeMachine = (m) => {
   if (!m) return "";
-  const match = String(m).match(/(\d+)/);
-  if (match) return parseInt(match[0], 10).toString();
-  return String(m).trim().replace(/\s+/g, "");
+  return String(m).trim().replace(/\s+/g, "").toUpperCase();
 };
 
 export const formatDate = (ts) => {

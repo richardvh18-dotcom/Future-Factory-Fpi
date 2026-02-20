@@ -30,6 +30,7 @@ const GanttChartView = () => {
   const [orders, setOrders] = useState([]);
   const [machines, setMachines] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [efficiencyData, setEfficiencyData] = useState({});
   const [viewStart, setViewStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [viewRange, setViewRange] = useState(14); // days
   const [selectedDepartment, setSelectedDepartment] = useState("ALLES");
@@ -89,6 +90,21 @@ const GanttChartView = () => {
     );
 
     return () => unsubOrders();
+  }, []);
+
+  // Load efficiency/imported hours
+  useEffect(() => {
+    const unsubEfficiency = onSnapshot(
+      collection(db, "future-factory", "production", "efficiency_hours"),
+      (snapshot) => {
+        const data = {};
+        snapshot.docs.forEach((doc) => {
+          data[doc.id] = doc.data();
+        });
+        setEfficiencyData(data);
+      }
+    );
+    return () => unsubEfficiency();
   }, []);
 
   // Filter machines based on selected department
@@ -204,13 +220,22 @@ const GanttChartView = () => {
     
     if (!isDraggingThis && (daysFromStart < 0 || daysFromStart >= viewRange)) return null;
 
-    // Bereken duur: gebruik estimatedHours (8u = 1 dag) of fallback naar aantal stuks
-    let estimatedDays = 1;
-    if (order.estimatedHours) {
-      estimatedDays = Math.max(1, Math.ceil(parseFloat(order.estimatedHours) / 8));
+    // Bereken duur in uren (Prioriteit: Efficiency Data > Estimated Hours > Fallback)
+    let totalHours = 0;
+    let isEfficiencyBased = false;
+    const importedInfo = efficiencyData[order.orderId];
+
+    if (importedInfo && importedInfo.minutesPerUnit) {
+      const planCount = parseInt(order.plan) || 0;
+      totalHours = (importedInfo.minutesPerUnit * planCount) / 60;
+      isEfficiencyBased = true;
     } else {
-      estimatedDays = Math.max(1, Math.ceil((parseInt(order.plan) || 0) / 100));
+      totalHours = parseFloat(order.estimatedHours) || 0;
+      if (totalHours === 0) {
+        totalHours = (parseInt(order.plan) || 0) * 0.08; // Fallback: 100 stuks = 8u
+      }
     }
+    
     
     let left = daysFromStart * dayWidth;
     let zIndex = 10;
@@ -225,12 +250,17 @@ const GanttChartView = () => {
         boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1)';
     }
     
+    // Breedte berekenen: (Uren / 8) * Dagbreedte
+    const widthPixels = Math.max(20, (totalHours / 8) * dayWidth);
+
     return {
       left: `${left}px`,
-      width: `${estimatedDays * dayWidth - 8}px`,
+      width: `${widthPixels}px`,
       zIndex,
       cursor,
-      boxShadow
+      boxShadow,
+      _totalHours: totalHours, // Internal use
+      _isEfficiencyBased: isEfficiencyBased
     };
   };
 
@@ -422,6 +452,7 @@ const GanttChartView = () => {
                     {/* Orders */}
                     {machineOrders.map(order => {
                       const style = getOrderStyle(order);
+                      const { _totalHours, _isEfficiencyBased, ...cssStyle } = style || {};
                       if (!style) return null;
 
                       return (
@@ -429,7 +460,7 @@ const GanttChartView = () => {
                           key={order.id}
                           onMouseDown={(e) => handleDragStart(e, order)}
                           className={`absolute top-2 ${getOrderColor(order)} rounded-lg p-2 shadow-md hover:shadow-lg transition-shadow cursor-pointer group`}
-                          style={style}
+                          style={cssStyle}
                         >
                           <div className="text-white text-xs font-bold truncate">
                             {order.orderId || order.item}
@@ -443,6 +474,10 @@ const GanttChartView = () => {
                             <div className="font-bold mb-1">{order.orderId || order.item}</div>
                             <div>Item: {order.itemCode || order.extraCode}</div>
                             <div>Aantal: {order.plan} stuks</div>
+                            <div>
+                              Tijd: {Math.round(_totalHours * 10) / 10}u 
+                              {_isEfficiencyBased && <span className="text-emerald-300 ml-1 font-bold">(LN)</span>}
+                            </div>
                             <div>Machine: {order.machine}</div>
                             {order.plannedDate && (
                               <div>Datum: {format(parseDate(order.plannedDate), 'dd-MM-yyyy')}</div>

@@ -3,7 +3,6 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // --- ISO 27001: Helper Functies voor RBAC (Role Based Access Control) ---
-    
     function isSignedIn() {
       return request.auth != null;
     }
@@ -13,12 +12,104 @@ service cloud.firestore {
       return request.auth.uid == 'pzxPfiwQhnQdEQJcXU77ZgT2Jo32' || request.auth.uid == '0oaSEDTvRROe307Lk69CAou6ILu2' || request.auth.uid == 'c4AW19xfVdT7Ho08xndYsDCrdvh2';
     }
 
-    // Haal de rol direct uit de database (users collectie)
     function getUserRole() {
       return exists(/databases/$(database)/documents/future-factory/Users/Accounts/$(request.auth.uid))
         ? get(/databases/$(database)/documents/future-factory/Users/Accounts/$(request.auth.uid)).data.role
         : null;
     }
+
+    function hasRole(role) {
+      return isSignedIn() && (isGod() || getUserRole() == role);
+    }
+
+    function isOneOfRoles(roles) {
+      return isSignedIn() && (isGod() || getUserRole() in roles);
+    }
+
+    // --- GOD MODE: Global Override ---
+    match /{document=**} {
+      allow read, write: if isGod();
+    }
+
+    // --- Producten (Products) ---
+    match /future-factory/production/products/{document=**} {
+      allow read: if isOneOfRoles(['admin', 'teamleader']);
+      allow write: if hasRole('admin');
+    }
+
+    // --- Instellingen (Settings) ---
+    match /future-factory/settings/{document=**} {
+      allow read: if isOneOfRoles(['admin', 'teamleader']);
+      allow write: if hasRole('admin');
+    }
+
+    // 1. Planning (Orders)
+    match /future-factory/production/planning/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isOneOfRoles(['admin', 'planner', 'teamleader', 'operator']);
+    }
+
+    // 2. Tracked Products (Productie data & Traceability)
+    match /future-factory/production/tracked_products/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isOneOfRoles(['admin', 'planner', 'teamleader', 'operator', 'qc']);
+    }
+
+    // 3. Personeel & Bezetting
+    match /future-factory/production/personnel/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isOneOfRoles(['admin', 'teamleader', 'operator']);
+    }
+    match /future-factory/production/occupancy/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isOneOfRoles(['admin', 'teamleader', 'operator']);
+    }
+
+    // 4. Configuratie (Fabrieksinstellingen)
+    match /future-factory/configuration/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin');
+    }
+
+    // 5. Berichten & Notificaties
+    match /future-factory/production/messages/{document=**} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn(); // Iedereen mag meldingen maken
+      allow update, delete: if isOneOfRoles(['admin', 'teamleader', 'operator']);
+    }
+
+    // 6. Artifacts (Catalogus, Tekeningen, Conversie)
+    match /artifacts/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isOneOfRoles(['admin', 'engineer', 'operator']);
+    }
+
+    // 7. Users (Profiel & Rechten)
+    match /future-factory/Users/Accounts/{userId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    // 8. Legacy / Fallback Users (Mocht er nog oude code naar /users wijzen)
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    // Recursive match for deeper nesting (vangnet)
+    match /future-factory/{path=**}/users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    // 9. Account Requests (Voor Login scherm & Admin beheer)
+    match /future-factory/admin/account_requests/{requestId} {
+      allow create: if true;
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin');
+    }
+  }
+}
 
     function hasRole(role) {
       return isSignedIn() && (isGod() || getUserRole() == role);

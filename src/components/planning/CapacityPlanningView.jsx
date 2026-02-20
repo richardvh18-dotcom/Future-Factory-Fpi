@@ -19,7 +19,12 @@ import {
   ChevronRight,
   FileDown,
   History,
-  Brain
+  Brain,
+  Upload,
+  ChevronDown,
+  ChevronUp,
+  LayoutDashboard,
+  BarChart2
 } from "lucide-react";
 import { collection, query, where, getDocs, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -28,18 +33,25 @@ import { getISOWeek, startOfISOWeek, endOfISOWeek, format, subWeeks, addWeeks, s
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import CapacityImportModal from "../digitalplanning/modals/CapacityImportModal";
+import EfficiencyDashboard from "../digitalplanning/EfficiencyDashboard";
+import GanttChartView from "./GanttChartView";
+import TimeTrackingView from "./TimeTrackingView";
+import WorkloadHeatmapView from "./WorkloadHeatmapView";
+import { normalizeMachine } from "../../utils/hubHelpers";
 
 /**
  * CapacityPlanningView
  * Vergelijkt beschikbare productie-uren met geplande uren
  * Toont het verschil tussen capaciteit en demand
  */
-const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => {
+const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNavigate }) => {
   const { user, role, isAdmin } = useAdminAuth();
   const [loading, setLoading] = useState(true);
   const [occupancy, setOccupancy] = useState([]);
   const [planningOrders, setPlanningOrders] = useState([]);
   const [timeStandards, setTimeStandards] = useState([]);
+  const [efficiencyData, setEfficiencyData] = useState({});
   const [selectedWeek, setSelectedWeek] = useState(new Date());
   const [selectedDepartment, setSelectedDepartment] = useState(initialDepartment || "ALLES");
   const [departments, setDepartments] = useState(["ALLES"]);
@@ -47,6 +59,9 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
   const [timePeriod, setTimePeriod] = useState("week"); // "week", "ytd", "year", "future", "yoy"
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [comparisonYear, setComparisonYear] = useState(new Date().getFullYear() - 1);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showMissingStandards, setShowMissingStandards] = useState(false);
+  const [activeTab, setActiveTab] = useState("capacity");
 
   // Auto-filter voor teamleaders
   const isTeamleader = role === "teamleader";
@@ -94,25 +109,28 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
 
   // Helper functie voor department matching via departmentId
   const matchesDepartment = (departmentId, filterDepartmentName) => {
-    if (filterDepartmentName === "ALLES") return true;
+    if (!filterDepartmentName || filterDepartmentName.trim().toLowerCase() === "alles") return true;
     if (!departmentId) return false;
-    
-    // Zoek department in factory config via id
-    const dept = factoryConfig.departments?.find(d => d.id === departmentId);
+
+    // Zoek department in factory config via id (case-insensitive)
+    const dept = factoryConfig.departments?.find(d => {
+      if (!d.id || !departmentId) return false;
+      return String(d.id).trim().toLowerCase() === String(departmentId).trim().toLowerCase();
+    });
     if (!dept) return false;
-    
-    const deptName = dept.name.toLowerCase().trim();
-    const filter = filterDepartmentName.toLowerCase().trim();
-    
+
+    const deptName = (dept.name || "").toLowerCase().trim();
+    const filter = (filterDepartmentName || "").toLowerCase().trim();
+
     // Exacte match
     if (deptName === filter) return true;
-    
+
     // Department name bevat filter (bijv. "Productie - Fittings" bevat "Fittings")
     if (deptName.includes(filter)) return true;
-    
+
     // Filter bevat department name
     if (filter.includes(deptName)) return true;
-    
+
     return false;
   };
 
@@ -202,6 +220,21 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
     };
   }, []);
 
+  // Load efficiency/imported hours
+  useEffect(() => {
+    const unsubEfficiency = onSnapshot(
+      collection(db, "future-factory", "production", "efficiency_hours"),
+      (snapshot) => {
+        const data = {};
+        snapshot.docs.forEach((doc) => {
+          data[doc.id] = doc.data();
+        });
+        setEfficiencyData(data);
+      }
+    );
+    return () => unsubEfficiency();
+  }, []);
+
   // Bereken beschikbare capaciteit
   const capacityMetrics = useMemo(() => {
     // Filter occupancy voor de geselecteerde periode
@@ -285,8 +318,23 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
   const demandMetrics = useMemo(() => {
     // Filter orders voor de geselecteerde periode
     let periodOrders = planningOrders.filter(order => {
-      const orderDate = order.plannedDate ? new Date(order.plannedDate) : new Date();
-      return orderDate >= periodStart && orderDate <= periodEnd;
+      let orderDate = new Date();
+      if (order.plannedDate) {
+        if (order.plannedDate.toDate) orderDate = order.plannedDate.toDate();
+        else orderDate = new Date(order.plannedDate);
+      }
+      
+      const status = (order.status || '').toLowerCase();
+      if (status === 'cancelled') return false;
+
+      // 1. Toekomst negeren
+      if (orderDate > periodEnd) return false;
+
+      // 2. Verleden: Alleen meenemen als NIET afgerond (Backlog)
+      const isCompleted = ['completed', 'shipped', 'gereed', 'finished'].includes(status);
+      if (orderDate < periodStart && isCompleted) return false;
+
+      return true;
     });
 
     // Debug: toon unieke departments in planning data
@@ -303,6 +351,12 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
     // Filter op afdeling als niet "ALLES"
     if (selectedDepartment !== "ALLES") {
       periodOrders = periodOrders.filter(order => {
+        // Altijd meenemen als machine bij de afdeling hoort
+        const machine = (order.machine || "").toUpperCase();
+        const selDept = selectedDepartment.toUpperCase();
+        if (selDept === "FITTINGS" && machine.startsWith("BH")) return true;
+        if (selDept === "PIPES" && machine.startsWith("BA")) return true;
+        // Anders: standaard department check
         return matchesDepartment(order.departmentId, selectedDepartment);
       });
     }
@@ -311,23 +365,44 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
     let estimatedHours = 0;
     let ordersWithStandards = 0;
     let ordersWithoutStandards = 0;
+    let hoursFromEfficiency = 0;
+    let ordersWithEfficiency = 0;
+    let missingStandardsList = [];
 
     periodOrders.forEach(order => {
       const planCount = parseInt(order.plan || 0);
       totalPlannedUnits += planCount;
 
-      // Zoek standaard tijd voor dit product op deze machine
-      const standard = timeStandards.find(std => 
-        std.itemCode === order.item && 
-        std.machine === order.machine
-      );
+      // 1. Check eerst of er specifieke uren zijn geïmporteerd (Infor LN) - case-insensitive match
+      let importedInfo = efficiencyData[order.orderId];
+      if (!importedInfo && order.orderId) {
+        // Probeer case-insensitive match
+        const key = Object.keys(efficiencyData).find(k => k.toLowerCase() === order.orderId.toLowerCase());
+        if (key) importedInfo = efficiencyData[key];
+      }
 
-      if (standard && planCount > 0) {
-        const hoursNeeded = (standard.standardMinutes * planCount) / 60;
+      if (importedInfo && importedInfo.minutesPerUnit) {
+        // Gebruik de geïmporteerde 'norm' per stuk
+        const hoursNeeded = (importedInfo.minutesPerUnit * planCount) / 60;
         estimatedHours += hoursNeeded;
         ordersWithStandards++;
-      } else if (planCount > 0) {
-        ordersWithoutStandards++;
+        hoursFromEfficiency += hoursNeeded;
+        ordersWithEfficiency++;
+      } else {
+        // 2. Fallback: Zoek standaard tijd voor dit product op deze machine
+        const standard = timeStandards.find(std => 
+          std.itemCode === order.item && 
+          std.machine === order.machine
+        );
+
+        if (standard && planCount > 0) {
+          const hoursNeeded = (standard.standardMinutes * planCount) / 60;
+          estimatedHours += hoursNeeded;
+          ordersWithStandards++;
+        } else if (planCount > 0) {
+          ordersWithoutStandards++;
+          missingStandardsList.push(order);
+        }
       }
     });
 
@@ -336,9 +411,169 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
       estimatedHours: Math.round(estimatedHours * 10) / 10,
       ordersWithStandards,
       ordersWithoutStandards,
-      totalOrders: periodOrders.length
+      totalOrders: periodOrders.length,
+      hoursFromEfficiency: Math.round(hoursFromEfficiency * 10) / 10,
+      ordersWithEfficiency,
+      missingStandardsList
     };
-  }, [planningOrders, timeStandards, periodStart, periodEnd, selectedDepartment, factoryConfig, timePeriod]);
+  }, [planningOrders, timeStandards, efficiencyData, periodStart, periodEnd, selectedDepartment, factoryConfig, timePeriod]);
+
+  // Bereken balans per machine (Vraag vs Aanbod)
+  const machineBreakdown = useMemo(() => {
+    const breakdown = {};
+
+    // 1. Capaciteit per machine (Occupancy)
+    occupancy.forEach(occ => {
+      const occDate = new Date(occ.date);
+      if (occDate < periodStart || occDate > periodEnd) return;
+      
+      // Filter by department
+      if (selectedDepartment !== "ALLES" && !matchesDepartment(occ.departmentId, selectedDepartment)) return;
+
+      const machine = normalizeMachine(occ.machineId || occ.machineName || "");
+      if (!machine) return;
+      
+      if (!breakdown[machine]) breakdown[machine] = { capacity: 0, demand: 0 };
+      breakdown[machine].capacity += parseFloat(occ.hoursWorked || occ.hours || 0);
+    });
+
+    // 2. Vraag per machine (Orders)
+    planningOrders.forEach(order => {
+      let orderDate = new Date();
+      if (order.plannedDate) {
+        if (order.plannedDate.toDate) orderDate = order.plannedDate.toDate();
+        else orderDate = new Date(order.plannedDate);
+      }
+
+      const status = (order.status || '').toLowerCase();
+      if (status === 'cancelled') return;
+
+      // 1. Toekomst negeren
+      if (orderDate > periodEnd) return;
+
+      // 2. Verleden: Alleen meenemen als NIET afgerond (Backlog)
+      const isCompleted = ['completed', 'shipped', 'gereed', 'finished'].includes(status);
+      if (orderDate < periodStart && isCompleted) return;
+
+      // Filter by department, maar neem altijd mee als machine bij afdeling hoort
+      const machine = normalizeMachine(order.machine || "");
+      if (!machine) return;
+      const selDept = selectedDepartment.toUpperCase();
+      if (selectedDepartment !== "ALLES") {
+        if (!( (selDept === "FITTINGS" && machine.startsWith("BH")) || (selDept === "PIPES" && machine.startsWith("BA")) || matchesDepartment(order.departmentId, selectedDepartment) )) {
+          return;
+        }
+      }
+
+      if (!breakdown[machine]) breakdown[machine] = { capacity: 0, demand: 0 };
+
+      let hoursNeeded = 0;
+      // Case-insensitive efficiencyData lookup
+      let importedInfo = efficiencyData[order.orderId];
+      if (!importedInfo && order.orderId) {
+        const key = Object.keys(efficiencyData).find(k => k.toLowerCase() === order.orderId.toLowerCase());
+        if (key) importedInfo = efficiencyData[key];
+      }
+      const planCount = parseInt(order.plan || 0);
+
+      if (importedInfo) {
+        // Check of we gesplitste data hebben (Productie vs Nabewerking)
+        // Dit komt uit de Infor LN import (op 20 vs op 30)
+        if (importedInfo.productionTimeTotal !== undefined || importedInfo.postProcessingTimeTotal !== undefined) {
+            const qty = importedInfo.quantity || 1;
+            // 1. Productie Tijd -> Gaat naar de geplande machine (bv. BH11)
+            const prodTotal = importedInfo.productionTimeTotal || 0;
+            const prodPerUnit = qty > 0 ? prodTotal / qty : 0;
+            hoursNeeded = (prodPerUnit * planCount) / 60;
+
+            // 2. Nabewerking Tijd -> Gaat naar 'NABEWERKING' station
+            const postTotal = importedInfo.postProcessingTimeTotal || 0;
+            if (postTotal > 0) {
+                const postPerUnit = qty > 0 ? postTotal / qty : 0;
+                const postHours = (postPerUnit * planCount) / 60;
+                const postMachine = "NABEWERKING";
+                if (!breakdown[postMachine]) breakdown[postMachine] = { capacity: 0, demand: 0 };
+                breakdown[postMachine].demand += postHours;
+            }
+        } else if (importedInfo.minutesPerUnit) {
+            // Fallback voor oude imports zonder splitsing
+            hoursNeeded = (importedInfo.minutesPerUnit * planCount) / 60;
+        }
+      } else {
+        const standard = timeStandards.find(std => 
+          std.itemCode === order.item && 
+          std.machine === order.machine
+        );
+        if (standard) {
+           hoursNeeded = (standard.standardMinutes * planCount) / 60;
+        }
+      }
+
+      breakdown[machine].demand += hoursNeeded;
+    });
+
+    // 2b. Consolidatie: Voeg varianten van Nabewerking samen (NABEWERKEN -> NABEWERKING)
+    const targetKey = "NABEWERKING";
+    const aliases = ["NABEWERKEN", "NABW"];
+    
+    aliases.forEach(alias => {
+      if (breakdown[alias]) {
+        if (!breakdown[targetKey]) breakdown[targetKey] = { capacity: 0, demand: 0 };
+        breakdown[targetKey].capacity += breakdown[alias].capacity;
+        breakdown[targetKey].demand += breakdown[alias].demand;
+        delete breakdown[alias];
+      }
+    });
+
+    // 3. Formatteren en Sorteren
+    return Object.entries(breakdown)
+      .map(([machine, data]) => ({
+        machine,
+        capacity: Math.round(data.capacity * 10) / 10,
+        demand: Math.round(data.demand * 10) / 10,
+        gap: Math.round((data.capacity - data.demand) * 10) / 10,
+        utilization: data.capacity > 0 ? Math.round((data.demand / data.capacity) * 100) : 0,
+        status: (data.capacity - data.demand) >= 0 ? 'surplus' : 'shortage'
+      }))
+      .filter(item => {
+        // Verberg Teamleader en inactieve stations
+        if (item.machine.includes("TEAMLEADER")) return false;
+        return item.capacity > 0 || item.demand > 0;
+      })
+      .sort((a, b) => {
+        const nameA = a.machine;
+        const nameB = b.machine;
+        
+        const isBHA = nameA.startsWith("BH");
+        const isBHB = nameB.startsWith("BH");
+
+        // 1. BH Stations eerst (numeriek)
+        if (isBHA && isBHB) {
+           const numA = parseInt(nameA.replace(/\D/g, '')) || 0;
+           const numB = parseInt(nameB.replace(/\D/g, '')) || 0;
+           return numA - numB;
+        }
+        if (isBHA) return -1;
+        if (isBHB) return 1;
+        
+        // 2. Specifieke volgorde voor overige
+        const priorityOrder = ["ALGEMEEN", "NABEWERK", "MAZAK", "LOSSEN"];
+        
+        const getPriority = (name) => {
+          const idx = priorityOrder.findIndex(k => name.includes(k));
+          return idx !== -1 ? idx : 999;
+        };
+
+        const prioA = getPriority(nameA);
+        const prioB = getPriority(nameB);
+
+        if (prioA !== prioB) return prioA - prioB;
+        
+        // 3. Alfabetisch voor de rest
+        return nameA.localeCompare(nameB);
+      });
+
+  }, [occupancy, planningOrders, efficiencyData, timeStandards, periodStart, periodEnd, selectedDepartment]);
 
   // Bereken verschil
   const gap = useMemo(() => {
@@ -534,7 +769,94 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
   }
 
   return (
-    <div className="space-y-6 p-6 max-w-7xl mx-auto">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* White Toolbar Header */}
+      <div className="bg-white border-b border-slate-200 px-6 py-3 flex flex-col xl:flex-row justify-between items-center gap-4 shrink-0 z-30 shadow-sm">
+        
+        {/* Left Spacer for Centering (Desktop) */}
+        <div className="hidden xl:block flex-1"></div>
+        
+        {/* Tabs Navigation */}
+        <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto max-w-full no-scrollbar shrink-0 justify-center">
+          {[
+            { id: "capacity", label: "Capaciteit", icon: BarChart3 },
+            { id: "efficiency", label: "Efficiency", icon: Activity },
+            { id: "gantt", label: "Gantt", icon: LayoutDashboard },
+            { id: "timetracking", label: "Time Tracking", icon: Clock },
+            { id: "heatmap", label: "Heatmap", icon: BarChart2 },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "bg-slate-200 text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-white/60"
+              }`}
+            >
+              <tab.icon size={14} />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Controls (Right) */}
+        <div className="flex items-center gap-4 w-full xl:flex-1 justify-end">
+          {activeTab === "capacity" && (
+            <>
+            {/* Department Filter */}
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-slate-500 font-bold uppercase tracking-widest hidden sm:block">
+                Afdeling:
+              </label>
+              {canChangeFilter ? (
+                <div className="relative">
+                  <select
+                    value={selectedDepartment}
+                    onChange={(e) => setSelectedDepartment(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-bold pr-8"
+                  >
+                    {departments.map(dept => (
+                      <option key={dept} value={dept}>
+                        {dept}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="bg-slate-100 border border-slate-200 rounded-lg px-4 py-2 text-sm font-bold text-slate-700 flex items-center gap-2">
+                  {selectedDepartment}
+                  <span className="text-xs text-blue-500">(toegewezen)</span>
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded-lg transition-colors text-xs font-bold"
+              >
+                <Upload size={16} />
+                <span className="hidden sm:inline">Upload</span>
+              </button>
+              <button
+                onClick={exportToPDF}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors text-xs font-bold"
+              >
+                <FileDown size={16} />
+                <span className="hidden sm:inline">PDF</span>
+              </button>
+            </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {activeTab === "capacity" && (
+        <div className="p-6">
+        <div className="max-w-7xl mx-auto space-y-6 w-full">
       {/* Header */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-8 rounded-[40px] text-white relative overflow-hidden shadow-xl border border-white/5">
         <div className="absolute top-0 right-0 p-8 opacity-5 rotate-12">
@@ -630,41 +952,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
                     {periodLabel}
                   </span>
                 )}
-                
-                {/* Action Buttons */}
-                <button
-                  onClick={exportToPDF}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 rounded-lg transition-colors text-xs font-bold ml-4"
-                >
-                  <FileDown size={14} />
-                  PDF Export
-                </button>
               </div>
-            </div>
-            
-            {/* Department Filter */}
-            <div className="flex items-center gap-2 mt-4">
-              <label className="text-xs text-slate-400 font-bold uppercase tracking-widest">
-                Afdeling:
-              </label>
-              {canChangeFilter ? (
-                <select
-                  value={selectedDepartment}
-                  onChange={(e) => setSelectedDepartment(e.target.value)}
-                  className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                >
-                  {departments.map(dept => (
-                    <option key={dept} value={dept} className="text-slate-900">
-                      {dept}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-sm font-bold text-white flex items-center gap-2">
-                  {selectedDepartment}
-                  <span className="text-xs text-blue-300">(toegewezen)</span>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -684,7 +972,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
             {capacityMetrics.totalProductionHours}u
           </div>
           <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
-            Alle uren
+            Beschikbare Mens-uren
           </div>
           <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
             <div className="flex justify-between text-xs">
@@ -736,7 +1024,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
             {demandMetrics.estimatedHours}u
           </div>
           <div className="text-xs text-slate-500 uppercase tracking-widest font-bold">
-            Geplande uren
+            Benodigde Order-uren
           </div>
           <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
             <div className="flex justify-between text-xs">
@@ -751,6 +1039,12 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
               <span className="text-slate-600">Met standaard</span>
               <span className="font-bold">{demandMetrics.ordersWithStandards}/{demandMetrics.totalOrders}</span>
             </div>
+            {demandMetrics.hoursFromEfficiency > 0 && (
+              <div className="flex justify-between text-xs pt-2 mt-2 border-t border-slate-100">
+                <span className="text-purple-600 font-bold">Uit Efficiency</span>
+                <span className="font-black text-purple-600">{demandMetrics.hoursFromEfficiency}u ({demandMetrics.ordersWithEfficiency})</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -795,19 +1089,128 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
         </div>
       </div>
 
+      {/* Machine Capaciteit Balans (NIEUW) */}
+      <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
+        <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 mb-4 flex items-center gap-2">
+          <Activity size={18} />
+          Machine Capaciteit Balans
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {machineBreakdown.map((item) => (
+            <div 
+              key={item.machine} 
+              className={`p-4 rounded-xl border-2 ${
+                item.status === 'shortage' 
+                  ? 'bg-red-50 border-red-100' 
+                  : 'bg-emerald-50 border-emerald-100'
+              }`}
+            >
+              <div className="flex justify-between items-start mb-2">
+                <span className="font-black text-slate-800 text-lg">{item.machine}</span>
+                <span className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wider ${
+                  item.status === 'shortage' 
+                    ? 'bg-red-100 text-red-700' 
+                    : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {item.status === 'shortage' ? 'Tekort' : 'Overschot'}
+                </span>
+              </div>
+              
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-bold">Beschikbaar (Mensen):</span>
+                  <span className="font-bold text-slate-700">{item.capacity}u</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-bold">Nodig (Orders):</span>
+                  <span className="font-bold text-slate-700">{item.demand}u</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-bold">Bezettingsgraad:</span>
+                  <span className={`font-bold ${item.utilization > 100 ? 'text-red-600' : 'text-slate-700'}`}>
+                    {item.utilization}%
+                  </span>
+                </div>
+                <div className={`flex justify-between pt-2 border-t ${
+                  item.status === 'shortage' ? 'border-red-200' : 'border-emerald-200'
+                }`}>
+                  <span className="font-black uppercase">Verschil:</span>
+                  <span className={`font-black text-sm ${
+                    item.status === 'shortage' ? 'text-red-600' : 'text-emerald-600'
+                  }`}>
+                    {item.gap > 0 ? '+' : ''}{item.gap}u
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+          
+          {machineBreakdown.length === 0 && (
+            <div className="col-span-full text-center py-8 text-slate-400 italic text-xs">
+              Geen data beschikbaar voor deze periode/afdeling.
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Warnings */}
       {demandMetrics.ordersWithoutStandards > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-          <AlertTriangle className="text-amber-600 flex-shrink-0" size={20} />
-          <div>
-            <div className="text-sm font-bold text-amber-900">
-              Ontbrekende Standaard Tijden
-            </div>
-            <div className="text-xs text-amber-700 mt-1">
-              {demandMetrics.ordersWithoutStandards} orders hebben geen standaard productietijd ingesteld.
-              Ga naar <strong>Productie Tijden</strong> om deze toe te voegen voor nauwkeurigere capaciteitsberekening.
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col gap-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-amber-600 flex-shrink-0" size={20} />
+            <div className="flex-1">
+              <div className="text-sm font-bold text-amber-900">
+                Ontbrekende Standaard Tijden
+              </div>
+              <div className="text-xs text-amber-700 mt-1">
+                {demandMetrics.ordersWithoutStandards} orders hebben geen standaard productietijd ingesteld.
+                {onNavigate ? (
+                  <button onClick={() => onNavigate("production_standards")} className="underline font-bold hover:text-amber-900 ml-1">
+                    Ga naar Productie Tijden
+                  </button>
+                ) : (
+                  <span> Ga naar <strong>Productie Tijden</strong></span>
+                )}
+                 om deze toe te voegen voor nauwkeurigere capaciteitsberekening.
+              </div>
+              <button 
+                onClick={() => setShowMissingStandards(!showMissingStandards)}
+                className="flex items-center gap-1 text-xs font-bold text-amber-800 mt-2 hover:text-amber-900 transition-colors"
+              >
+                {showMissingStandards ? "Verberg lijst" : "Toon lijst"} 
+                {showMissingStandards ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
             </div>
           </div>
+
+          {showMissingStandards && (
+            <div className="bg-white/60 rounded-xl border border-amber-200 overflow-hidden animate-in slide-in-from-top-2">
+              <div className="max-h-60 overflow-y-auto custom-scrollbar">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-amber-100/50 text-amber-900 font-bold sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2">Order</th>
+                      <th className="px-3 py-2">Item Code</th>
+                      <th className="px-3 py-2">Omschrijving</th>
+                      <th className="px-3 py-2">Machine</th>
+                      <th className="px-3 py-2 text-right">Aantal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-100">
+                    {demandMetrics.missingStandardsList.map(order => (
+                      <tr key={order.id} className="hover:bg-amber-50/50 transition-colors">
+                        <td className="px-3 py-2 font-mono font-bold text-amber-800">{order.orderId}</td>
+                        <td className="px-3 py-2 font-mono text-amber-900">{order.itemCode || "-"}</td>
+                        <td className="px-3 py-2 text-amber-900 truncate max-w-[150px]" title={order.item}>{order.item}</td>
+                        <td className="px-3 py-2 text-amber-800">{order.machine}</td>
+                        <td className="px-3 py-2 text-right text-amber-900 font-bold">{order.plan}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -917,27 +1320,47 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
           </h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-600">Met standaard</span>
+              <span className="text-xs text-slate-600">Infor LN (Efficiency)</span>
               <div className="flex items-center gap-2">
-                <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-blue-500 rounded-full"
+                    className="h-full bg-purple-500 rounded-full"
                     style={{ 
                       width: `${demandMetrics.totalOrders > 0 
-                        ? (demandMetrics.ordersWithStandards / demandMetrics.totalOrders) * 100 
+                        ? (demandMetrics.ordersWithEfficiency / demandMetrics.totalOrders) * 100 
                         : 0}%` 
                     }}
                   />
                 </div>
-                <span className="text-xs font-bold text-slate-800 w-16 text-right">
-                  {demandMetrics.ordersWithStandards}
+                <span className="text-xs font-bold text-slate-800 w-12 text-right">
+                  {demandMetrics.ordersWithEfficiency}
                 </span>
               </div>
             </div>
+
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-600">Zonder standaard</span>
+              <span className="text-xs text-slate-600">Standaard DB</span>
               <div className="flex items-center gap-2">
-                <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 rounded-full"
+                    style={{ 
+                      width: `${demandMetrics.totalOrders > 0 
+                        ? ((demandMetrics.ordersWithStandards - demandMetrics.ordersWithEfficiency) / demandMetrics.totalOrders) * 100 
+                        : 0}%` 
+                    }}
+                  />
+                </div>
+                <span className="text-xs font-bold text-slate-800 w-12 text-right">
+                  {demandMetrics.ordersWithStandards - demandMetrics.ordersWithEfficiency}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-600">Zonder data</span>
+              <div className="flex items-center gap-2">
+                <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-amber-500 rounded-full"
                     style={{ 
@@ -947,7 +1370,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
                     }}
                   />
                 </div>
-                <span className="text-xs font-bold text-slate-800 w-16 text-right">
+                <span className="text-xs font-bold text-slate-800 w-12 text-right">
                   {demandMetrics.ordersWithoutStandards}
                 </span>
               </div>
@@ -1045,6 +1468,24 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false }) => 
           </div>
         </div>
       </div>
+
+      {/* Import Modal */}
+      <CapacityImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={() => {
+          console.log("Uren geïmporteerd");
+        }}
+      />
+      </div>
+      </div>
+      )}
+      
+      {activeTab === "efficiency" && <EfficiencyDashboard />}
+      {activeTab === "gantt" && <GanttChartView />}
+      {activeTab === "timetracking" && <TimeTrackingView />}
+      {activeTab === "heatmap" && <WorkloadHeatmapView />}
+    </div>
     </div>
   );
 };

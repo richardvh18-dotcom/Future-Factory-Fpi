@@ -137,6 +137,7 @@ const DrillDownModal = React.memo(({
                     className={`p-5 flex items-center justify-between cursor-pointer group rounded-[33px] transition-colors ${
                       isExpanded ? "bg-blue-50/20" : "hover:bg-slate-50/50"
                     }`}
+                    title={`Operator: ${item.operator || "Onbekend"}`}
                   >
                     <div className="flex items-center gap-5">
                       <div

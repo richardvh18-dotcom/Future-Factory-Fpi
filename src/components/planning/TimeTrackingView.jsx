@@ -6,13 +6,15 @@ import {
   AlertTriangle,
   CheckCircle,
   BarChart3,
-  Calendar
+  Calendar,
+  Building2
 } from "lucide-react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { format, getISOWeek, startOfWeek, endOfWeek, isWithinInterval } from "date-fns";
+import { format, getISOWeek, startOfWeek, endOfWeek, isWithinInterval, isValid } from "date-fns";
 import { nl } from "date-fns/locale";
+import { calculateDuration } from "../../utils/efficiencyCalculator";
 
 /**
  * TimeTrackingView - Compare actual vs planned time
@@ -22,8 +24,13 @@ const TimeTrackingView = () => {
   const [orders, setOrders] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [efficiencyData, setEfficiencyData] = useState({});
+  const [trackingLogs, setTrackingLogs] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(new Date());
   const [filterStatus, setFilterStatus] = useState("all");
+  const [selectedDepartment, setSelectedDepartment] = useState("ALLES");
+  const [departments, setDepartments] = useState(["ALLES"]);
+  const [factoryConfig, setFactoryConfig] = useState({ departments: [] });
 
   useEffect(() => {
     const unsubOrders = onSnapshot(
@@ -49,11 +56,68 @@ const TimeTrackingView = () => {
       }
     );
 
+    // Load efficiency/imported hours
+    const unsubEfficiency = onSnapshot(
+      collection(db, "future-factory", "production", "efficiency_hours"),
+      (snapshot) => {
+        const data = {};
+        snapshot.docs.forEach((doc) => {
+          data[doc.id] = doc.data();
+        });
+        setEfficiencyData(data);
+      }
+    );
+
+    // Load tracking logs for actuals calculation
+    const unsubTracking = onSnapshot(
+      collection(db, ...PATHS.TRACKING),
+      (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setTrackingLogs(data);
+      }
+    );
+
+    // Load departments from factory structure
+    const unsubConfig = onSnapshot(
+      doc(db, ...PATHS.FACTORY_CONFIG),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setFactoryConfig(data);
+          const depts = Array.isArray(data.departments) 
+            ? data.departments.filter(d => d.isActive !== false).map(d => d.name)
+            : [];
+          setDepartments(["ALLES", ...depts]);
+        }
+      }
+    );
+
     return () => {
       unsubOrders();
       unsubOccupancy();
+      unsubEfficiency();
+      unsubTracking();
+      unsubConfig();
     };
   }, []);
+
+  // Helper functie voor department matching
+  const matchesDepartment = (departmentId, filterDepartmentName) => {
+    if (filterDepartmentName === "ALLES") return true;
+    if (!departmentId) return false;
+    
+    const dept = factoryConfig.departments?.find(d => d.id === departmentId);
+    if (!dept) return false;
+    
+    const deptName = dept.name.toLowerCase().trim();
+    const filter = filterDepartmentName.toLowerCase().trim();
+    
+    if (deptName === filter) return true;
+    if (deptName.includes(filter)) return true;
+    if (filter.includes(deptName)) return true;
+    
+    return false;
+  };
 
   // Filter orders by selected week
   const weekOrders = useMemo(() => {
@@ -68,15 +132,60 @@ const TimeTrackingView = () => {
       
       if (filterStatus !== "all" && order.status !== filterStatus) return false;
       
+      // Filter by department
+      if (selectedDepartment !== "ALLES" && !matchesDepartment(order.departmentId, selectedDepartment)) return false;
+
       return inWeek;
     });
-  }, [orders, selectedWeek, filterStatus]);
+  }, [orders, selectedWeek, filterStatus, selectedDepartment, factoryConfig]);
 
   // Calculate time metrics per order
   const orderMetrics = useMemo(() => {
     return weekOrders.map(order => {
-      const planned = order.estimatedHours || 0;
-      const actual = order.actualHours || 0;
+      let planned = parseFloat(order.estimatedHours) || 0;
+      let hasEfficiency = false;
+
+      // Use imported efficiency data if available (Infor LN)
+      const importedInfo = efficiencyData[order.orderId];
+      if (importedInfo && importedInfo.minutesPerUnit) {
+        // Prioritize quantity (from Infor sync) over plan (from Excel import)
+        const planCount = parseInt(order.quantity) || parseInt(order.plan) || 0;
+        planned = (importedInfo.minutesPerUnit * planCount) / 60;
+        hasEfficiency = true;
+      }
+
+      // Calculate actuals from tracking logs
+      const relatedLogs = trackingLogs.filter(t => String(t.orderId) === String(order.orderId));
+      let calculatedActualMinutes = 0;
+      
+      relatedLogs.forEach(log => {
+        let start = null;
+        if (log.timestamps?.station_start) {
+            start = log.timestamps.station_start.toDate ? log.timestamps.station_start.toDate() : new Date(log.timestamps.station_start);
+        } else if (log.startTime) {
+            start = new Date(log.startTime);
+        }
+
+        if (start && isValid(start)) {
+            let end = new Date(); // Default to now (live tracking)
+            
+            if (log.timestamps?.finished) {
+                end = log.timestamps.finished.toDate ? log.timestamps.finished.toDate() : new Date(log.timestamps.finished);
+            } else if (log.timestamps?.completed) {
+                end = log.timestamps.completed.toDate ? log.timestamps.completed.toDate() : new Date(log.timestamps.completed);
+            } else if (log.status === 'completed' || log.status === 'shipped') {
+                 end = log.updatedAt?.toDate ? log.updatedAt.toDate() : new Date(log.updatedAt);
+            }
+            
+            if (isValid(end)) {
+                 calculatedActualMinutes += calculateDuration(start, end);
+            }
+        }
+      });
+
+      const actualFromLogs = calculatedActualMinutes / 60;
+      const actual = actualFromLogs > 0 ? actualFromLogs : (parseFloat(order.actualHours) || 0);
+
       const variance = actual - planned;
       const variancePercent = planned > 0 ? (variance / planned) * 100 : 0;
       
@@ -91,10 +200,11 @@ const TimeTrackingView = () => {
         actual,
         variance,
         variancePercent,
-        status
+        status,
+        hasEfficiency
       };
     });
-  }, [weekOrders]);
+  }, [weekOrders, efficiencyData, trackingLogs]);
 
   // Summary statistics
   const summary = useMemo(() => {
@@ -164,6 +274,20 @@ const TimeTrackingView = () => {
               <span className="text-sm font-bold text-slate-700">
                 Week {getISOWeek(selectedWeek)} - {format(selectedWeek, 'yyyy')}
               </span>
+            </div>
+
+            {/* Department Filter */}
+            <div className="flex items-center gap-2">
+              <Building2 size={16} className="text-slate-600" />
+              <select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                className="px-3 py-1.5 border-2 border-slate-200 rounded-lg text-sm font-bold"
+              >
+                {departments.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
             </div>
 
             {/* Filter Status */}
@@ -280,7 +404,12 @@ const TimeTrackingView = () => {
                       <div className="text-sm text-slate-600">{order.machine || "-"}</div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="text-sm font-bold text-slate-700">{Math.round(order.planned)}h</div>
+                      <div className="text-sm font-bold text-slate-700">
+                        {Math.round(order.planned)}h
+                        {order.hasEfficiency && (
+                          <span className="text-[9px] text-purple-600 ml-1 font-black" title="Gebaseerd op Infor LN efficiency">(LN)</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="text-sm font-bold text-slate-700">{Math.round(order.actual)}h</div>

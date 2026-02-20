@@ -20,7 +20,7 @@ import {
   X as XIcon,
 } from "lucide-react";
 import { db, storage } from "../../config/firebase";
-import { doc, setDoc, serverTimestamp, getDoc, collection, query, where, getDocs, limit, deleteField } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, getDoc, collection, query, where, getDocs, limit, deleteField, addDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, listAll } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
 import { useSettingsData } from "../../hooks/useSettingsData";
@@ -99,6 +99,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     imageFile: null, // for upload
     pdfFiles: [], // for upload
     verificationStatus: VERIFICATION_STATUS.PENDING,
+    assignedVerifier: "",
   });
 
   // LN Search State
@@ -110,6 +111,19 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   const [showStoragePicker, setShowStoragePicker] = useState(false);
   const [pickerMode, setPickerMode] = useState(null); // 'image' or 'pdf'
   const [imagePreview, setImagePreview] = useState(null);
+  const [verifiers, setVerifiers] = useState([]);
+
+  // Fetch verifiers
+  useEffect(() => {
+    const fetchVerifiers = async () => {
+      try {
+        const q = query(collection(db, ...PATHS.USERS), where("canVerify", "==", true));
+        const snapshot = await getDocs(q);
+        setVerifiers(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (err) { console.error(err); }
+    };
+    fetchVerifiers();
+  }, []);
 
   // Cleanup preview URL om memory leaks te voorkomen
   useEffect(() => {
@@ -155,6 +169,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         fittingSpecs: initialData.fittingSpecs || {},
         socketSpecs: initialData.socketSpecs || {},
         sourcePdfs: initialData.sourcePdfs || [],
+        assignedVerifier: initialData.assignedVerifier || "",
       }));
       if (initialData.articleCode) {
         setIsAutoLinked(true);
@@ -182,6 +197,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         imageFile: null,
         pdfFiles: [],
         verificationStatus: VERIFICATION_STATUS.PENDING,
+        assignedVerifier: "",
       });
       setIsAutoLinked(false);
     }
@@ -577,7 +593,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       if (formData.imageFile) {
         const fileName = `${Date.now()}_${sanitizeFileName(formData.imageFile.name)}`;
         const imgRef = ref(storage, `${storageInfo.basePath}/images/${fileName}`);
-        await uploadBytes(imgRef, formData.imageFile, storageInfo.metadata);
+        await uploadBytes(imgRef, formData.imageFile);
         imageUrl = await getDownloadURL(imgRef);
       }
 
@@ -589,17 +605,15 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
           const pdfFile = formData.pdfFiles[i];
           const fileName = `${Date.now()}_${sanitizeFileName(pdfFile.name)}`;
           const pdfRef = ref(storage, `${storageInfo.basePath}/pdfs/${fileName}`);
-          await uploadBytes(pdfRef, pdfFile, storageInfo.metadata);
+          await uploadBytes(pdfRef, pdfFile);
           const url = await getDownloadURL(pdfRef);
           pdfUrls.push(url);
         }
       }
 
-      // Bepaal verificatie status (Admins kunnen direct valideren)
-      const isSystemAdmin = user?.role === "admin";
-      const finalStatus = isSystemAdmin
-        ? VERIFICATION_STATUS.VERIFIED
-        : VERIFICATION_STATUS.PENDING;
+      // Bepaal verificatie status (Altijd PENDING voor 4-ogen principe)
+      // Ook admins moeten nu verifiëren (of geverifieerd worden)
+      const finalStatus = VERIFICATION_STATUS.PENDING;
 
       // Filter out spec fields and temporary file objects before saving
       // We want to store ONLY identification and system links, specs should be live fetched.
@@ -640,10 +654,34 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         { merge: true }
       );
 
+      // Send notification to verifier if assigned
+      if (formData.assignedVerifier) {
+        const verifier = verifiers.find(v => v.id === formData.assignedVerifier);
+        if (verifier && verifier.email) {
+           await addDoc(collection(db, ...PATHS.MESSAGES), {
+            to: verifier.email,
+            subject: "Verificatie Verzoek: " + formData.name,
+            content: `Er is een nieuw product (${formData.name}) dat verificatie vereist.`,
+            type: "validation_alert",
+            priority: "urgent",
+            read: false,
+            archived: false,
+            timestamp: serverTimestamp(),
+            senderId: user?.uid || "system",
+            senderName: user?.displayName || "System",
+            relatedProductId: productId
+          });
+        }
+      }
+
       if (onSubmit) onSubmit();
     } catch (err) {
       console.error("Save failed:", err);
-      alert("Fout bij opslaan: " + err.message);
+      if (err.code === 'storage/unauthorized') {
+        alert("Geen rechten voor opslag (storage/unauthorized). Controleer of je bent ingelogd en of de Firebase Storage Rules schrijftoegang toestaan voor 'product_library/'.");
+      } else {
+        alert("Fout bij opslaan: " + err.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -1122,6 +1160,33 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 Selecteer de gewenste drukklasse en diameter uit de globale bibliotheek.
                 Deze waarden worden gebruikt voor de technische specificaties.
               </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-[35px] border border-slate-200 shadow-sm flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <ShieldCheck size={18} className="text-emerald-500" />
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">
+                  Verificatie & Controle
+                </span>
+              </div>
+              <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
+                    Toewijzen aan Verifier
+                  </label>
+                  <select
+                    className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
+                    value={formData.assignedVerifier || ""}
+                    onChange={(e) => setFormData({ ...formData, assignedVerifier: e.target.value })}
+                  >
+                    <option value="">- Kies Verifier (Optioneel) -</option>
+                    {verifiers.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slate-400 italic ml-2">
+                    Geselecteerde persoon ontvangt een melding.
+                  </p>
+              </div>
             </div>
 
             {/* Informatieve Voetnoot */}

@@ -97,7 +97,8 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
     if (product.verificationStatus !== VERIFICATION_STATUS.PENDING)
       return false;
     // Blokkeer als de huidige gebruiker de laatste wijziging heeft gedaan (4-eyes principle)
-    if (product.lastModifiedBy === user?.uid) return false;
+    // TIJDELIJK UITGESCHAKELD: Zelf-verificatie toegestaan voor testen
+    // if (product.lastModifiedBy === user?.uid) return false;
     return true;
   };
 

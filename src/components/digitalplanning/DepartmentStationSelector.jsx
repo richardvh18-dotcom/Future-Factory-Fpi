@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { ArrowLeft, Cpu, Users, Loader2 } from "lucide-react";
+import { ArrowLeft, Cpu, Loader2, Users } from "lucide-react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -84,8 +84,12 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
     );
     
     return deptData ? (deptData.stations || [])
-      .filter(s => (s.name || "").toLowerCase() !== "algemeen")
-      .map(s => ({ id: s.id || s.name, name: s.name })) : [];
+      .filter(s => {
+        const name = (s.name || "").toLowerCase();
+        return name !== "algemeen";
+      })
+      .map(s => ({ id: s.id || s.name, name: s.name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) : [];
   }, [factoryConfig, department]);
 
   // Als Teamleader is geselecteerd, toon TeamleaderHub
@@ -140,29 +144,29 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {stations.map((station) => {
             const key = station.name?.toLowerCase() || station.id?.toLowerCase();
+            const isTeamleader = key.includes("teamleader");
+            
+            // Bepaal stijl op basis van naam
+            let style = stationStyles.algemeen;
+            if (isTeamleader) style = stationStyles.teamleader;
+            else if (key.includes("bm")) style = stationStyles.bm;
+            else if (key.includes("ba")) style = stationStyles.ba;
+            else if (key.includes("bh")) style = stationStyles.bh;
+            else if (key.includes("mazak")) style = stationStyles.mazak;
+            else if (key.includes("nabewerk")) style = stationStyles.nabewerken;
+            else if (key.includes("lossen")) style = stationStyles.lossen;
+
             return (
               <button
                 key={station.id}
-                onClick={() => {
-                  if (key === "teamleader") {
-                    setShowTeamleader(true);
-                  } else {
-                    setSelectedStation(station.name);
-                  }
-                }}
-                className={`group relative p-6 rounded-2xl border-2 border-slate-200 bg-white text-center transition-all duration-200 hover:border-blue-500 hover:shadow-xl ${key === "teamleader" ? "col-span-2 row-span-2" : ""}`}
+                onClick={() => isTeamleader ? setShowTeamleader(true) : setSelectedStation(station.name)}
+                className={`group relative p-6 rounded-2xl border-2 border-slate-200 bg-white text-center transition-all duration-200 hover:border-blue-500 hover:shadow-xl ${isTeamleader ? "col-span-2 row-span-2" : ""}`}
               >
-                <div className={`${key === "teamleader" ? "w-20 h-20" : "w-12 h-12"} rounded-xl flex items-center justify-center mb-3 shadow-md mx-auto transition-transform group-hover:scale-110 bg-blue-600`}> 
-                  {key === "teamleader" ? <Users size={40} className="text-white" /> : <Cpu size={24} className="text-white" />}
+                <div className={`${isTeamleader ? "w-20 h-20" : "w-12 h-12"} rounded-xl flex items-center justify-center mb-3 shadow-md mx-auto transition-transform group-hover:scale-110 ${style.color.split(' ')[0]}`}> 
+                  {style.icon}
                 </div>
-                <h3 className={`${key === "teamleader" ? "text-lg" : "text-sm"} font-black text-slate-800 uppercase tracking-tight group-hover:text-blue-600 transition-colors`}>
-                  {key === "teamleader" ? (
-                    <>
-                      Teamleader <br /> Hub
-                    </>
-                  ) : (
-                    station.name
-                  )}
+                <h3 className={`${isTeamleader ? "text-lg" : "text-sm"} font-black text-slate-800 uppercase tracking-tight group-hover:text-blue-600 transition-colors`}>
+                  {isTeamleader ? <>Teamleader<br/>Hub</> : station.name}
                 </h3>
               </button>
             );

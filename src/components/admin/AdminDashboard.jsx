@@ -35,11 +35,14 @@ import {
   Smartphone,
   Beaker,
   ChevronDown,
+  Activity,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 // --- LAZY LOAD IMPORTS ---
 const RoadmapViewer = React.lazy(() => import("./RoadmapViewer"));
+const ProjectStructureViewer = React.lazy(() => import("./ProjectStructureViewer"));
+const ProjectStructureExpertView = React.lazy(() => import("./ProjectStructureExpertView"));
 const AdminProductManager = React.lazy(() => import("./AdminProductManager"));
 const FactoryStructureManager = React.lazy(() =>
   import("./FactoryStructureManager")
@@ -54,7 +57,9 @@ const AdminMessagesManagement = React.lazy(() => import("./AdminMessagesManageme
 const AdminDatabaseView = React.lazy(() => import("./AdminDatabaseView"));
 const AdminLogView = React.lazy(() => import("./AdminLogView"));
 const AdminSettingsView = React.lazy(() => import("./AdminSettingsView"));
+const ProductionTimeStandardsManager = React.lazy(() => import("./ProductionTimeStandardsManager"));
 const CapacityPlanningView = React.lazy(() => import("../planning/CapacityPlanningView"));
+const EfficiencyDashboard = React.lazy(() => import("../digitalplanning/EfficiencyDashboard"));
 const AdminLabelDesigner = React.lazy(() => import("./AdminLabelDesigner"));
 const AiCenterView = React.lazy(() => import("../ai/AiCenterView"));
 // NIEUW: Referentie Tabel toevoegen
@@ -109,6 +114,16 @@ const AdminDashboard = () => {
           requiredModule: "digital_planning",
         },
         {
+          id: "production_standards",
+          title: "Productie Tijden",
+          desc: "Beheer standaard tijden en normen.",
+          icon: <Clock size={24} className="text-pink-600" />,
+          color: "bg-pink-50 border-pink-100",
+          roles: ["admin", "engineer"],
+          component: ProductionTimeStandardsManager,
+          requiredModule: "digital_planning",
+        },
+        {
           id: "kanban",
           title: "Kanban Board",
           desc: "Visuele orderworkflow met drag-and-drop.",
@@ -119,26 +134,6 @@ const AdminDashboard = () => {
           requiredModule: "digital_planning",
         },
         {
-          id: "gantt",
-          title: "Gantt Planning",
-          desc: "Timeline visualisatie per machine.",
-          icon: <GanttChart size={24} className="text-emerald-600" />,
-          color: "bg-emerald-50 border-emerald-100",
-          roles: ["admin", "engineer", "teamleader"],
-          component: GanttChartView,
-          requiredModule: "digital_planning",
-        },
-        {
-          id: "heatmap",
-          title: "Workload Heatmap",
-          desc: "Visueel overzicht machine/operator belasting.",
-          icon: <Flame size={24} className="text-orange-600" />,
-          color: "bg-orange-50 border-orange-100",
-          roles: ["admin", "engineer", "teamleader"],
-          component: WorkloadHeatmapView,
-          requiredModule: "digital_planning",
-        },
-        {
           id: "dependencies",
           title: "Order Dependencies",
           desc: "Critical path analyse tussen orders.",
@@ -146,16 +141,6 @@ const AdminDashboard = () => {
           color: "bg-purple-50 border-purple-100",
           roles: ["admin", "engineer", "teamleader"],
           component: OrderDependenciesView,
-          requiredModule: "digital_planning",
-        },
-        {
-          id: "timetracking",
-          title: "Time Tracking",
-          desc: "Actual vs planned tijd vergelijking.",
-          icon: <Clock size={24} className="text-teal-600" />,
-          color: "bg-teal-50 border-teal-100",
-          roles: ["admin", "engineer", "teamleader"],
-          component: TimeTrackingView,
           requiredModule: "digital_planning",
         },
         {
@@ -363,6 +348,15 @@ const AdminDashboard = () => {
           component: RoadmapViewer,
         },
         {
+          id: "project_structure",
+          title: "Projectstructuur & Uitleg (Expert)",
+          desc: "Zeer gedetailleerd overzicht, AI-koppeling.",
+          icon: <BookOpen size={24} className="text-indigo-600" />,
+          color: "bg-indigo-50 border-indigo-100",
+          roles: ["admin", "engineer", "teamleader"],
+          component: ProjectStructureExpertView,
+        },
+        {
           id: "ai_training",
           title: "AI Training & QA",
           desc: "AI antwoorden en kennisbank.",
@@ -432,7 +426,7 @@ const AdminDashboard = () => {
               </div>
             }
           >
-            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
+            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} onNavigate={setActiveScreen} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
           </Suspense>
         </div>
       </div>

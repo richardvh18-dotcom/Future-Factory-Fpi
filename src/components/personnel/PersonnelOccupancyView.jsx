@@ -310,6 +310,10 @@ const PersonnelOccupancyView = ({
   const [addEditModalOpen, setAddEditModalOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState(null);
 
+  // Edit Assignment State
+  const [editAssignmentModalOpen, setEditAssignmentModalOpen] = useState(false);
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
+
   // Use props if available, otherwise local state (fallback)
   const structure = propStructure || localStructure;
   const occupancy = propOccupancy || localOccupancy;
@@ -455,7 +459,7 @@ const PersonnelOccupancyView = ({
     if (label.includes("OCHTEND") || label.includes("MORNING")) return { bg: "bg-amber-50", border: "border-amber-300", text: "text-amber-800", badge: "bg-amber-100 text-amber-700", ring: "ring-amber-100" };
     if (label.includes("AVOND") || label.includes("EVENING")) return { bg: "bg-indigo-50", border: "border-indigo-300", text: "text-indigo-800", badge: "bg-indigo-100 text-indigo-700", ring: "ring-indigo-100" };
     if (label.includes("NACHT") || label.includes("NIGHT")) return { bg: "bg-purple-50", border: "border-purple-300", text: "text-purple-800", badge: "bg-purple-100 text-purple-700", ring: "ring-purple-100" };
-    if (label.includes("DAG") || label === "DAGDIENST") return { bg: "bg-blue-50", border: "border-blue-300", text: "text-blue-800", badge: "bg-blue-100 text-blue-700", ring: "ring-blue-100" };
+    if (label.includes("DAG") || label === "DAGDIENST") return { bg: "bg-emerald-50", border: "border-emerald-300", text: "text-emerald-800", badge: "bg-emerald-100 text-emerald-700", ring: "ring-emerald-100" };
     return { bg: "bg-slate-50", border: "border-slate-300", text: "text-slate-800", badge: "bg-slate-100 text-slate-700", ring: "ring-slate-100" };
   };
 
@@ -549,11 +553,8 @@ const PersonnelOccupancyView = ({
                                                   onClick={(e) => {
                                                     if (!editable) return;
                                                     e.stopPropagation();
-                                                    const person = personnel.find(p => p.employeeNumber === occ.operatorNumber);
-                                                    if (person) {
-                                                      setEditingPerson(person);
-                                                      setAddEditModalOpen(true);
-                                                    }
+                                                    setSelectedAssignment({ ...occ });
+                                                    setEditAssignmentModalOpen(true);
                                                   }}
                                                   className={`p-1.5 rounded-lg border flex flex-col gap-0.5 animate-in slide-in-from-right-1 cursor-pointer hover:scale-[1.02] transition-all ${isTL ? 'bg-white/5 border-white/10 text-white' : `${shiftColors.bg} ${shiftColors.border}`} ${occ.isLoan ? 'ring-2 ring-green-400' : `ring-1 ${shiftColors.ring}`}`}>
                                                     <div className="flex items-center justify-between text-left">
@@ -695,6 +696,18 @@ const PersonnelOccupancyView = ({
                   onClick={async () => {
                     const person = personnel.find(p => p.id === selectedPersonId);
                     if (person && selectedStation) {
+                      // Check op dubbele inplanning
+                      const existingAssignments = occupancy.filter(o => 
+                        (o.operatorNumber === person.employeeNumber || o.operatorNumber === person.id) && 
+                        o.date === dateToUse
+                      );
+
+                      if (existingAssignments.length > 0) {
+                        const stations = existingAssignments.map(o => o.machineId).join(", ");
+                        const confirmMsg = `${person.name} is al ingepland op: ${stations}.\n\nWil je deze persoon ook op ${selectedStation.name || selectedStation.id} inplannen voor ${assignHours} uur?`;
+                        if (!window.confirm(confirmMsg)) return;
+                      }
+
                       // Probeer shift te bepalen op basis van persoon
                       let shiftIdToUse = assignShift;
 
@@ -765,6 +778,79 @@ const PersonnelOccupancyView = ({
                   Toevoegen
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ASSIGNMENT MODAL (HOURS) */}
+      {editAssignmentModalOpen && selectedAssignment && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-[30px] p-8 max-w-sm w-full shadow-2xl border border-white/20">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-black text-slate-900 uppercase italic">Uren Aanpassen</h3>
+              <button onClick={() => setEditAssignmentModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+            
+            <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Operator</p>
+              <p className="font-bold text-slate-800 text-sm">{selectedAssignment.operatorName}</p>
+              <p className="text-[10px] text-slate-500 mt-1">#{selectedAssignment.operatorNumber}</p>
+            </div>
+
+            <div className="mb-8">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Gewerkte Uren</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.5"
+                  className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-black text-xl outline-none focus:border-blue-500 transition-all text-slate-900"
+                  value={selectedAssignment.hoursWorked}
+                  onChange={(e) => setSelectedAssignment({...selectedAssignment, hoursWorked: e.target.value})}
+                  autoFocus
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">uur</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {!selectedAssignment.isLoan && (
+                <button 
+                  onClick={() => {
+                    const person = personnel.find(p => p.employeeNumber === selectedAssignment.operatorNumber || p.id === selectedAssignment.operatorNumber);
+                    const dept = structure.departments.find(d => d.id === selectedAssignment.departmentId);
+                    
+                    if (person) {
+                      setSelectedPersonForLoan(person);
+                      setSelectedDepartmentForLoan(dept);
+                      setLoanModalOpen(true);
+                      setEditAssignmentModalOpen(false);
+                    } else {
+                      alert("Persoonsgegevens niet gevonden.");
+                    }
+                  }}
+                  className="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-indigo-100 border-2 border-indigo-100 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <ArrowRight size={18} /> Uitlenen
+                </button>
+              )}
+
+              <button 
+                onClick={async () => {
+                  try {
+                    await updateDoc(doc(db, ...PATHS.OCCUPANCY, selectedAssignment.id), {
+                      hoursWorked: parseFloat(selectedAssignment.hoursWorked) || 0
+                    });
+                    setEditAssignmentModalOpen(false);
+                  } catch (err) {
+                    console.error("Update failed", err);
+                    alert("Kon uren niet opslaan");
+                  }
+                }} 
+                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <Save size={18} /> Opslaan
+              </button>
             </div>
           </div>
         </div>
