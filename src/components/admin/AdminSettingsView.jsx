@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import { PATHS, ACTIVE_SITE } from "../../config/dbPaths";
 
 // Handige presets voor snelle branding
 const PRESET_LOGOS = [
@@ -201,15 +201,20 @@ const AdminSettingsView = () => {
           </div>
           <div className="text-left">
             <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-              Systeem <span className="text-blue-600">Configuratie</span>
+              {t('system')} <span className="text-blue-600">{t('configuration')}</span>
             </h2>
             <div className="mt-3 flex items-center gap-3">
               <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-100 uppercase italic">
-                <ShieldCheck size={10} /> Root Encrypted
+                <ShieldCheck size={10} /> {t('rootEncrypted')}
               </span>
-              <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
-                Target: /{PATHS.GENERAL_SETTINGS.join("/")}
-              </p>
+              <div className="flex flex-col">
+                <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
+                  Site: <span className="text-blue-600 font-bold">{ACTIVE_SITE}</span>
+                </p>
+                <p className="text-[8px] font-mono text-slate-300 uppercase tracking-widest">
+                  Target: /{PATHS.GENERAL_SETTINGS.join("/")}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -219,8 +224,7 @@ const AdminSettingsView = () => {
           disabled={saving}
           className="bg-slate-900 text-white px-10 py-5 rounded-[22px] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-3 relative z-10"
         >
-          {saving ? <Loader2 className="animate-spin" /> : <Save size={18} />}{" "}
-          Publiceren naar Root
+          {saving ? <Loader2 className="animate-spin" /> : <Save size={18} />} {t('publishToRoot')}
         </button>
       </div>
 

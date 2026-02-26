@@ -8,6 +8,7 @@ import {
   Activity,
   CheckCircle,
   AlertTriangle,
+  AlertOctagon,
   Zap,
   Droplets,
   Ruler,
@@ -40,6 +41,7 @@ const formatDate = (timestamp) => {
 const TeamleaderOrderDetailModal = ({ order, onClose }) => {
   const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showOnlyRejects, setShowOnlyRejects] = useState(false);
   const appId = getAppId();
 
   // Bepaal materiaal type voor badges
@@ -80,6 +82,12 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
     // Fallback logic
     return 0; 
   }, [order, processSteps]);
+
+  // Bereken aantal afgekeurde producten
+  const rejectedCount = useMemo(() => {
+    const unitRejects = units.filter(u => ['rejected', 'Rejected'].includes(u.status)).length;
+    return unitRejects || order.rejectedCount || 0;
+  }, [units, order]);
 
   // Haal gekoppelde productie-units op
   useEffect(() => {
@@ -165,6 +173,10 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                   <p className="text-[10px] text-gray-500 uppercase font-bold">Week</p>
                   <p className="text-sm font-medium text-gray-900">Week {order.weekNumber || "?"} ({order.year || new Date().getFullYear()})</p>
                 </div>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase font-bold">Tekening</p>
+                  <p className="text-sm font-medium text-gray-900">{order.drawing || "-"}</p>
+                </div>
               </div>
             </div>
 
@@ -195,6 +207,15 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                     </span>
                   </div>
                 </div>
+                {rejectedCount > 0 && (
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold">Kwaliteit (Afkeur)</p>
+                    <div className="flex items-center gap-2 mt-1 text-rose-600 font-bold text-sm">
+                        <AlertOctagon size={16} />
+                        <span>{rejectedCount} {rejectedCount === 1 ? 'stuk' : 'stuks'} afgekeurd</span>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] text-gray-500 uppercase font-bold">Vervolgstappen</p>
                   <div className="text-xs text-gray-700 flex flex-wrap gap-1 mt-1 items-center">
@@ -227,7 +248,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
             {/* Opmerkingen & Specs */}
             <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100">
               <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <FileText size={14} /> Opmerkingen
+                <FileText size={14} /> PO Text / Opmerkingen
               </h3>
               <div className="h-full">
                 {order.notes ? (
@@ -256,10 +277,23 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
 
           {/* Details Tabel (Units & Metingen) */}
           <div>
-            <h3 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
-              <Activity size={20} className="text-blue-600" /> 
-              Productie Details & Metingen
-            </h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                <Activity size={20} className="text-blue-600" /> 
+                Productie Details & Metingen
+              </h3>
+              <label className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors select-none">
+                <input 
+                  type="checkbox" 
+                  checked={showOnlyRejects}
+                  onChange={(e) => setShowOnlyRejects(e.target.checked)}
+                  className="rounded text-rose-600 focus:ring-rose-500 border-gray-300 w-4 h-4"
+                />
+                <span className={`text-[10px] font-black uppercase tracking-wide ${showOnlyRejects ? "text-rose-600" : "text-slate-500"}`}>
+                  Alleen Afkeur
+                </span>
+              </label>
+            </div>
             
             {loading ? (
               <div className="p-8 text-center text-gray-400 animate-pulse">Laden van details...</div>
@@ -276,16 +310,26 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
-                    {units.map((unit) => (
-                      <tr key={unit.id} className="hover:bg-blue-50/50 transition-colors">
+                    {units.filter(u => !showOnlyRejects || ['rejected', 'Rejected'].includes(u.status)).length === 0 && showOnlyRejects && (
+                      <tr>
+                        <td colSpan="5" className="p-8 text-center text-slate-400 text-xs italic">
+                          Geen afgekeurde producten gevonden in deze order.
+                        </td>
+                      </tr>
+                    )}
+                    {units.filter(u => !showOnlyRejects || ['rejected', 'Rejected'].includes(u.status)).map((unit) => {
+                      const isRejected = ['rejected', 'Rejected'].includes(unit.status);
+                      return (
+                      <tr key={unit.id} className={`transition-colors ${isRejected ? "bg-rose-50 hover:bg-rose-100" : "hover:bg-blue-50/50"}`}>
                         <td className="px-4 py-3 font-bold text-gray-900 font-mono">{unit.lotNumber}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
                             unit.status === 'completed' ? 'bg-green-100 text-green-700' :
                             unit.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                            isRejected ? 'bg-rose-100 text-rose-700' :
                             'bg-gray-100 text-gray-600'
                           }`}>
-                            {unit.status === 'in_progress' ? 'Actief' : unit.status === 'completed' ? 'Gereed' : unit.status}
+                            {unit.status === 'in_progress' ? 'Actief' : unit.status === 'completed' ? 'Gereed' : isRejected ? 'Afkeur' : unit.status}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-600">{unit.currentStation || "-"}</td>
@@ -306,7 +350,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                           )}
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>

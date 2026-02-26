@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Zap, Layers, Clock, Disc } from "lucide-react";
 
 // Configuratie van machine groepen
@@ -17,7 +18,9 @@ const FITTING_MACHINES = [
 const PIPE_MACHINES = ["BH05", "BH07", "BH08", "BH09"];
 // Alles wat niet in bovenstaande lijsten staat, valt onder 'Spools' of 'Overig'
 
+
 const DashboardView = ({ metrics, onStationSelect }) => {
+  const { t } = useTranslation();
   if (!metrics || !metrics.machineMetrics) return null;
 
   // Groepeer de machines
@@ -54,7 +57,7 @@ const DashboardView = ({ metrics, onStationSelect }) => {
             {machine.id}
           </h4>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {machine.running > 0 ? "Actief" : "Standby"}
+            {machine.running > 0 ? t("digitalplanning.dashboard.active") : t("digitalplanning.dashboard.standby")}
           </p>
         </div>
         <div
@@ -71,7 +74,7 @@ const DashboardView = ({ metrics, onStationSelect }) => {
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
           <span className="block text-[8px] font-black text-slate-400 uppercase mb-0.5">
-            Plan
+            {t("digitalplanning.dashboard.plan")}
           </span>
           <span className="block text-base font-black text-slate-800">
             {Math.round(machine.plan)}
@@ -79,7 +82,7 @@ const DashboardView = ({ metrics, onStationSelect }) => {
         </div>
         <div className="bg-blue-50 p-2 rounded-xl border border-blue-100">
           <span className="block text-[8px] font-black text-blue-400 uppercase mb-0.5">
-            Gereed
+            {t("digitalplanning.dashboard.ready")}
           </span>
           <span className="block text-base font-black text-blue-700">
             {machine.fin}
@@ -109,7 +112,7 @@ const DashboardView = ({ metrics, onStationSelect }) => {
         <div className="space-y-4">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-200 pb-2">
             <Layers size={18} className="text-blue-500" />
-            Fitting Productions
+            {t("digitalplanning.dashboard.fitting_productions")}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {fittingGroup.map(renderMachineCard)}
@@ -122,7 +125,7 @@ const DashboardView = ({ metrics, onStationSelect }) => {
         <div className="space-y-4">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-200 pb-2">
             <Clock size={18} className="text-cyan-500" />
-            Pipe Productions
+            {t("digitalplanning.dashboard.pipe_productions")}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {pipeGroup.map(renderMachineCard)}
@@ -135,7 +138,7 @@ const DashboardView = ({ metrics, onStationSelect }) => {
         <div className="space-y-4">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-200 pb-2">
             <Disc size={18} className="text-purple-500" />
-            Spools Productions
+            {t("digitalplanning.dashboard.spools_productions")}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {spoolGroup.map(renderMachineCard)}

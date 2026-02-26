@@ -277,12 +277,12 @@ const EfficiencyDashboard = () => {
                   <span>{t('efficiency_dashboard.norm')}: <b>{Math.round(item.minutesPerUnit * 10) / 10}m</b> / {t('efficiency_dashboard.per_piece')}</span>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {item.productionTimeTotal > 0 && (
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-bold border border-blue-100" title="Productie (BM/BA)">
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-bold border border-blue-100" title={t('efficiency_dashboard.prod_tooltip')}>
                         {t('efficiency_dashboard.prod')}: {formatMinutes(item.productionTimeTotal)}
                       </span>
                     )}
                     {item.postProcessingTimeTotal > 0 && (
-                      <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-bold border border-purple-100" title="Nabewerking">
+                      <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-bold border border-purple-100" title={t('efficiency_dashboard.post_tooltip')}>
                         {t('efficiency_dashboard.post')}: {formatMinutes(item.postProcessingTimeTotal)}
                       </span>
                     )}

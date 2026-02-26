@@ -357,6 +357,18 @@ const ProductionStartModal = ({
               <p className="text-[10px] font-bold text-slate-500 mt-1.5 truncate uppercase">
                 {order.item}
               </p>
+              {order.drawing && (
+                <div className="mt-2">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Tekening</span>
+                  <p className="text-xs font-bold text-slate-700">{order.drawing}</p>
+                </div>
+              )}
+              {order.notes && (
+                <div className="mt-2 pt-2 border-t border-slate-100">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">PO Text / Opmerkingen</span>
+                  <p className="text-xs font-medium text-slate-600 italic">{order.notes}</p>
+                </div>
+              )}
               <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between items-center">
                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Actueel Lot</span>
                  <span className="text-xs font-mono font-black text-blue-600">{lotNumber || "-"}</span>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { withTranslation } from 'react-i18next';
 import { AlertTriangle, RefreshCw, Send, CheckCircle2, Loader2 } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
@@ -32,37 +33,42 @@ class ErrorBoundary extends React.Component {
     this.setState({ reportStatus: 'sending' });
 
     try {
-      // We gaan ervan uit dat PATHS.MESSAGES bestaat, vergelijkbaar met andere modules
-      // Zo niet, pas dit aan naar de juiste collectie naam string, bijv: collection(db, "messages")
       const messagesRef = collection(db, ...PATHS.MESSAGES);
 
       // Verzamel gebruikers- en browserinformatie
       const currentUser = auth.currentUser;
-      const userInfo = currentUser 
-        ? `${currentUser.displayName || 'Naamloos'} (${currentUser.email}) [UID: ${currentUser.uid}]` 
-        : 'Niet ingelogd / Anoniem';
-
-      const browserInfo = [
-        `User Agent: ${navigator.userAgent}`,
-        `Scherm: ${window.screen.width}x${window.screen.height}`,
-        `Window: ${window.innerWidth}x${window.innerHeight}`,
-        `Taal: ${navigator.language}`
-      ].join('\n');
+      
+      // Data veilig serialiseren voor Firestore
+      const errorData = {
+        message: this.state.error?.message || 'Onbekende fout',
+        stack: this.state.error?.stack || 'Geen stacktrace beschikbaar',
+        componentStack: this.state.errorInfo?.componentStack || 'Geen component info'
+      };
 
       await addDoc(messagesRef, {
-        type: 'SYSTEM_ERROR',
-        title: '🔥 CRASH RAPPORT: ' + (this.state.error?.message || 'Onbekende fout'),
-        content: `Er is een kritieke fout opgetreden in de applicatie.\n\n--- GEBRUIKERS INFO ---\nGebruiker: ${userInfo}\n\n--- BROWSER INFO ---\n${browserInfo}\n\n--- TECHNISCHE DETAILS ---\nFoutmelding:\n${this.state.error?.toString()}\n\nStack Trace:\n${this.state.errorInfo?.componentStack || 'Niet beschikbaar'}`,
-        targetGroup: 'admins', // Specifiek voor jouw admin groep logica
-        priority: 'high',
+        type: 'alert', // Zorgt voor rode markering in Message Center
+        title: `🔥 CRASH: ${errorData.message.substring(0, 40)}...`,
+        body: `KRITIEKE SYSTEEMFOUT\n\nGebruiker: ${currentUser?.displayName || 'Anoniem'} (${currentUser?.email || 'Geen email'})\nLocatie: ${window.location.href}\n\nFoutmelding:\n${errorData.message}\n\nStacktrace:\n${errorData.stack}\n\nComponent Stack:\n${errorData.componentStack}`,
+        to: 'admin', // Target voor admin filters
+        priority: 'high', // Hoge prioriteit
         read: false,
         archived: false,
         timestamp: serverTimestamp(),
-        sender: 'System Error Boundary',
-        url: window.location.href
+        senderId: currentUser?.uid || 'system',
+        senderName: 'System Error Boundary',
+        metadata: {
+          userAgent: navigator.userAgent,
+          screenSize: `${window.innerWidth}x${window.innerHeight}`,
+          url: window.location.href
+        }
       });
 
       this.setState({ reportStatus: 'success' });
+
+      // Redirect naar portal na korte vertraging zodat gebruiker feedback ziet
+      setTimeout(() => {
+        window.location.href = '/portal';
+      }, 1500);
     } catch (err) {
       console.error("Kon foutrapport niet verzenden:", err);
       this.setState({ reportStatus: 'error' });
@@ -70,37 +76,33 @@ class ErrorBoundary extends React.Component {
   }
 
   render() {
+    const { t } = this.props;
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
           <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg w-full border border-red-100 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
-            
             <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <AlertTriangle size={32} />
             </div>
-
-            <h1 className="text-2xl font-black text-slate-900 mb-2 uppercase italic">Systeem Crash</h1>
+            <h1 className="text-2xl font-black text-slate-900 mb-2 uppercase italic">{t('errorBoundary.title', 'Systeem Crash')}</h1>
             <p className="text-slate-500 mb-8 text-sm font-medium">
-              De applicatie is tegen een onverwachte fout aangelopen en moest worden gestopt om gegevensverlies te voorkomen.
+              {t('errorBoundary.subtitle', 'De applicatie is tegen een onverwachte fout aangelopen en moest worden gestopt om gegevensverlies te voorkomen.')}
             </p>
-
             {/* Error Box */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-left overflow-hidden">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Technische Foutmelding</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('errorBoundary.technical', 'Technische Foutmelding')}</p>
               <code className="text-red-600 font-mono text-xs block break-words">
-                {this.state.error && this.state.error.toString()} 
+                {this.state.error && this.state.error.toString()}
               </code>
             </div>
-
             <div className="flex flex-col gap-3">
               <button
                 onClick={() => window.location.reload()}
                 className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-bold uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
               >
-                <RefreshCw size={16} /> Pagina Herladen
+                <RefreshCw size={16} /> {t('errorBoundary.reload', 'Pagina Herladen')}
               </button>
-
               <button
                 onClick={this.handleReportToAdmins}
                 disabled={this.state.reportStatus !== 'idle' && this.state.reportStatus !== 'error'}
@@ -112,31 +114,30 @@ class ErrorBoundary extends React.Component {
               >
                 {this.state.reportStatus === 'idle' && (
                   <>
-                    <Send size={16} /> Rapporteer aan Admins
+                    <Send size={16} /> {t('errorBoundary.report', 'Rapporteer aan Admins')}
                   </>
                 )}
                 {this.state.reportStatus === 'sending' && (
                   <>
-                    <Loader2 size={16} className="animate-spin" /> Verzenden...
+                    <Loader2 size={16} className="animate-spin" /> {t('errorBoundary.sending', 'Verzenden...')}
                   </>
                 )}
                 {this.state.reportStatus === 'success' && (
                   <>
-                    <CheckCircle2 size={16} /> Rapport Verzonden
+                    <CheckCircle2 size={16} /> {t('errorBoundary.sent', 'Rapport Verzonden')}
                   </>
                 )}
                 {this.state.reportStatus === 'error' && (
                   <>
-                    <AlertTriangle size={16} /> Mislukt - Probeer opnieuw
+                    <AlertTriangle size={16} /> {t('errorBoundary.failed', 'Mislukt - Probeer opnieuw')}
                   </>
                 )}
               </button>
             </div>
-
-            {this.state.error && process.env.NODE_ENV === 'development' && (
+            {this.state.error && import.meta.env.DEV && (
               <div className="mt-6 text-left">
                 <details className="text-xs text-slate-400 cursor-pointer">
-                  <summary>Toon Stack Trace (Dev Only)</summary>
+                  <summary>{t('errorBoundary.stacktrace', 'Toon Stack Trace (Dev Only)')}</summary>
                   <pre className="mt-2 p-4 bg-slate-900 text-red-400 rounded-xl overflow-auto max-h-48 font-mono text-[10px]">
                     {this.state.errorInfo?.componentStack}
                   </pre>
@@ -152,4 +153,4 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-export default ErrorBoundary;
+export default withTranslation()(ErrorBoundary);

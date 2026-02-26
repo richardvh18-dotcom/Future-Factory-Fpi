@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, setDoc, deleteDoc, orderBy, limit, writeBatch } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -62,6 +63,7 @@ const getLotPrefix = (station) => {
  * Update: Gebruikt nu 'products' prop indien beschikbaar om dubbele fetching te voorkomen.
  */
 const LossenView = ({ stationId, appId, products = [] }) => {
+  const { t } = useTranslation();
   const { user } = useAdminAuth();
   const [items, setItems] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
@@ -657,7 +659,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       if (mode === "standard") {
           const printWindow = window.open('', '_blank');
           if (!printWindow) {
-              alert("Pop-up geblokkeerd. Sta pop-ups toe om te kunnen printen.");
+              alert(t('lossen.popup_blocked'));
               return;
           }
 
@@ -717,14 +719,14 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       // MODE: NETWERK (IP)
       if (mode === "network") {
           if (!printerIp) {
-              alert("Selecteer eerst een netwerkprinter of vul een IP in.");
+              alert(t('lossen.select_printer_error'));
               return;
           }
           try {
               await fetch(`http://${printerIp}/pstprnt`, { method: "POST", body: zpl, mode: "no-cors" });
               alert(`Opdracht verzonden naar Netwerk Printer (${printerIp})`);
           } catch (err) {
-              alert("Kon niet printen. Controleer of Zebra Browser Print draait of het IP juist is.\nFout: " + err.message);
+              alert(t('lossen.print_error') + err.message);
           }
       }
       
@@ -804,19 +806,19 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           }
 
           await batch.commit();
-          alert(`Succesvol ${newLots.length} labels gereserveerd:\n${newLots.join(", ")}\n\nDeze nummers zijn 24 uur gereserveerd.`);
+          alert(t('lossen.reservation_success', { count: newLots.length, lots: newLots.join(", ") }));
           setReserveConfig(null);
           setNextStartLot(null); // Forceer refresh bij volgende keer openen
       } catch (err) {
           console.error("Fout bij reserveren:", err);
-          alert("Fout bij reserveren: " + err.message);
+          alert(t('lossen.reservation_error') + err.message);
       } finally {
           setGenerating(false);
       }
   };
 
   const handleDeleteReservation = async (item) => {
-      if(!window.confirm(`Reservering ${item.lotNumber} vrijgeven? Dit verwijdert het nummer zodat het opnieuw gebruikt kan worden.`)) return;
+      if(!window.confirm(t('lossen.confirm_release', { lot: item.lotNumber }))) return;
       try {
           await deleteDoc(doc(db, ...PATHS.TRACKING, item.id || item.lotNumber));
       } catch(err) {
@@ -839,10 +841,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       {isCentralHub && (
         <div className="flex bg-slate-100 p-1 rounded-xl mb-4 shrink-0">
             <button onClick={() => setActiveView("incoming")} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeView === "incoming" ? "bg-white text-blue-600 shadow-sm" : "text-slate-400"}`}>
-                Inkomend
+                {t('lossen.incoming')}
             </button>
             <button onClick={() => setActiveView("planning")} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeView === "planning" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-400"}`}>
-                Planning & Labels
+                {t('lossen.planning_labels')}
             </button>
         </div>
       )}
@@ -872,13 +874,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             <div className="bg-white w-full max-w-md rounded-[30px] shadow-2xl overflow-hidden flex flex-col">
                 <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <h3 className="font-black text-slate-800 uppercase text-sm tracking-wide flex items-center gap-2">
-                        <Printer size={18} className="text-blue-600" /> Print Opties
+                        <Printer size={18} className="text-blue-600" /> {t('lossen.print_options')}
                     </h3>
                     <button onClick={() => setShowPrintModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
                 </div>
                 <div className="p-6 space-y-6">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Vrij Volgnummer / Tekst</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.free_text')}</label>
                         <div className="relative">
                             <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                             <input 
@@ -896,14 +898,14 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                             className="flex flex-col items-center justify-center p-4 bg-blue-50 hover:bg-blue-100 border-2 border-blue-100 rounded-2xl transition-all group"
                         >
                             <Tag size={24} className="text-blue-500 mb-2 group-hover:scale-110 transition-transform" />
-                            <span className="text-[10px] font-black text-blue-700 uppercase">Etiket</span>
+                            <span className="text-[10px] font-black text-blue-700 uppercase">{t('lossen.label')}</span>
                         </button>
                         <button 
                             onClick={() => { alert(`Print Volgnummer: ${printInput}`); setShowPrintModal(false); }}
                             className="flex flex-col items-center justify-center p-4 bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-100 rounded-2xl transition-all group"
                         >
                             <Hash size={24} className="text-emerald-500 mb-2 group-hover:scale-110 transition-transform" />
-                            <span className="text-[10px] font-black text-emerald-700 uppercase">Volgnummer</span>
+                            <span className="text-[10px] font-black text-emerald-700 uppercase">{t('lossen.sequence_number')}</span>
                         </button>
                     </div>
                 </div>
@@ -917,14 +919,14 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             <div className="bg-white w-full max-w-md rounded-[30px] shadow-2xl overflow-hidden p-6 space-y-6">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-4">
                     <h3 className="font-black text-slate-800 uppercase text-sm flex items-center gap-2">
-                        <Hash size={18} className="text-blue-600" /> Print Losse Lotnummers
+                        <Hash size={18} className="text-blue-600" /> {t('lossen.print_loose_lots')}
                     </h3>
                     <button onClick={() => setShowSimplePrintModal(false)}><X size={20} className="text-slate-400" /></button>
                 </div>
 
                 <div className="space-y-4">
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Machine</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('digitalplanning.machine')}</label>
                         <select
                             value={simplePrintConfig.machine}
                             onChange={(e) => setSimplePrintConfig({...simplePrintConfig, machine: e.target.value})}
@@ -941,19 +943,19 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
                     {/* Printer Mode Selectie */}
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Print Methode</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.print_method')}</label>
                         <div className="flex bg-slate-100 p-1 rounded-xl">
                             <button 
                                 onClick={() => setSimplePrintConfig({...simplePrintConfig, mode: "standard"})}
                                 className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${simplePrintConfig.mode === "standard" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"}`}
                             >
-                                <Printer size={14} /> Standaard (Browser)
+                                <Printer size={14} /> {t('lossen.standard_browser')}
                             </button>
                             <button 
                                 onClick={() => setSimplePrintConfig({...simplePrintConfig, mode: "network"})}
                                 className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${simplePrintConfig.mode === "network" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500"}`}
                             >
-                                <Wifi size={14} /> Netwerk (IP)
+                                <Wifi size={14} /> {t('lossen.network_ip')}
                             </button>
                         </div>
                     </div>
@@ -961,13 +963,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     {/* Netwerk Printer Selectie (Alleen zichtbaar bij Netwerk modus) */}
                     {simplePrintConfig.mode === "network" && (
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Kies Netwerk Printer</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.choose_network_printer')}</label>
                         <select
                             value={simplePrintConfig.printerIp}
                             onChange={(e) => setSimplePrintConfig({...simplePrintConfig, printerIp: e.target.value})}
                             className="w-full p-3 bg-white border-2 border-emerald-100 rounded-xl font-bold text-slate-800 outline-none focus:border-emerald-500"
                         >
-                            <option value="">-- Selecteer Printer --</option>
+                            <option value="">{t('lossen.select_printer')}</option>
                             {savedPrinters.map(p => (
                                 <option key={p.id} value={p.ip}>{p.name} ({p.ip})</option>
                             ))}
@@ -978,7 +980,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                                Datum (Week {simplePrintConfig.date ? getISOWeek(new Date(simplePrintConfig.date)) : "?"})
+                                {t('lossen.date_week', { week: simplePrintConfig.date ? getISOWeek(new Date(simplePrintConfig.date)) : "?" })}
                             </label>
                             <input 
                                 type="date"
@@ -988,7 +990,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                             />
                         </div>
                         <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Start Volgnummer</label>
+                            <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.start_sequence')}</label>
                             <input 
                                 type="number"
                                 value={simplePrintConfig.startSeq}
@@ -999,7 +1001,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     </div>
 
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Aantal te printen</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.print_count')}</label>
                         <input 
                             type="number"
                             min="1"
@@ -1018,11 +1020,11 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                             onChange={(e) => setSimplePrintConfig({...simplePrintConfig, showCutLine: e.target.checked})}
                             className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
-                        <label htmlFor="chkCutLine" className="text-xs font-bold text-slate-700 cursor-pointer select-none">Print Snijlijn (Stippellijn)</label>
+                        <label htmlFor="chkCutLine" className="text-xs font-bold text-slate-700 cursor-pointer select-none">{t('lossen.print_cut_line')}</label>
                     </div>
 
                     <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-center">
-                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-1">Voorbeeld</span>
+                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-1">{t('lossen.example')}</span>
                         <span className="font-mono text-xl font-black text-blue-900">
                             {getLotPrefix(simplePrintConfig.machine).replace(/40\d{4}/, `40${new Date(simplePrintConfig.date).getFullYear().toString().slice(-2)}${getISOWeek(new Date(simplePrintConfig.date)).toString().padStart(2,'0')}`)}{simplePrintConfig.startSeq.toString().padStart(6,'0')}
                         </span>
@@ -1032,7 +1034,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                         onClick={handleSimplePrint}
                         className="w-full py-4 text-white rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700"
                     >
-                        <Printer size={16} /> Print Label (ZPL)
+                        <Printer size={16} /> {t('lossen.print_label_zpl')}
                     </button>
                 </div>
             </div>
@@ -1044,7 +1046,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           <div className="fixed inset-0 z-[210] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
               <div className="bg-white w-full max-w-md rounded-[30px] shadow-2xl overflow-hidden p-6 space-y-6">
                   <div className="flex justify-between items-center">
-                      <h3 className="font-black text-slate-800 uppercase text-sm">Etiketten Reserveren</h3>
+                      <h3 className="font-black text-slate-800 uppercase text-sm">{t('lossen.reserve_labels')}</h3>
                       <button onClick={() => setReserveConfig(null)}><X size={20} className="text-slate-400" /></button>
                   </div>
                   
@@ -1096,13 +1098,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                           })}
                         </div>
                     ) : (
-                        <div className="text-xs text-slate-400 italic">Laden...</div>
+                        <div className="text-xs text-slate-400 italic">{t('common.loading')}</div>
                     )}
                   </div>
 
                   {/* Label Selector */}
                   <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Label Formaat</label>
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-1">{t('lossen.label_format')}</label>
                       <select 
                         value={selectedLabelId} 
                         onChange={(e) => setSelectedLabelId(e.target.value)}
@@ -1114,7 +1116,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
                   <div className="space-y-4">
                       <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Aantal Lotnummers</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.lot_count')}</label>
                           <input 
                               type="number" 
                               min="1" 
@@ -1125,7 +1127,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                           />
                       </div>
                       <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Bestemming (Station)</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.destination_station')}</label>
                           <div className="relative">
                               <input 
                                   type="text" 
@@ -1145,7 +1147,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                       {nextStartLot && reserveConfig.count > 0 && (
                         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
                             <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest block mb-1">
-                                Gereserveerde Lotnummers
+                                {t('lossen.reserved_lots')}
                             </span>
                             <div className="font-mono text-xs font-bold text-blue-900 flex items-center gap-2">
                                 <span>{nextStartLot}</span>
@@ -1168,10 +1170,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                       className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                       {generating ? <Loader2 className="animate-spin" size={16} /> : <Printer size={16} />}
-                      Reserveer & Print
+                      {t('lossen.reserve_and_print')}
                   </button>
                   <p className="text-[9px] text-slate-400 text-center italic">
-                      Gereserveerde nummers vervallen na 24 uur.
+                      {t('lossen.reservation_expiry')}
                   </p>
               </div>
           </div>
@@ -1186,7 +1188,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
                         type="text" 
-                        placeholder="Zoek ordernummer..." 
+                        placeholder={t('lossen.search_order')}
                         value={planningSearch}
                         onChange={(e) => setPlanningSearch(e.target.value)}
                         className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-emerald-500 transition-all"
@@ -1197,7 +1199,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     onChange={(e) => setPlanningStationFilter(e.target.value)}
                     className="px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-emerald-500 transition-all min-w-[150px]"
                 >
-                    <option value="ALL">Alle Stations</option>
+                    <option value="ALL">{t('lossen.all_stations')}</option>
                     {uniqueStations.map(s => (
                         <option key={s} value={s}>{s}</option>
                     ))}
@@ -1206,13 +1208,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     onClick={() => setShowReservations(!showReservations)}
                     className={`px-4 py-3 rounded-2xl font-bold text-sm transition-all border-2 whitespace-nowrap ${showReservations ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
                 >
-                    {showReservations ? 'Verberg Reserveringen' : 'Toon Reserveringen'}
+                    {showReservations ? t('lossen.hide_reservations') : t('lossen.show_reservations')}
                 </button>
                 <button
                     onClick={() => setShowSimplePrintModal(true)}
                     className="px-4 py-3 bg-blue-50 border-2 border-blue-100 text-blue-600 rounded-2xl font-bold text-sm hover:bg-blue-100 transition-all whitespace-nowrap flex items-center gap-2"
                 >
-                    <Hash size={16} /> Alleen Nummers
+                    <Hash size={16} /> {t('lossen.only_numbers')}
                 </button>
             </div>
 
@@ -1220,7 +1222,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             {showReservations && reservedItems.length > 0 && (
                 <div className="bg-orange-50/50 border border-orange-100 rounded-2xl p-4">
                     <h4 className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <Clock size={12} /> Gereserveerde Labels ({reservedItems.length})
+                        <Clock size={12} /> {t('lossen.reserved_labels_title')} ({reservedItems.length})
                     </h4>
                     <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-2">
                         {reservedItems.map(item => (
@@ -1241,7 +1243,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             {/* Order Lijst */}
             <div className="space-y-3">
                 {filteredOrders.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 italic text-xs">Geen orders gevonden</div>
+                    <div className="text-center py-10 text-slate-400 italic text-xs">{t('bm01.no_orders')}</div>
                 ) : (
                     filteredOrders.map(order => (
                         <div key={order.id} className="bg-white border-2 border-slate-100 rounded-2xl p-4 hover:border-emerald-200 transition-all group">
@@ -1256,7 +1258,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                                 onClick={() => setReserveConfig({ order, count: 1, station: order.machine || "" })}
                                 className="w-full py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 transition-colors"
                             >
-                                <Printer size={14} /> Print Labels
+                                <Printer size={14} /> {t('lossen.print_labels_btn')}
                             </button>
                         </div>
                     ))
@@ -1270,7 +1272,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             <div className="p-12 text-center bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200 opacity-40">
               <Package size={48} className="mx-auto mb-4 text-slate-300" />
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Geen inkomende items voor {stationId}
+                {t('lossen.no_incoming_items', { station: stationId })}
               </p>
             </div>
           ) : (
@@ -1278,7 +1280,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
               <div className="flex items-center gap-2 mb-4 ml-2">
                 <ArrowRight size={16} className="text-emerald-500" />
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                  {isBM01 || isMazak || isNabewerking ? "Aan te bieden" : (currentStationNorm === "LOSSEN" ? "Wacht op Lossen" : "Wachtend op ontvangst")} ({items.length})
+                  {isBM01 || isMazak || isNabewerking ? t('bm01.to_offer') : (currentStationNorm === "LOSSEN" ? t('lossen.wait_for_unload') : t('lossen.waiting_receipt'))} ({items.length})
                 </h3>
               </div>
               {items.map((item) => (
@@ -1289,7 +1291,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                   <div className="flex justify-between items-start mb-4">
                     <div className="text-left">
                       <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">
-                        Lotnummer
+                        {t('lossen.lot_number')}
                       </span>
                       <span className="font-black text-slate-900 text-lg tracking-tighter italic">
                         {item.lotNumber}
@@ -1299,12 +1301,12 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                       </p>
                     </div>
                     <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[9px] font-black uppercase">
-                      Ontvangen
+                      {t('lossen.received')}
                     </div>
                   </div>
                   <div className="bg-slate-50 rounded-2xl p-4 mb-5 border border-slate-100">
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                      Manufactured Item
+                      {t('lossen.manufactured_item')}
                     </p>
                     <p className="text-xs font-mono font-bold text-slate-700 truncate">
                       {item.itemCode}
@@ -1313,7 +1315,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 opacity-80">
                         <History size={10} className="text-blue-500" />
                         <span className="text-[8px] font-black text-slate-500 uppercase italic">
-                          {isBM01 ? "Van: " : "Herkomst: "}{item.lastStation}
+                          {isBM01 ? t('lossen.from') + ": " : t('lossen.origin') + ": "}{item.lastStation}
                         </span>
                       </div>
                     )}
@@ -1322,7 +1324,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     onClick={() => handleItemClick(item)}
                     className="w-full py-5 bg-slate-900 text-white rounded-[22px] font-black uppercase text-[10px] tracking-[0.2em] flex items-center justify-center gap-3 hover:bg-emerald-600 transition-all shadow-lg active:scale-95"
                   >
-                    <ClipboardCheck size={18} /> Verwerken & Vrijgeven
+                    <ClipboardCheck size={18} /> {t('lossen.process_release')}
                   </button>
                 </div>
               ))}

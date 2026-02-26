@@ -1,9 +1,11 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { BoxSelect, PenTool, Settings } from "lucide-react";
 import AdminLabelDesigner from "./AdminLabelDesigner";
 import AdminLabelLogic from "./AdminLabelLogic";
 
 const AdminLabelManager = ({ onNavigate }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("designer");
 
   return (
@@ -15,7 +17,7 @@ const AdminLabelManager = ({ onNavigate }) => {
             <BoxSelect size={20} />
           </div>
           <h1 className="text-lg font-black text-slate-900 tracking-tight uppercase italic hidden sm:block">
-            Label <span className="text-orange-600">Manager</span>
+            {t('common.label')} <span className="text-orange-600">{t('common.manager')}</span>
           </h1>
         </div>
 
@@ -28,7 +30,7 @@ const AdminLabelManager = ({ onNavigate }) => {
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <PenTool size={14} /> <span className="hidden sm:inline">Designer</span>
+            <PenTool size={14} /> <span className="hidden sm:inline">{t('common.designer')}</span>
           </button>
           <button
             onClick={() => setActiveTab("logic")}
@@ -38,7 +40,7 @@ const AdminLabelManager = ({ onNavigate }) => {
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <Settings size={14} /> <span className="hidden sm:inline">Logica</span>
+            <Settings size={14} /> <span className="hidden sm:inline">{t('common.logic')}</span>
           </button>
         </div>
       </div>

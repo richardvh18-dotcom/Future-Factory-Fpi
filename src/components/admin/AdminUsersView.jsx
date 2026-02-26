@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Users,
   Search,
@@ -53,6 +54,7 @@ import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth"
  * Pad: /future-factory/Users/Accounts/
  */
 const AdminUsersView = () => {
+  const { t } = useTranslation();
   const [users, setUsers] = useState([]);
   const [accountRequests, setAccountRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -578,15 +580,15 @@ const AdminUsersView = () => {
             </div>
             <div className="text-left">
               <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-                Access <span className="text-blue-600">Controller</span>
+                {t('access')} <span className="text-blue-600">{t('controller')}</span>
               </h2>
               <div className="mt-3 flex items-center gap-3">
                 <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 uppercase italic">
-                  <ShieldCheck size={10} /> Root Protected
+                  <ShieldCheck size={10} /> {t('rootProtected')}
                 </span>
                 {accountRequests.filter(r => r.status === "pending").length > 0 && (
                   <span className="flex items-center gap-1.5 text-[9px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-100 uppercase italic animate-pulse">
-                    <Clock size={10} /> {accountRequests.filter(r => r.status === "pending").length} In Wachtrij
+                    <Clock size={10} /> {accountRequests.filter(r => r.status === "pending").length} {t('inQueue')}
                   </span>
                 )}
               </div>

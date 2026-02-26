@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Search,
   ChevronRight,
@@ -8,6 +9,7 @@ import {
   Clock,
   Briefcase,
   Sparkles,
+  Factory,
 } from "lucide-react";
 import StatusBadge from "./common/StatusBadge";
 
@@ -15,6 +17,7 @@ import StatusBadge from "./common/StatusBadge";
  * PlanningSidebar - Nu met 'NIEUW' indicator voor recent toegevoegde orders.
  */
 const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
 
   const filteredOrders = useMemo(() => {
@@ -60,7 +63,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
           />
           <input
             type="text"
-            placeholder="Zoek order of item..."
+            placeholder={t("digitalplanning.sidebar.search_placeholder")}
             className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -73,7 +76,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center opacity-40">
             <AlertCircle size={32} className="mb-2 text-slate-300" />
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Geen resultaten
+              {t("digitalplanning.sidebar.no_results")}
             </p>
           </div>
         ) : (
@@ -81,6 +84,8 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
             const isSelected =
               selectedOrderId === order.id || selectedOrderId === order.orderId;
             const isNew = isOrderNew(order);
+            const isDelegated = !!order.delegatedTo;
+            const isDelegatedStatus = order.status === 'delegated' || order.status === 'DELEGATED';
 
             return (
               <button
@@ -97,7 +102,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 {/* Nieuw Badge */}
                 {isNew && (
                   <div className="absolute top-0 left-0 px-2 py-0.5 bg-emerald-500 text-white text-[7px] font-black uppercase tracking-tighter rounded-br-lg shadow-sm z-10">
-                    Nieuw
+                    {t("digitalplanning.sidebar.new")}
                   </div>
                 )}
 
@@ -114,13 +119,16 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                           isSelected ? "text-blue-700" : "text-slate-900"
                         }`}
                       >
-                        {order.orderId || "Geen ID"}
+                        {order.orderId || t("digitalplanning.sidebar.no_id")}
                       </span>
                       {isNew && (
                         <Sparkles
                           size={10}
                           className="text-emerald-500 animate-bounce"
                         />
+                      )}
+                      {isDelegated && (
+                        <Factory size={12} className="text-purple-500" title={`Gedelegeerd aan ${order.delegatedTo}`} />
                       )}
                     </div>
                     {order.project && (
@@ -129,18 +137,24 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                       </span>
                     )}
                   </div>
-                  <StatusBadge status={order.status} />
+                  {isDelegatedStatus ? (
+                    <span className="px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 border border-purple-200 shadow-sm">
+                      Delegated
+                    </span>
+                  ) : (
+                    <StatusBadge status={order.status} />
+                  )}
                 </div>
 
                 <p className="text-[10px] font-bold text-slate-400 truncate mb-3">
-                  {order.itemCode || order.productId || "Geen artikelcode"}
+                  {order.itemCode || order.productId || t("digitalplanning.sidebar.no_itemcode")}
                 </p>
 
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100/50">
                   <div className="flex items-center gap-2">
                     <Clock size={10} className="text-slate-300" />
                     <span className="text-[9px] font-black text-slate-400 uppercase">
-                      W{order.weekNumber || order.week || "--"}
+                      {t("digitalplanning.sidebar.week")}{order.weekNumber || order.week || "--"}
                     </span>
                   </div>
                   <ChevronRight

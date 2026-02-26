@@ -1,0 +1,33 @@
+# Resterende Vertaaltaken (i18n)
+
+Hier is een lijst van bestanden die nog hardcoded strings bevatten en vertaald moeten worden naar nl.js, en.js en ar.js.
+
+## Admin & Beheer
+- [x] src/components/admin/AdminLabelLogic.jsx
+- [x] src/components/admin/PersonnelManager.jsx
+- [x] src/components/admin/UserStationManager.jsx
+- [x] src/components/admin/UniversalRescueTool.jsx
+- [x] src/components/admin/AdminDrillingView.jsx
+- [x] src/components/admin/ManualSyncDrawings.jsx
+- [ ] src/components/admin/VerificationBadge.jsx
+- [ ] src/components/admin/ProductionTimeStandardsManager.jsx
+
+## Digital Planning & Productie
+- [x] src/components/digitalplanning/TeamleaderHub.jsx
+- [x] src/components/digitalplanning/DepartmentStationSelector.jsx
+- [x] src/components/digitalplanning/RejectionAnalysisTile.jsx
+- [ ] src/components/digitalplanning/PlannerHub.jsx
+- [x] src/components/digitalplanning/TeamleaderPipesHub.jsx
+- [x] src/components/digitalplanning/TeamleaderFittingHub.jsx
+- [x] src/components/digitalplanning/TeamleaderSpoolsHub.jsx
+- [x] src/components/digitalplanning/EfficiencyDashboard.jsx
+
+## Overig (Lage prioriteit / Documentatie)
+- [x] src/components/admin/ProjectStructureExpertView.jsx
+- [x] src/components/admin/RoadmapViewer.jsx
+
+---
+
+## Prompt voor volgende sessie:
+
+"Ik wil verdergaan met de vertalingen uit translation-tasks.txt. Kun je beginnen met het vertalen van src/components/admin/AdminLabelLogic.jsx en src/components/admin/PersonnelManager.jsx en de sleutels toevoegen aan de taalbestanden?"

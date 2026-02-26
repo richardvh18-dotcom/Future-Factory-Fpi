@@ -4,11 +4,13 @@ import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import TeamleaderHub from "./TeamleaderHub";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 /**
  * TeamleaderFittingHub - V2 (Future Factory Path)
  */
 const TeamleaderFittingHub = (props) => {
+  const { t } = useTranslation();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -62,7 +64,7 @@ const TeamleaderFittingHub = (props) => {
     <TeamleaderHub
       {...props}
       fixedScope="fittings"
-      departmentName="Fitting Productions"
+      departmentName={t('teamleader.fitting_productions', 'Fitting Producties')}
       allowedMachines={machineIds}
     />
   );

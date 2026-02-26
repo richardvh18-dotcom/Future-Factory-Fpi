@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, Cpu, Loader2, Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -47,6 +48,7 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
         icon: <Cpu size={24} className="text-white" />
       }
     };
+  const { t } = useTranslation();
   const { user } = useAdminAuth();
   const [selectedStation, setSelectedStation] = useState(null);
   const [showTeamleader, setShowTeamleader] = useState(false);
@@ -148,20 +150,20 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
             onClick={onBack}
             className="flex items-center gap-2 text-slate-400 hover:text-slate-600 font-black uppercase text-[10px] tracking-[0.2em] transition-all bg-slate-50 px-6 py-3 rounded-xl border border-slate-200 mb-6"
           >
-            <ArrowLeft size={14} /> Terug naar Productie Hub
+            <ArrowLeft size={14} /> {t('departmentSelector.back_to_hub', 'Terug naar Productie Hub')}
           </button>
           <h1 className="text-4xl md:text-5xl font-black text-slate-900 mb-3 uppercase italic tracking-tighter leading-none">
-            {department} <span className="text-blue-600">Stations</span>
+            {department} <span className="text-blue-600">{t('departmentSelector.stations', 'Stations')}</span>
           </h1>
           <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">
-            Selecteer een werkstation of management optie
+            {t('departmentSelector.select_instruction', 'Selecteer een werkstation of management optie')}
           </p>
         </div>
 
         {stations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400 opacity-60">
             <Users size={48} className="mb-4" />
-            <p className="font-bold uppercase tracking-widest text-sm">Geen stations toegewezen aan uw account</p>
+            <p className="font-bold uppercase tracking-widest text-sm">{t('departmentSelector.no_assigned', 'Geen stations toegewezen aan uw account')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -189,7 +191,7 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
                   {style.icon}
                 </div>
                 <h3 className={`${isTeamleader ? "text-lg" : "text-sm"} font-black text-slate-800 uppercase tracking-tight group-hover:text-blue-600 transition-colors`}>
-                  {isTeamleader ? <>Teamleader<br/>Hub</> : station.name}
+                  {isTeamleader ? <span dangerouslySetInnerHTML={{__html: t('departmentSelector.teamleader_hub_html', 'Teamleader<br/>Hub')}} /> : station.name}
                 </h3>
               </button>
             );

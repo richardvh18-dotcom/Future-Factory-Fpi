@@ -17,8 +17,13 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
+    supportedLngs: ['nl', 'en', 'ar'],
     fallbackLng: "en", // Set English as fallback
-    lng: "en", // Force English as default
+    // lng: "en", // Verwijderd: Dit forceerde Engels en negeerde de detector/localStorage
+    detection: {
+      order: ['localStorage', 'navigator'],
+      caches: ['localStorage'],
+    },
     interpolation: {
       escapeValue: false, // React doet dit al zelf
     },

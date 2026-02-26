@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, CheckCircle, ArrowRight, AlertTriangle, Ruler, AlertOctagon, FileText } from "lucide-react";
-import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, getDocs, increment } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 
@@ -155,6 +155,16 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
           user: activeOperator, // Gebruik de opgehaalde operator
           details: `Reden: ${reason} - ${comment}`
         });
+
+        // CRITICAl: Update de moeder-order zodat deze weer in de planning komt
+        if (product.orderId) {
+          const orderRef = doc(db, ...PATHS.PLANNING, product.orderId);
+          // We verhogen de rejectedCount. De planning logica (Plan - (Started - Rejected)) zal nu weer > 0 zijn.
+          updateDoc(orderRef, {
+            rejectedCount: increment(1),
+            lastUpdated: serverTimestamp()
+          }).catch(e => console.error("Kon order niet updaten na afkeur:", e));
+        }
       }
 
       await updateDoc(productRef, updates);

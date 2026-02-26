@@ -33,40 +33,12 @@ const logRejectedAnswer = async ({ content, userInput, context, userId }) => {
       status: "pending"
     });
   } catch (err) {
-    console.error("Kon afgekeurd AI-antwoord niet loggen:", err);
+    console.error(t('ai.chat.log_reject_error'), err);
   }
 };
 
-const getWelcomeMessage = (lang) => {
-  const isEn = lang && lang.startsWith('en');
-  if (isEn) {
-    return `Hello! 👋 I am the **FPi AI Assistant**.
-
-I can help you with:
-
-- ❓ Questions about products, stock, or technical specifications
-- 📖 Explanations on how the system works
-- 🧭 Navigation to the correct modules
-- 💡 Tips and best practices
-- ❌ Reporting incorrect answers (use the cross icon top right)
-
-**Tip:** Use the search bar in the header and click the Bot icon for quick questions!
-
-How can I help you?`;
-  }
-  return `Hallo! 👋 Ik ben de **FPi AI Assistent**.
-
-Ik kan je helpen met:
-
-- ❓ Vragen over producten, voorraad of technische specificaties
-- 📖 Uitleg over hoe het systeem werkt
-- 🧭 Navigatie naar de juiste modules
-- 💡 Tips en best practices
-- ❌ Melden als een antwoord niet klopt (gebruik het kruisje rechtsboven)
-
-**Tip:** Gebruik de zoekbalk in de header en klik op het Bot icoon voor snelle vragen!
-
-Waar kan ik je mee helpen?`;
+const getWelcomeMessage = (lang, t) => {
+  return t('ai.chat.welcome');
 };
 
 const AiChatView = () => {

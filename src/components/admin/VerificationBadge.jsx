@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import {
   ShieldCheck,
   AlertOctagon,
@@ -14,31 +15,32 @@ import { VERIFICATION_STATUS } from "../../data/constants";
  * Toont de validatiestatus van producten conform het vier-ogen principe.
  */
 const VerificationBadge = ({ status, verifiedBy }) => {
+  const { t } = useTranslation();
   // Configuratie van stijlen, labels en iconen per status
   const config = {
     [VERIFICATION_STATUS.CONCEPT]: {
       bg: "bg-slate-50 text-slate-400 border-slate-200",
-      label: "Concept",
+      label: t('verification.concept', "Concept"),
       icon: <FileEdit size={12} />,
-      subText: "In bewerking",
+      subText: t('verification.inProgress', "In bewerking"),
     },
     [VERIFICATION_STATUS.PENDING]: {
       bg: "bg-orange-50 text-orange-600 border-orange-200 animate-pulse",
-      label: "Te Verifiëren",
+      label: t('verification.pending', "Te Verifiëren"),
       icon: <AlertOctagon size={12} />,
-      subText: "Actie vereist",
+      subText: t('verification.actionRequired', "Actie vereist"),
     },
     [VERIFICATION_STATUS.VERIFIED]: {
       bg: "bg-emerald-50 text-emerald-700 border-emerald-200",
-      label: "Geverifieerd",
+      label: t('verification.verified', "Geverifieerd"),
       icon: <ShieldCheck size={12} />,
-      subText: verifiedBy?.name ? `Door: ${verifiedBy.name}` : "Goedgekeurd",
+      subText: verifiedBy?.name ? t('verification.by', { name: verifiedBy.name, defaultValue: `Door: ${verifiedBy.name}` }) : t('verification.approved', "Goedgekeurd"),
     },
     [VERIFICATION_STATUS.REJECTED]: {
       bg: "bg-rose-50 text-rose-700 border-rose-200",
-      label: "Afgekeurd",
+      label: t('verification.rejected', "Afgekeurd"),
       icon: <XCircle size={12} />,
-      subText: "Aanpassen",
+      subText: t('verification.adjust', "Aanpassen"),
     },
   };
 

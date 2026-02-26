@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Database, RefreshCw, Trash2, Layers, Table, SearchCode, Fingerprint, Activity, Terminal, FileText, ShieldCheck, Loader2 } from "lucide-react";
 import { db, storage } from "../../config/firebase";
 import {
@@ -20,6 +21,7 @@ import { ref, listAll, getDownloadURL } from "firebase/storage";
  * Inclusief Storage viewer.
  */
 const AdminDatabaseView = () => {
+  const { t } = useTranslation();
   const [selectedKey, setSelectedKey] = useState("PRODUCTS");
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -49,36 +51,36 @@ const AdminDatabaseView = () => {
 
   // Lijst van modules gebaseerd op dbPaths.js
   const MODULES = [
-    { key: "PRODUCTS", label: "Product Catalogus", icon: <Layers size={18} /> },
+    { key: "PRODUCTS", label: t('adminDatabaseView.modules.products'), icon: <Layers size={18} /> },
     {
       key: "PLANNING",
-      label: "Digitale Planning",
+      label: t('adminDatabaseView.modules.planning'),
       icon: <Activity size={18} />,
     },
-    { key: "TRACKING", label: "Live Tracking", icon: <SearchCode size={18} /> },
+    { key: "TRACKING", label: t('adminDatabaseView.modules.tracking'), icon: <SearchCode size={18} /> },
     {
       key: "USERS",
-      label: "Gebruikers Accounts",
+      label: t('adminDatabaseView.modules.users'),
       icon: <Fingerprint size={18} />,
     },
     {
       key: "GENERAL_SETTINGS",
-      label: "Systeem Config",
+      label: t('adminDatabaseView.modules.generalSettings'),
       icon: <Terminal size={18} />,
     },
     {
       key: "BORE_DIMENSIONS",
-      label: "Boring Specs",
+      label: t('adminDatabaseView.modules.boreDimensions'),
       icon: <Table size={18} />,
     },
     {
       key: "CB_DIMENSIONS",
-      label: "CB Mof Maten",
+      label: t('adminDatabaseView.modules.cbDimensions'),
       icon: <Database size={18} />,
     },
     {
       key: "TB_DIMENSIONS",
-      label: "TB Mof Maten",
+      label: t('adminDatabaseView.modules.tbDimensions'),
       icon: <Database size={18} />,
     },
   ];
@@ -158,13 +160,13 @@ const AdminDatabaseView = () => {
   }, [viewMode, storagePath]);
 
   const handleDeleteDoc = async (docId) => {
-    if (!window.confirm("Document definitief verwijderen uit de root?")) return;
+    if (!window.confirm(t('common.confirmDeleteDoc'))) return;
     try {
       const docRef = doc(db, ...activePath.split("/"), docId);
       await deleteDoc(docRef);
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
     } catch (error) {
-      alert("Delete failed: " + error.message);
+      alert(t('common.deleteFailed') + ': ' + error.message);
     }
   };
 
@@ -178,10 +180,10 @@ const AdminDatabaseView = () => {
           </div>
           <div className="text-left">
             <h2 className="text-2xl font-black uppercase italic tracking-tighter leading-none">
-              Database <span className="text-blue-500">Viewer</span>
+              {t('adminDatabaseView.title').split(' ')[0]} <span className="text-blue-500">{t('adminDatabaseView.title').split(' ')[1]}</span>
             </h2>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em] mt-2">
-              Simpele database editor
+              {t('adminDatabaseView.subtitle')}
             </p>
           </div>
         </div>
@@ -196,7 +198,7 @@ const AdminDatabaseView = () => {
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              Database
+              {t('adminDatabaseView.database')}
             </button>
             <button
               onClick={() => setViewMode("storage")}
@@ -206,7 +208,7 @@ const AdminDatabaseView = () => {
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              Storage
+              {t('common.storage')}
             </button>
           </div>
           <button
@@ -229,7 +231,7 @@ const AdminDatabaseView = () => {
             <div className="flex items-center gap-2 mb-4 px-2">
               <Terminal size={12} className="text-blue-500" />
               <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                Gevalideerde Mappen
+                {t('common.validatedFolders')}
               </h3>
             </div>
 
@@ -270,10 +272,10 @@ const AdminDatabaseView = () => {
 
           <div className="mt-auto p-6 bg-slate-900 rounded-[30px] border border-white/5 relative overflow-hidden shadow-inner">
             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 italic">
-              Huidig Pad:
+              {t('common.currentPath')}
             </p>
             <code className="text-[10px] font-mono text-emerald-400 break-all leading-relaxed block bg-black/40 p-3 rounded-xl border border-white/5">
-              /{activePath || "Selecteer module..."}
+              /{activePath || t('common.selectModule')}
             </code>
           </div>
         </div>
@@ -297,7 +299,7 @@ const AdminDatabaseView = () => {
                         {idx < arr.length - 1 && <span className="text-blue-400 font-bold">/</span>}
                       </span>
                     ))
-                    : <span className="text-slate-500">Selecteer module...</span>}
+                    : <span className="text-slate-500">{t('common.selectModule')}</span>}
                 </nav>
               </div>
 
@@ -310,7 +312,7 @@ const AdminDatabaseView = () => {
                       size={40}
                     />
                     <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400 italic animate-pulse">
-                      Synchroniseren...
+                      {t('common.syncing')}
                     </p>
                   </div>
                 ) : documents.length === 0 ? (
@@ -319,11 +321,10 @@ const AdminDatabaseView = () => {
                       <Database size={60} className="text-slate-600" />
                     </div>
                     <h4 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">
-                      Pad is leeg
+                      {t('common.pathEmpty')}
                     </h4>
                     <p className="text-xs font-medium text-slate-500 max-w-sm mx-auto">
-                      Dit gedeelte van de <b>/future-factory/</b> root bevat nog
-                      geen documenten.
+                      {t('common.noDocuments')}
                     </p>
                   </div>
                 ) : (
@@ -332,18 +333,18 @@ const AdminDatabaseView = () => {
                       <div className="flex items-center gap-3">
                         <ShieldCheck size={16} className="text-emerald-500" />
                         <span className="text-xs font-black uppercase italic tracking-widest text-slate-300">
-                          Live Root Data: {selectedKey}
+                          {t('common.liveRootData')}: {selectedKey}
                         </span>
                       </div>
                       <span className="text-[10px] font-mono text-slate-500">
-                        {documents.length} Records
+                        {documents.length} {t('common.records')}
                       </span>
                     </div>
                     {/* List header */}
                     <div className="flex items-center px-6 py-2 bg-slate-800 border-x border-white/10 text-xs font-bold text-slate-300 uppercase tracking-widest">
                       <div className="w-12" />
-                      <div className="flex-1">Document ID</div>
-                      <div className="w-32 text-right">Acties</div>
+                      <div className="flex-1">{t('common.documentId')}</div>
+                      <div className="w-32 text-right">{t('common.actions')}</div>
                     </div>
                     {/* List rows */}
                     <div className="divide-y divide-slate-800 border-x border-b border-white/10 bg-slate-900 rounded-b-2xl">
@@ -367,7 +368,7 @@ const AdminDatabaseView = () => {
                             <button
                               onClick={e => { e.stopPropagation(); handleDeleteDoc(docItem.id); }}
                               className="p-2 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-all"
-                              title="Verwijderen"
+                              title={t('common.delete')}
                             >
                               <Trash2 size={16} />
                             </button>
@@ -384,7 +385,7 @@ const AdminDatabaseView = () => {
           {viewMode === "storage" && (
             <div className="flex-1 flex flex-col h-full p-8">
               <h2 className="text-xl font-black text-blue-400 mb-2">
-                Storage Bucket: <span className="text-white font-mono">future-factory-377ef</span>
+                {t('common.storageBucket')}: <span className="text-white font-mono">future-factory-377ef</span>
               </h2>
               <div className="mb-6 flex items-center gap-2 text-xs text-slate-400 font-mono">
                 <span className="text-blue-400 font-bold">/</span>
@@ -402,31 +403,31 @@ const AdminDatabaseView = () => {
                         {idx < arr.length - 1 && <span className="text-blue-400 font-bold">/</span>}
                       </span>
                     ))
-                  : <span className="text-slate-500">root</span>}
+                  : <span className="text-slate-500">{t('common.root')}</span>}
                 {storagePath && (
                   <button className="ml-2 text-blue-400 hover:text-blue-600" onClick={() => setStoragePath(storagePath.split("/").slice(0, -1).join("/"))}>
-                    &larr; Terug
+                    &larr; {t('common.back')}
                   </button>
                 )}
               </div>
               {storageLoading ? (
                 <div className="flex-1 flex flex-col items-center justify-center opacity-60">
                   <Loader2 className="animate-spin text-blue-400 mb-4" size={40} />
-                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400 italic animate-pulse">Laden...</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400 italic animate-pulse">{t('common.loading')}</p>
                 </div>
               ) : storageFiles.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-20 text-center opacity-40">
                   <div className="p-10 bg-white/5 rounded-full mb-6 border-2 border-dashed border-white/10">
                     <Database size={60} className="text-slate-600" />
                   </div>
-                  <h4 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">Geen bestanden gevonden</h4>
-                  <p className="text-xs font-medium text-slate-500 max-w-sm mx-auto">Er zijn geen bestanden in de root van de storage bucket.</p>
+                  <h4 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">{t('common.noFilesFound')}</h4>
+                  <p className="text-xs font-medium text-slate-500 max-w-sm mx-auto">{t('common.noFilesInRoot')}</p>
                 </div>
               ) : (
                 <div className="max-w-2xl mx-auto w-full">
                   <div className="flex items-center px-6 py-2 bg-slate-800 border-x border-white/10 text-xs font-bold text-slate-300 uppercase tracking-widest rounded-t-2xl">
-                    <div className="flex-1">Bestandsnaam</div>
-                    <div className="w-32 text-right">Acties</div>
+                    <div className="flex-1">{t('common.filename')}</div>
+                    <div className="w-32 text-right">{t('common.actions')}</div>
                   </div>
                   <div className="divide-y divide-slate-800 border-x border-b border-white/10 bg-slate-900 rounded-b-2xl">
                     {storageFiles.map((file) =>
@@ -440,13 +441,13 @@ const AdminDatabaseView = () => {
                             <span className="inline-block w-4 h-4 bg-blue-500 rounded-sm mr-2" />
                             <b>{file.name}/</b>
                           </div>
-                          <div className="w-32 flex items-center justify-end gap-2 text-xs text-slate-500">Map</div>
+                          <div className="w-32 flex items-center justify-end gap-2 text-xs text-slate-500">{t('common.folder')}</div>
                         </div>
                       ) : (
                         <div key={file.name} className="flex items-center px-6 py-3 group hover:bg-blue-950/30 transition-all cursor-pointer">
                           <div className="flex-1 font-mono text-blue-200 truncate">{file.name}</div>
                           <div className="w-32 flex items-center justify-end gap-2">
-                            <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-2 text-slate-500 hover:text-blue-500 hover:bg-blue-500/10 rounded transition-all" title="Downloaden">
+                            <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-2 text-slate-500 hover:text-blue-500 hover:bg-blue-500/10 rounded transition-all" title={t('common.download')}>
                               <FileText size={16} />
                             </a>
                           </div>
@@ -475,7 +476,7 @@ const AdminDatabaseView = () => {
               setContextMenu({ ...contextMenu, visible: false });
             }}
           >
-            📄 Bekijken
+            📄 {t('common.view')}
           </button>
           <button
             className="w-full text-left px-4 py-2 hover:bg-rose-600/80 transition-all"
@@ -484,7 +485,7 @@ const AdminDatabaseView = () => {
               setContextMenu({ ...contextMenu, visible: false });
             }}
           >
-            🗑️ Verwijderen
+            🗑️ {t('common.delete')}
           </button>
           <button
             className="w-full text-left px-4 py-2 hover:bg-blue-500/80 transition-all"
@@ -493,7 +494,7 @@ const AdminDatabaseView = () => {
               setContextMenu({ ...contextMenu, visible: false });
             }}
           >
-            🔄 Verversen
+            🔄 {t('common.refresh')}
           </button>
         </div>
       )}
@@ -505,11 +506,11 @@ const AdminDatabaseView = () => {
             <button
               onClick={() => setSelectedDoc(null)}
               className="absolute top-4 right-4 p-2 rounded-full bg-slate-800 hover:bg-blue-600 text-white"
-              title="Sluiten"
+              title={t('common.close')}
             >
               ×
             </button>
-            <h3 className="text-lg font-bold text-blue-400 mb-4">Document: <span className="text-white font-mono">{selectedDoc.id}</span></h3>
+            <h3 className="text-lg font-bold text-blue-400 mb-4">{t('common.document')} <span className="text-white font-mono">{selectedDoc.id}</span></h3>
             <pre className="text-xs font-mono text-slate-200 bg-black/40 p-4 rounded-xl max-h-[60vh] overflow-y-auto border border-white/10">
               {JSON.stringify(selectedDoc, (key, value) => key.startsWith("_") ? undefined : value, 2)}
             </pre>

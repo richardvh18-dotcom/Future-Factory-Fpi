@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { 
   Printer, 
   Plus, 
@@ -29,6 +30,7 @@ import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
 const AdminPrinterManager = () => {
+  const { t } = useTranslation();
   const [printers, setPrinters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
@@ -112,8 +114,8 @@ const AdminPrinterManager = () => {
   }, [printers]);
 
   const handleSave = async () => {
-    if (!formData.name) return alert("Naam is verplicht");
-    if (formData.type === "network" && !formData.ip) return alert("IP adres is verplicht voor netwerkprinters");
+    if (!formData.name) return alert(t('adminPrinterManager.nameRequired'));
+    if (formData.type === "network" && !formData.ip) return alert(t('adminPrinterManager.ipRequiredForNetwork'));
 
     try {
       // Als deze default wordt, zet anderen uit
@@ -141,12 +143,12 @@ const AdminPrinterManager = () => {
       setFormData({ name: "", ip: "", port: "9100", dpi: "203", width: "100", height: "50", darkness: "15", linkedStations: [], type: "network", isDefault: false });
     } catch (err) {
       console.error("Error saving printer:", err);
-      alert("Fout bij opslaan: " + err.message);
+      alert(t('adminPrinterManager.saveError') + err.message);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Weet je zeker dat je deze printer wilt verwijderen?")) return;
+    if (!window.confirm(t('adminPrinterManager.confirmDeletePrinter'))) return;
     try {
       await deleteDoc(doc(db, "future-factory", "settings", "printers", id));
     } catch (err) {
@@ -197,18 +199,18 @@ const AdminPrinterManager = () => {
           body: zpl, 
           mode: "no-cors" 
         });
-        alert(`Test opdracht verzonden naar ${printer.ip}`);
+        alert(`${t('adminPrinterManager.testCommandSentTo')} ${printer.ip}`);
       } catch (err) {
-        alert("Kon niet verbinden met printer. Check of je op hetzelfde netwerk zit.\nFout: " + err.message);
+        alert(t('adminPrinterManager.connectionErrorNetwork') + err.message);
       }
     } else {
-      alert("Lokale/USB printers gebruiken de browser print dialoog in de app.");
+      alert(t('adminPrinterManager.localPrintersUseBrowserDialog'));
     }
   };
 
   const handleTestNewPrinter = async () => {
     if (formData.type !== "network" || !formData.ip) {
-      alert("Vul eerst een geldig IP-adres in en selecteer type 'Netwerk'.");
+      alert(t('adminPrinterManager.enterValidIpFirst'));
       return;
     }
     
@@ -239,15 +241,15 @@ const AdminPrinterManager = () => {
         body: zpl, 
         mode: "no-cors" 
       });
-      alert(`Test opdracht verzonden naar ${formData.ip}`);
+      alert(`${t('adminPrinterManager.testCommandSentTo')} ${formData.ip}`);
     } catch (err) {
-      alert("Kon niet verbinden met printer. Check IP en netwerk.\nFout: " + err.message);
+      alert(t('adminPrinterManager.connectionErrorIp') + err.message);
     }
   };
 
   const handleTestAlignment = async (data) => {
     if (data.type !== "network" || !data.ip) {
-      alert("Alleen beschikbaar voor netwerkprinters met een IP-adres.");
+      alert(t('adminPrinterManager.onlyForNetworkPrinters'));
       return;
     }
 
@@ -271,9 +273,9 @@ const AdminPrinterManager = () => {
 
     try {
       await fetch(`http://${data.ip}/pstprnt`, { method: "POST", body: zpl, mode: "no-cors" });
-      alert(`Uitlijningstest (Kader) verzonden naar ${data.ip}`);
+      alert(`${t('adminPrinterManager.alignmentTestSentTo')} ${data.ip}`);
     } catch (err) {
-      alert("Kon niet verbinden met printer.\nFout: " + err.message);
+      alert(t('adminPrinterManager.connectionError') + err.message);
     }
   };
 
@@ -298,14 +300,14 @@ const AdminPrinterManager = () => {
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-black text-slate-800 uppercase italic">Printer Beheer</h2>
-          <p className="text-sm text-slate-500 font-bold">Configureer netwerk- en labelprinters</p>
+          <h2 className="text-2xl font-black text-slate-800 uppercase italic">{t('common.printerManagement')}</h2>
+          <p className="text-sm text-slate-500 font-bold">{t('common.configurePrinters')}</p>
         </div>
         <div className="flex gap-2">
           <button 
             onClick={handleCheckAll}
             className="p-2 bg-white border-2 border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-all"
-            title="Status Verversen"
+            title={t('adminPrinterManager.refreshStatus')}
           >
             <RefreshCw size={20} />
           </button>
@@ -317,7 +319,7 @@ const AdminPrinterManager = () => {
             }}
             className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold uppercase text-xs tracking-wider flex items-center gap-2 hover:bg-blue-700 transition-all"
           >
-            <Plus size={16} /> Nieuwe Printer
+            <Plus size={16} /> {t('common.newPrinter')}
           </button>
         </div>
       </div>
@@ -325,16 +327,16 @@ const AdminPrinterManager = () => {
       {isAdding && (
         <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-lg mb-8 animate-in slide-in-from-top-2">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="font-black text-slate-700 uppercase">{editingId ? "Printer Bewerken" : "Nieuwe Printer Toevoegen"}</h3>
+            <h3 className="font-black text-slate-700 uppercase">{editingId ? t('adminPrinterManager.editPrinter') : t('adminPrinterManager.addNewPrinter')}</h3>
             <button onClick={() => { setIsAdding(false); setEditingId(null); }}><X size={20} className="text-slate-400" /></button>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Naam</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('adminPrinterManager.name')}</label>
               <input 
                 type="text" 
-                placeholder="Bijv. BH11 Labelprinter"
+                placeholder={t('adminPrinterManager.printerNamePlaceholder')}
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
@@ -344,7 +346,7 @@ const AdminPrinterManager = () => {
             {/* Station Koppeling */}
             <div className="md:col-span-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
-                    <MapPin size={14} /> Koppel aan Werkstation (Optioneel)
+                    <MapPin size={14} /> {t('adminPrinterManager.linkToWorkstationOptional')}
                 </label>
                 <div className="flex flex-wrap gap-2 mb-2">
                     {formData.linkedStations.map(station => (
@@ -363,21 +365,21 @@ const AdminPrinterManager = () => {
                         e.target.value = "";
                     }}
                 >
-                    <option value="">+ Voeg station toe...</option>
+                    <option value="">{t('adminPrinterManager.addStationPlaceholder')}</option>
                     {availableStations.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Verbinding</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('adminPrinterManager.connection')}</label>
               <div className="flex gap-2">
                 <select 
                   className="w-1/3 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500"
                   value={formData.type}
                   onChange={e => setFormData({...formData, type: e.target.value})}
                 >
-                  <option value="network">Netwerk (IP)</option>
-                  <option value="zebra_local">Lokaal (USB)</option>
+                  <option value="network">{t('adminPrinterManager.networkIp')}</option>
+                  <option value="zebra_local">{t('adminPrinterManager.localUsb')}</option>
                 </select>
                 {formData.type === "network" ? (
                   <>
@@ -398,7 +400,7 @@ const AdminPrinterManager = () => {
                   </>
                 ) : (
                   <div className="flex-1 p-3 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-400 italic flex items-center">
-                    Gebruikt browser print dialoog
+                    {t('adminPrinterManager.usesBrowserPrintDialog')}
                   </div>
                 )}
               </div>
@@ -406,7 +408,7 @@ const AdminPrinterManager = () => {
             
             <div className="grid grid-cols-3 gap-3 md:col-span-2">
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">DPI</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('adminPrinterManager.dpi')}</label>
                     <select className="w-full p-2 bg-slate-50 border rounded-lg text-xs font-bold" value={formData.dpi} onChange={e => setFormData({...formData, dpi: e.target.value})}>
                         <option value="203">203 DPI</option>
                         <option value="300">300 DPI</option>
@@ -414,7 +416,7 @@ const AdminPrinterManager = () => {
                     </select>
                 </div>
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Formaat (mm)</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('adminPrinterManager.formatMm')}</label>
                     <div className="flex items-center gap-1">
                         <input type="number" className="w-full p-2 bg-slate-50 border rounded-lg text-xs font-bold" placeholder="B" value={formData.width} onChange={e => setFormData({...formData, width: e.target.value})} />
                         <span className="text-slate-300">x</span>
@@ -422,7 +424,7 @@ const AdminPrinterManager = () => {
                     </div>
                 </div>
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Darkness</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('adminPrinterManager.darkness')}</label>
                     <input type="number" min="0" max="30" className="w-full p-2 bg-slate-50 border rounded-lg text-xs font-bold" value={formData.darkness} onChange={e => setFormData({...formData, darkness: e.target.value})} />
                 </div>
             </div>
@@ -437,7 +439,7 @@ const AdminPrinterManager = () => {
               className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
             />
             <label htmlFor="isDefault" className="text-sm font-bold text-slate-700 cursor-pointer">
-              Instellen als standaard printer
+              {t('adminPrinterManager.setAsDefaultPrinter')}
             </label>
           </div>
 
@@ -448,19 +450,19 @@ const AdminPrinterManager = () => {
                   onClick={handleTestNewPrinter}
                   className="px-4 py-2 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 flex items-center gap-2"
                 >
-                  <Wifi size={16} /> Test Verbinding
+                  <Wifi size={16} /> {t('adminPrinterManager.testConnection')}
                 </button>
                 <button 
                   onClick={() => handleTestAlignment(formData)}
                   className="px-4 py-2 bg-purple-50 text-purple-600 font-bold rounded-lg hover:bg-purple-100 flex items-center gap-2"
                 >
-                  <Scan size={16} /> Test Kader
+                  <Scan size={16} /> {t('adminPrinterManager.testFrame')}
                 </button>
               </div>
             )}
-            <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-50 rounded-lg">Annuleren</button>
+            <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-50 rounded-lg">{t('common.cancel')}</button>
             <button onClick={handleSave} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 flex items-center gap-2">
-              <Save size={16} /> Opslaan
+              <Save size={16} /> {t('common.save')}
             </button>
           </div>
         </div>
@@ -468,7 +470,7 @@ const AdminPrinterManager = () => {
 
       <div className="grid gap-4">
         {printers.length === 0 && !loading && (
-          <div className="text-center py-12 text-slate-400 italic">Geen printers geconfigureerd.</div>
+          <div className="text-center py-12 text-slate-400 italic">{t('adminPrinterManager.noPrintersConfigured')}</div>
         )}
         
         {printers.map(printer => (
@@ -481,17 +483,17 @@ const AdminPrinterManager = () => {
                 <div className="flex items-center gap-2">
                   <h3 className="font-black text-slate-800">{printer.name}</h3>
                   {printer.isDefault && (
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase rounded-md border border-emerald-200">Standaard</span>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase rounded-md border border-emerald-200">{t('common.default')}</span>
                   )}
                 </div>
                 <p className="text-xs font-bold text-slate-400 font-mono mt-0.5">
-                  {printer.type === 'network' ? `IP: ${printer.ip}:${printer.port || 9100}` : 'Lokaal / USB'}
+                  {printer.type === 'network' ? `IP: ${printer.ip}:${printer.port || 9100}` : t('adminPrinterManager.localUsb')}
                   {printer.type === 'network' && printer.dpi && <span className="ml-2 opacity-60 text-[10px]">({printer.dpi} DPI)</span>}
                 </p>
                 <p className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-1">
                     {printer.linkedStations && printer.linkedStations.length > 0 
                         ? printer.linkedStations.map(s => <span key={s} className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{s}</span>)
-                        : <span className="italic opacity-50">Geen specifieke stations</span>}
+                        : <span className="italic opacity-50">{t('adminPrinterManager.noSpecificStations')}</span>}
                 </p>
                 {printer.type === 'network' && (
                   <div className="flex items-center gap-1.5 mt-2">
@@ -505,9 +507,9 @@ const AdminPrinterManager = () => {
                           printerStatuses[printer.id] === 'offline' ? 'text-rose-600' : 
                           'text-slate-400'
                       }`}>
-                          {printerStatuses[printer.id] === 'online' ? 'Online' : 
-                           printerStatuses[printer.id] === 'offline' ? 'Offline' : 
-                           'Verbinden...'}
+                          {printerStatuses[printer.id] === 'online' ? t('adminPrinterManager.online') : 
+                           printerStatuses[printer.id] === 'offline' ? t('adminPrinterManager.offline') : 
+                           t('adminPrinterManager.connecting')}
                       </span>
                   </div>
                 )}
@@ -519,7 +521,7 @@ const AdminPrinterManager = () => {
                 <button 
                   onClick={() => handleSetDefault(printer.id)}
                   className="p-2 text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                  title="Maak Standaard"
+                  title={t('adminPrinterManager.makeDefault')}
                 >
                   <CheckCircle2 size={18} />
                 </button>
@@ -527,28 +529,28 @@ const AdminPrinterManager = () => {
               <button 
                 onClick={() => handleTestPrint(printer)}
                 className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                title="Test Print"
+                title={t('adminPrinterManager.testPrint')}
               >
                 <Play size={18} />
               </button>
               <button 
                 onClick={() => handleTestAlignment(printer)}
                 className="p-2 text-slate-300 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                title="Test Uitlijning (Kader)"
+                title={t('adminPrinterManager.testAlignmentFrame')}
               >
                 <Scan size={18} />
               </button>
               <button 
                 onClick={() => handleEdit(printer)}
                 className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                title="Bewerken"
+                title={t('common.edit')}
               >
                 <Edit size={18} />
               </button>
               <button 
                 onClick={() => handleDelete(printer.id)}
                 className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                title="Verwijderen"
+                title={t('common.delete')}
               >
                 <Trash2 size={18} />
               </button>

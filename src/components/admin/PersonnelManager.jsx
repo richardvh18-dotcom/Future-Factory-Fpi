@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Users,
   Loader2,
@@ -55,6 +56,7 @@ import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
  * - /future-factory/production/machine_occupancy (Bezetting)
  */
 const PersonnelManager = () => {
+  const { t } = useTranslation();
   const [personnel, setPersonnel] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
   const [structure, setStructure] = useState({ departments: [] });
@@ -154,7 +156,7 @@ const PersonnelManager = () => {
     const dept = (structure.departments || []).find((d) => d.id === deptId);
     return dept && dept.shifts && dept.shifts.length > 0
       ? dept.shifts
-      : [{ id: "DAG", label: "Dagdienst", start: "07:15", end: "16:00" }];
+      : [{ id: "DAG", label: t('personnel.dayShift', "Dagdienst"), start: "07:15", end: "16:00" }];
   };
 
   const getShiftHours = (person, deptId, forDate = viewDate) => {
@@ -190,7 +192,7 @@ const PersonnelManager = () => {
         times: `${activeShift.start}-${activeShift.end}`,
       };
     } catch (e) {
-      return { label: "Dagdienst", total: DEFAULTS.SHIFT_HOURS, times: "07:15-16:00" };
+      return { label: t('personnel.dayShift', "Dagdienst"), total: DEFAULTS.SHIFT_HOURS, times: "07:15-16:00" };
     }
   };
 
@@ -316,7 +318,7 @@ const PersonnelManager = () => {
     }
 
     if (sourceData.length === 0)
-      return alert(`Geen bezetting van ${isMonday ? 'vrijdag' : 'gisteren'} gevonden` + (typeof targetDeptId === 'string' ? " voor deze afdeling." : "."));
+      return alert(t('personnel.noOccupancyFound', { day: isMonday ? t('common.friday') : t('common.yesterday') }) + (typeof targetDeptId === 'string' ? t('personnel.forThisDept') : "."));
 
     setIsCopying(true);
     try {
@@ -356,7 +358,7 @@ const PersonnelManager = () => {
       await batch.commit();
       setStatus({
         type: "success",
-        msg: `${sourceData.length} lopers overgezet van ${isMonday ? 'vrijdag' : 'gisteren'}!`,
+        msg: t('personnel.copiedCount', { count: sourceData.length, day: isMonday ? t('common.friday') : t('common.yesterday') }),
       });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
@@ -370,7 +372,7 @@ const PersonnelManager = () => {
     e.preventDefault();
 
     if (isDuplicateNumber) {
-      alert(`Het personeelsnummer ${personForm.employeeNumber} is al in gebruik.`);
+      alert(t('personnel.duplicateNumber', { number: personForm.employeeNumber }));
       return;
     }
 
@@ -389,10 +391,10 @@ const PersonnelManager = () => {
 
       setIsPersonModalOpen(false);
       setEditingId(null);
-      setStatus({ type: "success", msg: "Medewerker opgeslagen" });
+      setStatus({ type: "success", msg: t('personnel.saved', "Medewerker opgeslagen") });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
-      alert("Fout: " + err.message);
+      alert(t('common.error', { message: err.message }));
     } finally {
       setSaving(false);
     }
@@ -435,7 +437,7 @@ const PersonnelManager = () => {
       <div className="h-full flex items-center justify-center bg-slate-50 gap-4">
         <Loader2 className="animate-spin text-blue-600" size={48} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Identiteiten synchroniseren...
+          {t('personnel.syncingIdentities', "Identiteiten synchroniseren...")}
         </p>
       </div>
     );
@@ -451,11 +453,11 @@ const PersonnelManager = () => {
             </div>
             <div className="text-left text-left">
               <h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-                Personeel & Bezetting <span className="text-blue-600 text-sm">/ Resource Control</span>
+                {t('personnel.title', "Personeel & Bezetting")} <span className="text-blue-600 text-sm">/ Resource Control</span>
               </h2>
               <div className="mt-1.5 flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 uppercase italic">
-                  <ShieldCheck size={9} /> Root Authorized
+                  <ShieldCheck size={9} /> {t('personnel.rootAuthorized', "Root Authorized")}
                 </span>
                 <p className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">
                   Node: /{PATHS.PERSONNEL.join("/")}
@@ -474,7 +476,7 @@ const PersonnelManager = () => {
                     : "text-slate-400"
                 }`}
               >
-                <CalendarDays size={12} /> Dag
+                <CalendarDays size={12} /> {t('common.day', "Dag")}
               </button>
               <button
                 onClick={() => setTimeMode("WEEK")}
@@ -484,7 +486,7 @@ const PersonnelManager = () => {
                     : "text-slate-400"
                 }`}
               >
-                <TrendingUp size={12} /> Week
+                <TrendingUp size={12} /> {t('common.week', "Week")}
               </button>
             </div>
             <div className="flex bg-slate-100 p-1 rounded-xl">
@@ -496,7 +498,7 @@ const PersonnelManager = () => {
                     : "text-slate-400"
                 }`}
               >
-                Bezetting
+                {t('personnel.occupancy', "Bezetting")}
               </button>
               <button
                 onClick={() => setActiveTab("loan")}
@@ -506,7 +508,7 @@ const PersonnelManager = () => {
                     : "text-slate-400"
                 }`}
               >
-                Uitlenen
+                {t('personnel.lending', "Uitlenen")}
               </button>
               <button
                 onClick={() => setActiveTab("personnel")}
@@ -516,7 +518,7 @@ const PersonnelManager = () => {
                     : "text-slate-400"
                 }`}
               >
-                Personeel
+                {t('personnel.staff', "Personeel")}
               </button>
             </div>
             <button
@@ -551,7 +553,7 @@ const PersonnelManager = () => {
               }}
               className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-2"
             >
-              <Plus size={16} /> Nieuw
+              <Plus size={16} /> {t('common.new', "Nieuw")}
             </button>
           </div>
         </div>
@@ -567,7 +569,7 @@ const PersonnelManager = () => {
             <div className="flex flex-col items-center px-6 min-w-[200px]">
               <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">
                 {isToday(viewDate)
-                  ? "Vandaag"
+                  ? t('common.today', "Vandaag")
                   : format(viewDate, "eeee", { locale: nl })}
               </span>
               <span className="text-base font-black uppercase italic tracking-tight">
@@ -596,7 +598,7 @@ const PersonnelManager = () => {
             ) : (
               <Copy size={16} />
             )}{" "}
-            {viewDate.getDay() === 1 ? "Herhaal Vrijdag" : "Herhaal Gisteren"}
+            {viewDate.getDay() === 1 ? t('personnel.copyFriday', "Herhaal Vrijdag") : t('personnel.copyYesterday', "Herhaal Gisteren")}
           </button>
 
           {status && (
@@ -610,33 +612,33 @@ const PersonnelManager = () => {
               <div className="bg-slate-900 px-6 py-4 rounded-3xl flex items-center gap-6 border border-white/5 shadow-xl shrink-0">
                 {/* Totaal Volume */}
                 <div className="text-left">
-                  <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Totaal Volume</span>
+                  <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">{t('personnel.totalVolume', "Totaal Volume")}</span>
                   <div className="flex items-baseline gap-1.5 text-white">
                     <span className="text-2xl font-black italic">{kpiData.global.hours.toFixed(1)}</span>
                     <span className="text-[9px] font-bold text-slate-500 uppercase">u</span>
                   </div>
-                  <span className="text-[8px] text-slate-400 font-bold uppercase">{timeMode === 'DAY' ? 'per dag' : 'per week'}</span>
+                  <span className="text-[8px] text-slate-400 font-bold uppercase">{timeMode === 'DAY' ? t('common.perDay', 'per dag') : t('common.perWeek', 'per week')}</span>
                 </div>
                 <div className="w-px h-8 bg-white/10"></div>
                 {/* Man-uren */}
                 <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
-                  <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Man-uren</span>
+                  <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">{t('personnel.manHours', "Man-uren")}</span>
                   <span className="text-xs font-black text-white">{kpiData.global.hours.toFixed(1)}</span>
-                  <span className="text-[7px] text-slate-400 font-bold uppercase">{timeMode === 'DAY' ? 'per dag' : 'per week'}</span>
+                  <span className="text-[7px] text-slate-400 font-bold uppercase">{timeMode === 'DAY' ? t('common.perDay', 'per dag') : t('common.perWeek', 'per week')}</span>
                 </div>
                 {/* BH Stations */}
                 <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
-                  <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest">BH Stations</span>
+                  <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest">{t('personnel.bhStations', "BH Stations")}</span>
                   <span className="text-xs font-black text-emerald-300">{kpiData.production.toFixed(1)}</span>
                 </div>
                 {/* Overig */}
                 <div className="flex flex-col items-center px-3 border-r border-white/10 last:border-0 min-w-[60px]">
-                  <span className="text-[7px] font-black text-blue-500 uppercase tracking-widest">Overig</span>
+                  <span className="text-[7px] font-black text-blue-500 uppercase tracking-widest">{t('common.other', "Overig")}</span>
                   <span className="text-xs font-black text-blue-300">{kpiData.support.toFixed(1)}</span>
                 </div>
                 {/* Efficiency */}
                 <div className="flex flex-col items-center px-3 min-w-[60px]">
-                  <span className="text-[7px] font-black text-purple-500 uppercase tracking-widest">Efficiency</span>
+                  <span className="text-[7px] font-black text-purple-500 uppercase tracking-widest">{t('personnel.efficiency', "Efficiency")}</span>
                   <span className="text-xs font-black text-purple-300">{kpiData.efficiency.toFixed(0)}%</span>
                 </div>
                 <div className="w-px h-8 bg-white/10"></div>
@@ -675,7 +677,7 @@ const PersonnelManager = () => {
               onToggleDept={(id) => setListExpandedSections(prev => ({...prev, [id]: !prev[id]}))}
               onEdit={openEditPerson}
               onDelete={async (id) => {
-                if (window.confirm("Verwijderen?")) {
+                if (window.confirm(t('common.deleteConfirm', "Verwijderen?"))) {
                   await deleteDoc(doc(db, ...PATHS.PERSONNEL, id));
                 }
               }}
@@ -695,11 +697,11 @@ const PersonnelManager = () => {
                 </div>
                 <div className="text-left">
                   <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-                    {editingId ? "Edit" : "New"}{" "}
-                    <span className="text-blue-600">Resource</span>
+                    {editingId ? t('common.edit', "Edit") : t('common.new', "New")}{" "}
+                    <span className="text-blue-600">{t('personnel.resource', "Resource")}</span>
                   </h3>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">
-                    Master Personnel Database
+                    {t('personnel.masterDb', "Master Personnel Database")}
                   </p>
                 </div>
               </div>
@@ -718,14 +720,14 @@ const PersonnelManager = () => {
                 onClick={() => setModalTab("profile")}
                 className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${modalTab === "profile" ? "bg-slate-100 text-blue-600" : "text-slate-400 hover:bg-slate-50"}`}
               >
-                Profiel
+                {t('personnel.profile', "Profiel")}
               </button>
               <button
                 type="button"
                 onClick={() => setModalTab("loan")}
                 className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${modalTab === "loan" ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50"}`}
               >
-                Uitlenen
+                {t('personnel.lending', "Uitlenen")}
               </button>
             </div>
 
@@ -738,7 +740,7 @@ const PersonnelManager = () => {
                 <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-1.5 text-left">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">
-                    Naam Medewerker
+                    {t('personnel.employeeName', "Naam Medewerker")}
                   </label>
                   <input
                     required
@@ -754,7 +756,7 @@ const PersonnelManager = () => {
                 </div>
                 <div className="space-y-1.5 text-left">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">
-                    Personeelsnummer
+                    {t('personnel.employeeNumber', "Personeelsnummer")}
                   </label>
                   <input
                     required
@@ -773,7 +775,7 @@ const PersonnelManager = () => {
                   />
                   {isDuplicateNumber && (
                     <p className="text-[10px] font-bold text-rose-500 ml-2 mt-1 flex items-center gap-1">
-                      <AlertCircle size={12} /> Dit nummer is al in gebruik!
+                      <AlertCircle size={12} /> {t('personnel.numberInUse', "Dit nummer is al in gebruik!")}
                     </p>
                   )}
                 </div>
@@ -781,14 +783,14 @@ const PersonnelManager = () => {
 
               <div className="space-y-1.5 text-left">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">
-                  Koppel User Account
+                  {t('personnel.linkUser', "Koppel User Account")}
                 </label>
                 <select
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 text-sm cursor-pointer"
                   value={personForm.linkedUserId || ""}
                   onChange={(e) => setPersonForm({ ...personForm, linkedUserId: e.target.value })}
                 >
-                  <option value="">Geen koppeling...</option>
+                  <option value="">{t('personnel.noLink', "Geen koppeling...")}</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} ({u.email})
@@ -799,7 +801,7 @@ const PersonnelManager = () => {
 
               <div className="space-y-1.5 text-left">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">
-                  Standaard Afdeling
+                  {t('personnel.defaultDept', "Standaard Afdeling")}
                 </label>
                 <select
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 text-sm cursor-pointer"
@@ -811,7 +813,7 @@ const PersonnelManager = () => {
                     })
                   }
                 >
-                  <option value="">Kies afdeling...</option>
+                  <option value="">{t('personnel.chooseDept', "Kies afdeling...")}</option>
                   {structure.departments.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
@@ -824,7 +826,7 @@ const PersonnelManager = () => {
                 {/* Rotatie Type Keuze */}
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">
-                    Ploegen Type
+                    {t('personnel.shiftType', "Ploegen Type")}
                   </label>
                   <div className="flex gap-3">
                     <button
@@ -840,7 +842,7 @@ const PersonnelManager = () => {
                           : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
                       }`}
                     >
-                      🔒 Vaste Ploeg
+                      🔒 {t('personnel.staticShift', "Vaste Ploeg")}
                     </button>
                     <button
                       type="button"
@@ -865,7 +867,7 @@ const PersonnelManager = () => {
                           : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
                       }`}
                     >
-                      🔄 Rotatie Ploegen
+                      🔄 {t('personnel.rotationShift', "Rotatie Ploegen")}
                     </button>
                   </div>
                 </div>
@@ -874,7 +876,7 @@ const PersonnelManager = () => {
                 {!personForm.rotationSchedule?.enabled && (
                   <div className="space-y-1.5 text-left">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block italic">
-                      Vaste Ploeg
+                      {t('personnel.staticShift', "Vaste Ploeg")}
                     </label>
                     <select
                       className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 text-sm cursor-pointer"
@@ -898,7 +900,7 @@ const PersonnelManager = () => {
                   <div className="space-y-4 bg-emerald-50/50 p-5 rounded-2xl border-2 border-emerald-100">
                     <div className="space-y-1.5 text-left">
                       <label className="text-[10px] font-black text-emerald-700 uppercase ml-2 block flex items-center gap-2">
-                        <RotateCcw size={12} /> Start Deze Week Met
+                        <RotateCcw size={12} /> {t('personnel.startWeekWith', "Start Deze Week Met")}
                       </label>
                       <select
                         className="w-full p-3 bg-white border-2 border-emerald-200 rounded-xl font-bold outline-none focus:border-emerald-500 text-sm cursor-pointer"
@@ -941,7 +943,7 @@ const PersonnelManager = () => {
                     </div>
                     
                     <div className="bg-white p-4 rounded-xl border border-emerald-200">
-                      <p className="text-[9px] font-black text-emerald-600 uppercase tracking-wider mb-2">Rotatie Schema:</p>
+                      <p className="text-[9px] font-black text-emerald-600 uppercase tracking-wider mb-2">{t('personnel.rotationSchedule', "Rotatie Schema:")}</p>
                       <div className="flex gap-2 flex-wrap">
                         {personForm.rotationSchedule.shifts.map((shiftId, idx) => {
                           const shift = getShiftsForDept(personForm.departmentId).find(s => s.id === shiftId);
@@ -953,13 +955,13 @@ const PersonnelManager = () => {
 
                           return (
                             <span key={idx} className={`px-3 py-1.5 bg-${color}-100 text-${color}-800 border border-${color}-200 rounded-lg text-xs font-bold`}>
-                              Week {idx + 1}: {shift?.label || shiftId}
+                              {t('common.week', "Week")} {idx + 1}: {shift?.label || shiftId}
                             </span>
                           );
                         })}
                       </div>
                       <p className="text-[8px] text-emerald-600 mt-2 italic">
-                        Start: Week {personForm.rotationSchedule.startWeek} • Herhaalt elke {personForm.rotationSchedule.shifts.length} weken
+                        {t('personnel.rotationInfo', { week: personForm.rotationSchedule.startWeek, count: personForm.rotationSchedule.shifts.length })}
                       </p>
                     </div>
                   </div>
@@ -980,7 +982,7 @@ const PersonnelManager = () => {
                       className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-[10px] font-black uppercase text-slate-700">
-                      Account Actief
+                      {t('personnel.accountActive', "Account Actief")}
                     </span>
                   </label>
                 </div>
@@ -991,7 +993,7 @@ const PersonnelManager = () => {
             {modalTab === "loan" && (
                 <div className="space-y-6 animate-in slide-in-from-right-4">
                   <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                    <span className="text-xs font-black text-indigo-800 uppercase">Actief Uitlenen</span>
+                    <span className="text-xs font-black text-indigo-800 uppercase">{t('personnel.activeLending', "Actief Uitlenen")}</span>
                     <input 
                       type="checkbox" 
                       className="w-6 h-6 rounded text-indigo-600 focus:ring-indigo-500"
@@ -1003,13 +1005,13 @@ const PersonnelManager = () => {
                   {personForm.loan?.active && (
                     <>
                       <div className="space-y-1.5 text-left">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Doel Afdeling</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">{t('personnel.targetDept', "Doel Afdeling")}</label>
                         <select 
                           className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-indigo-500 text-sm"
                           value={personForm.loan.departmentId}
                           onChange={e => setPersonForm({...personForm, loan: { ...personForm.loan, departmentId: e.target.value }})}
                         >
-                          <option value="">Kies afdeling...</option>
+                          <option value="">{t('personnel.chooseDept', "Kies afdeling...")}</option>
                           {structure.departments.filter(d => d.id !== personForm.departmentId).map(d => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                           ))}
@@ -1017,13 +1019,13 @@ const PersonnelManager = () => {
                       </div>
 
                       <div className="space-y-1.5 text-left">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Doel Ploeg</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">{t('personnel.targetShift', "Doel Ploeg")}</label>
                         <select 
                           className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-indigo-500 text-sm"
                           value={personForm.loan.shiftId}
                           onChange={e => setPersonForm({...personForm, loan: { ...personForm.loan, shiftId: e.target.value }})}
                         >
-                          <option value="">Kies ploeg...</option>
+                          <option value="">{t('personnel.chooseShift', "Kies ploeg...")}</option>
                           {loanShifts.map(s => (
                             <option key={s.id} value={s.id}>{s.label}</option>
                           ))}
@@ -1038,7 +1040,7 @@ const PersonnelManager = () => {
                             checked={personForm.loan.followRotation}
                             onChange={e => setPersonForm({...personForm, loan: { ...personForm.loan, followRotation: e.target.checked }})}
                           />
-                          <span className="text-xs font-bold text-slate-700">Volg ploegenrooster doelafdeling</span>
+                          <span className="text-xs font-bold text-slate-700">{t('personnel.followTargetRotation', "Volg ploegenrooster doelafdeling")}</span>
                         </label>
 
                         <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 cursor-pointer">
@@ -1048,12 +1050,12 @@ const PersonnelManager = () => {
                             checked={personForm.loan.autoReturn}
                             onChange={e => handleAutoReturnToggle(e.target.checked)}
                           />
-                          <span className="text-xs font-bold text-slate-700">Automatisch terug na 5 dagen</span>
+                          <span className="text-xs font-bold text-slate-700">{t('personnel.autoReturn5Days', "Automatisch terug na 5 dagen")}</span>
                         </label>
                         
                         {personForm.loan.autoReturn && personForm.loan.returnDate && (
                           <div className="text-[10px] font-bold text-indigo-600 px-4">
-                            Retour datum: {personForm.loan.returnDate}
+                            {t('personnel.returnDate', "Retour datum:")} {personForm.loan.returnDate}
                           </div>
                         )}
                       </div>
@@ -1072,7 +1074,7 @@ const PersonnelManager = () => {
                 ) : (
                   <Save size={24} />
                 )}{" "}
-                Gegevens Vastleggen
+                {t('common.saveData', "Gegevens Vastleggen")}
               </button>
             </form>
           </div>
@@ -1083,13 +1085,13 @@ const PersonnelManager = () => {
       <div className="p-4 bg-slate-950 border-t border-white/5 flex justify-between items-center text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] px-10 shrink-0">
         <div className="flex items-center gap-6">
           <span className="flex items-center gap-2 text-emerald-500/50">
-            <ShieldCheck size={14} /> Forensic Audit Node
+            <ShieldCheck size={14} /> {t('personnel.forensicNode', "Forensic Audit Node")}
           </span>
           <span className="flex items-center gap-2">
-            <Database size={14} /> Central Resource Vault
+            <Database size={14} /> {t('personnel.centralVault', "Central Resource Vault")}
           </span>
         </div>
-        <span className="opacity-30 italic">Future Factory MES v6.11</span>
+        <span className="opacity-30 italic">{t('common.version', "Future Factory MES v6.11")}</span>
       </div>
     </div>
   );

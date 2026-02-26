@@ -51,7 +51,7 @@ const AiDocumentUploadView = () => {
         setLoading(false);
       },
       (err) => {
-        console.error("Fout bij laden AI documenten:", err);
+        console.error(t('ai.upload.load_error'), err);
         setLoading(false);
       }
     );

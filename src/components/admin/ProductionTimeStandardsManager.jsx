@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Clock,
   Upload,
@@ -37,6 +38,7 @@ import { getRecommendations, analyzeAndUpdateStandards } from "../../utils/autoL
  * Beheer standaard productietijden per product per machine
  */
 const ProductionTimeStandardsManager = () => {
+  const { t } = useTranslation();
   const [standards, setStandards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -107,7 +109,7 @@ const ProductionTimeStandardsManager = () => {
       },
       (err) => {
         console.error("Error loading standards:", err);
-        setStatus({ type: "error", message: "Fout bij laden van standaarden" });
+        setStatus({ type: "error", message: t('productionStandards.error_loading', "Fout bij laden van standaarden") });
         setLoading(false);
       }
     );
@@ -126,7 +128,7 @@ const ProductionTimeStandardsManager = () => {
 
   const handleAddNew = async () => {
     if (!newEntry.itemCode || !newEntry.machine || !newEntry.standardMinutes) {
-      setStatus({ type: "error", message: "Item code, machine en tijd zijn verplicht" });
+      setStatus({ type: "error", message: t('productionStandards.error_required', "Item code, machine en tijd zijn verplicht") });
       return;
     }
 
@@ -142,11 +144,11 @@ const ProductionTimeStandardsManager = () => {
       });
 
       setNewEntry({ itemCode: "", machine: "", standardMinutes: "", description: "" });
-      setStatus({ type: "success", message: "Standaard toegevoegd" });
+      setStatus({ type: "success", message: t('productionStandards.success_added', "Standaard toegevoegd") });
       setTimeout(() => setStatus(null), 3000);
     } catch (error) {
       console.error("Error adding standard:", error);
-      setStatus({ type: "error", message: "Fout bij toevoegen" });
+      setStatus({ type: "error", message: t('productionStandards.error_adding', "Fout bij toevoegen") });
     } finally {
       setSaving(false);
     }
@@ -161,26 +163,26 @@ const ProductionTimeStandardsManager = () => {
         { merge: true }
       );
       setEditMode(null);
-      setStatus({ type: "success", message: "Standaard bijgewerkt" });
+      setStatus({ type: "success", message: t('productionStandards.success_updated', "Standaard bijgewerkt") });
       setTimeout(() => setStatus(null), 3000);
     } catch (error) {
       console.error("Error updating standard:", error);
-      setStatus({ type: "error", message: "Fout bij bijwerken" });
+      setStatus({ type: "error", message: t('productionStandards.error_updating', "Fout bij bijwerken") });
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Weet je zeker dat je deze standaard wilt verwijderen?")) return;
+    if (!window.confirm(t('productionStandards.confirm_delete', "Weet je zeker dat je deze standaard wilt verwijderen?"))) return;
     
     try {
       await deleteDoc(doc(db, ...PATHS.PRODUCTION_STANDARDS, id));
-      setStatus({ type: "success", message: "Standaard verwijderd" });
+      setStatus({ type: "success", message: t('productionStandards.success_deleted', "Standaard verwijderd") });
       setTimeout(() => setStatus(null), 3000);
     } catch (error) {
       console.error("Error deleting standard:", error);
-      setStatus({ type: "error", message: "Fout bij verwijderen" });
+      setStatus({ type: "error", message: t('productionStandards.error_deleting', "Fout bij verwijderen") });
     }
   };
 
@@ -229,12 +231,12 @@ const ProductionTimeStandardsManager = () => {
 
         setStatus({ 
           type: "success", 
-          message: `${imported} standaarden geïmporteerd` 
+          message: t('productionStandards.success_imported', { count: imported, defaultValue: `${imported} standaarden geïmporteerd` })
         });
         setTimeout(() => setStatus(null), 3000);
       } catch (error) {
         console.error("CSV import error:", error);
-        setStatus({ type: "error", message: "Fout bij importeren CSV" });
+        setStatus({ type: "error", message: t('productionStandards.error_importing', "Fout bij importeren CSV") });
       } finally {
         setSaving(false);
         e.target.value = "";
@@ -277,18 +279,18 @@ const ProductionTimeStandardsManager = () => {
       if (applyUpdates) {
         setStatus({ 
           type: "success", 
-          message: `${results.updated} standaarden automatisch bijgewerkt` 
+          message: t('productionStandards.success_auto_updated', { count: results.updated, defaultValue: `${results.updated} standaarden automatisch bijgewerkt` })
         });
       } else {
         setStatus({ 
           type: "success", 
-          message: `${results.recommendations.length} aanbevelingen gevonden` 
+          message: t('productionStandards.success_recommendations', { count: results.recommendations.length, defaultValue: `${results.recommendations.length} aanbevelingen gevonden` })
         });
       }
       setTimeout(() => setStatus(null), 5000);
     } catch (error) {
       console.error("Auto-learning error:", error);
-      setStatus({ type: "error", message: "Fout bij auto-learning analyse" });
+      setStatus({ type: "error", message: t('productionStandards.error_auto_learning', "Fout bij auto-learning analyse") });
     } finally {
       setIsLearning(false);
     }
@@ -311,14 +313,14 @@ const ProductionTimeStandardsManager = () => {
         </div>
         <div className="relative z-10">
           <h2 className="text-2xl font-black uppercase italic tracking-tighter leading-none">
-            Productie <span className="text-blue-500">Tijd Standaarden</span>
+            {t('productionStandards.title', 'Productie Tijd Standaarden').split(' ')[0]} <span className="text-blue-500">{t('productionStandards.title', 'Productie Tijd Standaarden').split(' ').slice(1).join(' ')}</span>
           </h2>
           <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">
-            Verwachte productietijden per product per machine
+            {t('productionStandards.subtitle', 'Verwachte productietijden per product per machine')}
           </p>
           <div className="mt-4 flex items-center gap-2">
             <span className="text-xs font-mono text-emerald-400">
-              📊 {standards.length} standaarden
+              📊 {t('productionStandards.count_standards', { count: standards.length, defaultValue: `${standards.length} standaarden` })}
             </span>
           </div>
         </div>
@@ -341,7 +343,7 @@ const ProductionTimeStandardsManager = () => {
         <div className="flex flex-wrap items-center gap-4">
           <label className="inline-flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest cursor-pointer hover:bg-blue-700 transition">
             <Upload size={16} />
-            Import CSV
+            {t('productionStandards.import_csv', 'Import CSV')}
             <input
               type="file"
               accept=".csv"
@@ -356,7 +358,7 @@ const ProductionTimeStandardsManager = () => {
             className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 transition"
           >
             <Download size={16} />
-            Export CSV
+            {t('productionStandards.export_csv', 'Export CSV')}
           </button>
 
           <button
@@ -365,13 +367,13 @@ const ProductionTimeStandardsManager = () => {
             className="inline-flex items-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-purple-700 transition disabled:opacity-50"
           >
             {isLearning ? <Loader2 className="animate-spin" size={16} /> : <Brain size={16} />}
-            Analyse
+            {t('productionStandards.analysis', 'Analyse')}
           </button>
 
           <div className="flex-1 min-w-[200px]">
             <input
               type="text"
-              placeholder="Zoeken..."
+              placeholder={t('productionStandards.search_placeholder', 'Zoeken...')}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
@@ -384,9 +386,9 @@ const ProductionTimeStandardsManager = () => {
             <div className="flex items-start gap-2 text-xs text-blue-700">
               <FileSpreadsheet size={16} className="mt-0.5 flex-shrink-0" />
               <div>
-                <div className="font-bold">CSV Format:</div>
+                <div className="font-bold">{t('productionStandards.csv_format', 'CSV Format:')}</div>
                 <code className="text-[10px] block mt-1">itemCode,machine,standardMinutes,description</code>
-                <div className="text-[10px] mt-1">Voorbeeld: A2E5,BH11,45,Wavistrong 160mm DN125</div>
+                <div className="text-[10px] mt-1">{t('productionStandards.example', 'Voorbeeld: A2E5,BH11,45,Wavistrong 160mm DN125')}</div>
               </div>
             </div>
           </div>
@@ -395,11 +397,11 @@ const ProductionTimeStandardsManager = () => {
             <div className="flex items-start gap-2 text-xs text-emerald-700">
               <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0" />
               <div>
-                <div className="font-bold">Automatisch Ophalen:</div>
+                <div className="font-bold">{t('productionStandards.auto_fetch', 'Automatisch Ophalen:')}</div>
                 <div className="text-[10px] mt-1">
-                  Item Codes worden automatisch geladen uit <code className="bg-emerald-100 px-1 rounded">/conversions/mapping</code>
+                  {t('productionStandards.item_codes_source', 'Item Codes worden automatisch geladen uit')} <code className="bg-emerald-100 px-1 rounded">/conversions/mapping</code>
                   <br />
-                  Machines worden geladen uit <code className="bg-emerald-100 px-1 rounded">/factory_config</code>
+                  {t('productionStandards.machines_source', 'Machines worden geladen uit')} <code className="bg-emerald-100 px-1 rounded">/factory_config</code>
                 </div>
               </div>
             </div>
@@ -409,10 +411,10 @@ const ProductionTimeStandardsManager = () => {
             <div className="flex items-start gap-2 text-xs text-purple-700">
               <Brain size={16} className="mt-0.5 flex-shrink-0" />
               <div>
-                <div className="font-bold">Zelflerend Systeem:</div>
+                <div className="font-bold">{t('productionStandards.self_learning_system', 'Zelflerend Systeem:')}</div>
                 <div className="text-[10px] mt-1">
-                  Klik op <strong>Analyse</strong> om het systeem historische data te laten analyseren.
-                  Het systeem vergelijkt standaard tijden met werkelijke gemeten tijden en stelt updates voor.
+                  <span dangerouslySetInnerHTML={{ __html: t('productionStandards.click_analysis', { analysis: t('productionStandards.analysis'), defaultValue: 'Klik op <strong>Analyse</strong> om het systeem historische data te laten analyseren.' }) }} />
+                  {t('productionStandards.system_comparison', 'Het systeem vergelijkt standaard tijden met werkelijke gemeten tijden en stelt updates voor.')}
                 </div>
               </div>
             </div>
@@ -427,7 +429,7 @@ const ProductionTimeStandardsManager = () => {
             <div className="flex items-center gap-2">
               <Brain className="text-purple-600" size={20} />
               <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
-                Zelflerend Aanbevelingen ({learningRecommendations.length})
+                {t('productionStandards.recommendations_title', { count: learningRecommendations.length, defaultValue: `Zelflerend Aanbevelingen (${learningRecommendations.length})` })}
               </h3>
             </div>
             <div className="flex gap-2">
@@ -437,13 +439,13 @@ const ProductionTimeStandardsManager = () => {
                 className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-purple-700 transition disabled:opacity-50"
               >
                 <RefreshCw size={14} className="inline mr-1" />
-                Alles Toepassen
+                {t('productionStandards.apply_all', 'Alles Toepassen')}
               </button>
               <button
                 onClick={() => setShowRecommendations(false)}
                 className="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition"
               >
-                Sluiten
+                {t('productionStandards.close', 'Sluiten')}
               </button>
             </div>
           </div>
@@ -458,19 +460,19 @@ const ProductionTimeStandardsManager = () => {
                     <div className="text-sm text-slate-600">{rec.machine}</div>
                   </div>
                   <div className="text-xs text-slate-500 mt-1">
-                    {rec.sampleCount} metingen • {rec.deviation > 0 ? '+' : ''}{rec.deviation}% afwijking
+                    {t('productionStandards.measurements', { count: rec.sampleCount, defaultValue: `${rec.sampleCount} metingen` })} • {t('productionStandards.deviation', { value: (rec.deviation > 0 ? '+' : '') + rec.deviation, defaultValue: `${rec.deviation}% afwijking` })}
                   </div>
                 </div>
                 <div className="flex items-center gap-6">
                   <div className="text-right">
-                    <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">Huidig</div>
+                    <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">{t('productionStandards.current', 'Huidig')}</div>
                     <div className="text-lg font-black text-slate-600">
                       {formatMinutes(rec.currentStandard)}
                     </div>
                   </div>
                   <div className="text-slate-400">→</div>
                   <div className="text-right">
-                    <div className="text-xs text-purple-500 uppercase tracking-widest mb-1">Aanbevolen</div>
+                    <div className="text-xs text-purple-500 uppercase tracking-widest mb-1">{t('productionStandards.recommended', 'Aanbevolen')}</div>
                     <div className="text-lg font-black text-purple-600">
                       {formatMinutes(rec.recommendedStandard)}
                     </div>
@@ -493,11 +495,11 @@ const ProductionTimeStandardsManager = () => {
             <div className="flex items-start gap-2 text-xs text-purple-700">
               <TrendingUp size={16} className="mt-0.5 flex-shrink-0" />
               <div>
-                <div className="font-bold">Hoe werkt het?</div>
+                <div className="font-bold">{t('productionStandards.how_it_works', 'Hoe werkt het?')}</div>
                 <div className="text-[10px] mt-1">
-                  Het systeem analyseert voltooide producties en vergelijkt werkelijke tijden met standaard tijden.
-                  Bij significante afwijkingen (>5%) wordt een aanpassing voorgesteld.
-                  Groene cijfers = sneller dan verwacht, rode cijfers = langzamer.
+                  {t('productionStandards.analysis_explanation', 'Het systeem analyseert voltooide producties en vergelijkt werkelijke tijden met standaard tijden.')}
+                  {t('productionStandards.deviation_explanation', 'Bij significante afwijkingen (>5%) wordt een aanpassing voorgesteld.')}
+                  {t('productionStandards.color_explanation', 'Groene cijfers = sneller dan verwacht, rode cijfers = langzamer.')}
                 </div>
               </div>
             </div>
@@ -510,7 +512,7 @@ const ProductionTimeStandardsManager = () => {
         <div className="flex items-center gap-2 mb-4">
           <Plus className="text-blue-600" size={20} />
           <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
-            Nieuwe Standaard Toevoegen
+            {t('productionStandards.add_new_title', 'Nieuwe Standaard Toevoegen')}
           </h3>
         </div>
         
@@ -519,7 +521,7 @@ const ProductionTimeStandardsManager = () => {
             <input
               type="text"
               list="itemCodeList"
-              placeholder="Item Code *"
+              placeholder={t('productionStandards.item_code_placeholder', 'Item Code *')}
               value={newEntry.itemCode}
               onChange={(e) => setNewEntry({ ...newEntry, itemCode: e.target.value })}
               className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
@@ -530,14 +532,14 @@ const ProductionTimeStandardsManager = () => {
               ))}
             </datalist>
             <div className="text-[10px] text-slate-500 mt-1">
-              {availableItemCodes.length} codes beschikbaar
+              {t('productionStandards.codes_available', { count: availableItemCodes.length, defaultValue: `${availableItemCodes.length} codes beschikbaar` })}
             </div>
           </div>
           <div>
             <input
               type="text"
               list="machineList"
-              placeholder="Machine *"
+              placeholder={t('productionStandards.machine_placeholder', 'Machine *')}
               value={newEntry.machine}
               onChange={(e) => setNewEntry({ ...newEntry, machine: e.target.value })}
               className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
@@ -548,19 +550,19 @@ const ProductionTimeStandardsManager = () => {
               ))}
             </datalist>
             <div className="text-[10px] text-slate-500 mt-1">
-              {availableMachines.length} machines beschikbaar
+              {t('productionStandards.machines_available', { count: availableMachines.length, defaultValue: `${availableMachines.length} machines beschikbaar` })}
             </div>
           </div>
           <input
             type="number"
-            placeholder="Minuten *"
+            placeholder={t('productionStandards.minutes_placeholder', 'Minuten *')}
             value={newEntry.standardMinutes}
             onChange={(e) => setNewEntry({ ...newEntry, standardMinutes: e.target.value })}
             className="px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
           />
           <input
             type="text"
-            placeholder="Beschrijving"
+            placeholder={t('productionStandards.description_placeholder', 'Beschrijving')}
             value={newEntry.description}
             onChange={(e) => setNewEntry({ ...newEntry, description: e.target.value })}
             className="px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
@@ -573,20 +575,20 @@ const ProductionTimeStandardsManager = () => {
           className="mt-4 inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition disabled:opacity-50"
         >
           {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-          Toevoegen
+          {t('productionStandards.add_button', 'Toevoegen')}
         </button>
       </div>
 
       {/* Standards List */}
       <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
         <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 mb-4">
-          Huidige Standaarden ({filteredStandards.length})
+          {t('productionStandards.current_standards_title', { count: filteredStandards.length, defaultValue: `Huidige Standaarden (${filteredStandards.length})` })}
         </h3>
 
         {filteredStandards.length === 0 ? (
           <div className="text-center py-12 text-slate-400">
             <Clock size={48} className="mx-auto mb-4 opacity-50" />
-            <p className="text-sm font-bold">Geen standaarden gevonden</p>
+            <p className="text-sm font-bold">{t('productionStandards.no_standards_found', 'Geen standaarden gevonden')}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -632,7 +634,7 @@ const ProductionTimeStandardsManager = () => {
                         onClick={() => setEditMode(null)}
                         className="px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
                       >
-                        Cancel
+                        {t('productionStandards.cancel', 'Annuleren')}
                       </button>
                     </div>
                   </div>
@@ -655,7 +657,7 @@ const ProductionTimeStandardsManager = () => {
                           {formatMinutes(std.standardMinutes)}
                         </div>
                         <div className="text-[10px] text-slate-500 uppercase tracking-widest">
-                          Standaard Tijd
+                          {t('productionStandards.standard_time', 'Standaard Tijd')}
                         </div>
                       </div>
                       <button

@@ -53,7 +53,7 @@ const AiTrainingView = () => {
         setLoading(false);
       },
       (err) => {
-        console.error("Fout bij laden AI logs:", err);
+        console.error(t('ai.training.load_error'), err);
         setLoading(false);
       }
     );
@@ -74,24 +74,24 @@ const AiTrainingView = () => {
       setEditingId(null);
       setCorrection("");
     } catch (e) {
-      console.error("Fout bij verifiëren:", e);
+      console.error(t('ai.training.verify_error'), e);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Deze interactie verwijderen uit de kennisbank?"))
+    if (!window.confirm(t('ai.training.delete_confirm')))
       return;
     try {
       await deleteDoc(doc(db, ...PATHS.AI_KNOWLEDGE_BASE, id));
     } catch (e) {
-      console.error("Fout bij verwijderen:", e);
+      console.error(t('ai.training.delete_error'), e);
     }
   };
 
   const handleMigration = async () => {
-    if (!window.confirm("Database normaliseren? Dit zorgt ervoor dat alle logs zowel 'question' als 'userInput' velden hebben.")) return;
+    if (!window.confirm(t('ai.training.migrate_confirm'))) return;
     
     try {
       const colRef = collection(db, ...PATHS.AI_KNOWLEDGE_BASE);
@@ -112,10 +112,10 @@ const AiTrainingView = () => {
       });
       
       await Promise.all(promises);
-      alert(`Migratie voltooid: ${updated} records bijgewerkt.`);
+      alert(t('ai.training.migrate_done', { count: updated }));
     } catch (e) {
       console.error(e);
-      alert("Fout: " + e.message);
+      alert(t('ai.training.migrate_error', { message: e.message }));
     }
   };
 

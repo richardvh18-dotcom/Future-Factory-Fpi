@@ -65,7 +65,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const navigate = useNavigate();
 
   const [selectedStation, setSelectedStation] = useState(
-    initialStationId || "BH11"
+    (typeof initialStationId === 'object' ? initialStationId.name : initialStationId) || "BH11"
   );
   const [activeTab, setActiveTab] = useState("terminal");
   const [rawOrders, setRawOrders] = useState([]);
@@ -106,9 +106,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   // Initiele Tab en Station Setup
   useEffect(() => {
     if (initialStationId) {
-      setSelectedStation(initialStationId);
+      const stationName = typeof initialStationId === 'object' ? initialStationId.name : initialStationId;
+      setSelectedStation(stationName);
       if (
-        ["Mazak", "Nabewerking"].includes(initialStationId)
+        ["Mazak", "Nabewerking"].includes(stationName)
       ) {
         setActiveTab("winding");
       } else {
@@ -129,10 +130,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         console.log(`✅ Order gevonden:`, foundOrder);
         setSelectedOrder(foundOrder);
         setActiveTab("terminal"); // Toon de orders tab
-        showInfo(`Order ${searchFilterOrder} geladen`);
+        showInfo(t("digitalplanning.workstation.order_loaded", { order: searchFilterOrder }));
       } else {
         console.log(`⚠️ Order ${searchFilterOrder} niet gevonden in planning`);
-        showWarning(`Order ${searchFilterOrder} niet gevonden`);
+        showWarning(t("digitalplanning.workstation.order_not_found", { order: searchFilterOrder }));
       }
     }
   }, [searchFilterOrder, rawOrders]);
@@ -184,7 +185,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             id: doc.id,
             ...data,
             orderId: data.orderId || data.orderNumber || doc.id,
-            item: data.item || data.productCode || "Onbekend Item",
+            item: data.item || data.productCode || t("digitalplanning.workstation.unknown_item"),
             plan: data.plan || data.quantity || 0,
             dateObj: dateObj,
             weekNumber: parseInt(data.week || data.weekNumber || week),
@@ -281,8 +282,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           await addDoc(
             collection(db, ...PATHS.MESSAGES),
             {
-              title: "⏰ Automatische Reminder: Tijdelijke Afkeur",
-              message: `Product ${item.lotNumber} ligt al meer dan 7 dagen op ${selectedStation} ter reparatie. Graag actie.`,
+              title: t("digitalplanning.workstation.reminder_title"),
+              message: t("digitalplanning.workstation.reminder_message", { lot: item.lotNumber, station: selectedStation }),
               type: "alert",
               status: "unread",
               read: false,
@@ -302,7 +303,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             reminderSentAt: serverTimestamp(),
           });
         } catch (err) {
-          console.error("Fout bij versturen auto-reminder:", err);
+          console.error(t("digitalplanning.workstation.reminder_error"), err);
         }
       }
     };
@@ -313,16 +314,16 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   // Huidige operator voor dit werkstation berekenen  // Shift color helper
   const getShiftColor = (shiftLabel) => {
     const label = (shiftLabel || "").toUpperCase();
-    if (label.includes("OCHTEND") || label.includes("MORNING") || label.includes("EARLY")) {
+    if (label.includes(t("digitalplanning.workstation.shift_morning_label").toUpperCase()) || label.includes("MORNING") || label.includes("EARLY")) {
       return "bg-amber-100 text-amber-800 border-amber-300";
     }
-    if (label.includes("AVOND") || label.includes("EVENING") || label.includes("LATE")) {
+    if (label.includes(t("digitalplanning.workstation.shift_evening_label").toUpperCase()) || label.includes("EVENING") || label.includes("LATE")) {
       return "bg-indigo-100 text-indigo-800 border-indigo-300";
     }
-    if (label.includes("NACHT") || label.includes("NIGHT")) {
+    if (label.includes(t("digitalplanning.workstation.shift_night_label").toUpperCase()) || label.includes("NIGHT")) {
       return "bg-purple-100 text-purple-800 border-purple-300";
     }
-    if (label.includes("DAG") || label === "DAGDIENST") {
+    if (label.includes(t("digitalplanning.workstation.shift_day_label").toUpperCase()) || label === t("digitalplanning.workstation.shift_daydienst_label").toUpperCase()) {
       return "bg-blue-100 text-blue-800 border-blue-300";
     }
     return "bg-slate-100 text-slate-800 border-slate-300";
@@ -1053,11 +1054,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       if (productSnap.exists()) {
         setLinkedProductData({ id: productSnap.id, ...productSnap.data() });
       } else {
-        showWarning("Product niet gevonden in database", "Niet gevonden");
+        showWarning(t("digitalplanning.workstation.product_not_found"), t("digitalplanning.workstation.not_found"));
       }
     } catch (error) {
       console.error(error);
-      showError("Kon product niet laden", "Fout bij laden");
+      showError(t("digitalplanning.workstation.product_load_error"), t("digitalplanning.workstation.load_error"));
     }
   };
 
@@ -1071,9 +1072,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       );
       if (origOrder && origOrder.linkedProductId)
         handleOpenProductInfo(origOrder.linkedProductId);
-      else showWarning(`Geen dossier bij order ${unit.originalOrderId}`, "Dossier ontbreekt");
+      else showWarning(t("digitalplanning.workstation.no_dossier_for_order", { order: unit.originalOrderId }), t("digitalplanning.workstation.dossier_missing"));
     } else {
-      showWarning(`Geen dossier gekoppeld aan order ${unit.orderId}`, "Dossier ontbreekt");
+      showWarning(t("digitalplanning.workstation.no_dossier_linked", { order: unit.orderId }), t("digitalplanning.workstation.dossier_missing"));
     }
   };
 
@@ -1091,7 +1092,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                 className="mr-2 sm:mr-4 px-3 py-1.5 sm:px-4 sm:py-2 bg-white border border-gray-200 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider"
               >
                 <LogOut className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span className="hidden sm:inline">Terug</span>
+                <span className="hidden sm:inline">{t("digitalplanning.workstation.back")}</span>
               </button>
               <span className="text-lg sm:text-xl font-black text-gray-900 italic tracking-tight truncate max-w-[150px] sm:max-w-none">
                 {WORKSTATIONS.find((w) => w.id === selectedStation)?.name ||
@@ -1102,17 +1103,17 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             {/* KPI Tegels */}
             <div className="hidden md:flex items-center gap-2 ml-2 border-l border-slate-200 pl-4">
               <div className="flex flex-col items-center px-3 py-1 bg-blue-50 rounded-lg border border-blue-100 min-w-[60px]">
-                <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest leading-none mb-0.5">Plan</span>
+                <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest leading-none mb-0.5">{t("digitalplanning.dashboard.plan")}</span>
                 <span className="text-sm font-black text-blue-700 leading-none">{stationStats.plan}</span>
               </div>
               <div className="flex flex-col items-center px-3 py-1 bg-orange-50 rounded-lg border border-orange-100 min-w-[60px]">
                 <span className="text-[8px] font-black text-orange-400 uppercase tracking-widest leading-none mb-0.5">
-                  {["BM01", "Station BM01", "Mazak", "Nabewerking"].includes(selectedStation) ? "Aan te bieden" : "Nog te doen"}
+                  {["BM01", "Station BM01", "Mazak", "Nabewerking"].includes(selectedStation) ? t("digitalplanning.terminal.tab_to_offer") : t("digitalplanning.workstation.todo")}
                 </span>
                 <span className="text-sm font-black text-orange-700 leading-none">{stationStats.todo}</span>
               </div>
               <div className="flex flex-col items-center px-3 py-1 bg-emerald-50 rounded-lg border border-emerald-100 min-w-[60px]">
-                <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest leading-none mb-0.5">Gereed</span>
+                <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest leading-none mb-0.5">{t("digitalplanning.dashboard.ready")}</span>
                 <span className="text-sm font-black text-emerald-700 leading-none">{stationStats.done}</span>
               </div>
             </div>
@@ -1131,7 +1132,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                   {stationOccupancy[currentOperatorIndex]?.operatorName}
                 </div>
               ) : (
-                <span className="text-xs font-bold text-slate-400 uppercase italic">Geen operator</span>
+                <span className="text-xs font-bold text-slate-400 uppercase italic">{t("digitalplanning.workstation.no_operator")}</span>
               )}
             </div>
 
@@ -1140,7 +1141,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
                 <Calendar size={16} className="text-blue-600" />
                 <div className="text-xs font-bold text-gray-700">
-                  Week {currentWeekInfo.week} • {currentDate.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {t("common.week")} {currentWeekInfo.week} • {currentDate.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                 </div>
                 <div className="text-xs font-mono font-bold text-blue-600 border-l border-gray-300 pl-3">
                   {currentDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
@@ -1164,15 +1165,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                     {/* KPI Info voor mobiel */}
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       <div className="px-2 py-2 bg-blue-50 rounded-lg border border-blue-100 text-center">
-                        <span className="text-[8px] font-black text-blue-400 uppercase block">Plan</span>
+                        <span className="text-[8px] font-black text-blue-400 uppercase block">{t("digitalplanning.dashboard.plan")}</span>
                         <span className="text-xs font-black text-blue-700">{stationStats.plan}</span>
                       </div>
                       <div className="px-2 py-2 bg-orange-50 rounded-lg border border-orange-100 text-center">
-                        <span className="text-[8px] font-black text-orange-400 uppercase block">Aan te bieden</span>
+                        <span className="text-[8px] font-black text-orange-400 uppercase block">{t("digitalplanning.terminal.tab_to_offer")}</span>
                         <span className="text-xs font-black text-orange-700">{stationStats.todo}</span>
                       </div>
                       <div className="px-2 py-2 bg-emerald-50 rounded-lg border border-emerald-100 text-center">
-                        <span className="text-[8px] font-black text-emerald-400 uppercase block">Gereed</span>
+                        <span className="text-[8px] font-black text-emerald-400 uppercase block">{t("digitalplanning.dashboard.ready")}</span>
                         <span className="text-xs font-black text-emerald-700">{stationStats.done}</span>
                       </div>
                     </div>
@@ -1182,7 +1183,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                       <div className="px-3 py-3 bg-slate-50 rounded-lg border border-slate-200 mb-2">
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-2">
                           <Clock className="w-3 h-3" />
-                          <span>Ingeplande Bezetting</span>
+                          <span>{t("digitalplanning.workstation.scheduled_occupancy")}</span>
                         </div>
                         <div className="space-y-1.5">
                           {stationOccupancy.map((occ, idx) => (
@@ -1208,7 +1209,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                           : "text-gray-500"
                       }`}
                     >
-                      Planning
+                      {t("digitalplanning.terminal.tab_planning")}
                     </button>
                     <button
                       onClick={() => {
@@ -1221,7 +1222,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                           : "text-gray-500"
                       }`}
                     >
-                      Productie
+                      {t("digitalplanning.hub.title")}
                     </button>
                     {!["BM01", "Station BM01"].includes(
                       selectedStation
@@ -1237,7 +1238,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                             : "text-gray-500"
                         }`}
                       >
-                        Lossen
+                        {t("digitalplanning.terminal.tab_lossen")}
                       </button>
                     )}
                     <button
@@ -1251,7 +1252,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                           : "text-gray-500"
                       }`}
                     >
-                      Efficiency
+                      {t("common.efficiency")}
                     </button>
                   </div>
                 )}
@@ -1270,10 +1271,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         ) : (!currentUser?.role || currentUser?.role === 'guest') ? (
           <div className="flex flex-col justify-center items-center h-full text-slate-400">
             <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-200 text-center max-w-md">
-              <h3 className="text-lg font-black uppercase tracking-widest text-slate-700 mb-2">Account In Behandeling</h3>
-              <p className="text-sm font-medium mb-6">Uw accountrechten worden momenteel verwerkt. Probeer het later opnieuw of neem contact op met de beheerder.</p>
+              <h3 className="text-lg font-black uppercase tracking-widest text-slate-700 mb-2">{t("digitalplanning.workstation.account_pending_title")}</h3>
+              <p className="text-sm font-medium mb-6">{t("digitalplanning.workstation.account_pending_message")}</p>
               <button onClick={handleBack} className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors">
-                Terug naar Portal
+                {t("digitalplanning.workstation.back_to_portal")}
               </button>
             </div>
           </div>

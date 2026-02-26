@@ -12,12 +12,12 @@ const AiCenterView = () => {
   const previewData = {
     flashcards: [
       {
-        front: { text: "Wat is het doel van deze module?" },
-        back: { text: "Het beheren en trainen van de AI assistent." }
+        front: { text: t('ai.center.flashcard1.front') },
+        back: { text: t('ai.center.flashcard1.back') }
       },
       {
-        front: { text: "Welke documenten worden ondersteund?" },
-        back: { text: "PDF, CSV, JSON, TXT en MD bestanden." }
+        front: { text: t('ai.center.flashcard2.front') },
+        back: { text: t('ai.center.flashcard2.back') }
       }
     ]
   };
@@ -33,7 +33,7 @@ const AiCenterView = () => {
               : "bg-white text-slate-600 border border-slate-200"
           }`}
         >
-          <BrainCircuit size={14} /> AI Training
+          <BrainCircuit size={14} /> {t('ai.center.tabs.training')}
         </button>
         <button
           onClick={() => setActiveTab("documents")}
@@ -43,7 +43,7 @@ const AiCenterView = () => {
               : "bg-white text-slate-600 border border-slate-200"
           }`}
         >
-          <FileText size={14} /> AI Documenten
+          <FileText size={14} /> {t('ai.center.tabs.documents')}
         </button>
         <button
           onClick={() => setActiveTab("flashcards")}
@@ -53,7 +53,7 @@ const AiCenterView = () => {
               : "bg-white text-slate-600 border border-slate-200"
           }`}
         >
-          <Sparkles size={14} /> Flashcards
+          <Sparkles size={14} /> {t('ai.center.tabs.flashcards')}
         </button>
         <button
           onClick={() => setActiveTab("context")}
@@ -63,7 +63,7 @@ const AiCenterView = () => {
               : "bg-white text-slate-600 border border-slate-200"
           }`}
         >
-          <Settings size={14} /> Context Beheer
+          <Settings size={14} /> {t('ai.center.tabs.context')}
         </button>
       </div>
 

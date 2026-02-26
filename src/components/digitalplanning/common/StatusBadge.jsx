@@ -27,7 +27,7 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
     // 1. KWALITEITS LABELS (QC)
     if (cleanStatus === "goed" || cleanStatus === "approved") {
       return {
-        label: t('status.good'),
+        label: t('status.good', 'Goed'),
         style: "bg-emerald-50 text-emerald-600 border-emerald-200",
         icon: <ShieldCheck size={12} />,
       };
@@ -38,14 +38,14 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
       cleanStatus === "held_qc"
     ) {
       return {
-        label: t('status.repair'),
+        label: t('status.repair', 'Tijdelijke afkeur'),
         style: "bg-orange-50 text-orange-600 border-orange-200",
         icon: <Timer size={12} className="animate-spin-slow" />,
       };
     }
     if (cleanStatus === "definitieve afkeur" || cleanStatus === "rejected") {
       return {
-        label: t('status.rejected'),
+        label: t('status.rejected', 'Afkeur'),
         style: "bg-rose-50 text-rose-600 border-rose-200",
         icon: <XCircle size={12} />,
       };
@@ -54,7 +54,7 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
     // 2. PRODUCTIE STATUSSEN (MES)
     if (cleanStatus === "finished" || cleanStatus === "voltooid") {
       return {
-        label: t('status.finished'),
+        label: t('status.finished', 'Gereed'),
         style: "bg-blue-50 text-blue-700 border-blue-200",
         icon: <CheckCircle2 size={12} />,
       };
@@ -65,14 +65,14 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
       cleanStatus === "bezig"
     ) {
       return {
-        label: t('status.active'),
+        label: t('status.active', 'Bezig'),
         style: "bg-blue-600 text-white border-blue-500 shadow-sm animate-pulse",
         icon: <Zap size={12} fill="currentColor" />,
       };
     }
     if (cleanStatus === "pending" || cleanStatus === "te doen") {
       return {
-        label: t('status.queue'),
+        label: t('status.queue', 'Te doen'),
         style: "bg-slate-100 text-slate-500 border-slate-200",
         icon: <Clock size={12} />,
       };

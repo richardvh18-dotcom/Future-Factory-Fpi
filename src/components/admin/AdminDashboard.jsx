@@ -1,4 +1,5 @@
 import React, { useState, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Package,
   Database,
@@ -64,6 +65,7 @@ const CapacityPlanningView = React.lazy(() => import("../planning/CapacityPlanni
 const EfficiencyDashboard = React.lazy(() => import("../digitalplanning/EfficiencyDashboard"));
 const AiCenterView = React.lazy(() => import("../ai/AiCenterView"));
 const AdminLabelManager = React.lazy(() => import("./AdminLabelManager"));
+const PilotMigrationTool = React.lazy(() => import("./PilotMigrationTool"));
 // NIEUW: Referentie Tabel toevoegen
 const AdminReferenceTable = React.lazy(() => import("./AdminReferenceTable"));
 // NIEUW: Monday.com/vPlan-style Planning Views
@@ -84,6 +86,7 @@ const ScenarioPlanningView = React.lazy(() => import("../planning/ScenarioPlanni
  * Beheert alle MES-beheermodules inclusief de technische encyclopedie.
  */
 const AdminDashboard = () => {
+  const { t } = useTranslation();
   const { role, user } = useAdminAuth();
   const [activeScreen, setActiveScreen] = useState(null);
   const [expandedCategories, setExpandedCategories] = useState([]); // All categories collapsed by default
@@ -377,6 +380,15 @@ const AdminDashboard = () => {
           component: AiCenterView,
           requiredModule: "ai_assistant",
         },
+        {
+          id: "pilot_migration",
+          title: "Pilot Migratie Tool",
+          desc: "Verplaats pilot-data naar productie en schoon op.",
+          icon: <DatabaseZap size={24} className="text-rose-600" />,
+          color: "bg-rose-50 border-rose-100",
+          roles: ["admin"],
+          component: PilotMigrationTool,
+        },
       ]
     }
   ];
@@ -451,15 +463,15 @@ const AdminDashboard = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-200 pb-10">
           <div className="text-left">
             <h1 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight uppercase italic leading-none">
-              Admin <span className="text-blue-600">Hub</span>
+              {t('adminDashboard.title', 'Admin')} <span className="text-blue-600">{t('adminDashboard.hub', 'Hub')}</span>
             </h1>
             <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mt-2 italic text-left leading-none">
-              Control Center & Technical Reference
+              {t('adminDashboard.subtitle', 'Control Center & Technical Reference')}
             </p>
           </div>
           <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl border border-white/10">
             <ShieldAlert size={14} className="text-blue-400" />
-            Active Session: {role?.toUpperCase() || "NO ROLE"}
+            {t('adminDashboard.active_session', 'Active Session')}: {role?.toUpperCase() || t('adminDashboard.no_role', 'NO ROLE')}
           </div>
         </div>
 
@@ -483,7 +495,7 @@ const AdminDashboard = () => {
                         {category.title}
                       </h2>
                       <p className="text-xs text-slate-500 font-medium mt-1">
-                        {category.items.length} module{category.items.length !== 1 ? 's' : ''}
+                        {category.items.length} {t('adminDashboard.module', 'module')}{category.items.length !== 1 ? t('adminDashboard.modules', 's') : ''}
                       </p>
                     </div>
                   </div>
@@ -511,7 +523,7 @@ const AdminDashboard = () => {
                           {item.desc}
                         </p>
                         <div className="mt-8 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-300 group-hover:text-blue-600 transition-colors">
-                          Openen <ArrowRight size={14} />
+                          {t('open')} <ArrowRight size={14} />
                         </div>
                       </button>
                     ))}

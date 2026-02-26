@@ -374,7 +374,7 @@ const ProductDossierModal = ({
               {parentOrder.notes && (
                 <div className="lg:col-span-4 mt-2 pt-4 border-t border-blue-200/50">
                   <span className="text-[9px] font-black text-blue-400 uppercase">
-                    Extra Info (Import)
+                    PO Text / Opmerkingen
                   </span>
                   <p className="text-sm font-medium text-slate-700 italic">
                     {parentOrder.notes}

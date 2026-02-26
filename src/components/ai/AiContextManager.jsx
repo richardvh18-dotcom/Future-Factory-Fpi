@@ -23,8 +23,8 @@ const AiContextManager = () => {
           setContext(DEFAULT_CONTEXT);
         }
       } catch (err) {
-        console.error("Error loading context:", err);
-        showError("Kon AI context niet laden.");
+        console.error(t('ai.context.load_error'), err);
+        showError(t('ai.context.load_error'));
       } finally {
         setLoading(false);
       }
@@ -41,17 +41,17 @@ const AiContextManager = () => {
         updatedAt: serverTimestamp(),
         updatedBy: auth.currentUser?.email || "Admin"
       }, { merge: true });
-      showSuccess("AI Context opgeslagen!");
+      showSuccess(t('ai.context.save_success'));
     } catch (err) {
-      console.error("Error saving context:", err);
-      showError("Opslaan mislukt.");
+      console.error(t('ai.context.save_error'), err);
+      showError(t('ai.context.save_error'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleReset = () => {
-    if (window.confirm("Weet je zeker dat je terug wilt naar de standaard systeem prompt?")) {
+    if (window.confirm(t('ai.context.reset_confirm'))) {
       setContext(DEFAULT_CONTEXT);
     }
   };

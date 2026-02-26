@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   MessageSquare,
   Users,
@@ -10,7 +11,7 @@ import {
   AlertCircle,
   Settings,
   Bell,
-  Shield,
+  Send,
   Mail,
   Archive,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import { useAdminAuth } from "../../hooks/useAdminAuth";
  * Beheert berichten instellingen, groepen, en notificatie preferences
  */
 const AdminMessagesManagement = () => {
+  const { t } = useTranslation();
   const { user } = useAdminAuth();
   const [activeTab, setActiveTab] = useState("groups"); // 'groups', 'settings', 'notifications'
   const [groups, setGroups] = useState([]);
@@ -58,6 +60,15 @@ const AdminMessagesManagement = () => {
     enableSystemNotifications: true,
     defaultRetentionDays: 30,
     enableEmailNotifications: false,
+  });
+
+  // Notification Form State
+  const [notificationForm, setNotificationForm] = useState({
+    targetType: "group", // group, user, all
+    targetId: "",
+    subject: "",
+    content: "",
+    priority: "normal"
   });
 
   // Load Groups
@@ -92,7 +103,7 @@ const AdminMessagesManagement = () => {
   const handleCreateGroup = async (e) => {
     e.preventDefault();
     if (!newGroup.name.trim()) {
-      setStatus({ type: "error", msg: "Groepnaam is verplicht" });
+      setStatus({ type: "error", msg: t('adminMessages.groupNameRequired') });
       return;
     }
 
@@ -111,11 +122,11 @@ const AdminMessagesManagement = () => {
 
       setNewGroup({ name: "", description: "", members: [], color: "bg-blue-500" });
       setShowNewGroupForm(false);
-      setStatus({ type: "success", msg: "✅ Groep aangemaakt!" });
+      setStatus({ type: "success", msg: t('adminMessages.groupCreated') });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
       console.error("Fout bij aanmaken groep:", err);
-      setStatus({ type: "error", msg: "❌ Fout bij aanmaken groep" });
+      setStatus({ type: "error", msg: t('adminMessages.groupCreateError') });
     } finally {
       setSaving(false);
     }
@@ -123,17 +134,17 @@ const AdminMessagesManagement = () => {
 
   // Delete Group
   const handleDeleteGroup = async (groupId) => {
-    if (!window.confirm("Groep verwijderen? Dit kan niet ongedaan gemaakt worden."))
+    if (!window.confirm(t('adminMessages.deleteGroupConfirm')))
       return;
 
     setSaving(true);
     try {
       await deleteDoc(doc(db, ...PATHS.MESSAGES, "config", "groups", groupId));
-      setStatus({ type: "success", msg: "✅ Groep verwijderd" });
+      setStatus({ type: "success", msg: t('adminMessages.groupDeleted') });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
       console.error("Fout bij verwijderen groep:", err);
-      setStatus({ type: "error", msg: "❌ Fout bij verwijderen" });
+      setStatus({ type: "error", msg: t('adminMessages.deleteError') });
     } finally {
       setSaving(false);
     }
@@ -150,24 +161,64 @@ const AdminMessagesManagement = () => {
         updatedBy: user?.email || "Admin",
       }, { merge: true });
 
-      setStatus({ type: "success", msg: "✅ Instellingen opgeslagen!" });
+      setStatus({ type: "success", msg: t('adminMessages.settingsSaved') });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
       console.error("Fout bij opslaan instellingen:", err);
-      setStatus({ type: "error", msg: "❌ Fout bij opslaan" });
+      setStatus({ type: "error", msg: t('adminMessages.saveError') });
     } finally {
       setSaving(false);
     }
   };
 
+  // Send System Notification
+  const handleSendNotification = async (e) => {
+    e.preventDefault();
+    if (!notificationForm.subject || !notificationForm.content) {
+        setStatus({ type: "error", msg: "Onderwerp en inhoud zijn verplicht" });
+        return;
+    }
+    
+    setSaving(true);
+    try {
+        let to = "all";
+        if (notificationForm.targetType === "group") to = notificationForm.targetId;
+        if (notificationForm.targetType === "user") to = notificationForm.targetId;
+
+        await addDoc(collection(db, ...PATHS.MESSAGES), {
+            to: to,
+            from: "SYSTEM",
+            senderId: user?.uid || "admin",
+            senderName: "Systeem Bericht",
+            subject: notificationForm.subject,
+            content: notificationForm.content,
+            timestamp: serverTimestamp(),
+            read: false,
+            archived: false,
+            priority: notificationForm.priority,
+            type: "system", // Zorgt voor speciale styling in AdminMessagesView
+            targetGroup: notificationForm.targetType === "group" ? notificationForm.targetId : null
+        });
+
+        setStatus({ type: "success", msg: "Systeemnotificatie verzonden!" });
+        setNotificationForm(prev => ({ ...prev, subject: "", content: "" }));
+        setTimeout(() => setStatus(null), 3000);
+    } catch (err) {
+        console.error(err);
+        setStatus({ type: "error", msg: "Kon bericht niet versturen: " + err.message });
+    } finally {
+        setSaving(false);
+    }
+  };
+
   const colorOptions = [
-    { name: "Blauw", value: "bg-blue-500" },
-    { name: "Groen", value: "bg-green-500" },
-    { name: "Paars", value: "bg-purple-500" },
-    { name: "Oranje", value: "bg-orange-500" },
-    { name: "Rood", value: "bg-red-500" },
-    { name: "Cyaan", value: "bg-cyan-500" },
-    { name: "Fuchsia", value: "bg-fuchsia-500" },
+    { name: t('adminMessages.colors.blue'), value: "bg-blue-500" },
+    { name: t('adminMessages.colors.green'), value: "bg-green-500" },
+    { name: t('adminMessages.colors.purple'), value: "bg-purple-500" },
+    { name: t('adminMessages.colors.orange'), value: "bg-orange-500" },
+    { name: t('adminMessages.colors.red'), value: "bg-red-500" },
+    { name: t('adminMessages.colors.cyan'), value: "bg-cyan-500" },
+    { name: t('adminMessages.colors.fuchsia'), value: "bg-fuchsia-500" },
   ];
 
   return (
@@ -176,10 +227,10 @@ const AdminMessagesManagement = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">
-            Berichten <span className="text-blue-600">Beheer</span>
+            {t('common.messages')} <span className="text-blue-600">{t('common.management')}</span>
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Groepen, instellingen & notificaties configureren
+            {t('common.configureGroupsSettingsNotifications')}
           </p>
         </div>
         <Mail className="text-blue-600" size={40} />
@@ -206,9 +257,9 @@ const AdminMessagesManagement = () => {
       {/* Tab Navigation */}
       <div className="flex gap-2 border-b border-slate-200">
         {[
-          { id: "groups", label: "👥 Groepen", icon: Users },
-          { id: "settings", label: "⚙️ Instellingen", icon: Settings },
-          { id: "notifications", label: "🔔 Notificaties", icon: Bell },
+          { id: "groups", label: t('adminMessages.tabs.groups'), icon: Users },
+          { id: "settings", label: t('adminMessages.tabs.settings'), icon: Settings },
+          { id: "notifications", label: t('adminMessages.tabs.notifications'), icon: Bell },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -231,7 +282,7 @@ const AdminMessagesManagement = () => {
             onClick={() => setShowNewGroupForm(!showNewGroupForm)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition-all"
           >
-            <Plus size={16} /> Nieuwe Groep
+            <Plus size={16} /> {t('common.newGroup')}
           </button>
 
           {/* New Group Form */}
@@ -242,7 +293,7 @@ const AdminMessagesManagement = () => {
             >
               <div>
                 <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">
-                  Groepnaam
+                  {t('common.groupName')}
                 </label>
                 <input
                   type="text"
@@ -251,13 +302,13 @@ const AdminMessagesManagement = () => {
                     setNewGroup({ ...newGroup, name: e.target.value })
                   }
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500"
-                  placeholder="Bijv. Marketing Team"
+                  placeholder={t('adminMessages.groupNamePlaceholder')}
                 />
               </div>
 
               <div>
                 <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">
-                  Beschrijving
+                  {t('common.description')}
                 </label>
                 <textarea
                   value={newGroup.description}
@@ -265,13 +316,13 @@ const AdminMessagesManagement = () => {
                     setNewGroup({ ...newGroup, description: e.target.value })
                   }
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500 resize-none h-20"
-                  placeholder="Optionele beschrijving..."
+                  placeholder={t('adminMessages.descriptionPlaceholder')}
                 />
               </div>
 
               <div>
                 <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">
-                  Kleur
+                  {t('common.color')}
                 </label>
                 <div className="flex gap-2">
                   {colorOptions.map((color) => (
@@ -296,14 +347,14 @@ const AdminMessagesManagement = () => {
                   disabled={saving}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-blue-700 disabled:opacity-50 transition-all"
                 >
-                  {saving ? <Loader2 className="animate-spin" size={16} /> : "✅ Aanmaken"}
+                  {saving ? <Loader2 className="animate-spin" size={16} /> : t('adminMessages.create')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowNewGroupForm(false)}
                   className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-slate-300 transition-all"
                 >
-                  Annuleren
+                  {t('common.cancel')}
                 </button>
               </div>
             </form>
@@ -316,7 +367,7 @@ const AdminMessagesManagement = () => {
             </div>
           ) : groups.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
-              Geen groepen gevonden. Maak de eerste groep aan!
+              {t('common.noGroupsFound')}
             </div>
           ) : (
             <div className="grid gap-4">
@@ -331,11 +382,11 @@ const AdminMessagesManagement = () => {
                       <div>
                         <h3 className="font-bold text-slate-900">{group.name}</h3>
                         <p className="text-xs text-slate-500 mt-1">
-                          {group.description || "Geen beschrijving"}
+                          {group.description || t('adminMessages.noDescription')}
                         </p>
                         <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-400 uppercase font-bold">
-                          <span>👥 {(group.members || []).length} leden</span>
-                          {group.createdBy && <span>👤 {group.createdBy}</span>}
+                          <span>{t('adminMessages.membersCount', { count: (group.members || []).length })}</span>
+                          {group.createdBy && <span>{t('adminMessages.createdBy', { name: group.createdBy })}</span>}
                         </div>
                       </div>
                     </div>
@@ -346,14 +397,14 @@ const AdminMessagesManagement = () => {
                           /* TODO: Edit group */
                         }}
                         className="p-2 text-slate-600 hover:bg-blue-50 rounded-lg transition-all"
-                        title="Bewerken"
+                        title={t('common.edit')}
                       >
                         <Edit size={16} />
                       </button>
                       <button
                         onClick={() => handleDeleteGroup(group.id)}
                         className="p-2 text-slate-600 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-all"
-                        title="Verwijderen"
+                        title={t('common.delete')}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -373,7 +424,7 @@ const AdminMessagesManagement = () => {
             {/* Max Message Size */}
             <div>
               <label className="text-xs font-bold uppercase text-slate-600 mb-2 block flex items-center gap-2">
-                <Mail size={14} /> Maximale bericht grootte
+                <Mail size={14} /> {t('adminMessages.settings.maxMessageSize')}
               </label>
               <div className="flex items-center gap-3">
                 <input
@@ -387,14 +438,14 @@ const AdminMessagesManagement = () => {
                   }
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500"
                 />
-                <span className="text-sm text-slate-600">karakters</span>
+                <span className="text-sm text-slate-600">{t('adminMessages.settings.characters')}</span>
               </div>
             </div>
 
             {/* Group Messages Toggle */}
             <div className="flex items-center justify-between pb-4 border-b">
               <label className="text-xs font-bold uppercase text-slate-600 flex items-center gap-2">
-                <Users size={14} /> Groep berichten inschakelen
+                <Users size={14} /> {t('adminMessages.settings.enableGroupMessages')}
               </label>
               <input
                 type="checkbox"
@@ -412,7 +463,7 @@ const AdminMessagesManagement = () => {
             {/* System Notifications Toggle */}
             <div className="flex items-center justify-between pb-4 border-b">
               <label className="text-xs font-bold uppercase text-slate-600 flex items-center gap-2">
-                <Bell size={14} /> Systeemnotificaties
+                <Bell size={14} /> {t('adminMessages.settings.enableSystemNotifications')}
               </label>
               <input
                 type="checkbox"
@@ -430,7 +481,7 @@ const AdminMessagesManagement = () => {
             {/* Message Retention */}
             <div>
               <label className="text-xs font-bold uppercase text-slate-600 mb-2 block flex items-center gap-2">
-                <Archive size={14} /> Berichtretentie
+                <Archive size={14} /> {t('adminMessages.settings.messageRetention')}
               </label>
               <div className="flex items-center gap-3">
                 <input
@@ -444,17 +495,17 @@ const AdminMessagesManagement = () => {
                   }
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500"
                 />
-                <span className="text-sm text-slate-600">dagen</span>
+                <span className="text-sm text-slate-600">{t('adminMessages.settings.days')}</span>
               </div>
               <p className="text-[10px] text-slate-500 mt-1">
-                Berichten ouder dan dit aantal dagen worden automatisch verwijderd
+                {t('adminMessages.settings.retentionHelp')}
               </p>
             </div>
 
             {/* Email Notifications Toggle */}
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold uppercase text-slate-600 flex items-center gap-2">
-                <Mail size={14} /> E-mailnotificaties
+                <Mail size={14} /> {t('adminMessages.settings.enableEmailNotifications')}
               </label>
               <input
                 type="checkbox"
@@ -476,11 +527,11 @@ const AdminMessagesManagement = () => {
             >
               {saving ? (
                 <>
-                  <Loader2 className="animate-spin" size={16} /> Opslaan...
+                  <Loader2 className="animate-spin" size={16} /> {t('common.saving')}
                 </>
               ) : (
                 <>
-                  <CheckCircle size={16} /> Instellingen Opslaan
+                  <CheckCircle size={16} /> {t('adminMessages.saveSettings')}
                 </>
               )}
             </button>
@@ -490,22 +541,94 @@ const AdminMessagesManagement = () => {
 
       {/* NOTIFICATIES TAB */}
       {activeTab === "notifications" && (
-        <div className="bg-white border-2 border-slate-100 rounded-2xl p-6 space-y-4">
+        <div className="bg-white border-2 border-slate-100 rounded-2xl p-6 space-y-6 max-w-3xl">
           <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
             <Bell className="text-blue-600" size={20} />
             <div>
-              <h3 className="font-bold text-blue-900">Notificatie Instellingen</h3>
+              <h3 className="font-bold text-blue-900">Systeem Bericht Console</h3>
               <p className="text-xs text-blue-700 mt-1">
-                Hier kunt u notificatie voorkeuren per gebruiker of groep instellen
+                Stuur handmatige systeem-notificaties naar gebruikers of groepen (bijv. voor testen of mededelingen).
               </p>
             </div>
           </div>
 
-          <div className="text-center py-12 text-slate-500">
-            <Shield size={32} className="mx-auto mb-4 opacity-50" />
-            <p className="font-bold">Functie in uitvoering</p>
-            <p className="text-xs">Notificatie instellingen worden binnenkort beschikbaar</p>
-          </div>
+          <form onSubmit={handleSendNotification} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">Doelgroep Type</label>
+                    <select 
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500 text-sm font-bold"
+                        value={notificationForm.targetType}
+                        onChange={e => setNotificationForm({...notificationForm, targetType: e.target.value})}
+                    >
+                        <option value="group">Specifieke Groep</option>
+                        <option value="user">Specifieke Gebruiker (Email)</option>
+                        <option value="all">Iedereen (Broadcast)</option>
+                    </select>
+                </div>
+                <div>
+                    <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">
+                        {notificationForm.targetType === 'group' ? 'Groep ID / Naam' : notificationForm.targetType === 'user' ? 'Emailadres' : 'Doel'}
+                    </label>
+                    <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500 text-sm"
+                        placeholder={notificationForm.targetType === 'group' ? "bijv. SPOOLS_TEAM" : notificationForm.targetType === 'user' ? "user@example.com" : "Alle gebruikers"}
+                        value={notificationForm.targetId}
+                        onChange={e => setNotificationForm({...notificationForm, targetId: e.target.value})}
+                        disabled={notificationForm.targetType === 'all'}
+                    />
+                </div>
+            </div>
+
+            <div>
+                <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">Prioriteit</label>
+                <div className="flex gap-3">
+                    {['low', 'normal', 'high', 'urgent'].map(p => (
+                        <button
+                            key={p}
+                            type="button"
+                            onClick={() => setNotificationForm({...notificationForm, priority: p})}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase border transition-all ${
+                                notificationForm.priority === p 
+                                ? (p === 'urgent' ? 'bg-rose-500 text-white border-rose-500' : 'bg-slate-800 text-white border-slate-800')
+                                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                            }`}
+                        >
+                            {p}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div>
+                <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">Onderwerp</label>
+                <input 
+                    type="text" 
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-bold"
+                    value={notificationForm.subject}
+                    onChange={e => setNotificationForm({...notificationForm, subject: e.target.value})}
+                />
+            </div>
+
+            <div>
+                <label className="text-xs font-bold uppercase text-slate-600 mb-2 block">Bericht Inhoud</label>
+                <textarea 
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500 h-24 resize-none"
+                    value={notificationForm.content}
+                    onChange={e => setNotificationForm({...notificationForm, content: e.target.value})}
+                />
+            </div>
+
+            <button 
+                type="submit" 
+                disabled={saving}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95"
+            >
+                {saving ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                Verstuur Systeem Bericht
+            </button>
+          </form>
         </div>
       )}
     </div>

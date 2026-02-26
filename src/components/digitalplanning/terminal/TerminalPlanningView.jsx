@@ -1,5 +1,5 @@
 import React from "react";
-import { Search, ChevronLeft, ChevronRight, Layers, FileText, Sparkles, ArrowLeft, PlayCircle, AlertCircle, ArrowUpCircle, FileImage, X, RefreshCw, Copy } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Layers, FileText, Sparkles, ArrowLeft, PlayCircle, AlertCircle, ArrowUpCircle, FileImage, X, RefreshCw, Copy, Factory } from "lucide-react";
 import { findDrawingForProduct } from "../../../utils/findDrawingForProduct";
 import { manualSyncDrawings } from "../../../utils/manualSyncDrawings";
 import { format, differenceInDays, isValid } from "date-fns";
@@ -17,6 +17,7 @@ const TerminalPlanningView = ({
   onToggleAllWeeks,
   targetWeekNum,
   productionProgressMap = {},
+  readyForReturnMap = {},
   isBM01,
   onStartProduction,
   selectedOrder,
@@ -160,6 +161,8 @@ const TerminalPlanningView = ({
               const total = Number(order.plan) || 1;
               const isNew = isOrderNew(order);
               const dDate = parseDateSafe(order.deliveryDate);
+              const readyFromSpools = readyForReturnMap[String(order.orderId || "").trim()] || 0;
+              const isDelegated = order.machine !== order.returnStation && order.returnStation;
               
               // Zoek vergelijkbare orders (zelfde itemCode of item) voor mal-optimalisatie
               const similarCount = orders.filter(o => 
@@ -225,6 +228,16 @@ const TerminalPlanningView = ({
                         <p className="text-[9px] font-bold text-blue-500 uppercase tracking-wider mt-0.5">
                           Lot: {order.activeLot}
                         </p>
+                      )}
+                      {isDelegated && (
+                        <div className="mt-1">
+                            <span className="text-[9px] font-black text-purple-600 bg-purple-50 px-2 py-0.5 rounded border border-purple-100 flex items-center gap-1 w-fit">
+                                <Factory size={10} /> Bij {order.delegatedTo || "Extern"}
+                            </span>
+                            {readyFromSpools > 0 && (
+                                <span className="text-[9px] font-black text-emerald-600 block mt-0.5">✅ {readyFromSpools} gereed voor start</span>
+                            )}
+                        </div>
                       )}
                     </div>
                   </div>

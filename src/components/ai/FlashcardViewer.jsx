@@ -61,8 +61,7 @@ const FlashcardViewer = ({ data, onClose }) => {
             <Sparkles size={16} />
           </div>
           <span className="text-[10px] font-black text-slate-800 uppercase tracking-[0.2em] italic">
-            Kaart {currentIndex + 1}{" "}
-            <span className="text-slate-300 mx-1">/</span> {cards.length}
+            {t('ai.flashcard.card', { current: currentIndex + 1, total: cards.length })}
           </span>
         </div>
         <button

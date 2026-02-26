@@ -50,6 +50,8 @@ const TeamleaderPipesHub = React.memo((props) => {
     };
   }, []);
 
+  const { t } = useTranslation();
+
   if (loading)
     return (
       <div className="h-full flex items-center justify-center">
@@ -59,12 +61,11 @@ const TeamleaderPipesHub = React.memo((props) => {
 
   const machineIds = stations.map((s) => s.name);
 
-  const { t } = useTranslation();
   return (
     <TeamleaderHub
       {...props}
       fixedScope="pipe"
-      departmentName={t('teamleader.pipe_productions')}
+      departmentName={t('teamleader.pipe_productions', 'Pijp Productie')}
       allowedMachines={machineIds}
     />
   );

@@ -1,26 +1,31 @@
 import React, { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   X,
   Clock,
   AlertTriangle,
   CheckCircle2,
-  Printer,
-  Play,
-  Pause,
   RotateCcw,
   FileText,
   Trash2,
-  User,
   ArrowRightLeft,
   Map,
+  Factory,
+  Building2,
+  Cpu,
 } from "lucide-react";
+import ProductMoveModal from "./ProductMoveModal";
 import ProductJourneyModal from "./modals/ProductJourneyModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
 import ProductDetailModal from "../products/ProductDetailModal";
 import { FileImage } from "lucide-react";
 import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
+import { doc, updateDoc, serverTimestamp, collection, addDoc } from "firebase/firestore";
+import { db } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 import { nl } from "date-fns/locale";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * OrderDetail V2.3
@@ -38,11 +43,17 @@ const OrderDetail = React.memo(({
   onMoveLot,
   loading,
   showAllStations = false,
+  currentDepartment,
+  allowedStations = [],
 }) => {
+  const { t } = useTranslation();
+  const { showSuccess, showError } = useNotifications();
   const [viewingJourney, setViewingJourney] = useState(null);
   const [viewingDossier, setViewingDossier] = useState(null);
   const [viewingDrawing, setViewingDrawing] = useState(null);
+  const [productToMove, setProductToMove] = useState(null);
   const [drawingLoading, setDrawingLoading] = useState(false);
+  const [showOrderMoveModal, setShowOrderMoveModal] = useState(false);
 
   const orderProducts = useMemo(() => {
     if (!order) return [];
@@ -64,6 +75,97 @@ const OrderDetail = React.memo(({
     return String(val);
   };
 
+  const handleMoveOrder = async (targetType, targetId) => {
+    if (!order) return;
+    
+    try {
+      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
+      const updates = {
+        lastUpdated: serverTimestamp()
+      };
+      
+      let messageContent = "";
+      let messageTarget = "";
+
+      if (targetType === "department") {
+        // Delegatie naar andere afdeling
+        const dept = targetId.toLowerCase(); 
+        const inbox = `${targetId.toUpperCase()}_INBOX`;
+        
+        updates.machine = inbox;
+        updates.originalMachine = order.machine;
+        updates.originalDepartment = order.department || "fittings";
+        updates.returnStation = order.machine;
+        updates.delegatedTo = targetId.toUpperCase();
+        updates.department = dept;
+        updates.delegationDate = serverTimestamp();
+        updates.status = "delegated";
+        
+        messageContent = `Order ${order.orderId} is vanuit ${order.department || 'Fittings'} aangeboden voor ${targetId}.`;
+        messageTarget = `${targetId.toUpperCase()}_TEAM`;
+        
+      } else if (targetType === "station") {
+        // Interne verplaatsing / Toewijzing
+        updates.machine = targetId;
+        updates.status = "planned"; 
+        updates.delegatedTo = null; 
+        updates.department = currentDepartment || "fittings";
+      }
+
+      await updateDoc(orderRef, updates);
+
+      if (messageTarget) {
+        await addDoc(collection(db, ...PATHS.MESSAGES), {
+          to: messageTarget,
+          from: "SYSTEM",
+          senderId: "system-auto",
+          subject: `Nieuwe Order: ${order.orderId}`,
+          content: messageContent,
+          timestamp: serverTimestamp(),
+          read: false,
+          archived: false,
+          priority: "normal",
+          type: "system",
+          targetGroup: messageTarget
+        });
+      }
+
+      showSuccess(t("digitalplanning.order_detail.move_success", "Order succesvol verplaatst"));
+      setShowOrderMoveModal(false);
+      onClose();
+    } catch (err) {
+      console.error("Error moving order:", err);
+      showError(t("digitalplanning.order_detail.move_error", "Fout bij verplaatsen: ") + err.message);
+    }
+  };
+
+  const handleRetrieveFromSpools = async () => {
+    if (!order) return;
+    if (!window.confirm(t("digitalplanning.order_detail.confirm_retrieve_spools", "Weet je zeker dat je deze order wilt terughalen van Spoolbouw?"))) return;
+
+    try {
+      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
+      await updateDoc(orderRef, {
+        machine: order.returnStation || order.originalMachine || order.machine,
+        department: order.originalDepartment || "fittings",
+        delegatedTo: null,
+        status: "planned",
+        lastUpdated: serverTimestamp()
+      });
+      showSuccess(t("digitalplanning.order_detail.retrieve_success", "Order succesvol teruggehaald"));
+      onClose();
+    } catch (err) {
+      console.error("Error retrieving order:", err);
+      showError(t("digitalplanning.order_detail.retrieve_error", "Fout bij terughalen: ") + err.message);
+    }
+  };
+
+  const departments = [
+    { id: "FITTINGS", label: "Fittings" },
+    { id: "PIPES", label: "Pipes" },
+    { id: "SPOOLS", label: "Spools" }
+  ];
+
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header */}
@@ -73,7 +175,7 @@ const OrderDetail = React.memo(({
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">{order.orderId}</h2>
             {order.isUrgent && (
               <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider">
-                SPOED
+                {t("digitalplanning.order_detail.urgent")}
               </span>
             )}
           </div>
@@ -90,27 +192,27 @@ const OrderDetail = React.memo(({
       {/* Details Grid */}
       <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-4 border-b border-slate-100 shrink-0">
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Planning</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.planning")}</span>
           <span className="font-bold text-slate-700">{formatExcelDate(order.deliveryDate)}</span>
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Aantal</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.amount")}</span>
           <span className="font-bold text-slate-700">{order.plan} stuks</span>
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Machine</span>
-          <span className="font-bold text-slate-700">{order.machine || "N.v.t."}</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.machine")}</span>
+          <span className="font-bold text-slate-700">{order.machine || t("digitalplanning.order_detail.na")}</span>
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Status</span>
-          <span className="font-bold text-slate-700">{order.status}</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.status")}</span>
+          <span className={`font-bold ${order.status === 'delegated' ? 'text-purple-600' : 'text-slate-700'}`}>{order.status}</span>
         </div>
       </div>
 
       {/* Products List */}
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-slate-50/30">
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">
-          Producten ({orderProducts.length})
+          {t("digitalplanning.order_detail.products", { count: orderProducts.length })}
         </h3>
         
         <div className="space-y-3">
@@ -153,10 +255,10 @@ const OrderDetail = React.memo(({
                     const drawing = await findDrawingForProduct(p.itemCode || p.item || "");
                     setDrawingLoading(false);
                     if (drawing) setViewingDrawing(drawing);
-                    else alert("Geen tekening gevonden voor dit product.");
+                    else alert(t("digitalplanning.order_detail.no_drawing"));
                   }}
                   className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
-                  title="Bekijk tekening/productkaart"
+                  title={t("digitalplanning.order_detail.view_drawing")}
                   disabled={drawingLoading}
                 >
                   <FileImage size={16} />
@@ -167,7 +269,7 @@ const OrderDetail = React.memo(({
                       setViewingDossier(p);
                     }}
                     className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
-                    title="Bekijk uitgebreid dossier"
+                    title={t("digitalplanning.order_detail.view_dossier")}
                   >
                     <FileText size={16} />
                   </button>
@@ -177,7 +279,7 @@ const OrderDetail = React.memo(({
                       setViewingJourney(p);
                     }}
                     className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
-                    title="Bekijk visuele route"
+                    title={t("digitalplanning.order_detail.view_journey")}
                   >
                     <Map size={16} />
                   </button>
@@ -185,12 +287,12 @@ const OrderDetail = React.memo(({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (window.confirm(`Verplaats ${p.lotNumber} naar BH31 voor herstel?`)) {
+                      if (window.confirm(t("digitalplanning.order_detail.move_confirm", { lot: p.lotNumber }))) {
                         onMoveLot(p.lotNumber, "BH31");
                       }
                     }}
                     className={`p-2 rounded-xl transition-all ${isLongReject ? "text-red-600 hover:text-red-800 hover:bg-red-50" : "text-orange-500 hover:text-orange-700 hover:bg-orange-50"}`}
-                    title={isLongReject ? `Al ${daysInReject} dagen in afkeur! Naar Herstel (BH31)` : "Naar Herstel (BH31)"}
+                    title={isLongReject ? t("digitalplanning.order_detail.reject_long", { days: daysInReject }) : t("digitalplanning.order_detail.to_repair")}
                   >
                     <RotateCcw size={16} />
                   </button>
@@ -199,11 +301,10 @@ const OrderDetail = React.memo(({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      const newStation = prompt("Naar welk station verplaatsen? (bijv. BH11, MAZAK, GEREED)");
-                      if (newStation) onMoveLot(p.lotNumber, newStation);
+                      setProductToMove(p);
                     }}
                     className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
-                    title="Verplaatsen naar ander station"
+                    title={t("digitalplanning.order_detail.move_station")}
                   >
                     <ArrowRightLeft size={16} />
                   </button>
@@ -215,7 +316,7 @@ const OrderDetail = React.memo(({
                       if(onDeleteLot) onDeleteLot(p.lotNumber);
                     }}
                     className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                    title="Verwijderen"
+                    title={t("digitalplanning.order_detail.delete")}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -227,11 +328,34 @@ const OrderDetail = React.memo(({
           
           {orderProducts.length === 0 && (
             <div className="text-center py-10 text-slate-400 italic text-sm">
-              Nog geen producten gestart voor deze order.
+              {t("digitalplanning.order_detail.no_products")}
             </div>
           )}
         </div>
       </div>
+
+      {/* Footer Actions for Manager */}
+      {isManager && (
+        <div className="p-4 border-t border-slate-100 bg-slate-50/50 shrink-0 flex gap-3 overflow-x-auto items-center">
+           <button
+             onClick={() => setShowOrderMoveModal(true)}
+             className="flex items-center gap-2 px-4 py-3 bg-blue-600 text-white hover:bg-blue-700 shadow-md rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95"
+           >
+             <ArrowRightLeft size={16} />
+             {t("digitalplanning.order_detail.move_order", "Verplaats / Aanbieden")}
+           </button>
+
+           {order.delegatedTo === "SPOOLS" && (
+             <button
+               onClick={handleRetrieveFromSpools}
+               className="flex items-center gap-2 px-4 py-3 bg-amber-500 text-white hover:bg-amber-600 shadow-md rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95"
+             >
+               <RotateCcw size={16} />
+               {t("digitalplanning.order_detail.retrieve_spools", "Terughalen van Spoolbouw")}
+             </button>
+           )}
+        </div>
+      )}
 
       {viewingJourney && (
         <ProductJourneyModal 
@@ -247,6 +371,8 @@ const OrderDetail = React.memo(({
           onClose={() => setViewingDossier(null)}
           orders={[order]}
           onMoveLot={onMoveLot}
+          currentDepartment={currentDepartment}
+          allowedStations={allowedStations}
         />
       )}
 
@@ -256,6 +382,79 @@ const OrderDetail = React.memo(({
           onClose={() => setViewingDrawing(null)}
           userRole={isManager ? "admin" : "operator"}
         />
+      )}
+
+      {productToMove && (
+        <ProductMoveModal
+          product={productToMove}
+          onClose={() => setProductToMove(null)}
+          onMove={onMoveLot}
+          currentDepartment={currentDepartment}
+          allowedStations={allowedStations}
+        />
+      )}
+
+      {showOrderMoveModal && (
+        <div className="fixed inset-0 z-[500] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-[30px] shadow-2xl w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-black text-slate-800 uppercase italic">
+                  {t("digitalplanning.move_modal.title", "Verplaats Order")}
+                </h3>
+                <p className="text-sm text-slate-500 font-bold">
+                  Order: {order.orderId}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowOrderMoveModal(false)}
+                className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="mb-8">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Building2 size={14} /> Naar Andere Afdeling
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                {departments.filter(d => d.id.toLowerCase() !== (currentDepartment || "").toLowerCase()).map((dept) => (
+                  <button
+                    key={dept.id}
+                    onClick={() => handleMoveOrder("department", dept.label)}
+                    className="p-4 bg-white border-2 border-slate-200 hover:border-purple-400 hover:bg-purple-50 rounded-2xl flex items-center justify-between group transition-all"
+                  >
+                    <span className="font-black text-slate-700 group-hover:text-purple-700 uppercase">{dept.label}</span>
+                    <Factory size={18} className="text-slate-300 group-hover:text-purple-500" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Cpu size={14} /> Intern Verplaatsen / Toewijzen
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {allowedStations.sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((station) => (
+                  <button
+                    key={station.id}
+                    onClick={() => handleMoveOrder("station", station.name || station.id)}
+                    className="p-4 bg-slate-50 hover:bg-blue-50 border-2 border-slate-100 hover:border-blue-200 rounded-2xl text-sm font-bold text-slate-700 hover:text-blue-700 transition-all uppercase text-center"
+                  >
+                    {station.name || station.id}
+                  </button>
+                ))}
+                {allowedStations.length === 0 && (
+                  <div className="col-span-full text-center py-4 text-slate-400 italic text-sm">
+                    Geen stations beschikbaar.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

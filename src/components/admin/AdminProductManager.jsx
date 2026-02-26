@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Plus,
   Package,
@@ -22,6 +23,7 @@ import { useProductsData } from "../../hooks/useProductsData";
  * Maakt gebruik van de nieuwe root-architectuur voor data-consistentie.
  */
 const AdminProductManager = ({ user }) => {
+  const { t } = useTranslation();
   const [view, setView] = useState("list"); // 'list' of 'form'
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -47,7 +49,7 @@ const AdminProductManager = ({ user }) => {
   const handleDelete = async (id) => {
     if (
       !window.confirm(
-        "Weet je zeker dat je dit product wilt verwijderen uit de root database?"
+        t('adminProductManager.confirm_delete')
       )
     )
       return;
@@ -58,7 +60,7 @@ const AdminProductManager = ({ user }) => {
       if (refresh) await refresh();
     } catch (error) {
       console.error("Delete Error:", error);
-      alert("Verwijderen mislukt: " + error.message);
+      alert(t('adminProductManager.delete_failed') + error.message);
     } finally {
       setActionLoading(false);
     }
@@ -77,7 +79,7 @@ const AdminProductManager = ({ user }) => {
       if (refresh) await refresh();
     } catch (error) {
       console.error("Save Error:", error);
-      alert("Opslaan mislukt: " + error.message);
+      alert(t('adminProductManager.save_failed') + error.message);
     } finally {
       setActionLoading(false);
     }
@@ -93,14 +95,14 @@ const AdminProductManager = ({ user }) => {
           </div>
           <div className="text-left">
             <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-              Product <span className="text-blue-600">Manager</span>
+              {t('product')} <span className="text-blue-600">{t('manager')}</span>
             </h1>
             <div className="mt-3 flex items-center gap-3">
               <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-100 uppercase italic">
-                <ShieldCheck size={10} /> Root Authorized
+                <ShieldCheck size={10} /> {t('rootAuthorized')}
               </span>
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                Systeem Catalogus v6.4
+                {t('systemCatalogV64')}
               </p>
             </div>
           </div>
@@ -110,7 +112,7 @@ const AdminProductManager = ({ user }) => {
           onClick={handleCreateNew}
           className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all active:scale-95 flex items-center gap-3"
         >
-          <Plus size={18} strokeWidth={3} /> Nieuw Product Toevoegen
+          <Plus size={18} strokeWidth={3} /> {t('addNewProduct')}
         </button>
       </div>
 
@@ -122,7 +124,7 @@ const AdminProductManager = ({ user }) => {
             <div className="bg-white p-8 rounded-[30px] shadow-2xl flex flex-col items-center gap-4">
               <Loader2 className="animate-spin text-blue-600" size={40} />
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-                Database Bijwerken...
+                {t('adminProductManager.database_updating')}
               </p>
             </div>
           </div>
@@ -134,7 +136,7 @@ const AdminProductManager = ({ user }) => {
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white gap-4">
               <Loader2 className="animate-spin text-blue-600" size={48} />
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-300 italic">
-                Catalogus Laden...
+                {t('adminProductManager.catalog_loading')}
               </p>
             </div>
           ) : (
@@ -167,8 +169,8 @@ const AdminProductManager = ({ user }) => {
                 </div>
                 <h3 className="text-sm font-black uppercase italic text-slate-800 tracking-tight">
                   {selectedProduct
-                    ? "Product Specificaties Wijzigen"
-                    : "Nieuwe Configuratie Registreren"}
+                    ? t('adminProductManager.edit_product_specs')
+                    : t('adminProductManager.register_new_config')}
                 </h3>
               </div>
               <button
@@ -199,10 +201,10 @@ const AdminProductManager = ({ user }) => {
       <div className="bg-slate-950 p-4 border-t border-white/5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] px-10 shrink-0 relative z-10">
         <div className="flex items-center gap-6">
           <span className="flex items-center gap-2">
-            <Database size={14} className="text-blue-500" /> Storage: Cloud Root
+            <Database size={14} className="text-blue-500" /> {t('adminProductManager.storage_cloud_root')}
           </span>
           <span className="flex items-center gap-2">
-            <Zap size={14} className="text-emerald-500" /> Active Sync: Realtime
+            <Zap size={14} className="text-emerald-500" /> {t('adminProductManager.active_sync_realtime')}
           </span>
         </div>
         <span className="opacity-30">Future Factory MES Core v6.11</span>

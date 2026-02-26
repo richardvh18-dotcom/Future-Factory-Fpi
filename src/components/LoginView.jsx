@@ -12,6 +12,7 @@ import {
   ArrowRight,
   ShieldCheck,
   Globe,
+  Check,
 } from "lucide-react";
 import AccountRequestModal from "./AccountRequestModal";
 
@@ -26,6 +27,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState({ appName: appName || "Future Factory", logoUrl: logoUrl || "" });
+  const [showLangMenu, setShowLangMenu] = useState(false);
 
   // Load settings for logo and app name
   useEffect(() => {
@@ -45,9 +47,9 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
     }
   }, [logoUrl, appName]);
 
-  const toggleLanguage = () => {
-    const newLang = i18n.language === 'en' ? 'nl' : 'en';
-    i18n.changeLanguage(newLang);
+  const handleLanguageSelect = (lang) => {
+    i18n.changeLanguage(lang);
+    setShowLangMenu(false);
   };
   const [internalError, setInternalError] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -92,14 +94,48 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-orange-950 overflow-y-auto">
       {/* Language Toggle - Top Right */}
-      <div className="absolute top-6 right-6 z-50">
+      <div className="absolute top-6 right-6 z-50 relative">
         <button
-          onClick={toggleLanguage}
+          onClick={() => setShowLangMenu(!showLangMenu)}
           className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 text-cyan-200 transition-all hover:scale-110 active:scale-95 group"
           title="Switch Language"
         >
-          <Globe size={20} className="group-hover:rotate-12 transition-transform" />
+          <Globe size={20} />
         </button>
+
+        {/* Dropdown Menu */}
+        {showLangMenu && (
+          <div className="absolute top-full right-0 mt-2 w-40 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <button
+              onClick={() => handleLanguageSelect('nl')}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'nl' ? 'text-cyan-400' : 'text-slate-400'}`}
+            >
+              <span>🇳🇱 Nederlands</span>
+              {i18n.language === 'nl' && <Check size={14} />}
+            </button>
+            <button
+              onClick={() => handleLanguageSelect('en')}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'en' ? 'text-cyan-400' : 'text-slate-400'}`}
+            >
+              <span>🇬🇧 English</span>
+              {i18n.language === 'en' && <Check size={14} />}
+            </button>
+            <button
+              onClick={() => handleLanguageSelect('ar')}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'ar' ? 'text-cyan-400' : 'text-slate-400'}`}
+            >
+              <span>🇦🇪 العربية</span>
+              {i18n.language === 'ar' && <Check size={14} />}
+            </button>
+            <button
+              onClick={() => handleLanguageSelect('de')}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'de' ? 'text-cyan-400' : 'text-slate-400'}`}
+            >
+              <span>🇩🇪 Deutsch</span>
+              {i18n.language === 'de' && <Check size={14} />}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
@@ -121,7 +157,13 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
           </div>
           <h1 className="text-5xl md:text-6xl font-black text-white mb-3 uppercase italic tracking-tighter leading-none">
             {settings.appName || (
-              <>Future <span className="text-emerald-300">Factory</span></>
+              <>
+                {t('login.branding_main1', 'Future')}
+                {' '}
+                <span className="text-emerald-300">
+                  {t('login.branding_main2', 'Factory')}
+                </span>
+              </>
             )}
           </h1>
           <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
@@ -209,7 +251,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
               <div className="flex items-center justify-center gap-2 text-cyan-200/40">
                 <ShieldCheck size={12} />
                 <p className="text-[9px] font-black uppercase tracking-[0.2em]">
-                  Secure Node 377EF
+                  {t('login.secure_node', 'Secure Node 377EF')}
                 </p>
               </div>
             </div>

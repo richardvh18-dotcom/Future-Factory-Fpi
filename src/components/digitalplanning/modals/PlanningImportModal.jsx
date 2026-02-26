@@ -39,6 +39,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [existingIds, setExistingIds] = useState(new Set());
   const [importMode, setImportMode] = useState("new_only");
   const [selectedSheet, setSelectedSheet] = useState("All");
+  const [machineFilter, setMachineFilter] = useState("All");
   const fileInputRef = useRef(null);
   const location = useLocation();
 
@@ -124,40 +125,53 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           const ws = wb.Sheets[sheetName];
           const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
-          const headerIndex = rawRows.findIndex(
-            (row) => row.includes("Machine") && row.includes("order")
-          );
+          // Zoek header rij (case-insensitive)
+          const headerIndex = rawRows.findIndex((row) => {
+            const rowStr = row.map(c => String(c).toLowerCase().trim());
+            return rowStr.includes("machine") && rowStr.includes("order");
+          });
 
           if (headerIndex !== -1) {
             sheetsFound++;
-            const headers = rawRows[headerIndex];
+            const headers = rawRows[headerIndex].map(h => String(h).trim());
             const dataRows = rawRows.slice(headerIndex + 1);
 
+            // Helper om kolom index te vinden (case-insensitive)
+            const getIdx = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+
+            // Cache indices
+            const idxOrder = getIdx("order");
+            const idxMachine = getIdx("machine");
+            const idxItemCode = getIdx("manufactured item");
+            const idxDatum = getIdx("datum");
+            const idxPlan = getIdx("plan");
+            const idxWeek = getIdx("week");
+            const idxItemDesc = getIdx("item desc");
+            const idxCode = getIdx("code");
+            const idxPoText = getIdx("po text") !== -1 ? getIdx("po text") : getIdx("po-text");
+            const idxProject = getIdx("project");
+            const idxProjectDesc = getIdx("project desc");
+            const idxDrawing = getIdx("drawing");
+
             const sheetData = dataRows
-              .filter(
-                (row) =>
-                  row[headers.indexOf("order")] && row[headers.indexOf("Machine")]
-              )
+              .filter((row) => row[idxOrder] && row[idxMachine])
               .map((row) => {
-                const orderId = String(row[headers.indexOf("order")]).trim();
-                const manufacturedItem = String(
-                  row[headers.indexOf("Manufactured Item")]
-                ).trim();
+                const orderId = String(row[idxOrder]).trim();
+                const manufacturedItem = String(row[idxItemCode] || "").trim();
                 const docId = `${orderId}_${manufacturedItem}`.replace(
                   /[^a-zA-Z0-9]/g,
                   "_"
                 );
 
-                const rawDateVal = row[headers.indexOf("datum")];
+                const rawDateVal = row[idxDatum];
                 const { delivery, planned } = processDates(rawDateVal);
 
                 // Calculate Plan Quantity
-                const rawPlan = row[headers.indexOf("Plan")];
+                const rawPlan = row[idxPlan];
                 let quantity = typeof rawPlan === 'string' ? parseFloat(rawPlan.replace(',', '.')) : parseFloat(rawPlan);
                 if (isNaN(quantity)) quantity = 1;
 
-                const machine = normalizeMachine(row[headers.indexOf("Machine")]);
-                const description = (row[headers.indexOf("Item Desc")] || "").toLowerCase();
+                const machine = normalizeMachine(row[idxMachine]);
                 
                 // BA Machines (Pipes) logic: Meters to Pieces conversion
                 const PIPE_MACHINES = ['BA05', 'BA07', 'BA08', 'BA09'];
@@ -171,15 +185,15 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                   machine: machine,
                   deliveryDate: delivery,
                   plannedDate: planned,
-                  weekNumber: parseInt(row[headers.indexOf("week")]) || parseInt(row[headers.indexOf("Week")]) || null,
+                  weekNumber: parseInt(row[idxWeek]) || null,
                   itemCode: manufacturedItem,
-                  item: row[headers.indexOf("Item Desc")] || "-",
-                  extraCode: row[headers.indexOf("code")] || "-",
+                  item: row[idxItemDesc] || "-",
+                  extraCode: row[idxCode] || "-",
                   plan: quantity,
-                  notes: row[headers.indexOf("Po text")] || "",
-                  project: row[headers.indexOf("Project")] || "",
-                  projectDesc: row[headers.indexOf("Project Desc")] || "",
-                  drawing: row[headers.indexOf("Drawing")] || "",
+                  notes: row[idxPoText] || "",
+                  project: row[idxProject] || "",
+                  projectDesc: row[idxProjectDesc] || "",
+                  drawing: row[idxDrawing] || "",
                   status: "pending",
                   isExisting: existingIds.has(docId),
                   sourceSheet: sheetName,
@@ -198,7 +212,19 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           return;
         }
 
-        setFileData(allData);
+        // Deduplicatie: Filter dubbele regels uit het bestand zelf (op basis van gegenereerd ID)
+        const uniqueData = [];
+        const seenIds = new Set();
+        
+        allData.forEach((item) => {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            uniqueData.push(item);
+          }
+        });
+
+        setFileData(uniqueData);
+        setMachineFilter("All");
       } catch (err) {
         console.error(err);
         alert("Fout bij het verwerken van het bestand.");
@@ -215,10 +241,21 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return ["All", ...Array.from(sheets)];
   }, [fileData]);
 
+  const uniqueMachines = useMemo(() => {
+    const machines = new Set(fileData.map((item) => item.machine).filter(Boolean));
+    return ["All", ...Array.from(machines).sort()];
+  }, [fileData]);
+
   const filteredData = useMemo(() => {
-    if (selectedSheet === "All") return fileData;
-    return fileData.filter((item) => item.sourceSheet === selectedSheet);
-  }, [fileData, selectedSheet]);
+    let data = fileData;
+    if (selectedSheet !== "All") {
+      data = data.filter((item) => item.sourceSheet === selectedSheet);
+    }
+    if (machineFilter !== "All") {
+      data = data.filter((item) => item.machine === machineFilter);
+    }
+    return data;
+  }, [fileData, selectedSheet, machineFilter]);
 
   const startImport = async () => {
     if (filteredData.length === 0 || importing) return;
@@ -397,6 +434,20 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                         >
                           {uniqueSheets.map((sheet) => (
                             <option key={sheet} value={sheet}>{sheet}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {uniqueMachines.length > 2 && (
+                      <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-sm ml-2">
+                        <Filter size={12} className="text-purple-500" />
+                        <select
+                          value={machineFilter}
+                          onChange={(e) => setMachineFilter(e.target.value)}
+                          className="bg-transparent outline-none font-bold text-slate-700 cursor-pointer text-[10px] uppercase"
+                        >
+                          {uniqueMachines.map((m) => (
+                            <option key={m} value={m}>{m}</option>
                           ))}
                         </select>
                       </div>

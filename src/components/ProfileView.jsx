@@ -84,6 +84,10 @@ const ProfileView = () => {
         if (snap.exists()) {
           const data = snap.data();
           setDisplayName(data.name || user.displayName || "");
+          
+          // Direct de taal toepassen als deze in het profiel staat
+          if (data.language) i18n.changeLanguage(data.language);
+
           setPreferences({
             emailNotifications: data.receivesValidationAlerts || false,
             systemAlerts: data.systemAlerts ?? true,
@@ -133,6 +137,9 @@ const ProfileView = () => {
         },
         { merge: true }
       );
+
+      // Update ook direct de actieve taal
+      i18n.changeLanguage(preferences.language);
 
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
@@ -328,8 +335,7 @@ const ProfileView = () => {
                   preferences.darkMode ? "text-emerald-400" : "text-emerald-600"
                 }`}
               >
-                <ShieldCheck size={16} /> {t('profile.prefs.permissions_title')} (Rol:{" "}
-                {user?.role || "Guest"})
+                <ShieldCheck size={16} /> {t('profile.prefs.permissions_title')} ({t('profile.prefs.role', 'Rol')}: {user?.role || t('profile.prefs.guest', 'Guest')})
               </h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <PermissionItem
@@ -368,7 +374,7 @@ const ProfileView = () => {
             <div className="pt-8 border-t border-slate-100/10 flex items-center justify-between">
               {success && (
                 <span className="text-emerald-500 text-sm font-black flex items-center gap-2 animate-in fade-in">
-                  <CheckCircle2 size={18} /> Wijzigingen opgeslagen
+                  <CheckCircle2 size={18} /> {t('profile.saved', 'Wijzigingen opgeslagen')}
                 </span>
               )}
               <button
@@ -408,7 +414,7 @@ const ProfileView = () => {
                     {t('profile.prefs.language')}
                   </label>
                   <div
-                    className={`grid grid-cols-2 gap-2 p-1 rounded-2xl border ${
+                    className={`grid grid-cols-4 gap-2 p-1 rounded-2xl border ${
                       preferences.darkMode
                         ? "bg-white/5 border-white/10"
                         : "bg-slate-100/50 border-slate-100"
@@ -439,6 +445,32 @@ const ProfileView = () => {
                       }`}
                     >
                       <Languages size={14} /> EN
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPreferences({ ...preferences, language: "ar" });
+                        i18n.changeLanguage("ar");
+                      }}
+                      className={`py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                        preferences.language === "ar"
+                          ? "bg-white text-blue-600 shadow-sm"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      <Languages size={14} /> AR
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPreferences({ ...preferences, language: "de" });
+                        i18n.changeLanguage("de");
+                      }}
+                      className={`py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                        preferences.language === "de"
+                          ? "bg-white text-blue-600 shadow-sm"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      <Languages size={14} /> DE
                     </button>
                   </div>
                 </div>
@@ -523,7 +555,7 @@ const ProfileView = () => {
                       {t('profile.prefs.alerts')}
                     </p>
                     <p className="text-[9px] text-slate-500">
-                      Planning & Productie
+                      {t('profile.prefs.alerts_desc', 'Planning & Productie')}
                     </p>
                   </div>
                   <button
@@ -564,7 +596,7 @@ const ProfileView = () => {
                       {t('profile.prefs.notifications')}
                     </p>
                     <p className="text-[9px] text-slate-500">
-                      Validatie verzoeken
+                      {t('profile.prefs.notifications_desc', 'Validatie verzoeken')}
                     </p>
                   </div>
                   <button
@@ -675,9 +707,8 @@ const ProfileView = () => {
                 </div>
               )}
               {pwSuccess && (
-                <div className="bg-emerald-500/20 text-emerald-300 p-4 rounded-2xl text-[10px] font-bold flex items-center gap-3 border border-emerald-500/30 animate-in zoom-in duration-300">
-                  <CheckCircle2 size={16} className="shrink-0" /> Wachtwoord
-                  bijgewerkt!
+                    <div className="bg-emerald-500/20 text-emerald-300 p-4 rounded-2xl text-[10px] font-bold flex items-center gap-3 border border-emerald-500/30 animate-in zoom-in duration-300">
+                  <CheckCircle2 size={16} className="shrink-0" /> {t('profile.prefs.password_updated', 'Wachtwoord bijgewerkt!')}
                 </div>
               )}
 

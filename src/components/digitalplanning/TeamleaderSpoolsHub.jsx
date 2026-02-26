@@ -4,11 +4,13 @@ import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import TeamleaderHub from "./TeamleaderHub";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 /**
  * TeamleaderSpoolsHub - V2 (Future Factory Path)
  */
 const TeamleaderSpoolsHub = React.memo((props) => {
+  const { t } = useTranslation();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -62,7 +64,7 @@ const TeamleaderSpoolsHub = React.memo((props) => {
     <TeamleaderHub
       {...props}
       fixedScope="spools"
-      departmentName="Spools Productions"
+      departmentName={t('teamleader.spools_productions', 'Spools Producties')}
       allowedMachines={machineIds}
     />
   );

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { BookOpen, ChevronRight, ChevronDown, Zap } from "lucide-react";
+import { useTranslation, Trans } from "react-i18next";
 
 // Gedetailleerde uitleg per onderdeel
 const details = {
@@ -304,24 +305,27 @@ const structure = [
 
 
 const ProjectStructureExpertView = () => {
+  const { t } = useTranslation();
   return (
     <div style={{ padding: 24 }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>
         <BookOpen size={28} style={{ display: "inline", marginRight: 8 }} />
-        Projectstructuur & Uitleg (Expert)
+        {t('projectStructure.title', 'Projectstructuur & Uitleg (Expert)')}
       </h1>
       <p style={{ maxWidth: 800, marginBottom: 18 }}>
-        Klik op een map om te openen. Klik op een bestand voor uitleg.
+        {t('projectStructure.subtitle', 'Klik op een map om te openen. Klik op een bestand voor uitleg.')}
       </p>
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, margin: '16px 0', overflowX: 'auto' }}>
         <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
           {structure.map((node, i) => <TreeNode key={i} node={node} />)}
         </ul>
       </div>
-      <h2 style={{ fontSize: 22, fontWeight: 600, marginTop: 32 }}>AI Koppeling</h2>
+      <h2 style={{ fontSize: 22, fontWeight: 600, marginTop: 32 }}>{t('projectStructure.ai_coupling', 'AI Koppeling')}</h2>
       <div style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, padding: 16, margin: '16px 0', fontSize: 15 }}>
         <Zap size={16} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
-        <b>AI Context:</b> De AI-module gebruikt <b>src/data/aiContext.js</b> en <b>src/data/aiPrompts.js</b> voor kennis, en <b>src/services/aiService.js</b> voor API-calls. Alle documentatie en structuur op deze pagina wordt automatisch meegenomen in de context voor AI-assistentie en onboarding.
+        <Trans i18nKey="projectStructure.ai_context_desc">
+          <b>AI Context:</b> De AI-module gebruikt <b>src/data/aiContext.js</b> en <b>src/data/aiPrompts.js</b> voor kennis, en <b>src/services/aiService.js</b> voor API-calls. Alle documentatie en structuur op deze pagina wordt automatisch meegenomen in de context voor AI-assistentie en onboarding.
+        </Trans>
       </div>
     </div>
   );

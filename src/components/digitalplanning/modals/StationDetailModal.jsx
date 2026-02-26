@@ -8,6 +8,7 @@ import {
   AlertCircle,
   ArrowUpCircle,
   Clock,
+  RotateCcw,
 } from "lucide-react";
 import {
   normalizeMachine,
@@ -347,6 +348,11 @@ const StationDetailModal = ({ stationId, allOrders, allProducts, onClose }) => {
                               {order.isPriority && (
                                 <span className="flex items-center gap-1 text-[9px] font-bold text-amber-600 uppercase mt-0.5">
                                   <ArrowUpCircle size={10} /> Prioriteit / Verplaatst
+                                </span>
+                              )}
+                              {order.rejectedCount > 0 && (
+                                <span className="flex items-center gap-1 text-[9px] font-bold text-rose-600 uppercase mt-0.5">
+                                  <RotateCcw size={10} /> Herstel ({order.rejectedCount})
                                 </span>
                               )}
                               {order.activeLot && (

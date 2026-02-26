@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Loader2,
   ArrowLeft,
@@ -40,6 +41,7 @@ const TeamleaderHub = React.memo(({
   allowedMachines = [],
   title = "Teamleader Hub",
 }) => {
+  const { t } = useTranslation();
   const { user } = useAdminAuth();
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -58,12 +60,11 @@ const TeamleaderHub = React.memo(({
   const [isClearing, setIsClearing] = useState(false);
 
   // Modals state
-  const [showTraceModal, setShowTraceModal] = useState(false);
+  const [activeKpi, setActiveKpi] = useState(null);
+  const [lastKpi, setLastKpi] = useState(null);
   const [modalTitle, setModalTitle] = useState("");
-  const [modalData, setModalData] = useState([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [viewingDossier, setViewingDossier] = useState(null);
-  const [returnToTrace, setReturnToTrace] = useState(false);
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
 
   useEffect(() => {
@@ -222,6 +223,11 @@ const TeamleaderHub = React.memo(({
         const n = normalizeMachine(s.name || "");
         return !n.startsWith("BM") && !n.includes("MAZAK") && !n.includes("NABEWERK");
       });
+      
+      // Add SPOOLS_INBOX explicitly for pipe/spools scope
+      if (!stations.some(s => s.name === "SPOOLS_INBOX")) {
+          stations.push({ id: "SPOOLS_INBOX", name: "SPOOLS_INBOX", department: "pipes" });
+      }
     }
 
     return stations;
@@ -241,8 +247,14 @@ const TeamleaderHub = React.memo(({
       .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
       .filter((o) => {
         // Order moet bij juiste afdeling horen
-        if (targetSlug !== "all" && o.department && typeof o.department === "string") {
-          if (o.department.toLowerCase() !== targetSlug) return false;
+        if (targetSlug !== "all") {
+          const dept = (o.department || "").toLowerCase();
+          const origDept = (o.originalDepartment || "").toLowerCase();
+          // Toon als het bij deze afdeling hoort OF als het hiervandaan komt (gedelegeerd)
+          // FIX: Alleen filteren als er een expliciete afdeling is die NIET matcht.
+          if (dept && dept !== targetSlug && origDept !== targetSlug) {
+             return false;
+          }
         }
 
         // 1. HARD EXCLUDES OP BASIS VAN SCOPE (FAILSAFE)
@@ -261,6 +273,11 @@ const TeamleaderHub = React.memo(({
         if (targetSlug === "all") return true;
 
         if (effectiveAllowedNorms.length > 0) {
+          // Special case for delegated orders (Outgoing or Incoming)
+          if (o.delegatedTo || o.machine === "SPOOLS_INBOX") {
+              return true;
+          }
+
           if (o.normMachine) {
             return effectiveAllowedNorms.includes(o.normMachine);
           }
@@ -551,37 +568,19 @@ const TeamleaderHub = React.memo(({
     currentWeek
   ]);
 
-  const handleKpiClick = (kpiId, label) => {
-    setModalTitle(label);
-    if (kpiId === "gepland") {
-      // Zelfde filtering als dataStore, zodat alleen relevante stations/orders getoond worden
-      const filteredOrders = rawOrders
-        .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
-        .filter((o) => {
-          if (targetSlug !== "all" && o.department && typeof o.department === "string") {
-            if (o.department.toLowerCase() !== targetSlug) return false;
-          }
-          if (targetSlug === 'fittings') {
-            if (o.normMachine.startsWith("BA")) return false;
-            if (o.station && normalizeMachine(o.station).startsWith("BA")) return false;
-          }
-          if (targetSlug === 'pipes' || targetSlug === 'pipe') {
-            if (o.normMachine.startsWith("BM") || o.normMachine.includes("MAZAK") || o.normMachine.includes("NABEWERK")) return false;
-            if (o.station && (normalizeMachine(o.station).startsWith("BM") || normalizeMachine(o.station).includes("MAZAK") || normalizeMachine(o.station).includes("NABEWERK"))) return false;
-          }
-          if (targetSlug === "all") return true;
-          if (effectiveAllowedNorms.length > 0) {
-            if (o.normMachine) {
-              return effectiveAllowedNorms.includes(o.normMachine);
-            }
-            return true;
-          }
-          return false;
-        });
-      setModalData(filteredOrders);
-      setShowTraceModal(true);
-    } else if (kpiId === "in_proces") {
-      const list = rawProducts.filter((p) => {
+  // Dynamische data berekening voor de modal, zodat deze live update
+  const modalData = useMemo(() => {
+    if (!activeKpi) return [];
+    
+    const validOrderIds = new Set(dataStore.map((o) => o.orderId));
+
+    if (activeKpi === "gepland") {
+      return dataStore.filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status));
+    }
+    
+    if (activeKpi === "in_proces") {
+      return rawProducts.filter((p) => {
+         if (!validOrderIds.has(p.orderId)) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
          const station = (p.currentStation || "").toUpperCase();
@@ -590,36 +589,40 @@ const TeamleaderHub = React.memo(({
          const isAtBM01 = (station === 'BM01' || station === 'STATION BM01' || step === 'Eindinspectie');
          return !isFinished && !isRejected && !isAtBM01;
       });
-      setModalData(list);
-      setShowTraceModal(true);
-    } else if (kpiId === "gereed") {
+    }
+    
+    if (activeKpi === "gereed") {
       const activeList = rawProducts.filter((p) => {
+         if (!validOrderIds.has(p.orderId)) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
          return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
       });
-      const validOrderIds = new Set(dataStore.map((o) => o.orderId));
       const archivedList = archivedProducts.filter(p => validOrderIds.has(p.orderId));
-      const combined = [...activeList, ...archivedList];
-      setModalData(combined);
-      setShowTraceModal(true);
-    } else if (kpiId === "afkeur") {
-      const list = rawProducts.filter((p) => {
+      return [...activeList, ...archivedList];
+    }
+    
+    if (activeKpi === "afkeur") {
+      return rawProducts.filter((p) => {
+         if (!validOrderIds.has(p.orderId)) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
          return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
       });
-      setModalData(list);
-      setShowTraceModal(true);
-    } else if (kpiId === "tijdelijke_afkeur" || kpiId === "temp_rejected" || kpiId === "tijdelijke afkeur" || kpiId === "tijdelijk_afkeur") {
-      const list = rawProducts
-        .filter((p) => p.inspection?.status === "Tijdelijke afkeur")
+    }
+    
+    if (["tijdelijke_afkeur", "temp_rejected", "tijdelijke afkeur", "tijdelijk_afkeur"].includes(activeKpi)) {
+      return rawProducts
+        .filter((p) => {
+            if (!validOrderIds.has(p.orderId)) return false;
+            return p.inspection?.status === "Tijdelijke afkeur";
+        })
         .sort((a, b) => new Date(a.inspection?.timestamp || 0) - new Date(b.inspection?.timestamp || 0));
-      setModalData(list);
-      setShowTraceModal(true);
-    } else if (kpiId === "bezetting") {
+    }
+    
+    if (activeKpi === "bezetting") {
       const currentDayStr = format(new Date(), 'yyyy-MM-dd');
-      const todayData = bezetting
+      return bezetting
         .filter(b => b.date === currentDayStr)
         .map(b => ({
           ...b,
@@ -628,9 +631,14 @@ const TeamleaderHub = React.memo(({
           item: `${b.hours || 8} uur`,
           status: b.shift || "N/A"
         }));
-      setModalData(todayData);
-      setShowTraceModal(true);
     }
+
+    return [];
+  }, [activeKpi, dataStore, rawProducts, archivedProducts, bezetting]);
+
+  const handleKpiClick = (kpiId, label) => {
+    setModalTitle(label);
+    setActiveKpi(kpiId);
   };
 
   const handleExport = () => {
@@ -739,12 +747,13 @@ const TeamleaderHub = React.memo(({
     }
   };
 
+
   if (loading)
     return (
       <div className="flex h-full flex-col items-center justify-center bg-slate-50 gap-4">
         <Loader2 className="animate-spin text-blue-600" size={48} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Productiedata synchroniseren...
+          {t('teamleader.loading_data', 'Productiedata synchroniseren...')}
         </p>
       </div>
     );
@@ -752,9 +761,9 @@ const TeamleaderHub = React.memo(({
   if (!user?.role || user?.role === 'guest')
     return (
       <div className="h-full flex flex-col items-center justify-center p-10 text-center">
-        <h3 className="text-xl font-black uppercase italic text-slate-400">Toegang Beperkt</h3>
-        <p className="text-slate-500 text-sm mt-2 max-w-xs">Uw account heeft nog geen rechten om deze data te bekijken.</p>
-        <button onClick={onBack || onExit} className="mt-8 px-8 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all">Terug</button>
+        <h3 className="text-xl font-black uppercase italic text-slate-400">{t('teamleader.access_denied', 'Toegang Beperkt')}</h3>
+        <p className="text-slate-500 text-sm mt-2 max-w-xs">{t('teamleader.no_rights', 'Uw account heeft nog geen rechten om deze data te bekijken.')}</p>
+        <button onClick={onBack || onExit} className="mt-8 px-8 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all">{t('common.back', 'Terug')}</button>
       </div>
     );
 
@@ -762,10 +771,10 @@ const TeamleaderHub = React.memo(({
     return (
       <div className="h-full flex flex-col items-center justify-center p-10 text-center">
         <AlertTriangle size={48} className="text-rose-500 mb-4" />
-        <h3 className="text-xl font-black uppercase italic">Database Verbindingsfout</h3>
-        <p className="text-slate-500 text-sm mt-2 max-w-xs">De app kon geen verbinding maken met Firestore (Fout: {dbError}).</p>
+        <h3 className="text-xl font-black uppercase italic">{t('teamleader.db_error_title', 'Database Verbindingsfout')}</h3>
+        <p className="text-slate-500 text-sm mt-2 max-w-xs">{t('teamleader.db_error_desc', 'De app kon geen verbinding maken met Firestore (Fout: {{error}}).', { error: dbError })}</p>
         <button onClick={() => window.location.reload()} className="mt-8 px-8 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">
-          Opnieuw Proberen
+          {t('teamleader.retry', 'Opnieuw Proberen')}
         </button>
       </div>
     );
@@ -779,22 +788,22 @@ const TeamleaderHub = React.memo(({
               <ArrowLeft size={24} />
             </button>
             <div className="text-left">
-              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none whitespace-nowrap">{title}</h2>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 truncate">{departmentName} Dashboard</p>
+              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none whitespace-nowrap">{t('teamleader.title', title)}</h2>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 truncate">{departmentName} {t('teamleader.dashboard', 'Dashboard')}</p>
             </div>
           </div>
 
           <div className="flex bg-slate-100 p-1 rounded-2xl overflow-x-auto max-w-full no-scrollbar w-full xl:w-auto justify-start xl:justify-center">
-            <button onClick={() => setActiveTab("dashboard")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "dashboard" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Dashboard</button>
-            <button onClick={() => setActiveTab("planning")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Volledige Lijst</button>
-            <button onClick={() => setActiveTab("bezetting")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "bezetting" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Personeel</button>
-            <button onClick={() => setActiveTab("efficiency")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "efficiency" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Efficiëntie</button>
-            <button onClick={() => setActiveTab("gantt")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "gantt" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Gantt-planning</button>
+            <button onClick={() => setActiveTab("dashboard")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "dashboard" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_dashboard', 'Dashboard')}</button>
+            <button onClick={() => setActiveTab("planning")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_full_list', 'Volledige Lijst')}</button>
+            <button onClick={() => setActiveTab("bezetting")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "bezetting" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_personnel', 'Personeel')}</button>
+            <button onClick={() => setActiveTab("efficiency")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "efficiency" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_efficiency', 'Efficiëntie')}</button>
+            <button onClick={() => setActiveTab("gantt")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "gantt" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
           </div>
 
           <div className="flex items-center gap-3 w-full xl:w-auto justify-end">
-            <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title="Exporteer CSV"><Download size={20} /></button>
-            <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">Import</span></button>
+            <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title={t('teamleader.export_csv', 'Exporteer CSV')}><Download size={20} /></button>
+            <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">{t('teamleader.import', 'Import')}</span></button>
           </div>
         </div>
       </div>
@@ -816,11 +825,21 @@ const TeamleaderHub = React.memo(({
               </div>
               <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden">
                 {selectedOrder ? (
-                  <OrderDetail order={selectedOrder} products={rawProducts} onClose={() => setSelectedOrderId(null)} isManager={true} onMoveLot={handleMoveLot} onOpenDossier={setViewingDossier} showAllStations={true} />
+                  <OrderDetail 
+                    order={selectedOrder} 
+                    products={rawProducts} 
+                    onClose={() => setSelectedOrderId(null)} 
+                    isManager={true} 
+                    onMoveLot={handleMoveLot} 
+                    onOpenDossier={setViewingDossier} 
+                    showAllStations={true} 
+                    currentDepartment={targetSlug}
+                    allowedStations={effectiveStations}
+                  />
                 ) : (
                   <div className="flex-1 flex flex-col justify-center items-center opacity-40 italic text-center">
                     <ClipboardList size={64} className="mb-4 text-slate-300" />
-                    <p className="font-black uppercase tracking-widest text-xs text-slate-400">Selecteer een order uit de lijst</p>
+                    <p className="font-black uppercase tracking-widest text-xs text-slate-400">{t('teamleader.select_order', 'Selecteer een order uit de lijst')}</p>
                   </div>
                 )}
               </div>
@@ -831,8 +850,30 @@ const TeamleaderHub = React.memo(({
 
       {showImportModal && <PlanningImportModal isOpen={true} onClose={() => setShowImportModal(false)} />}
       {selectedStationDetail && <StationDetailModal stationId={selectedStationDetail} allOrders={dataStore} allProducts={rawProducts} onClose={() => setSelectedStationDetail(null)} />}
-      <TraceModal isOpen={showTraceModal} onClose={() => { setShowTraceModal(false); setReturnToTrace(false); }} title={modalTitle} data={modalData} onRowClick={(item) => { setShowTraceModal(false); setViewingDossier(item); setReturnToTrace(true); }} />
-      {viewingDossier && <ProductDossierModal isOpen={true} product={viewingDossier} onClose={() => { setViewingDossier(null); if (returnToTrace) setShowTraceModal(true); }} orders={rawOrders} onMoveLot={handleMoveLot} />}
+      
+      <TraceModal 
+        isOpen={!!activeKpi} 
+        onClose={() => { setActiveKpi(null); setLastKpi(null); }} 
+        title={modalTitle} 
+        data={modalData} 
+        onRowClick={(item) => { 
+            setLastKpi(activeKpi);
+            setActiveKpi(null); 
+            setViewingDossier(item); 
+        }} 
+      />
+      
+      {viewingDossier && (
+        <ProductDossierModal 
+          isOpen={true} 
+          product={viewingDossier} 
+          onClose={() => { setViewingDossier(null); if (lastKpi) setActiveKpi(lastKpi); }} 
+          orders={rawOrders} 
+          onMoveLot={handleMoveLot} 
+          currentDepartment={targetSlug}
+          allowedStations={effectiveStations}
+        />
+      )}
     </div>
   );
 });

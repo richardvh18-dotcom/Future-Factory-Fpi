@@ -63,6 +63,20 @@ const AdminMessagesView = ({ user: propUser }) => {
   const [attachment, setAttachment] = useState(null);
   const [attachmentPreview, setAttachmentPreview] = useState(null);
 
+  // Bepaal relevante groepen voor de huidige gebruiker (voor filtering en query)
+  const userGroups = useMemo(() => {
+    if (!user?.email) return [];
+    const groups = [user.email];
+    
+    if (user.department) {
+        const dept = user.department.toLowerCase();
+        if (dept.includes('spools')) groups.push('SPOOLS_TEAM');
+        if (dept.includes('fittings')) groups.push('FITTINGS_TEAM');
+        if (dept.includes('pipes')) groups.push('PIPES_TEAM');
+    }
+    return groups;
+  }, [user]);
+
   // 1. Live Sync met de Root Messages collectie
   useEffect(() => {
     if (!isValidPath("MESSAGES")) return;
@@ -84,7 +98,7 @@ const AdminMessagesView = ({ user: propUser }) => {
       q = query(
         messagesRef,
         // We verwijderen orderBy hier om de index-fout te voorkomen. Sortering gebeurt nu client-side.
-        or(where("to", "==", user.email), where("senderId", "==", user.uid))
+        or(where("to", "in", userGroups), where("senderId", "==", user.uid))
       );
     }
 
@@ -102,15 +116,16 @@ const AdminMessagesView = ({ user: propUser }) => {
 
         // Filteren op basis van rechten
         const visibleMsgs = msgs.filter((m) => {
-          const isOwn = m.to === user?.email || m.senderId === user?.uid;
+          const isForMe = userGroups.includes(m.to);
+          const isFromMe = m.senderId === user?.uid;
           // Admin berichten zijn voor 'admin', de groep 'admins' of systeem errors
           const isForAdmins = m.to === "admin" || m.targetGroup === "admins" || m.type === "SYSTEM_ERROR";
           
           // Admins zien alles voor admins + eigen berichten
-          if (isAdmin) return isOwn || isForAdmins;
+          if (isAdmin) return isForMe || isFromMe || isForAdmins;
           
           // Niet-admins zien alleen eigen berichten
-          return isOwn;
+          return isForMe || isFromMe;
         });
 
         setMessages(visibleMsgs);
@@ -124,7 +139,7 @@ const AdminMessagesView = ({ user: propUser }) => {
     );
 
     return () => unsubscribe();
-  }, [user, isAdmin]);
+  }, [user, isAdmin, userGroups]);
 
   // 2. Bericht Acties
   const handleMarkAsRead = async (thread) => {

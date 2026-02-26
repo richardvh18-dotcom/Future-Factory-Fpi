@@ -1,12 +1,8 @@
 {
-    "framework": "vite",
-    "name": "fpiff-30-1",
-    "git": {
-        "deploymentEnabled": {
-            "main": true,
-            "preview": true
-        {
-            "rewrites": [
-                { "source": "/(.*)", "destination": "/index.html" }
-            ]
-        }
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

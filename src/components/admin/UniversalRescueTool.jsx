@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { db, auth } from "../../config/firebase";
 import {
   collection,
@@ -35,14 +36,15 @@ import { PATHS } from "../../config/dbPaths";
  * en verloren paden te identificeren in zowel /artifacts/ als /future-factory/.
  */
 const UniversalRescueTool = () => {
+  const { t } = useTranslation();
   const [foundCollections, setFoundCollections] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
-  const [authStatus, setAuthStatus] = useState("Controleren...");
+  const [authStatus, setAuthStatus] = useState(t('universalRescueTool.checking', "Controleren..."));
 
-  const activeProjectId = db?._databaseId?.projectId || "ONBEKEND";
+  const activeProjectId = db?._databaseId?.projectId || t('common.unknown', "ONBEKEND");
 
   const addLog = (msg) => {
     setLogs((prev) =>
@@ -53,12 +55,12 @@ const UniversalRescueTool = () => {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
-        setAuthStatus(`Ingelogd (${user.uid.substring(0, 8)})`);
-        addLog("Sessie actief en geautoriseerd.");
+        setAuthStatus(`${t('universalRescueTool.loggedIn', 'Ingelogd')} (${user.uid.substring(0, 8)})`);
+        addLog(t('universalRescueTool.sessionActive', "Sessie actief en geautoriseerd."));
       } else {
-        setAuthStatus("Niet ingelogd...");
+        setAuthStatus(t('universalRescueTool.notLoggedIn', "Niet ingelogd..."));
         signInAnonymously(auth).catch((err) =>
-          addLog("Auth Fout: " + err.message)
+          addLog(t('universalRescueTool.authError', "Auth Fout: ") + err.message)
         );
       }
     });
@@ -72,7 +74,7 @@ const UniversalRescueTool = () => {
   const runWriteTest = async () => {
     setIsTesting(true);
     setError(null);
-    addLog("Start integriteits-test voor Root Rules...");
+    addLog(t('universalRescueTool.startIntegrityTest', "Start integriteits-test voor Root Rules..."));
     try {
       // We proberen een verborgen test-document in de settings te schrijven
       const testRef = doc(
@@ -87,15 +89,15 @@ const UniversalRescueTool = () => {
         status: "Success",
         projectId: activeProjectId,
       });
-      addLog("✅ RULES CHECK OK: Je kunt schrijven naar /future-factory/");
+      addLog(t('universalRescueTool.rulesCheckOk', "✅ RULES CHECK OK: Je kunt schrijven naar /future-factory/"));
 
       // Direct weer opruimen
       await deleteDoc(testRef);
-      addLog("Systeem is gereed voor data-migratie.");
+      addLog(t('universalRescueTool.systemReady', "Systeem is gereed voor data-migratie."));
     } catch (err) {
-      addLog(`❌ TOEGANG GEWEIGERD: ${err.code}`);
+      addLog(`${t('universalRescueTool.accessDenied', "❌ TOEGANG GEWEIGERD: ")}${err.code}`);
       setError(
-        `Schrijf-test mislukt (${err.code}). Je Firestore Rules blokkeren toegang tot de nieuwe root.`
+        t('universalRescueTool.writeTestFailed', { code: err.code, defaultValue: `Schrijf-test mislukt (${err.code}). Je Firestore Rules blokkeren toegang tot de nieuwe root.` })
       );
     } finally {
       setIsTesting(false);
@@ -111,7 +113,7 @@ const UniversalRescueTool = () => {
     setError(null);
     setFoundCollections([]);
     setLogs([]);
-    addLog(`Forensische scan gestart voor Project: ${activeProjectId}`);
+    addLog(t('universalRescueTool.scanStarted', { projectId: activeProjectId, defaultValue: `Forensische scan gestart voor Project: ${activeProjectId}` }));
 
     const targetCollections = [
       "products",
@@ -124,7 +126,7 @@ const UniversalRescueTool = () => {
     ];
 
     try {
-      addLog("Start Deep Search via Collection Groups...");
+      addLog(t('universalRescueTool.startDeepSearch', "Start Deep Search via Collection Groups..."));
       for (const colName of targetCollections) {
         try {
           const groupRef = collectionGroup(db, colName);
@@ -135,7 +137,7 @@ const UniversalRescueTool = () => {
             const fullPath = snap.docs[0].ref.path;
             const folderPath = fullPath.replace(`/${snap.docs[0].id}`, "");
 
-            addLog(`🔥 DATA GEVONDEN: '${colName}'`);
+            addLog(t('universalRescueTool.dataFound', { colName, defaultValue: `🔥 DATA GEVONDEN: '${colName}'` }));
             setFoundCollections((prev) => [
               ...prev,
               {
@@ -146,21 +148,21 @@ const UniversalRescueTool = () => {
               },
             ]);
           } else {
-            addLog(`- Niets gevonden voor '${colName}'`);
+            addLog(t('universalRescueTool.nothingFoundFor', { colName, defaultValue: `- Niets gevonden voor '${colName}'` }));
           }
         } catch (e) {
-          addLog(`⚠️ Overslaan '${colName}': Geen leesrechten.`);
+          addLog(t('universalRescueTool.skipNoRights', { colName, defaultValue: `⚠️ Overslaan '${colName}': Geen leesrechten.` }));
         }
       }
 
       if (foundCollections.length === 0) {
         setError(
-          `Geen data gevonden. Controleer of de API Key in firebase.js echt bij project '${activeProjectId}' hoort.`
+          t('universalRescueTool.noDataFoundCheckKey', { projectId: activeProjectId, defaultValue: `Geen data gevonden. Controleer of de API Key in firebase.js echt bij project '${activeProjectId}' hoort.` })
         );
       }
-      addLog("Scan voltooid.");
+      addLog(t('universalRescueTool.scanComplete', "Scan voltooid."));
     } catch (err) {
-      setError("Fataal systeem-onderzoek fout: " + err.message);
+      setError(t('universalRescueTool.fatalError', "Fataal systeem-onderzoek fout: ") + err.message);
     } finally {
       setIsScanning(false);
     }
@@ -178,10 +180,10 @@ const UniversalRescueTool = () => {
           </div>
           <div className="text-center md:text-left">
             <h1 className="text-3xl font-black uppercase italic tracking-tighter leading-none">
-              Database <span className="text-blue-500">Forensics</span>
+              {t('universalRescueTool.database', "Database")} <span className="text-blue-500">{t('universalRescueTool.forensics', "Forensics")}</span>
             </h1>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2 italic">
-              Versie 6.0 | Advanced Rescue & Root Validation
+              {t('universalRescueTool.versionInfo', "Versie 6.0 | Advanced Rescue & Root Validation")}
             </p>
           </div>
         </div>
@@ -191,12 +193,12 @@ const UniversalRescueTool = () => {
           <div className="lg:col-span-5 space-y-6">
             <div className="bg-black/40 rounded-[35px] p-8 border border-white/5 space-y-6">
               <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
-                <Globe size={14} /> Systeem Identiteit
+                <Globe size={14} /> {t('universalRescueTool.systemIdentity', "Systeem Identiteit")}
               </h3>
               <div className="space-y-4">
                 <div>
                   <p className="text-[8px] font-black text-slate-500 uppercase mb-1">
-                    Live Project ID:
+                    {t('universalRescueTool.liveProjectId', "Live Project ID:")}
                   </p>
                   <p className="font-mono text-lg text-emerald-400 font-bold truncate">
                     {activeProjectId}
@@ -204,7 +206,7 @@ const UniversalRescueTool = () => {
                 </div>
                 <div className="pt-4 border-t border-white/5">
                   <p className="text-[8px] font-black text-slate-500 uppercase mb-2">
-                    Verbindingsstatus:
+                    {t('universalRescueTool.connectionStatus', "Verbindingsstatus:")}
                   </p>
                   <p className="font-mono text-[10px] text-blue-400 italic bg-blue-500/5 p-3 rounded-xl border border-blue-500/10">
                     <ShieldCheck
@@ -228,7 +230,7 @@ const UniversalRescueTool = () => {
                 ) : (
                   <TestTube2 size={20} />
                 )}
-                Rules Validatie Test
+                {t('universalRescueTool.rulesValidationTest', "Rules Validatie Test")}
               </button>
               <button
                 onClick={runDeepForensicScan}
@@ -240,7 +242,7 @@ const UniversalRescueTool = () => {
                 ) : (
                   <FolderSearch size={24} />
                 )}
-                Start Deep Scan
+                {t('universalRescueTool.startDeepScan', "Start Deep Scan")}
               </button>
             </div>
           </div>
@@ -252,7 +254,7 @@ const UniversalRescueTool = () => {
                 <div className="flex items-center gap-2">
                   <Terminal size={16} className="text-blue-500" />
                   <span className="text-[10px] font-black uppercase tracking-widest">
-                    Forensic Investigation Log
+                    {t('universalRescueTool.forensicLog', "Forensic Investigation Log")}
                   </span>
                 </div>
                 <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
@@ -263,7 +265,7 @@ const UniversalRescueTool = () => {
                   <div className="h-full flex flex-col items-center justify-center opacity-20 italic">
                     <Search size={48} className="mb-4" />
                     <p className="text-[10px] font-black uppercase tracking-widest">
-                      Wacht op scan-trigger...
+                      {t('universalRescueTool.waitingForScan', "Wacht op scan-trigger...")}
                     </p>
                   </div>
                 ) : (
@@ -291,7 +293,7 @@ const UniversalRescueTool = () => {
         {foundCollections.length > 0 && (
           <div className="mt-10 space-y-4 animate-in slide-in-from-bottom-6 duration-700">
             <h3 className="text-xs font-black text-emerald-400 uppercase tracking-widest ml-6 flex items-center gap-2">
-              <CheckCircle2 size={16} /> Gevonden Databronnen in Root:
+              <CheckCircle2 size={16} /> {t('universalRescueTool.foundDataSources', "Gevonden Databronnen in Root:")}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {foundCollections.map((col, i) => (
@@ -318,7 +320,7 @@ const UniversalRescueTool = () => {
                         {col.name}{" "}
                         {col.isNewRoot && (
                           <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded ml-2">
-                            Root Ready
+                            {t('universalRescueTool.rootReady', "Root Ready")}
                           </span>
                         )}
                       </p>
@@ -342,7 +344,7 @@ const UniversalRescueTool = () => {
             <AlertTriangle size={32} className="text-rose-500 shrink-0" />
             <div className="text-left">
               <h4 className="text-sm font-black uppercase text-rose-400">
-                Scan Onderbroken
+                {t('universalRescueTool.scanInterrupted', "Scan Onderbroken")}
               </h4>
               <p className="text-xs text-rose-200/70 leading-relaxed mt-1">
                 {error}
@@ -354,10 +356,10 @@ const UniversalRescueTool = () => {
         {/* FEEDBACK INSTRUCTIE */}
         <div className="mt-12 pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 opacity-60">
           <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
-            <ShieldCheck size={14} /> Systeem: Future Factory MES Forensic Tool
+            <ShieldCheck size={14} /> {t('universalRescueTool.systemToolName', "Systeem: Future Factory MES Forensic Tool")}
           </div>
           <div className="bg-blue-600/20 text-blue-400 px-6 py-2 rounded-full border border-blue-500/20 text-[9px] font-black uppercase tracking-[0.2em] italic">
-            Ready for Node Migration
+            {t('universalRescueTool.readyForMigration', "Ready for Node Migration")}
           </div>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Lock, ShieldCheck, Loader2, Save, AlertCircle } from "lucide-react";
 import { getAuth, updatePassword } from "firebase/auth";
 import { db } from "../config/firebase";
@@ -10,13 +11,14 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
   const [confirmPass, setConfirmPass] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { t } = useTranslation();
 
   const handleUpdate = async (e) => {
     e.preventDefault();
     if (newPass.length < 6)
-      return setError("Wachtwoord moet minimaal 6 tekens bevatten.");
+      return setError(t('forcePassword.min_length', 'Wachtwoord moet minimaal 6 tekens bevatten.'));
     if (newPass !== confirmPass)
-      return setError("Wachtwoorden komen niet overeen.");
+      return setError(t('forcePassword.no_match', 'Wachtwoorden komen niet overeen.'));
 
     setLoading(true);
     setError(null);
@@ -39,7 +41,7 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
     } catch (err) {
       console.error(err);
       setError(
-        "Fout bij updaten wachtwoord. Mogelijk moet u opnieuw inloggen."
+        t('forcePassword.update_error', 'Fout bij updaten wachtwoord. Mogelijk moet u opnieuw inloggen.')
       );
     } finally {
       setLoading(false);
@@ -54,17 +56,16 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
         </div>
 
         <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter mb-2">
-          Nieuw Wachtwoord
+          {t('forcePassword.title', 'Nieuw Wachtwoord')}
         </h1>
         <p className="text-slate-400 text-sm font-medium mb-8">
-          U gebruikt momenteel een tijdelijk wachtwoord. Voor de veiligheid moet
-          u dit nu wijzigen.
+          {t('forcePassword.subtitle', 'U gebruikt momenteel een tijdelijk wachtwoord. Voor de veiligheid moet u dit nu wijzigen.')}
         </p>
 
         <form onSubmit={handleUpdate} className="space-y-4 text-left">
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
-              Nieuw Wachtwoord
+              {t('forcePassword.new', 'Nieuw Wachtwoord')}
             </label>
             <div className="relative">
               <Lock
@@ -84,7 +85,7 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
-              Bevestig Wachtwoord
+              {t('forcePassword.confirm', 'Bevestig Wachtwoord')}
             </label>
             <div className="relative">
               <Lock
@@ -118,7 +119,7 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
             ) : (
               <Save size={20} />
             )}
-            Wachtwoord Bijwerken
+            {t('forcePassword.update', 'Wachtwoord Bijwerken')}
           </button>
         </form>
       </div>

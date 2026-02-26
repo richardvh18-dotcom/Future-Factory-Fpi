@@ -20,7 +20,7 @@ import {
 import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import ProductDetailModal from "../products/ProductDetailModal";
+import ProductPassportModal from "./modals/ProductPassportModal";
 
 /**
  * MobileScanner V26 - Focus op Helderheid & Snelheid.
@@ -579,10 +579,9 @@ const MobileScanner = () => {
       )}
 
       {viewingProduct && (
-        <ProductDetailModal
-          product={viewingProduct}
+        <ProductPassportModal
+          item={viewingProduct}
           onClose={() => setViewingProduct(null)}
-          userRole="operator"
         />
       )}
 

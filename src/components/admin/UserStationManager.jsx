@@ -3,8 +3,10 @@ import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { PATHS } from '../../config/dbPaths';
 import { User, Check, Save, X, Shield, Loader2, MapPin, Briefcase } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const UserStationManager = () => {
+  const { t } = useTranslation();
   const [users, setUsers] = useState([]);
   const [allStations, setAllStations] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -33,8 +35,8 @@ const UserStationManager = () => {
                 stations.push({
                   id: st.name,
                   name: st.name,
-                  department: dept.title || dept.name || "Overig",
-                  country: dept.country || "Overig"
+                  department: dept.title || dept.name || t('common.other', "Overig"),
+                  country: dept.country || t('common.other', "Overig")
                 });
               });
             }
@@ -45,7 +47,12 @@ const UserStationManager = () => {
         console.log("🌍 Gevonden landen in config:", [...new Set(stations.map(s => s.country))]);
 
         // Voeg speciale rollen toe
-        stations.push({ id: 'TEAMLEADER', name: 'Teamleader Hub', department: 'Management', country: 'Global' });
+        stations.push({ 
+          id: 'TEAMLEADER', 
+          name: t('adminUserStation.teamleaderHub', 'Teamleader Hub'), 
+          department: t('adminUserStation.management', 'Management'), 
+          country: t('adminUserStation.global', 'Global') 
+        });
         
         setAllStations(stations);
       }
@@ -93,7 +100,7 @@ const UserStationManager = () => {
       // Optioneel: Toon succes melding
     } catch (error) {
       console.error("Fout bij opslaan:", error);
-      alert('Fout bij opslaan: ' + error.message);
+      alert(t('adminUserStation.saveError', { message: error.message }));
     }
   };
 
@@ -113,7 +120,7 @@ const UserStationManager = () => {
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[600px]">
       {/* Gebruikers Lijst */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-700">Gebruikers</div>
+        <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-700">{t('adminUserStation.users', 'Gebruikers')}</div>
         <div className="overflow-y-auto flex-1 p-2 space-y-1">
           {users.map(user => (
             <button
@@ -123,8 +130,8 @@ const UserStationManager = () => {
             >
               <div className="bg-slate-200 p-2 rounded-full"><User size={16} /></div>
               <div className="truncate">
-                <div className="font-bold text-sm">{user.name || user.email}</div>
-                <div className="text-xs opacity-70">{user.role || 'Gebruiker'}</div>
+                <div className="font-bold text-sm">{user.name || user.email || t('common.unknown')}</div>
+                <div className="text-xs opacity-70">{user.role || t('adminUserStation.user', 'Gebruiker')}</div>
               </div>
             </button>
           ))}
@@ -136,7 +143,7 @@ const UserStationManager = () => {
         {selectedUser ? (
           <>
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <span className="font-bold text-slate-700">Toegang voor {selectedUser.name || selectedUser.email}</span>
+              <span className="font-bold text-slate-700">{t('adminUserStation.accessFor', { name: selectedUser.name || selectedUser.email })}</span>
               <div className="flex gap-2">
                 <button onClick={() => setSelectedUser(null)} className="p-2 text-slate-400 hover:text-slate-600"><X size={20} /></button>
               </div>
@@ -145,7 +152,7 @@ const UserStationManager = () => {
             {/* Filters */}
             <div className="px-6 pt-4 pb-2 grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Locatie</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('adminUserStation.location', 'Locatie')}</label>
                     <div className="relative">
                         <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <select 
@@ -153,12 +160,12 @@ const UserStationManager = () => {
                             onChange={(e) => { setFilterCountry(e.target.value); setFilterDept("All"); }}
                             className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-blue-500 cursor-pointer"
                         >
-                            {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
+                            {uniqueCountries.map(c => <option key={c} value={c}>{c === "All" ? t('common.all', 'Alles') : c}</option>)}
                         </select>
                     </div>
                 </div>
                 <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Afdeling</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('adminUserStation.department', 'Afdeling')}</label>
                     <div className="relative">
                         <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <select 
@@ -166,7 +173,7 @@ const UserStationManager = () => {
                             onChange={(e) => setFilterDept(e.target.value)}
                             className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-blue-500 cursor-pointer"
                         >
-                            {uniqueDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                            {uniqueDepts.map(d => <option key={d} value={d}>{d === "All" ? t('common.all', 'Alles') : d}</option>)}
                         </select>
                     </div>
                 </div>
@@ -186,20 +193,20 @@ const UserStationManager = () => {
                   </label>
                 ))}
                 {filteredStations.length === 0 && (
-                    <div className="col-span-2 text-center py-8 text-slate-400 text-xs italic">Geen stations gevonden.</div>
+                    <div className="col-span-2 text-center py-8 text-slate-400 text-xs italic">{t('adminUserStation.noStationsFound', 'Geen stations gevonden.')}</div>
                 )}
               </div>
             </div>
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
               <button onClick={handleSave} className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">
-                <Save size={18} /> Opslaan
+                <Save size={18} /> {t('adminUserStation.save', 'Opslaan')}
               </button>
             </div>
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
             <Shield size={48} className="mb-4 opacity-20" />
-            <p>Selecteer een gebruiker om rechten te beheren</p>
+            <p>{t('adminUserStation.selectUser', 'Selecteer een gebruiker om rechten te beheren')}</p>
           </div>
         )}
       </div>

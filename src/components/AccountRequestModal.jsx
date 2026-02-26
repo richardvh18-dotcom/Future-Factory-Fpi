@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { X, UserPlus, Mail, User, Globe, Building2, Send, CheckCircle } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../config/firebase";
@@ -9,6 +10,7 @@ import { PATHS } from "../config/dbPaths";
  * Gebruikers kunnen hun gegevens invullen en een account aanvragen
  */
 const AccountRequestModal = ({ isOpen, onClose }) => {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -73,8 +75,8 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
         onClose();
       }, 3000);
     } catch (err) {
-      console.error("Fout bij indienen aanvraag:", err);
-      setError("Er is een fout opgetreden. Probeer het opnieuw.");
+      console.error(t('accountRequest.submit_error_console'), err);
+      setError(t('accountRequest.submit_error'));
     } finally {
       setLoading(false);
     }
@@ -94,11 +96,10 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               </div>
             </div>
             <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-4">
-              Aanvraag Verzonden!
+              {t('accountRequest.success.title')}
             </h2>
             <p className="text-cyan-200/80 text-sm font-medium leading-relaxed">
-              Je accountaanvraag is succesvol ingediend. Een administrator zal je aanvraag beoordelen
-              en je ontvangt een e-mail zodra je account is goedgekeurd.
+              {t('accountRequest.success.message')}
             </p>
           </div>
         ) : (
@@ -112,11 +113,11 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                       <UserPlus size={24} className="text-cyan-400" />
                     </div>
                     <h2 className="text-3xl font-black uppercase italic tracking-tighter">
-                      Account Aanvragen
+                      {t('accountRequest.title')}
                     </h2>
                   </div>
                   <p className="text-cyan-200/60 text-sm font-bold">
-                    Vul je gegevens in om toegang aan te vragen
+                    {t('accountRequest.subtitle')}
                   </p>
                 </div>
                 <button
@@ -139,7 +140,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Naam */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <User size={12} /> Volledige Naam
+                  <User size={12} /> {t('accountRequest.form.name')}
                 </label>
                 <input
                   type="text"
@@ -155,7 +156,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Email */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <Mail size={12} /> E-mailadres
+                  <Mail size={12} /> {t('accountRequest.form.email')}
                 </label>
                 <input
                   type="email"
@@ -171,7 +172,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Land */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <Globe size={12} /> Land
+                  <Globe size={12} /> {t('accountRequest.form.country')}
                 </label>
                 <select
                   name="country"
@@ -180,7 +181,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   onChange={handleChange}
                   className="w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900"
                 >
-                  <option value="">-- Selecteer land --</option>
+                  <option value="">{t('accountRequest.form.select_country')}</option>
                   {countries.map((country) => (
                     <option key={country} value={country}>
                       {country}
@@ -192,7 +193,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Afdeling */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <Building2 size={12} /> Afdeling
+                  <Building2 size={12} /> {t('accountRequest.form.department')}
                 </label>
                 <select
                   name="department"
@@ -201,7 +202,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   onChange={handleChange}
                   className="w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900"
                 >
-                  <option value="">-- Selecteer afdeling --</option>
+                  <option value="">{t('accountRequest.form.select_department')}</option>
                   {departments.map((dept) => (
                     <option key={dept} value={dept}>
                       {dept}
@@ -217,7 +218,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   onClick={onClose}
                   className="flex-1 px-6 py-4 bg-white/10 border-2 border-white/20 text-cyan-200 rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-white/20 transition-all"
                 >
-                  Annuleren
+                  {t('accountRequest.actions.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -229,7 +230,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   ) : (
                     <>
                       <Send size={16} />
-                      Verzenden
+                      {t('accountRequest.actions.send')}
                     </>
                   )}
                 </button>

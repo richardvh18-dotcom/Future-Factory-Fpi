@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   collection,
   onSnapshot,
@@ -21,6 +22,7 @@ import {
 import { STANDARD_DIAMETERS, STANDARD_PRESSURES } from "../../data/constants";
 
 const AdminDrillingView = () => {
+  const { t } = useTranslation();
   const [drillData, setDrillData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
@@ -59,7 +61,7 @@ const AdminDrillingView = () => {
       logActivity(
         auth.currentUser,
         "DRILL_ADD",
-        `Boorpatroon ${docId} toegevoegd.`
+        t('adminDrilling.patternAdded', { docId })
       );
       setFormData({
         ...formData,
@@ -91,7 +93,7 @@ const AdminDrillingView = () => {
 
   if (loading)
     return (
-      <div className="p-10 text-center animate-pulse">Dimensies laden...</div>
+      <div className="p-10 text-center animate-pulse">{t('adminDrilling.loadingDimensions')}</div>
     );
 
   return (
@@ -99,10 +101,10 @@ const AdminDrillingView = () => {
       <header className="mb-8 flex justify-between items-end">
         <div>
           <h2 className="text-3xl font-black text-slate-800 flex items-center gap-3 tracking-tighter uppercase">
-            <Ruler className="text-blue-600" size={32} /> Boor Dimensies
+            <Ruler className="text-blue-600" size={32} /> {t('drillDimensions')}
           </h2>
           <p className="text-slate-500 font-medium">
-            Beheer steekcirkels en boutpatronen per diameter en drukklasse.
+            {t('manageCircles')}
           </p>
         </div>
         <div className="relative w-64">
@@ -112,7 +114,7 @@ const AdminDrillingView = () => {
           />
           <input
             className="w-full pl-10 pr-4 py-2 bg-white border rounded-xl text-sm"
-            placeholder="Filter op DN..."
+            placeholder={t('adminDrilling.filterDn')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -127,7 +129,7 @@ const AdminDrillingView = () => {
         >
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 ml-1">
-              DN (mm)
+              {t('dnMm')}
             </label>
             <select
               className="w-full p-2 bg-slate-50 border rounded-lg text-sm"
@@ -143,7 +145,7 @@ const AdminDrillingView = () => {
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 ml-1">
-              PN
+              {t('pn')}
             </label>
             <select
               className="w-full p-2 bg-slate-50 border rounded-lg text-sm"
@@ -159,7 +161,7 @@ const AdminDrillingView = () => {
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 ml-1 font-bold text-blue-600">
-              PCD (Steek)
+              {t('pcdPitch')}
             </label>
             <input
               required
@@ -173,12 +175,12 @@ const AdminDrillingView = () => {
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 ml-1">
-              Gaten (n)
+              {t('holesN')}
             </label>
             <input
               required
               className="w-full p-2 bg-slate-50 border rounded-lg text-sm"
-              placeholder="Aantal"
+              placeholder={t('adminDrilling.count')}
               value={formData.holes}
               onChange={(e) =>
                 setFormData({ ...formData, holes: e.target.value })
@@ -187,12 +189,12 @@ const AdminDrillingView = () => {
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 ml-1">
-              Gat Ø / Bout
+              {t('holeThread')}
             </label>
             <input
               required
               className="w-full p-2 bg-slate-50 border rounded-lg text-sm"
-              placeholder="bijv. M16"
+              placeholder={t('adminDrilling.exampleThread')}
               value={formData.thread}
               onChange={(e) =>
                 setFormData({ ...formData, thread: e.target.value })
@@ -203,7 +205,7 @@ const AdminDrillingView = () => {
             type="submit"
             className="bg-blue-600 text-white p-2.5 rounded-lg font-black text-xs uppercase hover:bg-blue-700 transition-all"
           >
-            Toevoegen
+            {t('add')}
           </button>
         </form>
       </section>
@@ -213,11 +215,11 @@ const AdminDrillingView = () => {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest">
             <tr>
-              <th className="px-6 py-4">Maatstaf (DN/PN)</th>
-              <th className="px-6 py-4">PCD (mm)</th>
-              <th className="px-6 py-4">Gaten</th>
-              <th className="px-6 py-4">Boutmaat</th>
-              <th className="px-6 py-4 text-right">Acties</th>
+              <th className="px-6 py-4">{t('scaleDnPn')}</th>
+              <th className="px-6 py-4">{t('pcdMm')}</th>
+              <th className="px-6 py-4">{t('holes')}</th>
+              <th className="px-6 py-4">{t('boltSize')}</th>
+              <th className="px-6 py-4 text-right">{t('actions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -278,7 +280,7 @@ const AdminDrillingView = () => {
                           DN {d.dn}
                         </span>
                         <span className="text-[10px] font-bold text-slate-400 uppercase">
-                          Drukklasse PN {d.pn}
+                          {t('pressureClass')} PN {d.pn}
                         </span>
                       </div>
                     </td>
@@ -286,7 +288,7 @@ const AdminDrillingView = () => {
                       {d.pcd} mm
                     </td>
                     <td className="px-6 py-4 text-slate-600">
-                      {d.holes} gaten
+                      {d.holes} {t('holesLabel')}
                     </td>
                     <td className="px-6 py-4 text-slate-500 font-medium">
                       {d.thread}

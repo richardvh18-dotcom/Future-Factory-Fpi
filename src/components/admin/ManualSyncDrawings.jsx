@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import { DatabaseZap, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { manualSyncDrawings } from "../../utils/manualSyncDrawings";
 import ProductDetailModal from "../products/ProductDetailModal";
 
 export default function ManualSyncDrawings() {
+  const { t } = useTranslation();
 
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState(null);
@@ -25,7 +27,7 @@ export default function ManualSyncDrawings() {
       setResult(res);
       setProgress({ current: res.length, total: res.length });
     } catch (err) {
-      setError(err.message || "Onbekende fout");
+      setError(err.message || t('manualSync.unknownError', "Onbekende fout"));
     } finally {
       setSyncing(false);
     }
@@ -46,10 +48,10 @@ export default function ManualSyncDrawings() {
           </div>
           <div>
             <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic leading-none">
-              Sync <span className="text-green-600">Tekeningen</span>
+              {t('manualSync.title', 'Sync Tekeningen').split(' ')[0]} <span className="text-green-600">{t('manualSync.title', 'Sync Tekeningen').split(' ').slice(1).join(' ')}</span>
             </h2>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-2">
-              Catalogus & Planning Integratie
+              {t('manualSync.subtitle', 'Catalogus & Planning Integratie')}
             </p>
           </div>
         </div>
@@ -62,10 +64,10 @@ export default function ManualSyncDrawings() {
           {syncing ? (
             <>
               <Loader2 className="animate-spin" size={18} /> 
-              Synchroniseren...
+              {t('manualSync.syncing', 'Synchroniseren...')}
             </>
           ) : (
-            "Start Synchronisatie"
+            t('manualSync.startSync', 'Start Synchronisatie')
           )}
         </button>
       </div>
@@ -74,7 +76,7 @@ export default function ManualSyncDrawings() {
       {syncing && progress.total > 0 && (
         <div className="mb-10 bg-slate-50 p-8 rounded-[30px] border border-slate-100 relative z-10">
           <div className="flex justify-between text-[10px] font-black uppercase text-slate-400 mb-3 tracking-widest">
-            <span>Verwerking</span>
+            <span>{t('manualSync.processing', 'Verwerking')}</span>
             <span>{Math.round((progress.current / progress.total) * 100)}%</span>
           </div>
           <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
@@ -84,7 +86,7 @@ export default function ManualSyncDrawings() {
             ></div>
           </div>
           <p className="text-center text-[10px] font-bold text-slate-400 mt-3 uppercase tracking-widest">
-            Item {progress.current} van {progress.total}
+            {t('manualSync.progress', { current: progress.current, total: progress.total, defaultValue: `Item ${progress.current} van ${progress.total}` })}
           </p>
         </div>
       )}
@@ -94,10 +96,10 @@ export default function ManualSyncDrawings() {
           <div className="flex items-center justify-between mb-6 px-2">
             <div className="flex items-center gap-3 text-green-700 font-black uppercase tracking-widest text-[10px] bg-green-50 px-4 py-2 rounded-xl border border-green-100">
               <CheckCircle2 size={16} /> 
-              Sync voltooid
+              {t('manualSync.syncComplete', 'Sync voltooid')}
             </div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              Resultaat: {result.filter(r => r.found).length} matches
+              {t('manualSync.resultMatches', { count: result.filter(r => r.found).length, defaultValue: `Resultaat: ${result.filter(r => r.found).length} matches` })}
             </span>
           </div>
           
@@ -105,9 +107,9 @@ export default function ManualSyncDrawings() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
                 <tr>
-                  <th className="py-5 px-8 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">Code</th>
-                  <th className="py-5 px-8 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">Status</th>
-                  <th className="py-5 px-8 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">Koppeling</th>
+                  <th className="py-5 px-8 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">{t('manualSync.code', 'Code')}</th>
+                  <th className="py-5 px-8 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">{t('manualSync.status', 'Status')}</th>
+                  <th className="py-5 px-8 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">{t('manualSync.link', 'Koppeling')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -117,27 +119,27 @@ export default function ManualSyncDrawings() {
                       {r.code}
                       {r.sourceFields && r.sourceFields.length > 0 && (
                         <div className="text-[9px] text-slate-400 font-normal mt-1 lowercase">
-                          via: {r.sourceFields.join(", ")}
+                          {t('manualSync.via', { fields: r.sourceFields.join(", "), defaultValue: `via: ${r.sourceFields.join(", ")}` })}
                         </div>
                       )}
                       {r.viaConversion && (
                         <div className="text-[9px] text-purple-600 font-bold mt-0.5 uppercase tracking-wider">
-                          Via Conversie Matrix
+                          {t('manualSync.viaMatrix', 'Via Conversie Matrix')}
                         </div>
                       )}
                     </td>
                     <td className="py-4 px-8">
                       {r.found ? (
                         <span className="text-green-600 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1.5 bg-green-100/50 px-2.5 py-1.5 rounded-lg w-fit border border-green-100">
-                          <CheckCircle2 size={12} /> Gekoppeld
+                          <CheckCircle2 size={12} /> {t('manualSync.linked', 'Gekoppeld')}
                         </span>
                       ) : r.removed ? (
-                        <span className="text-orange-500 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1.5 bg-orange-50 px-2.5 py-1.5 rounded-lg w-fit border border-orange-100" title="Oude koppeling verwijderd">
-                          <AlertTriangle size={12} /> Ontkoppeld
+                        <span className="text-orange-500 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1.5 bg-orange-50 px-2.5 py-1.5 rounded-lg w-fit border border-orange-100" title={t('manualSync.oldLinkRemoved', 'Oude koppeling verwijderd')}>
+                          <AlertTriangle size={12} /> {t('manualSync.unlinked', 'Ontkoppeld')}
                         </span>
                       ) : (
-                        <span className="text-rose-500 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1.5 bg-rose-50 px-2.5 py-1.5 rounded-lg w-fit border border-rose-100" title={r.reason || "Geen bestand gevonden"}>
-                          <AlertTriangle size={12} /> Niet gevonden
+                        <span className="text-rose-500 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1.5 bg-rose-50 px-2.5 py-1.5 rounded-lg w-fit border border-rose-100" title={r.reason || t('manualSync.noFileFound', 'Geen bestand gevonden')}>
+                          <AlertTriangle size={12} /> {t('manualSync.notFound', 'Niet gevonden')}
                         </span>
                       )}
                     </td>

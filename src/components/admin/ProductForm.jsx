@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Save,
   Loader2,
@@ -65,6 +66,7 @@ const sanitizeFileName = (name) => {
  * Slaat op in: /future-factory/production/products/
  */
 const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
+  const { t } = useTranslation();
   const {
     loading: settingsLoading,
     productRange,
@@ -542,7 +544,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.dn || !formData.pn) {
-      alert("Vul tenminste Naam, DN en PN in.");
+      alert(t('productForm.fill_required'));
       return;
     }
 
@@ -660,8 +662,8 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         if (verifier && verifier.email) {
            await addDoc(collection(db, ...PATHS.MESSAGES), {
             to: verifier.email,
-            subject: "Verificatie Verzoek: " + formData.name,
-            content: `Er is een nieuw product (${formData.name}) dat verificatie vereist.`,
+            subject: t('productForm.verification_request') + formData.name,
+            content: t('productForm.new_product_verification', { name: formData.name }),
             type: "validation_alert",
             priority: "urgent",
             read: false,
@@ -678,9 +680,9 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     } catch (err) {
       console.error("Save failed:", err);
       if (err.code === 'storage/unauthorized') {
-        alert("Geen rechten voor opslag (storage/unauthorized). Controleer of je bent ingelogd en of de Firebase Storage Rules schrijftoegang toestaan voor 'product_library/'.");
+        alert(t('productForm.storage_unauthorized'));
       } else {
-        alert("Fout bij opslaan: " + err.message);
+        alert(t('productForm.save_error') + err.message);
       }
     } finally {
       setSaving(false);
@@ -709,7 +711,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       <div className="flex flex-col items-center justify-center p-20 gap-4">
         <Loader2 className="animate-spin text-blue-600" size={48} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Configurator initialiseren...
+          {t('productForm.initializing')}
         </p>
       </div>
     );
@@ -724,10 +726,10 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
           </div>
           <div className="text-left">
             <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-              Product <span className="text-blue-600">Architect</span>
+              {t('productForm.product_architect').split(' ')[0]} <span className="text-blue-600">{t('productForm.product_architect').split(' ')[1]}</span>
             </h2>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 flex items-center gap-2">
-              <Database size={12} className="text-emerald-500" /> Root Sync: /
+              <Database size={12} className="text-emerald-500" /> {t('productForm.root_sync')}: /
               {PATHS.PRODUCTS.join("/")}
             </p>
           </div>
@@ -737,7 +739,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             onClick={onCancel}
             className="px-6 py-3 text-slate-400 hover:text-slate-600 font-black uppercase text-[10px] tracking-widest transition-all"
           >
-            Annuleren
+            {t('productForm.cancel')}
           </button>
           <button
             onClick={handleSave}
@@ -749,7 +751,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             ) : (
               <Save size={18} />
             )}
-            Publiceren naar Hub
+            {t('productForm.publish_to_hub')}
           </button>
         </div>
       </div>
@@ -761,15 +763,14 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             {/* Sectie: Identiteit */}
             <div className="bg-white p-6 rounded-[45px] border border-slate-200 shadow-sm space-y-6">
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
-                <BookOpen size={16} className="text-blue-500" /> Basis
-                Identificatie
+                <BookOpen size={16} className="text-blue-500" /> {t('productForm.basic_identification')}
               </h3>
 
               <div className="space-y-6">
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                    Productie Extra Code
+                    {t('productForm.production_extra_code')}
                   </label>
                   <select
                     className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -778,8 +779,8 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       setFormData({ ...formData, extraCode: e.target.value })
                     }
                   >
-                    <option value="">- Selecteer Code -</option>
-                    <option value="-">Geen Code</option>
+                    <option value="">{t('productForm.select_code')}</option>
+                    <option value="-">{t('productForm.no_code')}</option>
                     {(generalConfig?.codes || []).map((code) => (
                       <option key={code} value={code}>{code}</option>
                     ))}
@@ -789,7 +790,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Product Type
+                      {t('productForm.product_type')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -798,7 +799,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, type: e.target.value })
                       }
                     >
-                      <option value="">- Selecteer Type -</option>
+                      <option value="">{t('productForm.select_type')}</option>
                       {productTypes.map((t) => (
                         <option key={t} value={t}>
                           {t}
@@ -808,7 +809,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Verbinding
+                      {t('productForm.connection')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -817,7 +818,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, connection: e.target.value })
                       }
                     >
-                      <option value="">- Selecteer -</option>
+                      <option value="">{t('productForm.select')}</option>
                       {connectionTypes.map((c) => (
                         <option key={c} value={c}>{c}</option>
                       ))}
@@ -829,7 +830,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 {formData.type?.toLowerCase().includes("elbow") && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Graden (Hoek)</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2">{t('productForm.degrees_angle')}</label>
                       <select 
                         className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500" 
                         value={formData.angle} 
@@ -839,15 +840,15 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                           setFormData({...formData, angle: newAngle, radius: newRadius});
                         }}
                       >
-                        <option value="">- Kies Hoek -</option>
+                        <option value="">{t('productForm.choose_angle')}</option>
                         {(generalConfig?.angles || ["11.25", "22.5", "30", "45", "60", "90"]).map(a => <option key={a} value={a}>{a}°</option>)}
                       </select>
                     </div>
                     {formData.angle === "90" && (
                       <div className="space-y-2 animate-in slide-in-from-left-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Radius</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2">{t('productForm.radius')}</label>
                         <select className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500" value={formData.radius} onChange={e => setFormData({...formData, radius: e.target.value})}>
-                          <option value="">- Kies Radius -</option>
+                          <option value="">{t('productForm.choose_radius')}</option>
                           <option value="1.0D">1.0D</option>
                           <option value="1.5D">1.5D</option>
                         </select>
@@ -858,7 +859,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
                 <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Artikelgroep / Label
+                      {t('productForm.article_group_label')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -867,7 +868,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, label: e.target.value })
                       }
                     >
-                      <option value="">- Selecteer -</option>
+                      <option value="">{t('productForm.select')}</option>
                       {productLabels.map((l) => (
                         <option key={l} value={l}>
                           {l}
@@ -884,14 +885,14 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 <Zap size={120} />
               </div>
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic relative z-10">
-                <Ruler size={16} className="text-blue-500" /> Technische Matrix
+                <Ruler size={16} className="text-blue-500" /> {t('productForm.technical_matrix')}
               </h3>
 
               <div className="relative z-10">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Drukklasse (PN)
+                      {t('productForm.pressure_class_pn')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -900,7 +901,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, pn: e.target.value, dn: "" })
                       }
                     >
-                      <option value="">- Kies PN -</option>
+                      <option value="">{t('productForm.choose_pn')}</option>
                       {availablePNs.map((pn) => (
                         <option key={pn} value={pn}>
                           PN {pn}
@@ -911,7 +912,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Binnendiameter (ID)
+                      {t('productForm.inner_diameter_id')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-black italic outline-none focus:border-blue-500 transition-all text-blue-600"
@@ -920,7 +921,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, dn: e.target.value })
                       }
                     >
-                      <option value="">- Kies ID -</option>
+                      <option value="">{t('productForm.choose_id')}</option>
                       {availableDNs.map((dn) => (
                         <option key={dn} value={dn}>
                           ID {dn} mm
@@ -934,14 +935,14 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 {(Object.keys(formData.fittingSpecs || {}).length > 0 || Object.keys(formData.bellSpecs || {}).length > 0 || Object.keys(formData.socketSpecs || {}).length > 0) && (
                   <div className="mt-6 pt-6 border-t border-slate-100 animate-in slide-in-from-top-2">
                     <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                      <Info size={12} /> Gevonden Specificaties
+                      <Info size={12} /> {t('productForm.found_specs')}
                     </h4>
                     
                     <div className="space-y-4">
                       {/* Socket Maten Group */}
                       {(Object.keys(formData.bellSpecs || {}).length > 0 || Object.keys(formData.socketSpecs || {}).length > 0) && (
                         <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">Socket Maten</h5>
+                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">{t('productForm.socket_dimensions')}</h5>
                            <div className="grid grid-cols-3 gap-3">
                              {sortSpecs({...formData.bellSpecs, ...formData.socketSpecs}, SOCKET_ORDER)
                                .map(([key, value]) => (
@@ -957,7 +958,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       {/* Fitting Maten Group */}
                       {Object.keys(formData.fittingSpecs || {}).length > 0 && (
                         <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">Fitting Maten</h5>
+                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">{t('productForm.fitting_dimensions')}</h5>
                            <div className="grid grid-cols-3 gap-3">
                              {sortSpecs(formData.fittingSpecs, FITTING_ORDER)
                                .map(([key, value]) => (
@@ -981,12 +982,12 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             {/* Sectie: Artikelcodes */}
             <div className="bg-slate-900 p-6 rounded-[40px] shadow-2xl text-white space-y-4">
               <h3 className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em] flex items-center gap-3 italic">
-                <Hash size={16} /> Systeem Koppeling
+                <Hash size={16} /> {t('productForm.system_link')}
               </h3>
               <div className="space-y-4">
                 <div className="space-y-1.5 text-left">
                   <label className="text-[8px] font-black text-slate-500 uppercase ml-2">
-                    Gegenereerde Systeemnaam
+                    {t('productForm.generated_system_name')}
                   </label>
                   <input
                     readOnly
@@ -996,7 +997,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 </div>
                 <div className="space-y-1.5 text-left relative">
                   <label className="text-[8px] font-black text-slate-500 uppercase ml-2">
-                    Infor-LN Artikelcode (Manufactured Item)
+                    {t('productForm.infor_ln_code')}
                   </label>
                   <div className="relative">
                     <input
@@ -1009,7 +1010,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setShowLnResults(false);
                       }}
                       onKeyDown={(e) => e.key === 'Enter' && setSearchEnabled(true)}
-                      placeholder="Zoek op LN Code of Tekening..."
+                      placeholder={t('productForm.search_placeholder')}
                     />
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                       {isAutoLinked && (
@@ -1049,7 +1050,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         ))
                       ) : (
                         <div className="p-3 text-center">
-                           <span className="text-xs text-slate-400">Geen resultaten gevonden</span>
+                           <span className="text-xs text-slate-400">{t('productForm.no_results')}</span>
                         </div>
                       )}
                     </div>
@@ -1061,17 +1062,17 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             {/* Sectie: Media Upload */}
             <div className="bg-white p-6 rounded-[40px] border border-slate-200 shadow-sm space-y-4">
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
-                <ImageIcon size={16} className="text-blue-500" /> Afbeelding & PDF Upload
+                <ImageIcon size={16} className="text-blue-500" /> {t('productForm.image_pdf_upload')}
               </h3>
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Productafbeelding (JPG/PNG)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">{t('productForm.product_image')}</label>
                   <div className="flex gap-3">
                     <label className="flex-1 flex flex-col items-center justify-center h-32 border-2 border-slate-100 border-dashed rounded-2xl cursor-pointer bg-slate-50/50 hover:bg-blue-50 hover:border-blue-200 transition-all group">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                           <ImageIcon className="w-8 h-8 text-slate-300 group-hover:text-blue-500 mb-2 transition-colors" />
                           <p className="text-[10px] font-bold text-slate-400 group-hover:text-blue-600 uppercase tracking-widest">
-                              {formData.imageFile ? formData.imageFile.name : "Klik om te uploaden"}
+                              {formData.imageFile ? formData.imageFile.name : t('productForm.click_to_upload')}
                           </p>
                       </div>
                       <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
@@ -1082,7 +1083,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       className="w-32 h-32 flex flex-col items-center justify-center bg-white border-2 border-slate-100 rounded-2xl hover:border-blue-500 hover:text-blue-600 text-slate-400 transition-all shadow-sm active:scale-95"
                     >
                       <Folder size={24} className="mb-2" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Bibliotheek</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">{t('productForm.library')}</span>
                     </button>
                   </div>
                   
@@ -1095,7 +1096,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         />
                         {imagePreview && (
                            <div className="absolute bottom-2 right-2 bg-blue-600/80 text-white text-[9px] font-bold px-2 py-1 rounded-lg backdrop-blur-sm">
-                              Nieuw
+                              {t('productForm.new')}
                            </div>
                         )}
                     </div>
@@ -1103,15 +1104,15 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Technische PDF(s)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">{t('productForm.technical_pdfs')}</label>
                   <div className="flex gap-3">
                     <label className="flex-1 flex flex-col items-center justify-center h-32 border-2 border-slate-100 border-dashed rounded-2xl cursor-pointer bg-slate-50/50 hover:bg-blue-50 hover:border-blue-200 transition-all group">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                           <FileText className="w-8 h-8 text-slate-300 group-hover:text-blue-500 mb-2 transition-colors" />
                           <p className="text-[10px] font-bold text-slate-400 group-hover:text-blue-600 uppercase tracking-widest">
                               {formData.pdfFiles && formData.pdfFiles.length > 0 
-                                  ? `${formData.pdfFiles.length} bestand(en) geselecteerd` 
-                                  : "Klik om PDF's te uploaden"}
+                                  ? `${formData.pdfFiles.length} ${t('productForm.files_selected')}` 
+                                  : t('productForm.click_to_upload_pdfs')}
                           </p>
                       </div>
                       <input type="file" accept="application/pdf" multiple onChange={handlePdfChange} className="hidden" />
@@ -1122,7 +1123,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       className="w-32 h-32 flex flex-col items-center justify-center bg-white border-2 border-slate-100 rounded-2xl hover:border-blue-500 hover:text-blue-600 text-slate-400 transition-all shadow-sm active:scale-95"
                     >
                       <Folder size={24} className="mb-2" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Bibliotheek</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">{t('productForm.library')}</span>
                     </button>
                   </div>
 
@@ -1153,12 +1154,11 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
               <div className="flex items-center gap-3">
                 <ShieldCheck size={18} className="text-emerald-500" />
                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">
-                  Master Data Selection
+                  {t('productForm.master_data_selection')}
                 </span>
               </div>
               <p className="text-[10px] font-medium text-slate-400 leading-relaxed italic">
-                Selecteer de gewenste drukklasse en diameter uit de globale bibliotheek.
-                Deze waarden worden gebruikt voor de technische specificaties.
+                {t('productForm.master_data_desc')}
               </p>
             </div>
 
@@ -1166,25 +1166,25 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
               <div className="flex items-center gap-3">
                 <ShieldCheck size={18} className="text-emerald-500" />
                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">
-                  Verificatie & Controle
+                  {t('productForm.verification_control')}
                 </span>
               </div>
               <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                    Toewijzen aan Verifier
+                    {t('productForm.assign_verifier')}
                   </label>
                   <select
                     className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
                     value={formData.assignedVerifier || ""}
                     onChange={(e) => setFormData({ ...formData, assignedVerifier: e.target.value })}
                   >
-                    <option value="">- Kies Verifier (Optioneel) -</option>
+                    <option value="">{t('productForm.choose_verifier')}</option>
                     {verifiers.map(v => (
                       <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
                   </select>
                   <p className="text-[9px] text-slate-400 italic ml-2">
-                    Geselecteerde persoon ontvangt een melding.
+                    {t('productForm.verifier_note')}
                   </p>
               </div>
             </div>
@@ -1193,11 +1193,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             <div className="p-8 bg-blue-50 rounded-[35px] border border-blue-100 flex items-start gap-4">
               <Info size={20} className="text-blue-500 shrink-0 mt-0.5" />
               <p className="text-[10px] font-bold text-blue-700/70 leading-relaxed uppercase tracking-wider italic">
-                Nieuwe of gewijzigde producten krijgen automatisch de status{" "}
-                <span className="text-orange-600 font-black">'PENDING'</span>.
-                Ze moeten door een tweede geautoriseerde gebruiker worden
-                geverifieerd voordat ze definitief worden vrijgegeven voor
-                productie.
+                {t('productForm.pending_status_info')}
               </p>
             </div>
           </div>
@@ -1237,6 +1233,7 @@ const X = ({ size, className }) => (
 );
 
 const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) => {
+  const { t } = useTranslation();
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1302,7 +1299,7 @@ const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) =
                         <Folder size={20} />
                     </div>
                     <div>
-                        <h3 className="font-black text-slate-800 uppercase text-sm tracking-wide">Bibliotheek</h3>
+                        <h3 className="font-black text-slate-800 uppercase text-sm tracking-wide">{t('productForm.library')}</h3>
                         <p className="text-[10px] text-slate-400 font-mono">/{currentPath}</p>
                     </div>
                 </div>
@@ -1314,7 +1311,7 @@ const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) =
                     onClick={handleUp} 
                     disabled={!currentPath || currentPath === "product_library"} 
                     className="p-2 hover:bg-white rounded-lg disabled:opacity-30 transition-all text-slate-600"
-                    title="Omhoog"
+                    title={t('productForm.up')}
                 >
                     <CornerUpLeft size={18} />
                 </button>
@@ -1343,7 +1340,7 @@ const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) =
                         ))}
                         {items.length === 0 && (
                             <div className="col-span-full text-center py-10 text-slate-400 italic text-xs">
-                                Geen bestanden gevonden in deze map.
+                                {t('productForm.no_files_found')}
                             </div>
                         )}
                     </div>

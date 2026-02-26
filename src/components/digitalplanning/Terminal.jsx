@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Loader2,
   ArrowLeft,
@@ -41,6 +42,7 @@ import TerminalManualInput from "./terminal/TerminalManualInput";
  * - Alles-knop toegevoegd en zoekknop uit toolbar verwijderd.
  */
 const Terminal = ({ initialStation, onBack }) => {
+  const { t } = useTranslation();
   const { user } = useAdminAuth();
 
   // Station configuratie
@@ -182,7 +184,12 @@ const Terminal = ({ initialStation, onBack }) => {
   // Gefilterde data voor het huidige station
   const myOrders = useMemo(() => {
     if (isBM01) return allOrders;
-    return allOrders.filter(o => (normalizeMachine(o.machine) || "").toUpperCase().trim() === normalizedStationId);
+    return allOrders.filter(o => {
+        const machineNorm = (normalizeMachine(o.machine) || "").toUpperCase().trim();
+        const returnNorm = (normalizeMachine(o.returnStation) || "").toUpperCase().trim();
+        
+        return machineNorm === normalizedStationId || returnNorm === normalizedStationId;
+    });
   }, [allOrders, normalizedStationId, isBM01]);
 
   const productionProgressMap = useMemo(() => {
@@ -194,6 +201,22 @@ const Terminal = ({ initialStation, onBack }) => {
     });
     return map;
   }, [allTracked]);
+
+  const readyForReturnMap = useMemo(() => {
+    const map = {};
+    allTracked.forEach((p) => {
+      const currentStationNorm = (normalizeMachine(p.currentStation) || "").toUpperCase().trim();
+      if (currentStationNorm === normalizedStationId && 
+          p.status !== "completed" && 
+          p.status !== "rejected" && 
+          p.currentStep !== "Finished") {
+          const oid = String(p.orderId || "").trim();
+          if (!map[oid]) map[oid] = 0;
+          map[oid]++;
+      }
+    });
+    return map;
+  }, [allTracked, normalizedStationId]);
 
   const activeWikkelingen = useMemo(() => {
     const active = allTracked
@@ -211,7 +234,7 @@ const Terminal = ({ initialStation, onBack }) => {
 
   const filteredOrders = useMemo(() => {
     const base = myOrders.filter((o) => {
-      if (o.status !== "pending" && o.status !== "in_progress") return false;
+      if (o.status !== "pending" && o.status !== "in_progress" && o.status !== "planned" && o.status !== "delegated") return false;
       
       // FIX: BH31 (Reparatie) orders verdwijnen uit planning zodra ze in behandeling zijn
       // Tenzij er specifiek naar gezocht wordt
@@ -225,6 +248,9 @@ const Terminal = ({ initialStation, onBack }) => {
       // BM01: Geen week filter, toon alles (behalve als search actief is, wat hieronder gebeurt)
       if (isBM01) return true;
 
+      // ALTIJD tonen als de order actief is of net gepland is voor deze machine, ongeacht de week
+      if (o.status === "in_progress" || o.status === "planned" || o.status === "delegated") return true;
+
       if (showAllWeeks || sidebarSearch) return true;
 
       // Filter op berekende week/jaar
@@ -235,6 +261,11 @@ const Terminal = ({ initialStation, onBack }) => {
 
     if (!sidebarSearch) {
       return base.sort((a, b) => {
+        // 0. Status 'planned' of 'delegated' (Nieuw toegewezen) bovenaan
+        const isPlannedA = a.status === "planned" || a.status === "delegated";
+        const isPlannedB = b.status === "planned" || b.status === "delegated";
+        if (isPlannedA !== isPlannedB) return isPlannedA ? -1 : 1;
+
         // 1. Urgentie
         if (a.isUrgent !== b.isUrgent) return a.isUrgent ? -1 : 1;
         // 2. Jaar
@@ -274,7 +305,7 @@ const Terminal = ({ initialStation, onBack }) => {
       if (snap.exists()) {
         setViewingProduct({ id: snap.id, ...snap.data() });
       } else {
-        alert("Product niet gevonden in catalogus.");
+        alert(t("digitalplanning.terminal.product_not_found"));
       }
     } catch (err) {
       console.error("Fout bij laden product:", err);
@@ -335,17 +366,25 @@ const Terminal = ({ initialStation, onBack }) => {
         <div className="p-2 bg-white border-b border-slate-200 shrink-0 shadow-sm text-left">
           <div className="flex items-center justify-center">
             <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-xl">
-              {(isBM01 ? ["planning", "aan te bieden"] : ["planning", "wikkelen", "lossen"]).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => handleTabChange(tab)}
-                  className={`flex-1 px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
-                    activeTab === tab ? "bg-white shadow-sm text-blue-600" : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
+              {(isBM01
+                ? [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_to_offer")]
+                : [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_winding"), t("digitalplanning.terminal.tab_lossen")]
+              ).map((tabLabel, idx) => {
+                const tabKey = isBM01
+                  ? ["planning", "aan te bieden"][idx]
+                  : ["planning", "wikkelen", "lossen"][idx];
+                return (
+                  <button
+                    key={tabKey}
+                    onClick={() => handleTabChange(tabKey)}
+                    className={`flex-1 px-4 md:px-6 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${
+                      activeTab === tabKey ? "bg-white shadow-sm text-blue-600" : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {tabLabel}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -368,6 +407,7 @@ const Terminal = ({ initialStation, onBack }) => {
                 onToggleAllWeeks={() => setShowAllWeeks(!showAllWeeks)}
                 targetWeekNum={targetWeekNum}
                 productionProgressMap={productionProgressMap}
+                readyForReturnMap={readyForReturnMap}
                 isBM01={isBM01}
                 onStartProduction={() => setShowStartModal(true)}
                 selectedOrder={selectedOrder}

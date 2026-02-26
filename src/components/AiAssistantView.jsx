@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Bot,
   MessageSquare,
@@ -12,28 +13,29 @@ import AiChatView from "./AiChatView";
 import AiTrainingView from "./AiTrainingView";
 
 const AiAssistantView = () => {
+  const { t } = useTranslation();
   const { showError, showSuccess, showInfo } = useNotifications();
   const [activeTab, setActiveTab] = useState("chat");
 
   const handleExportExcel = async () => {
     try {
-      if (showInfo) showInfo("Planning data ophalen...");
+      if (showInfo) showInfo(t('ai.export.fetching'));
       const data = await getRawPlanningData(100);
       
       if (data.length === 0) {
-        showError("Geen data gevonden om te exporteren.");
+        showError(t('ai.export.no_data'));
         return;
       }
 
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Planning Export");
+      XLSX.utils.book_append_sheet(wb, ws, t('ai.export.sheet_name'));
       
-      XLSX.writeFile(wb, `FPi_Planning_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
-      showSuccess("Excel bestand gedownload!");
+      XLSX.writeFile(wb, `${t('ai.export.file_prefix')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      showSuccess(t('ai.export.success'));
     } catch (error) {
-      console.error("Export fout:", error);
-      showError("Kon niet exporteren naar Excel.");
+      console.error(t('ai.export.console_error'), error);
+      showError(t('ai.export.error'));
     }
   };
 
@@ -43,13 +45,13 @@ const AiAssistantView = () => {
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
             <Bot className="text-blue-600" />
-            AI Assistent
+            {t('ai.title')}
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Stel vragen, vraag om uitleg, of start een trainingssessie.
+            {t('ai.subtitle')}
           </p>
           <p className="text-xs text-orange-500 mt-1 font-medium">
-            AI is aan het leren, fouten kunnen voorkomen.
+            {t('ai.disclaimer')}
           </p>
         </div>
 
@@ -62,7 +64,7 @@ const AiAssistantView = () => {
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <MessageSquare size={16} /> Chat
+            <MessageSquare size={16} /> {t('ai.tabs.chat')}
           </button>
           <button
             onClick={() => setActiveTab("training")}
@@ -72,13 +74,13 @@ const AiAssistantView = () => {
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <GraduationCap size={16} /> Training
+            <GraduationCap size={16} /> {t('ai.tabs.training')}
           </button>
           
           <button
             onClick={handleExportExcel}
             className="px-3 py-2 rounded-lg text-slate-500 hover:text-green-600 hover:bg-white transition-all border border-transparent hover:border-slate-200"
-            title="Exporteer huidige planning naar Excel"
+            title={t('ai.export.tooltip')}
           >
             <Download size={18} />
           </button>

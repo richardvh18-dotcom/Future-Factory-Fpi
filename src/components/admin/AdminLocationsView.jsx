@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   Wrench,
   MapPin,
@@ -34,7 +35,8 @@ import { STANDARD_DIAMETERS, STANDARD_PRESSURES } from "../../data/constants";
  * Locatie: /future-factory/production/inventory/records/
  */
 const AdminLocationsView = ({ canEdit = false }) => {
-  const [moffen, setMoffen] = useState([]);
+  const { t } = useTranslation();
+            <Plus size={18} /> {t('common.newTool')}
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -60,13 +62,13 @@ const AdminLocationsView = ({ canEdit = false }) => {
       (snap) => {
         const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setMoffen(data);
-        setLoading(false);
+                          <Edit2 size={18} /> {t('common.edit')}
       },
       (err) => {
         console.error("Fout bij laden inventaris:", err);
         setLoading(false);
       }
-    );
+                          <Trash2 size={18} /> {t('common.delete')}
 
     return () => unsubscribe();
   }, []);
@@ -123,7 +125,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
 
   const handleDelete = async (id) => {
     if (
-      !window.confirm("Dit gereedschap permanent verwijderen uit het register?")
+      !window.confirm(t('adminLocations.confirmDelete'))
     )
       return;
     try {
@@ -143,7 +145,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
       <div className="p-20 text-center flex flex-col items-center gap-4 h-full justify-center">
         <Loader2 className="animate-spin text-blue-500" size={40} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Inventaris synchroniseren...
+          {t('adminLocations.syncingInventory')}
         </p>
       </div>
     );
@@ -161,14 +163,14 @@ const AdminLocationsView = ({ canEdit = false }) => {
           </div>
           <div className="text-left">
             <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-              Gereedschap <span className="text-emerald-600">&</span> Voorraad
+              {t('common.tools')} <span className="text-emerald-600">&</span> {t('common.stock')}
             </h2>
             <div className="mt-3 flex items-center gap-3">
               <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-100 uppercase italic">
-                <ShieldCheck size={10} /> Root Protected
+                <ShieldCheck size={10} /> {t('common.rootProtected')}
               </span>
               <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
-                Target: /{PATHS.INVENTORY.join("/")}
+                {t('common.target')}: /{PATHS.INVENTORY.join("/")}
               </p>
             </div>
           </div>
@@ -191,7 +193,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
             }}
             className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center gap-3 hover:bg-blue-600 transition-all active:scale-95 relative z-10"
           >
-            <Plus size={18} /> Nieuw Registreren
+            <Plus size={18} /> {t('adminLocations.registerNew')}
           </button>
         )}
       </div>
@@ -204,7 +206,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
         />
         <input
           className="w-full pl-16 pr-8 py-5 bg-white border-2 border-slate-100 rounded-[30px] outline-none focus:border-blue-500 shadow-sm font-bold text-base transition-all placeholder:text-slate-300"
-          placeholder="Zoek op ID, Type of Locatie (bijv. S-04)..."
+          placeholder={t('adminLocations.searchPlaceholder')}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -216,10 +218,10 @@ const AdminLocationsView = ({ canEdit = false }) => {
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] border-b sticky top-0 z-10 shadow-sm">
               <tr>
-                <th className="px-10 py-6">Specificatie (Type/ID/PN)</th>
-                <th className="px-10 py-6">Opslag Locatie</th>
-                <th className="px-10 py-6 text-center">Huidige Voorraad</th>
-                {canEdit && <th className="px-10 py-6 text-right">Beheer</th>}
+                <th className="px-10 py-6">{t('specificationTypeIdPn')}</th>
+                <th className="px-10 py-6">{t('storageLocation')}</th>
+                <th className="px-10 py-6 text-center">{t('currentStock')}</th>
+                {canEdit && <th className="px-10 py-6 text-right">{t('management')}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -238,7 +240,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
                           ID {m.diameter}
                         </span>
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                          PN {m.pressure} Bar
+                          {t('pnBar', { pressure: m.pressure })}
                         </span>
                       </div>
                     </div>
@@ -246,7 +248,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
                   <td className="px-10 py-5">
                     <div className="flex items-center gap-2.5 text-blue-600 font-black italic uppercase tracking-tighter">
                       <MapPin size={16} className="text-blue-400" />
-                      {m.location || "GEEN LOCATIE"}
+                      {m.location || t('adminLocations.noLocation')}
                     </div>
                   </td>
                   <td className="px-10 py-5 text-center">
@@ -262,7 +264,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
                       </span>
                       {m.stock <= m.minStock && (
                         <span className="text-[8px] font-black text-rose-500 uppercase mt-1">
-                          Lage Voorraad!
+                          {t('lowStock')}
                         </span>
                       )}
                     </div>
@@ -299,7 +301,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
             <div className="p-32 text-center opacity-30 italic flex flex-col items-center gap-4">
               <Database size={64} className="text-slate-200" />
               <p className="text-sm font-black uppercase tracking-[0.3em] text-slate-400">
-                Geen gereedschap gevonden
+                {t('noToolsFound')}
               </p>
             </div>
           )}
@@ -317,10 +319,10 @@ const AdminLocationsView = ({ canEdit = false }) => {
                 </div>
                 <div className="text-left">
                   <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-                    Item <span className="text-emerald-600">Registreren</span>
+                    {t('item')} <span className="text-emerald-600">{t('register')}</span>
                   </h3>
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1.5 italic">
-                    Stellingen & Voorraadbeheer
+                    {t('racksInventory')}
                   </p>
                 </div>
               </div>
@@ -336,7 +338,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
               <div className="grid grid-cols-2 gap-8 text-left">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-                    Type
+                    {t('type')}
                   </label>
                   <select
                     className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-800 outline-none focus:border-blue-500 appearance-none cursor-pointer"
@@ -345,14 +347,14 @@ const AdminLocationsView = ({ canEdit = false }) => {
                       setFormState({ ...formState, type: e.target.value })
                     }
                   >
-                    <option value="TB">TB (Taper Bell)</option>
-                    <option value="CB">CB (Cylindrical Bell)</option>
-                    <option value="ID">Matrijs (Inner Die)</option>
+                    <option value="TB">{t('tbTaperBell')}</option>
+                    <option value="CB">{t('cbCylindricalBell')}</option>
+                    <option value="ID">{t('idInnerDie')}</option>
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-                    Diameter
+                    {t('diameter')}
                   </label>
                   <select
                     className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-800 outline-none focus:border-blue-500 appearance-none cursor-pointer"
@@ -363,7 +365,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
                   >
                     {STANDARD_DIAMETERS.map((d) => (
                       <option key={d} value={d}>
-                        ID {d} mm
+                        {t('idMm', { id: d })}
                       </option>
                     ))}
                   </select>
@@ -372,7 +374,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
 
               <div className="space-y-2 text-left">
                 <label className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] ml-2 italic">
-                  Stelling Locatie Code
+                  {t('rackLocationCode')}
                 </label>
                 <div className="relative group">
                   <MapPin
@@ -397,7 +399,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
               <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-50">
                 <div className="space-y-2 text-left">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">
-                    Huidige Voorraad
+                    {t('currentStock')}
                   </label>
                   <input
                     type="number"
@@ -410,7 +412,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
                 </div>
                 <div className="space-y-2 text-left">
                   <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest ml-2">
-                    Min. Alarmgrens
+                    {t('minAlarmLimit')}
                   </label>
                   <input
                     type="number"
@@ -433,7 +435,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
                 ) : (
                   <Save size={24} />
                 )}
-                Gegevens Publiceren naar Root
+                {t('publishToRoot')}
               </button>
             </form>
           </div>

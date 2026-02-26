@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Loader2, Download } from "lucide-react";
 import { format, isValid, isSameDay, subDays, addDays, startOfISOWeek, endOfISOWeek, isWithinInterval } from "date-fns";
 import { nl } from "date-fns/locale";
@@ -11,7 +12,8 @@ import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
 const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) => {
-  const { user } = useAdminAuth();
+    const { t } = useTranslation();
+    const { user } = useAdminAuth();
   // AANGEPAST: Standaard view op 'inspectie' (Aan te bieden)
   const [activeTab, setActiveTab] = useState("inspectie");
   const [searchTerm, setSearchTerm] = useState("");
@@ -331,19 +333,19 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                     onClick={() => setActiveTab("planning")}
                     className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
-                    Planning (Totaal)
+                    {t('bm01.planning_total')}
                 </button>
                 <button 
                     onClick={() => setActiveTab("inspectie")}
                     className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "inspectie" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
-                    Aan te bieden
+                    {t('bm01.to_offer')}
                 </button>
                 <button 
                     onClick={() => setActiveTab("completed")}
                     className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "completed" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
-                    Aangeboden
+                    {t('bm01.offered')}
                 </button>
             </div>
         </div>
@@ -354,20 +356,20 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
             <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full">
                 <div className="relative mb-4 shrink-0">
                     <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                    <input 
-                        type="text" 
-                        placeholder="Zoek op order, item, code of machine..." 
-                        className="w-full pl-14 pr-6 py-4 rounded-2xl border-2 border-slate-200 font-bold text-slate-700 focus:border-blue-500 outline-none shadow-sm transition-all"
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                    />
+                    <input
+                            type="text" 
+                            placeholder={t('bm01.search_placeholder', 'Zoek op order, item, code of machine...')} 
+                            className="w-full pl-14 pr-6 py-4 rounded-2xl border-2 border-slate-200 font-bold text-slate-700 focus:border-blue-500 outline-none shadow-sm transition-all"
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                        />
                 </div>
                 
                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
                     {filteredOrders.length === 0 ? (
                         <div className="text-center py-20 opacity-40">
                             <Layers size={64} className="mx-auto mb-4 text-slate-300" />
-                            <p className="font-black uppercase tracking-widest text-slate-400">Geen orders gevonden</p>
+                            <p className="font-black uppercase tracking-widest text-slate-400">{t('bm01.no_orders', 'Geen orders gevonden')}</p>
                         </div>
                     ) : (
                         filteredOrders.map(order => {
@@ -400,23 +402,23 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                             <div className="flex items-center gap-2 mb-1">
                                                 <h4 className="font-black text-lg text-slate-800 tracking-tight">{order.orderId}</h4>
                                                 <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg font-black uppercase tracking-wider border border-slate-200">
-                                                    {order.machine || "Onbekend"}
+                                                    {order.machine || t('common.unknown', 'Onbekend')}
                                                 </span>
-                                                {order.isUrgent && <span className="text-[9px] bg-red-100 text-red-600 px-2 py-0.5 rounded-lg font-black uppercase tracking-wider">SPOED</span>}
+                                                {order.isUrgent && <span className="text-[9px] bg-red-100 text-red-600 px-2 py-0.5 rounded-lg font-black uppercase tracking-wider">{t('bm01.urgent', 'SPOED')}</span>}
                                             </div>
                                             <p className="text-xs text-slate-500 font-bold uppercase truncate">{order.item}</p>
                                             {order.itemCode && <p className="text-[10px] text-slate-400 font-mono mt-0.5">{order.itemCode}</p>}
                                         </div>
                                     </div>
                                     <div className="text-right shrink-0 pl-4 border-l border-slate-100 ml-4">
-                                        <span className="block text-xl font-black text-slate-900">{plan} <span className="text-xs text-slate-400 font-bold">ST</span></span>
+                                        <span className="block text-xl font-black text-slate-900">{plan} <span className="text-xs text-slate-400 font-bold">{t('bm01.st', 'ST')}</span></span>
                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mt-1">
-                                            Nog: <span className="text-slate-700">{remaining}</span>
+                                            {t('bm01.remaining', 'Nog')}: <span className="text-slate-700">{remaining}</span>
                                         </span>
                                         <div className="flex items-center justify-end gap-1.5 mt-2 text-slate-400">
                                             <Calendar size={12} />
                                             <span className="text-[10px] font-bold uppercase">
-                                                {isValid(dDate) ? format(dDate, "dd MMM", { locale: nl }) : "Geen datum"}
+                                                {isValid(dDate) ? format(dDate, "dd MMM", { locale: nl }) : t('bm01.no_date', 'Geen datum')}
                                             </span>
                                         </div>
                                     </div>
@@ -432,7 +434,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                     {bm01Products.length === 0 ? (
                         <div className="text-center py-20 opacity-40">
                             <Package size={64} className="mx-auto mb-4 text-slate-300" />
-                            <p className="font-black uppercase tracking-widest text-slate-400">Geen items om te inspecteren</p>
+                            <p className="font-black uppercase tracking-widest text-slate-400">{t('bm01.no_items_inspect')}</p>
                         </div>
                     ) : (
                         bm01Products.map(item => (
@@ -455,7 +457,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                         <div className="flex items-center gap-2 mt-1">
                                             <History size={10} className="text-slate-400" />
                                             <span className="text-[10px] text-slate-400 font-bold uppercase">
-                                                Van: {item.lastStation || "Onbekend"}
+                                                {t('bm01.from')}: {item.lastStation || t('common.unknown')}
                                             </span>
                                         </div>
                                     </div>
@@ -465,7 +467,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                         onClick={() => handleItemClick(item)}
                                         className="px-6 py-3 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-600 transition-all shadow-lg active:scale-95"
                                     >
-                                        Gereedmelden
+                                        {t('bm01.report_ready')}
                                     </button>
                                 </div>
                             </div>
@@ -502,13 +504,13 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                 onClick={() => setViewMode("day")}
                                 className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === "day" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
                             >
-                                Dag
+                                {t('bm01.day')}
                             </button>
                             <button 
                                 onClick={() => setViewMode("week")}
                                 className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === "week" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
                             >
-                                Week
+                                {t('bm01.week')}
                             </button>
                         </div>
 
@@ -534,7 +536,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                     {completedProducts.length === 0 ? (
                         <div className="text-center py-20 opacity-40">
                             <CheckCircle2 size={64} className="mx-auto mb-4 text-slate-300" />
-                            <p className="font-black uppercase tracking-widest text-slate-400">Geen aangeboden items in deze periode</p>
+                            <p className="font-black uppercase tracking-widest text-slate-400">{t('bm01.no_offered_items')}</p>
                         </div>
                     ) : (
                         completedProducts.map(item => (
@@ -562,7 +564,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                                 }}
                                                 className="ml-4 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg transition-colors"
                                             >
-                                                <FileText size={12} /> Dossier
+                                                <FileText size={12} /> {t('bm01.dossier')}
                                             </button>
                                         </div>
                                     </div>
@@ -617,7 +619,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                 {/* Header - Hidden on Print */}
                 <div className="flex justify-between items-center mb-8 print:hidden">
                     <div>
-                        <h2 className="text-2xl font-black uppercase italic text-slate-900">Dagoverzicht BM01</h2>
+                        <h2 className="text-2xl font-black uppercase italic text-slate-900">{t('bm01.daily_overview')}</h2>
                         <p className="text-slate-500 font-bold">{format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })}</p>
                     </div>
                     <div className="flex gap-4">
@@ -625,7 +627,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                             onClick={() => window.print()}
                             className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 shadow-lg"
                         >
-                            <Printer size={16} /> Print PDF
+                            <Printer size={16} /> {t('bm01.print_pdf')}
                         </button>
                         <button 
                             onClick={() => setShowPrintModal(false)}
@@ -638,14 +640,14 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
 
                 {/* Print Header - Visible only on Print */}
                 <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
-                    <h1 className="text-2xl font-black uppercase">Dagoverzicht BM01 - Aangeboden</h1>
+                    <h1 className="text-2xl font-black uppercase">{t('bm01.daily_overview_offered')}</h1>
                     <p className="text-lg">{format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })}</p>
                 </div>
 
                 {/* Content */}
                 <div className="space-y-6 print:space-y-0 print:grid print:grid-cols-2 print:gap-x-4 print:gap-y-2 print:content-start">
                     {completedProducts.length === 0 ? (
-                        <p className="text-center text-slate-400 italic py-10">Geen producten gevonden voor deze datum.</p>
+                        <p className="text-center text-slate-400 italic py-10">{t('bm01.no_products_date')}</p>
                     ) : (
                         completedProducts.map((item, index) => (
                             <div key={item.id} className="border-b border-slate-200 pb-6 mb-6 break-inside-avoid print:border print:border-slate-300 print:p-2 print:mb-0 print:rounded-lg print:pb-1 print:break-inside-avoid">
@@ -672,7 +674,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                             className="w-24 h-24 mix-blend-multiply print:w-10 print:h-10"
                                         />
                                         <div className="min-w-0 overflow-hidden">
-                                            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest print:hidden">Ordernummer</span>
+                                            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest print:hidden">{t('bm01.order_number')}</span>
                                             <span className="block text-xl font-black font-mono text-slate-900 print:text-[10px] truncate">{item.orderId}</span>
                                         </div>
                                     </div>
@@ -685,7 +687,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                             className="w-24 h-24 mix-blend-multiply print:w-10 print:h-10"
                                         />
                                         <div className="min-w-0 overflow-hidden">
-                                            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest print:hidden">Lotnummer</span>
+                                            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest print:hidden">{t('bm01.lot_number')}</span>
                                             <span className="block text-xl font-black font-mono text-slate-900 break-all print:text-[10px] truncate">{item.lotNumber}</span>
                                         </div>
                                     </div>

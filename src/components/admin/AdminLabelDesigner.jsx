@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Save,
   Printer,
@@ -72,7 +73,8 @@ const SNAP_THRESHOLD_MM = 1.5;
  * Verplaatst van matrixmanager naar hoofd admin map.
  */
 const AdminLabelDesigner = ({ onBack }) => {
-  const [labelName, setLabelName] = useState("Nieuw Label");
+  const { t } = useTranslation();
+  const [labelName, setLabelName] = useState(t('adminLabelDesigner.newLabel'));
   const [selectedSizeKey, setSelectedSizeKey] = useState("Standard");
   const [labelWidth, setLabelWidth] = useState(LABEL_SIZES.Standard.width);
   const [labelHeight, setLabelHeight] = useState(LABEL_SIZES.Standard.height);
@@ -213,7 +215,7 @@ const AdminLabelDesigner = ({ onBack }) => {
       thickness: type === "box" ? 0.5 : null,
       content:
         type === "text"
-          ? "HANDMATIGE TEKST"
+          ? t('adminLabelDesigner.manualTextContent')
           : type === "barcode"
           ? "123456"
           : type === "image" ? "" : "QR_DATA",
@@ -300,7 +302,7 @@ const AdminLabelDesigner = ({ onBack }) => {
   // 5. Opslaan
   const saveLabel = async (nameOverride = null) => {
     const nameToUse = nameOverride || labelName;
-    if (!nameToUse.trim()) return alert("Geef het label een naam.");
+    if (!nameToUse.trim()) return alert(t('adminLabelDesigner.enterLabelName'));
     setIsLoading(true);
     try {
       const labelId = nameToUse.trim().replace(/[^a-zA-Z0-9-_]/g, "_").toLowerCase();
@@ -330,28 +332,28 @@ const AdminLabelDesigner = ({ onBack }) => {
       
       if (nameOverride) {
           setLabelName(nameToUse);
-          alert(`Label succesvol opgeslagen als '${nameToUse}'!`);
+          alert(t('adminLabelDesigner.labelSavedAs', { name: nameToUse }));
       } else {
-          alert("Label template opgeslagen!");
+          alert(t('adminLabelDesigner.labelSaved'));
       }
     } catch (e) {
       console.error("Save error:", e);
-      alert("Fout bij opslaan: " + e.message);
+      alert(t('adminLabelDesigner.saveError') + e.message);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSaveAs = () => {
-      const newName = prompt("Voer een naam in voor het nieuwe label:", `${labelName} (Kopie)`);
+      const newName = prompt(t('adminLabelDesigner.enterNameForNew'), `${labelName}${t('adminLabelDesigner.copySuffix')}`);
       if (newName && newName.trim()) {
           saveLabel(newName);
       }
   };
 
   const duplicateLabel = async (label) => {
-    const newName = `${label.name} (Kopie)`;
-    if (!window.confirm(`Label dupliceren als '${newName}'?`)) return;
+    const newName = `${label.name}${t('adminLabelDesigner.copySuffix')}`;
+    if (!window.confirm(t('adminLabelDesigner.confirmDuplicate', { name: newName }))) return;
     
     setIsLoading(true);
     try {
@@ -368,19 +370,19 @@ const AdminLabelDesigner = ({ onBack }) => {
       });
     } catch (e) {
       console.error("Duplicate error:", e);
-      alert("Fout bij dupliceren: " + e.message);
+      alert(t('adminLabelDesigner.duplicateError') + e.message);
     } finally {
       setIsLoading(false);
     }
   };
 
   const deleteLabel = async (id) => {
-    if (!window.confirm("Weet je zeker dat je dit template wilt verwijderen?")) return;
+    if (!window.confirm(t('adminLabelDesigner.confirmDelete'))) return;
     try {
       await deleteDoc(doc(db, ...PATHS.LABEL_TEMPLATES, id));
     } catch (e) {
       console.error("Delete error:", e);
-      alert("Fout bij verwijderen.");
+      alert(t('adminLabelDesigner.deleteError'));
     }
   };
 
@@ -402,11 +404,10 @@ const AdminLabelDesigner = ({ onBack }) => {
           </button>
           <div className="text-left">
             <h1 className="font-black text-slate-900 text-lg uppercase italic tracking-tighter leading-none">
-              Label <span className="text-blue-600">Architect</span>
+              {t('label')} <span className="text-blue-600">{t('architect')}</span>
             </h1>
             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 flex items-center gap-1.5">
-              <ShieldCheck size={10} className="text-emerald-500" /> Root Sync:
-              /{PATHS.LABEL_TEMPLATES.join("/")}
+              <ShieldCheck size={10} className="text-emerald-500" /> {t('rootSync')}: /{PATHS.LABEL_TEMPLATES.join("/")}
             </p>
           </div>
         </div>
@@ -418,7 +419,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                 value={labelName} 
                 onChange={(e) => { setLabelName(e.target.value); setHasUnsavedChanges(true); }}
                 className="w-40 px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl text-xs font-black text-slate-700 outline-none focus:border-blue-500 transition-all placeholder:text-slate-300"
-                placeholder="Label Naam"
+                placeholder={t('adminLabelDesigner.labelNamePlaceholder')}
              />
           </div>
           <button
@@ -437,7 +438,7 @@ const AdminLabelDesigner = ({ onBack }) => {
             }`}
           >
             <Database size={14} />
-            {previewData ? "Live Data Gekoppeld" : "Koppel Live Order"}
+            {previewData ? t('liveDataLinked') : t('linkLiveOrder')}
           </button>
 
           <div className="flex items-center gap-2 bg-slate-50 border-2 border-slate-100 rounded-2xl p-1">
@@ -451,7 +452,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                   {LABEL_SIZES[s].name}
                 </option>
               ))}
-              <option value="Custom">Custom Size</option>
+              <option value="Custom">{t('customSize')}</option>
             </select>
           </div>
 
@@ -459,7 +460,7 @@ const AdminLabelDesigner = ({ onBack }) => {
             onClick={handleSaveAs}
             disabled={isLoading}
             className="p-4 bg-slate-100 text-slate-600 rounded-2xl hover:bg-blue-50 hover:text-blue-600 transition-all shadow-sm active:scale-95 border-2 border-transparent hover:border-blue-100"
-            title="Opslaan als..."
+            title={t('adminLabelDesigner.saveAsTitle')}
           >
             <FilePlus size={18} />
           </button>
@@ -473,8 +474,7 @@ const AdminLabelDesigner = ({ onBack }) => {
               <Loader2 className="animate-spin" size={16} />
             ) : (
               <Save size={16} />
-            )}{" "}
-            Opslaan
+            )} {t('save')}
           </button>
         </div>
       </div>
@@ -484,16 +484,16 @@ const AdminLabelDesigner = ({ onBack }) => {
         <div className="w-72 bg-white border-r border-slate-200 flex flex-col z-10 shrink-0">
           <div className="p-6 border-b border-slate-50">
             <h3 className="text-[10px] font-black uppercase text-slate-400 mb-5 tracking-widest">
-              Componenten
+              {t('components')}
             </h3>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { type: "text", label: "Tekst", icon: Type },
-                { type: "line", label: "Lijn", icon: Minus },
-                { type: "box", label: "Kader", icon: Square },
-                { type: "barcode", label: "Barcode", icon: ScanBarcode },
-                { type: "qr", label: "QR Code", icon: QrCode },
-                { type: "image", label: "Afbeelding", icon: ImageIcon },
+                { type: "text", label: t('manualText'), icon: Type },
+                { type: "line", label: t('line'), icon: Minus },
+                { type: "box", label: t('box'), icon: Square },
+                { type: "barcode", label: t('barcode'), icon: ScanBarcode },
+                { type: "qr", label: t('qrCode'), icon: QrCode },
+                { type: "image", label: t('image'), icon: ImageIcon },
               ].map((tool) => (
                 <button
                   key={tool.type}
@@ -514,14 +514,14 @@ const AdminLabelDesigner = ({ onBack }) => {
 
           <div className="flex-1 overflow-y-auto p-6 custom-scrollbar text-left">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">
-              Mijn Templates
+              {t('myTemplates')}
             </h3>
             <div className="space-y-2">
               {savedLabels.map((l) => (
                 <div
                   key={l.id}
                   onClick={() => {
-                    if (hasUnsavedChanges && !window.confirm("Huidig ontwerp overschrijven?")) return;
+                    if (hasUnsavedChanges && !window.confirm(t('adminLabelDesigner.overwriteConfirm'))) return;
                     setLabelName(l.name);
                     setLabelWidth(l.width);
                     setLabelHeight(l.height);
@@ -539,7 +539,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                         duplicateLabel(l);
                       }}
                       className="p-1.5 bg-white text-blue-600 rounded-lg shadow-sm border border-blue-100 hover:bg-blue-50"
-                      title="Dupliceren"
+                      title={t('adminLabelDesigner.duplicateTitle')}
                     >
                       <Copy size={12} />
                     </button>
@@ -549,7 +549,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                         deleteLabel(l.id);
                       }}
                       className="p-1.5 bg-white text-rose-600 rounded-lg shadow-sm border border-rose-100 hover:bg-rose-50"
-                      title="Verwijderen"
+                      title={t('adminLabelDesigner.deleteTitle')}
                     >
                       <Trash2 size={12} />
                     </button>
@@ -558,7 +558,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                     {l.name}
                   </p>
                   <p className="text-[9px] font-mono font-bold text-slate-400 mt-1">
-                    {l.width}x{l.height}mm
+                    {l.width}x{l.height}{t('mm')}
                   </p>
                 </div>
               ))}
@@ -677,7 +677,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                             overflowWrap: "break-word",
                           }}
                         >
-                          {hasContent ? content : "no data"}
+                          {hasContent ? content : t('adminLabelDesigner.noData')}
                         </div>
                       );
                     })()}
@@ -740,7 +740,7 @@ const AdminLabelDesigner = ({ onBack }) => {
         <div className="w-80 bg-white border-l border-slate-200 flex flex-col z-10 shrink-0 shadow-2xl">
           <div className="p-6 border-b border-slate-50 bg-slate-50/50">
             <h3 className="text-[10px] font-black uppercase text-slate-500 tracking-widest italic flex items-center gap-2">
-              <Settings size={14} /> Inspector
+              <Settings size={14} /> {t('common.inspector')}
             </h3>
           </div>
 
@@ -749,14 +749,14 @@ const AdminLabelDesigner = ({ onBack }) => {
               <div className="h-full flex flex-col items-center justify-center text-slate-300 opacity-50 py-20">
                 <BoxSelect size={64} className="animate-pulse" />
                 <p className="text-[9px] font-black uppercase tracking-widest mt-4">
-                  Element selecteren
+                  {t('selectElement')}
                 </p>
               </div>
             ) : (
               <div className="space-y-8 animate-in slide-in-from-right-2">
                 <div className="space-y-4">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left block ml-1">
-                    Inhoud & Variabele
+                    {t('contentAndVariable')}
                   </label>
                   {selectedElement.type === "image" ? (
                     <div className="flex flex-col gap-3">
@@ -769,7 +769,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                          onClick={() => fileInputRef.current?.click()}
                          className="w-full py-3 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold border border-blue-100 hover:bg-blue-100 transition-all flex items-center justify-center gap-2"
                        >
-                         <Upload size={14} /> Upload Afbeelding
+                         <Upload size={14} /> {t('uploadImage')}
                        </button>
                        <input 
                           type="file" 
@@ -791,13 +791,13 @@ const AdminLabelDesigner = ({ onBack }) => {
                   ) : (
                     <>
                       <div className="mb-2">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase ml-1 block mb-1">Filter op Product Code</label>
+                          <label className="text-[9px] font-bold text-slate-400 uppercase ml-1 block mb-1">{t('filterProductCode')}</label>
                           <select
                               value={selectedLogicCode}
                               onChange={(e) => setSelectedLogicCode(e.target.value)}
                               className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-600"
                           >
-                              <option value="">-- Alle Variabelen --</option>
+                              <option value="">{t('allVariables')}</option>
                               {labelLogicRules.sort((a,b) => a.productCode.localeCompare(b.productCode)).map(r => (
                                   <option key={r.id} value={r.productCode}>{r.productCode}</option>
                               ))}
@@ -810,25 +810,25 @@ const AdminLabelDesigner = ({ onBack }) => {
                             variable: e.target.value,
                             content: e.target.value
                               ? `{${e.target.value}}`
-                              : "Handmatige Tekst",
+                              : t('manualText'),
                           })
                         }
                         className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-3 text-xs font-bold"
                       >
-                        <option value="">Statische Tekst</option>
-                        <option value="lotNumber">Lotnummer</option>
-                        <option value="orderId">Ordernummer</option>
-                        <option value="itemCode">Artikelcode</option>
-                        <option value="productType">Product Type</option>
-                        <option value="diameter">Diameter (DN)</option>
-                        <option value="pressure">Drukklasse (PN)</option>
-                        <option value="innerDiameter">ID (Inwendige Diameter)</option>
-                        <option value="nprs">NPRs (Nominal Pressure Rating)</option>
-                        <option value="pq">Pq (Qualified Pressure)</option>
-                        <option value="temperature">Temperatuur Limiet</option>
-                        <option value="date">Productiedatum</option>
+                        <option value="">{t('staticText')}</option>
+                        <option value="lotNumber">{t('lotNumber')}</option>
+                        <option value="orderId">{t('orderNumber')}</option>
+                        <option value="itemCode">{t('itemCode')}</option>
+                        <option value="productType">{t('productType')}</option>
+                        <option value="diameter">{t('diameterDn')}</option>
+                        <option value="pressure">{t('pressurePn')}</option>
+                        <option value="innerDiameter">{t('innerDiameter')}</option>
+                        <option value="nprs">{t('nprs')}</option>
+                        <option value="pq">{t('pq')}</option>
+                        <option value="temperature">{t('temperatureLimit')}</option>
+                        <option value="date">{t('productionDate')}</option>
                         {filteredVariables.length > 0 && (
-                            <optgroup label={selectedLogicCode ? `Variabelen voor ${selectedLogicCode}` : "Alle Dynamische Variabelen"}>
+                            <optgroup label={selectedLogicCode ? t('variablesFor', { code: selectedLogicCode }) : t('allDynamicVariables')}>
                                 {filteredVariables.map(v => (
                                     <option key={v} value={v}>{v}</option>
                                 ))}
@@ -845,7 +845,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                             })
                           }
                           className="w-full bg-white border-2 border-slate-100 rounded-xl p-3 text-xs font-bold outline-none focus:border-blue-500"
-                          placeholder="Vrije tekst..."
+                          placeholder={t('freeTextPlaceholder')}
                         />
                       )}
                     </>
@@ -854,32 +854,32 @@ const AdminLabelDesigner = ({ onBack }) => {
 
                 <div className="space-y-4 pt-6 border-t border-slate-50">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left block ml-1">
-                    Layout & Uitlijning
+                    {t('layoutAlignment')}
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => alignCenter("x")}
                       className="flex items-center justify-center gap-2 p-3 bg-slate-50 hover:bg-blue-50 rounded-xl text-[10px] font-black uppercase transition-all"
                     >
-                      <AlignHorizontalJustifyCenter size={14} /> Center X
+                      <AlignHorizontalJustifyCenter size={14} /> {t('centerX')}
                     </button>
                     <button
                       onClick={() => alignCenter("y")}
                       className="flex items-center justify-center gap-2 p-3 bg-slate-50 hover:bg-blue-50 rounded-xl text-[10px] font-black uppercase transition-all"
                     >
-                      <AlignVerticalJustifyCenter size={14} /> Center Y
+                      <AlignVerticalJustifyCenter size={14} /> {t('centerY')}
                     </button>
                   </div>
                 </div>
 
                 <div className="space-y-4 pt-6 border-t border-slate-50">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left block ml-1">
-                    Vormgeving
+                    {t('styling')}
                   </label>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                       <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Rotatie</label>
+                      <label className="text-[8px] font-black text-slate-400 uppercase ml-1">{t('rotation')}</label>
                        <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-100">
                           <button onClick={() => updateElement(selectedElement.id, { rotation: (selectedElement.rotation || 0) - 90 })} className="p-1 hover:bg-white rounded shadow-sm text-slate-600"><RotateCcw size={14} /></button>
                           <span className="flex-1 text-center text-xs font-bold text-slate-700">{selectedElement.rotation || 0}°</span>
@@ -889,7 +889,7 @@ const AdminLabelDesigner = ({ onBack }) => {
 
                     {selectedElement.type === 'text' && (
                         <div className="space-y-1.5">
-                            <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Grootte (pt)</label>
+                            <label className="text-[8px] font-black text-slate-400 uppercase ml-1">{t('fontSizePt')}</label>
                             <input 
                                 type="number" 
                                 value={selectedElement.fontSize || 10} 
@@ -903,26 +903,26 @@ const AdminLabelDesigner = ({ onBack }) => {
                   {selectedElement.type === 'text' && (
                     <div className="flex flex-col gap-2 pt-2">
                         <div className="space-y-1.5">
-                            <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Tekst Uitlijning</label>
+                            <label className="text-[8px] font-black text-slate-400 uppercase ml-1">{t('textAlignment')}</label>
                             <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100">
                                 <button 
                                     onClick={() => updateElement(selectedElement.id, { align: 'left' })}
                                     className={`flex-1 p-1.5 rounded flex justify-center ${(!selectedElement.align || selectedElement.align === 'left') ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                    title="Links uitlijnen"
+                                    title={t('adminLabelDesigner.alignLeft')}
                                 >
                                     <AlignLeft size={14} />
                                 </button>
                                 <button 
                                     onClick={() => updateElement(selectedElement.id, { align: 'center' })}
                                     className={`flex-1 p-1.5 rounded flex justify-center ${selectedElement.align === 'center' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                    title="Centreren"
+                                    title={t('adminLabelDesigner.alignCenter')}
                                 >
                                     <AlignCenter size={14} />
                                 </button>
                                 <button 
                                     onClick={() => updateElement(selectedElement.id, { align: 'right' })}
                                     className={`flex-1 p-1.5 rounded flex justify-center ${selectedElement.align === 'right' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                    title="Rechts uitlijnen"
+                                    title={t('adminLabelDesigner.alignRight')}
                                 >
                                     <AlignRight size={14} />
                                 </button>
@@ -935,7 +935,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                                 onChange={(e) => updateElement(selectedElement.id, { isBold: e.target.checked })}
                                 className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
                             />
-                            <span className="text-xs font-bold text-slate-600">Vetgedrukt (Bold)</span>
+                            <span className="text-xs font-bold text-slate-600">{t('bold')}</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer select-none">
                             <input 
@@ -944,7 +944,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                                 onChange={(e) => updateElement(selectedElement.id, { isInverse: e.target.checked })}
                                 className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
                             />
-                            <span className="text-xs font-bold text-slate-600">Inverse (Wit op Zwart)</span>
+                            <span className="text-xs font-bold text-slate-600">{t('inverse')}</span>
                         </label>
                     </div>
                   )}
@@ -953,7 +953,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-50">
                   <div className="space-y-1.5 text-left">
                     <label className="text-[8px] font-black text-slate-400 uppercase ml-1">
-                      W (mm)
+                      {t('widthMm')}
                     </label>
                     <input
                       type="number"
@@ -968,7 +968,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                   </div>
                   <div className="space-y-1.5 text-left">
                     <label className="text-[8px] font-black text-slate-400 uppercase ml-1">
-                      H (mm)
+                      {t('heightMm')}
                     </label>
                     <input
                       type="number"
@@ -987,7 +987,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                   onClick={() => removeElement(selectedElement.id)}
                   className="w-full py-4 mt-8 bg-rose-50 text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center justify-center gap-2 border border-rose-100 active:scale-95"
                 >
-                  <Trash2 size={16} /> Verwijder Element
+                  <Trash2 size={16} /> {t('removeElement')}
                 </button>
               </div>
             )}
@@ -1001,7 +1001,7 @@ const AdminLabelDesigner = ({ onBack }) => {
           <div className="bg-white w-full max-w-2xl rounded-[30px] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <h3 className="font-black text-slate-800 uppercase text-sm tracking-wide">
-                Selecteer Live Order
+                {t('selectLiveOrder')}
               </h3>
               <button onClick={() => setShowDataModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
                 <X size={20} />
@@ -1013,7 +1013,7 @@ const AdminLabelDesigner = ({ onBack }) => {
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
                         type="text" 
-                        placeholder="Zoek op Ordernummer (bijv. N200...)" 
+                        placeholder={t('searchOrderPlaceholder')} 
                         className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm outline-none focus:border-blue-500 transition-all"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
@@ -1028,7 +1028,7 @@ const AdminLabelDesigner = ({ onBack }) => {
               {isLoading ? (
                 <div className="flex justify-center py-10"><Loader2 className="animate-spin text-blue-500" /></div>
               ) : availableOrders.length === 0 ? (
-                <div className="text-center py-10 text-slate-400 italic text-xs">Geen orders gevonden.</div>
+                <div className="text-center py-10 text-slate-400 italic text-xs">{t('noOrdersFound')}</div>
               ) : (
                 <div className="space-y-2">
                   {availableOrders.map(order => (

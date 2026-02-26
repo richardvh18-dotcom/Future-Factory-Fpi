@@ -13,7 +13,11 @@ import {
   MessageSquare, // Nieuw icoon voor berichten
   Globe, // Taalwissel icoon
   Smartphone,
+  Check,
 } from "lucide-react";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { db } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 import { useMessages } from "../hooks/useMessages"; // Voor badge count
 
@@ -22,12 +26,41 @@ const PortalView = () => {
   const { user, isAdmin } = useAdminAuth();
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState(false);
+  const [showLangMenu, setShowLangMenu] = useState(false);
 
-  // Toggle Language
-  const toggleLanguage = () => {
-    const newLang = i18n.language === 'en' ? 'nl' : 'en';
-    i18n.changeLanguage(newLang);
+  // Select Language
+  const handleLanguageSelect = async (lang) => {
+    i18n.changeLanguage(lang);
+    setShowLangMenu(false);
+    
+    // Sla voorkeur op in Firestore als gebruiker is ingelogd
+    if (user?.uid) {
+      try {
+        const userRef = doc(db, ...PATHS.USERS, user.uid);
+        await updateDoc(userRef, { language: newLang });
+      } catch (error) {
+        console.error("Kon taalvoorkeur niet opslaan:", error);
+      }
+    }
   };
+
+  // Laad taalvoorkeur bij mounten
+  useEffect(() => {
+    const loadLanguagePreference = async () => {
+      if (user?.uid) {
+        try {
+          const userRef = doc(db, ...PATHS.USERS, user.uid);
+          const snap = await getDoc(userRef);
+          if (snap.exists() && snap.data().language) {
+            i18n.changeLanguage(snap.data().language);
+          }
+        } catch (error) {
+          console.error("Fout bij laden taalvoorkeur:", error);
+        }
+      }
+    };
+    loadLanguagePreference();
+  }, [user, i18n]);
 
   // Ophalen ongelezen berichten voor badge
   const { messages } = useMessages(user);
@@ -70,17 +103,48 @@ const PortalView = () => {
     <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-orange-950 overflow-y-auto">
       {/* Language Switch & Logout - Top Right */}
       <div className="absolute top-6 right-6 flex items-center gap-4 z-50">
-        <div className="group relative">
+        <div className="relative">
           <button
-            onClick={toggleLanguage}
+            onClick={() => setShowLangMenu(!showLangMenu)}
             className="p-3 bg-white/5 hover:bg-cyan-500/20 rounded-full border border-white/10 hover:border-cyan-400/50 text-cyan-300 hover:text-cyan-200 transition-all hover:scale-110 active:scale-95"
             title={t('common.language_selection')}
           >
-            <Globe size={20} className="group-hover:rotate-12 transition-transform" />
+            <Globe size={20} />
           </button>
-          <div className="absolute top-full right-0 mt-2 px-3 py-1 bg-slate-900/90 border border-cyan-400/50 rounded-lg text-cyan-300 text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-            {i18n.language === 'nl' ? '🇳🇱 NL → 🇬🇧 EN' : '🇬🇧 EN → 🇳🇱 NL'}
-          </div>
+          
+          {/* Dropdown Menu */}
+          {showLangMenu && (
+            <div className="absolute top-full right-0 mt-2 w-40 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              <button
+                onClick={() => handleLanguageSelect('nl')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'nl' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>🇳🇱 Nederlands</span>
+                {i18n.language === 'nl' && <Check size={14} />}
+              </button>
+              <button
+                onClick={() => handleLanguageSelect('en')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'en' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>🇬🇧 English</span>
+                {i18n.language === 'en' && <Check size={14} />}
+              </button>
+              <button
+                onClick={() => handleLanguageSelect('ar')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'ar' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>🇦🇪 العربية</span>
+                {i18n.language === 'ar' && <Check size={14} />}
+              </button>
+              <button
+                onClick={() => handleLanguageSelect('de')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'de' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>🇩🇪 Deutsch</span>
+                {i18n.language === 'de' && <Check size={14} />}
+              </button>
+            </div>
+          )}
         </div>
         <button
           onClick={handleLogout}

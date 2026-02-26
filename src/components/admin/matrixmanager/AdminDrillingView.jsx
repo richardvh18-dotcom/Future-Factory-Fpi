@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation, Trans } from "react-i18next";
 import {
   collection,
   onSnapshot,
@@ -37,6 +38,7 @@ import {
  * Pad: /future-factory/production/dimensions/bore/records/
  */
 const AdminDrillingView = () => {
+  const { t } = useTranslation();
   const [drillData, setDrillData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -144,7 +146,7 @@ const AdminDrillingView = () => {
       <div className="p-20 text-center flex flex-col items-center gap-4">
         <Loader2 className="animate-spin text-blue-500" size={40} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Boorpatronen synchroniseren...
+          {t('adminDrilling.loadingDimensions', 'Boorpatronen synchroniseren...')}
         </p>
       </div>
     );
@@ -158,12 +160,12 @@ const AdminDrillingView = () => {
         </div>
         <div className="text-left relative z-10">
           <h2 className="text-3xl font-black text-slate-900 flex items-center gap-4 tracking-tighter uppercase italic leading-none">
-            <Ruler className="text-blue-600" size={32} /> Boor{" "}
-            <span className="text-blue-600">Dimensies</span>
+            <Ruler className="text-blue-600" size={32} /> {t('adminDrilling.title', 'Boor Dimensies').split(' ')[0]}{" "}
+            <span className="text-blue-600">{t('adminDrilling.title', 'Boor Dimensies').split(' ').slice(1).join(' ')}</span>
           </h2>
           <div className="mt-3 flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 uppercase italic">
-              <ShieldCheck size={10} /> Root Beveiligd
+              <ShieldCheck size={10} /> {t('adminDrilling.rootProtected', 'Root Beveiligd')}
             </span>
             <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
               Target: /{PATHS.BORE_DIMENSIONS.join("/")}
@@ -178,7 +180,7 @@ const AdminDrillingView = () => {
           />
           <input
             className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold outline-none focus:border-blue-500 transition-all shadow-inner"
-            placeholder="Filter op DN of PN..."
+            placeholder={t('adminDrilling.filterDn', 'Filter op DN of PN...')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -190,7 +192,7 @@ const AdminDrillingView = () => {
         <div className="flex items-center gap-2 mb-8">
           <Plus size={16} className="text-blue-500" />
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] italic">
-            Nieuw Patroon Vastleggen
+            {t('adminDrilling.newPattern', 'Nieuw Patroon Vastleggen')}
           </h3>
         </div>
 
@@ -200,7 +202,7 @@ const AdminDrillingView = () => {
         >
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-              DN (mm)
+              {t('common.dnMm', 'DN (mm)')}
             </label>
             <select
               className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-black text-slate-700 outline-none focus:border-blue-500 appearance-none cursor-pointer"
@@ -217,7 +219,7 @@ const AdminDrillingView = () => {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-              Drukklasse
+              {t('adminDrilling.pressureClass', 'Drukklasse')}
             </label>
             <select
               className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-black text-slate-700 outline-none focus:border-blue-500 appearance-none cursor-pointer"
@@ -234,7 +236,7 @@ const AdminDrillingView = () => {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-blue-600 uppercase ml-2 italic">
-              PCD (mm)
+              {t('common.pcdMm', 'PCD (mm)')}
             </label>
             <input
               required
@@ -249,7 +251,7 @@ const AdminDrillingView = () => {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-              Aantal (n)
+              {t('adminDrilling.count', 'Aantal (n)')}
             </label>
             <input
               required
@@ -264,7 +266,7 @@ const AdminDrillingView = () => {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-              Boutmaat
+              {t('adminDrilling.boltSize', 'Boutmaat')}
             </label>
             <input
               required
@@ -285,7 +287,7 @@ const AdminDrillingView = () => {
             {saving ? (
               <Loader2 className="animate-spin mx-auto" size={18} />
             ) : (
-              "Vastleggen"
+              t('common.save', 'Vastleggen')
             )}
           </button>
         </form>
@@ -296,11 +298,11 @@ const AdminDrillingView = () => {
         <table className="w-full text-left text-sm border-collapse">
           <thead className="bg-slate-50 border-b text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
             <tr>
-              <th className="px-8 py-6">Configuratie (DN/PN)</th>
-              <th className="px-8 py-6 text-blue-600">PCD Steekcirkel</th>
-              <th className="px-8 py-6">Gaten (n)</th>
-              <th className="px-8 py-6">Bout Specificatie</th>
-              <th className="px-8 py-6 text-right">Beheer</th>
+              <th className="px-8 py-6">{t('adminDrilling.config', 'Configuratie (DN/PN)')}</th>
+              <th className="px-8 py-6 text-blue-600">{t('adminDrilling.pcdCircle', 'PCD Steekcirkel')}</th>
+              <th className="px-8 py-6">{t('adminDrilling.holes', 'Gaten (n)')}</th>
+              <th className="px-8 py-6">{t('adminDrilling.boltSpec', 'Bout Specificatie')}</th>
+              <th className="px-8 py-6 text-right">{t('adminDrilling.management', 'Beheer')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -366,7 +368,7 @@ const AdminDrillingView = () => {
                           ID {d.dn}
                         </span>
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                          Drukklasse PN {d.pn}
+                          {t('adminDrilling.pressureClassPn', { pn: d.pn })}
                         </span>
                       </div>
                     </td>
@@ -381,7 +383,7 @@ const AdminDrillingView = () => {
                           {d.holes}
                         </span>
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
-                          Gaten
+                          {t('adminDrilling.holesLabel', 'Gaten')}
                         </span>
                       </div>
                     </td>
@@ -420,7 +422,7 @@ const AdminDrillingView = () => {
           <div className="p-20 text-center opacity-30 italic">
             <Database size={48} className="mx-auto mb-4 text-slate-300" />
             <p className="text-sm font-black uppercase tracking-widest text-slate-400">
-              Geen patronen gevonden voor deze filters
+                {t('adminDrilling.noPatterns', 'Geen patronen gevonden voor deze filters')}
             </p>
           </div>
         )}
@@ -435,11 +437,12 @@ const AdminDrillingView = () => {
           <Info size={20} />
         </div>
         <div className="text-left flex-1 relative z-10 leading-relaxed max-w-3xl">
-          De boorpatronen in deze lijst worden gebruikt door de{" "}
-          <strong>Product Configurator</strong> en{" "}
-          <strong>Eindinspectie</strong>
-          om te controleren of flenzen voldoen aan de technische eisen.
-          Wijzigingen zijn direct live voor alle terminals.
+          <h4 className="text-white text-sm mb-2 italic tracking-tight uppercase leading-none">
+            {t('adminDrilling.footerTitle', 'Engineering Control Protocol')}
+          </h4>
+          <Trans i18nKey="adminDrilling.footerText">
+            De boorpatronen in deze lijst worden gebruikt door de <strong>Product Configurator</strong> en <strong>Eindinspectie</strong> om te controleren of flenzen voldoen aan de technische eisen. Wijzigingen zijn direct live voor alle terminals.
+          </Trans>
         </div>
       </div>
     </div>

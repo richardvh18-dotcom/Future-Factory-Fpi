@@ -2,6 +2,9 @@ import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useMessages } from "../hooks/useMessages";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
 import {
   LayoutGrid,
   Package,
@@ -18,6 +21,7 @@ import {
   Globe,
   X,
   Wrench,
+  Check,
 } from "lucide-react";
 
 /**
@@ -39,10 +43,21 @@ const Sidebar = ({
     : 0;
   const location = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showLangMenu, setShowLangMenu] = useState(false);
 
-  const toggleLanguage = () => {
-    const newLang = i18n.language === 'en' ? 'nl' : 'en';
-    i18n.changeLanguage(newLang);
+  const handleLanguageSelect = async (lang) => {
+    i18n.changeLanguage(lang);
+    setShowLangMenu(false);
+
+    // Sla voorkeur op in Firestore
+    if (user?.uid) {
+      try {
+        const userRef = doc(db, ...PATHS.USERS, user.uid);
+        await updateDoc(userRef, { language: newLang });
+      } catch (error) {
+        console.error("Kon taalvoorkeur niet opslaan:", error);
+      }
+    }
   };
 
   const navItems = [
@@ -87,7 +102,7 @@ const Sidebar = ({
         {/* Mobile header met close button */}
         {isMobileMenuOpen && (
           <div className="md:hidden flex items-center justify-between p-4 border-b border-slate-800">
-            <h2 className="text-lg font-bold text-white">Menu</h2>
+            <h2 className="text-lg font-bold text-white">{t('sidebar.menu', 'Menu')}</h2>
             <button
               onClick={onMobileMenuClose}
               className="p-2 hover:bg-slate-800 rounded-lg text-slate-400"
@@ -148,9 +163,43 @@ const Sidebar = ({
         })}
       </nav>
 
-      <div className="p-2 border-t border-slate-800">
+      <div className="p-2 border-t border-slate-800 relative">
+        {/* Language Menu Popup (Upwards) */}
+        {showLangMenu && (
+          <div className={`absolute bottom-full left-2 mb-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 ${!isExpanded && !isMobileMenuOpen ? 'left-14' : ''}`}>
+            <button
+              onClick={() => handleLanguageSelect('nl')}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'nl' ? 'text-blue-400' : 'text-slate-400'}`}
+            >
+              <span className="flex items-center gap-2">🇳🇱 Nederlands</span>
+              {i18n.language === 'nl' && <Check size={14} />}
+            </button>
+            <button
+              onClick={() => handleLanguageSelect('en')}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'en' ? 'text-blue-400' : 'text-slate-400'}`}
+            >
+              <span className="flex items-center gap-2">🇬🇧 English</span>
+              {i18n.language === 'en' && <Check size={14} />}
+            </button>
+            <button
+              onClick={() => handleLanguageSelect('ar')}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'ar' ? 'text-blue-400' : 'text-slate-400'}`}
+            >
+              <span className="flex items-center gap-2">🇦🇪 العربية</span>
+              {i18n.language === 'ar' && <Check size={14} />}
+            </button>
+            <button
+              onClick={() => handleLanguageSelect('de')}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'de' ? 'text-blue-400' : 'text-slate-400'}`}
+            >
+              <span className="flex items-center gap-2">🇩🇪 Deutsch</span>
+              {i18n.language === 'de' && <Check size={14} />}
+            </button>
+          </div>
+        )}
+
         <button
-          onClick={toggleLanguage}
+          onClick={() => setShowLangMenu(!showLangMenu)}
           className={`w-full mb-2 flex items-center gap-3 rounded-xl hover:bg-slate-800 hover:text-white transition-colors text-slate-400 border border-transparent hover:border-slate-700 ${
             isExpanded || isMobileMenuOpen ? "px-4 py-3 justify-start" : "p-3 justify-center"
           }`}
@@ -162,7 +211,7 @@ const Sidebar = ({
               isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
-            {i18n.language === "en" ? t('profile.prefs.lang_nl') : t('profile.prefs.lang_en')}
+            {i18n.language === 'nl' ? 'Nederlands' : i18n.language === 'en' ? 'English' : i18n.language === 'de' ? 'Deutsch' : 'العربية'}
           </span>
         </button>
 
