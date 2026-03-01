@@ -7,14 +7,11 @@ import {
   Download,
   Loader2,
   AlertCircle,
-  User,
-  Clock,
   Trash2,
   RefreshCw,
   ShieldCheck,
   ChevronRight,
   Database,
-  Tag,
   Edit2,
   Save,
   X,
@@ -34,10 +31,10 @@ import {
   deleteDoc,
   updateDoc,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
-import { PATHS, isValidPath } from "../../config/dbPaths";
+import { db, auth, logActivity } from "../../config/firebase";
 import { format } from "date-fns";
 import { nl } from "date-fns/locale";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 /**
  * AdminLogView V4.2 - Path Integrity Fix & Diff View
@@ -46,6 +43,7 @@ import { nl } from "date-fns/locale";
  */
 const AdminLogView = () => {
   const { t } = useTranslation();
+  const { isAdmin } = useAdminAuth();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("ALL");
@@ -61,6 +59,10 @@ const AdminLogView = () => {
   // Zet op true voor live-gang om te voldoen aan ISO 9001/27001 (Audit Trail Integriteit)
   const READ_ONLY_MODE = false;
 
+  // Correcte paden voor logs (hardcoded om mismatch met dbPaths te voorkomen)
+  const LOG_PATH = ["future-factory", "logs", "activity_logs"];
+  const ARCHIVE_PATH = ["future-factory", "logs", "activity_logs_archive"];
+
   const actionTypes = [
     "PRODUCT_CREATE",
     "PRODUCT_UPDATE",
@@ -69,24 +71,28 @@ const AdminLogView = () => {
     "SETTINGS_UPDATE",
     "MASTER_SYNC",
     "LOGIN",
+    "LOGIN_FAILED",
+    "LOGOUT",
+    "USER_ROLE_CHANGE",
+    "USER_CREATE",
+    "INSPECTION_COMPLETE",
+    "ORDER_RELEASE",
     "DRILL_ADD",
     "TOOL_ADD",
     "TOOL_UPDATE",
+    "TOOL_DELETE",
     "PLANNING_IMPORT",
+    "AI_CHAT",
+    "AI_UPLOAD",
+    "AI_VERIFY"
   ];
 
   useEffect(() => {
-    if (!isValidPath("ACTIVITY_LOGS")) {
-      setError(t('adminLogView.pathNotConfigured'));
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
     try {
-      const colRef = collection(db, ...PATHS.ACTIVITY_LOGS);
+      const colRef = collection(db, ...LOG_PATH);
 
       // Let op: Bij gebruik van filterType (where) + timestamp (orderBy)
       // is een index in Firebase vereist. De default "ALL" werkt altijd.
@@ -118,7 +124,7 @@ const AdminLogView = () => {
           if (err.code === 'permission-denied') return;
           if (err.code === "failed-precondition") {
             setError(
-              t('adminLogView.indexMissing')
+              `${t('adminLogView.indexMissing')} - ${err.message}`
             );
           } else {
             setError(`${t('adminLogView.dbError')}${err.code}`);
@@ -232,10 +238,11 @@ const AdminLogView = () => {
     try {
       const batch = writeBatch(db);
       logs.forEach((log) => {
-        const ref = doc(db, ...PATHS.ACTIVITY_LOGS, log.id);
+        const ref = doc(db, ...LOG_PATH, log.id);
         batch.delete(ref);
       });
       await batch.commit();
+      await logActivity(auth.currentUser?.uid, "LOGS_CLEARED", "All logs cleared");
     } catch (err) {
       console.error("Clear error:", err);
       alert(t('adminLogView.clearError'));
@@ -257,8 +264,8 @@ const AdminLogView = () => {
 
     setIsClearing(true);
     try {
-      const colRef = collection(db, ...PATHS.ACTIVITY_LOGS);
-      const archiveRef = collection(db, ...PATHS.ACTIVITY_LOGS_ARCHIVE);
+      const colRef = collection(db, ...LOG_PATH);
+      const archiveRef = collection(db, ...ARCHIVE_PATH);
       
       // Query logs ouder dan cutoff
       const q = query(colRef, where("timestamp", "<", cutoffDate));
@@ -291,6 +298,7 @@ const AdminLogView = () => {
       }
 
       alert(t('adminLogView.archiveSuccess', { count: processed }));
+      await logActivity(auth.currentUser?.uid, "LOGS_ARCHIVED", `Archived ${processed} logs`);
     } catch (err) {
       console.error("Archive error:", err);
       alert(t('adminLogView.archiveError') + err.message);
@@ -302,7 +310,8 @@ const AdminLogView = () => {
   const handleDelete = async (id) => {
     if (!window.confirm(t('adminLogView.confirmDelete'))) return;
     try {
-      await deleteDoc(doc(db, ...PATHS.ACTIVITY_LOGS, id));
+      await deleteDoc(doc(db, ...LOG_PATH, id));
+      await logActivity(auth.currentUser?.uid, "LOG_DELETE", `Log deleted: ${id}`);
     } catch (err) {
       console.error("Delete error:", err);
     }
@@ -311,7 +320,7 @@ const AdminLogView = () => {
   const handleSaveEdit = async () => {
     if (!editingId) return;
     try {
-      await updateDoc(doc(db, ...PATHS.ACTIVITY_LOGS, editingId), {
+      await updateDoc(doc(db, ...LOG_PATH, editingId), {
         details: editValue
       });
       setEditingId(null);
@@ -322,11 +331,11 @@ const AdminLogView = () => {
   };
 
   const getActionColor = (action) => {
-    if (action.includes("DELETE"))
+    if (action.includes("DELETE") || action.includes("FAILED"))
       return "bg-rose-50 text-rose-600 border-rose-100";
-    if (action.includes("CREATE") || action.includes("ADD") || action.includes("IMPORT"))
+    if (action.includes("CREATE") || action.includes("ADD") || action.includes("IMPORT") || action === "LOGIN")
       return "bg-emerald-50 text-emerald-600 border-emerald-100";
-    if (action.includes("UPDATE"))
+    if (action.includes("UPDATE") || action.includes("CHANGE"))
       return "bg-blue-50 text-blue-600 border-blue-100";
     return "bg-slate-50 text-slate-500 border-slate-100";
   };
@@ -349,7 +358,7 @@ const AdminLogView = () => {
               </span>
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
                 <ShieldCheck size={12} className="text-emerald-500" /> Root: /
-                {PATHS.ACTIVITY_LOGS.join("/")}
+                {LOG_PATH.join("/")}
               </span>
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1 border-l border-slate-200 pl-3">
                 {t('common.isoCompliant')}
@@ -369,14 +378,16 @@ const AdminLogView = () => {
               >
                 {isClearing ? <Loader2 size={20} className="animate-spin" /> : <Archive size={20} />}
               </button>
-              <button
-                onClick={handleClearAll}
-                disabled={isClearing || logs.length === 0}
-                className="p-4 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all shadow-sm border border-slate-100 disabled:opacity-50"
-                title={t('adminLogView.clearLogsDev')}
-              >
-                {isClearing ? <Loader2 size={20} className="animate-spin" /> : <Trash2 size={20} />}
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={handleClearAll}
+                  disabled={isClearing || logs.length === 0}
+                  className="p-4 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all shadow-sm border border-slate-100 disabled:opacity-50"
+                  title={t('adminLogView.clearLogsDev')}
+                >
+                  {isClearing ? <Loader2 size={20} className="animate-spin" /> : <Trash2 size={20} />}
+                </button>
+              )}
             </>
           )}
           <button
@@ -411,9 +422,21 @@ const AdminLogView = () => {
       {error && (
         <div className="mx-8 mt-6 bg-rose-50 border-2 border-rose-100 p-4 rounded-2xl flex items-center gap-4 text-rose-600 animate-in shake">
           <AlertCircle size={20} />
-          <p className="text-xs font-black uppercase tracking-widest">
-            {t('adminLogView.scanInterrupted')}: {error}
-          </p>
+          <div className="text-xs font-bold break-words flex-1">
+            <span className="font-black uppercase tracking-widest mr-2">{t('adminLogView.scanInterrupted')}:</span>
+            {(() => {
+              const urlRegex = /(https?:\/\/[^\s]+)/g;
+              const parts = error.split(urlRegex);
+              if (parts.length === 1) return error;
+              return parts.map((part, i) => 
+                part.match(urlRegex) ? (
+                  <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 hover:text-blue-800 font-black bg-white px-2 py-0.5 rounded border border-blue-200 mx-1">
+                    Create Index &rarr;
+                  </a>
+                ) : <span key={i}>{part}</span>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -429,7 +452,7 @@ const AdminLogView = () => {
             placeholder={t('adminLogView.searchPlaceholder')}
             className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-xs font-bold outline-none focus:border-blue-500 transition-all shadow-inner"
             value={searchQuery}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
 

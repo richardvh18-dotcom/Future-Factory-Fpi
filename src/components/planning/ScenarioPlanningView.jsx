@@ -2,21 +2,13 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Beaker, 
   Plus, 
-  Play,
   Trash2,
   Copy,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  CheckCircle,
-  Calendar,
-  Users
 } from "lucide-react";
 import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { format, addDays, differenceInDays } from "date-fns";
-import { nl } from "date-fns/locale";
+import { addDays } from "date-fns";
 
 /**
  * ScenarioPlanningView - What-if analysis for capacity planning

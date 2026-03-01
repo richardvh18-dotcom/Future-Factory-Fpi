@@ -27,8 +27,9 @@
     "react-i18next": "^14.0.0",
     "react-qr-code": "^2.0.12",
     "react-router-dom": "^6.21.1",
-    "react-window": "^2.2.6",
+    "react-window": "^2.2.7",
     "terser": "^5.36.0",
+    "vercel": "^50.23.2",
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },
@@ -36,7 +37,7 @@
     "@eslint/js": "^10.0.1",
     "@typescript-eslint/parser": "^8.56.0",
     "autoprefixer": "^10.4.20",
-    "eslint": "^8.56.0",
+    "eslint": "^10.0.2",
     "eslint-plugin-i18next": "^6.1.3",
     "husky": "^8.0.0",
     "lint-staged": "^16.2.7",
@@ -49,10 +50,16 @@
   "scripts": {
     "dev": "vite",
     "start": "vite",
-    "build": "vite build",
+    "build": "NODE_OPTIONS=--max-old-space-size=4096 vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ignore-pattern src/components/language/*.js",
-    "prepare": "husky install"
+    "lint": "eslint src --ext .js,.jsx",
+    "lint:strict": "eslint src --ext .js,.jsx --max-warnings=0",
+    "prepare": "husky install",
+    "prevalidate": "node scripts/cleanup-duplicates.js",
+    "validate": "npm run lint && npm run type-check && npm run build",
+    "validate:strict": "npm run lint:strict && npm run type-check && npm run build",
+    "type-check": "tsc --noEmit",
+    "find-bugs": "find src -name '\\*,jsx'"
   },
   "lint-staged": {
     "src/**/*.{js,jsx,ts,tsx}": "eslint --fix"

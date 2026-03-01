@@ -2,17 +2,14 @@ import React, { useState, useMemo } from "react";
 import {
   X,
   FileText,
-  Zap,
-  CheckCircle2,
-  AlertOctagon,
   Box,
-  ArrowRight,
   ArrowUp,
   ArrowDown,
   Search,
   User,
 } from "lucide-react";
 import { format } from "date-fns";
+import StatusBadge from "../common/StatusBadge";
 
 /**
  * TraceModal - Toont de gedetailleerde lijst die hoort bij een KPI tegel.
@@ -75,39 +72,13 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
     setSortConfig({ key, direction });
   };
 
-  const getStatusColor = (status) => {
-    const s = (status || "").toLowerCase();
-    if (['completed', 'gereed', 'finished', 'shipped', 'verzonden'].some(k => s.includes(k))) return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
-    if (['in_progress', 'actief', 'running', 'productie', 'production'].some(k => s.includes(k))) return 'bg-blue-100 text-blue-700 border border-blue-200';
-    if (['rejected', 'afkeur', 'fout'].some(k => s.includes(k)) && !s.includes('tijdelijk')) return 'bg-rose-100 text-rose-700 border border-rose-200';
-    if (['tijdelijk', 'temp', 'hold', 'wacht', 'te lossen', 'inspectie'].some(k => s.includes(k))) return 'bg-orange-100 text-orange-700 border border-orange-200';
-    if (['delegated', 'uitbesteed', 'spools'].some(k => s.includes(k))) return 'bg-purple-100 text-purple-700 border border-purple-200';
-    return 'bg-slate-100 text-slate-500 border border-slate-200';
-  };
-
-  const formatStatus = (status) => {
-    if (!status) return "-";
-    const s = String(status).toLowerCase();
-    
-    if (s === 'in_progress' || s === 'in production') return 'In Productie';
-    if (s === 'pending') return 'Wachtend';
-    if (s === 'planned') return 'Gepland';
-    if (s === 'completed' || s === 'finished') return 'Gereed';
-    if (s === 'rejected') return 'Afkeur';
-    if (s === 'delegated') return 'Uitbesteed';
-    if (s === 'hold_area') return 'Wacht op...';
-    if (s === 'temp_reject' || s === 'tijdelijke afkeur') return 'Tijdelijke Afkeur';
-    
-    return status;
-  };
-
   const formatDisplayDate = (dateInput) => {
     if (!dateInput) return "-";
     try {
       const date = dateInput.toDate ? dateInput.toDate() : new Date(dateInput);
       if (isNaN(date.getTime())) return "-";
       return format(date, "dd-MM-yyyy HH:mm");
-    } catch (error) {
+    } catch {
       return "-";
     }
   };
@@ -237,9 +208,7 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusColor(item.status)}`}>
-                            {formatStatus(item.status)}
-                          </span>
+                          <StatusBadge status={item.status} />
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="text-slate-900 font-bold">

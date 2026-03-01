@@ -1,4 +1,4 @@
-import { db } from "../config/firebase";
+import { db, auth, logActivity } from "../config/firebase";
 import {
   collection,
   addDoc,
@@ -35,6 +35,7 @@ export const addProduct = async (productData) => {
     lastUpdated: serverTimestamp(),
   };
   const docRef = await addDoc(collection(db, ...PATHS.PRODUCTS), cleanData);
+  await logActivity(auth.currentUser?.uid, "PRODUCT_CREATE", `Product created: ${productData.name || "Unknown"}`);
   return docRef.id;
 };
 
@@ -44,11 +45,13 @@ export const updateProduct = async (productId, productData) => {
     ...productData,
     lastUpdated: serverTimestamp(),
   });
+  await logActivity(auth.currentUser?.uid, "PRODUCT_UPDATE", `Product updated: ${productId}`);
 };
 
 export const deleteProduct = async (productId) => {
   const productRef = doc(db, ...PATHS.PRODUCTS, productId);
   await deleteDoc(productRef);
+  await logActivity(auth.currentUser?.uid, "PRODUCT_DELETE", `Product deleted: ${productId}`);
 };
 
 export const verifyProduct = async (

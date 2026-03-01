@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Loader2,
-  ArrowLeft,
 } from "lucide-react";
 import {
   collection,
@@ -12,6 +11,8 @@ import {
   serverTimestamp,
   setDoc,
   getDoc,
+  query,
+  where,
 } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -20,11 +21,8 @@ import {
   getISOWeekYear,
   addWeeks,
   subWeeks,
-  differenceInDays,
   isValid,
-  format,
 } from "date-fns";
-import { nl } from "date-fns/locale";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import ProductDetailModal from "../products/ProductDetailModal";
@@ -34,6 +32,7 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import TerminalPlanningView from "./terminal/TerminalPlanningView";
 import TerminalProductionView from "./terminal/TerminalProductionView";
 import TerminalManualInput from "./terminal/TerminalManualInput";
+import MalOptimizationPanel from "./MalOptimizationPanel";
 
 /**
  * Workstation Terminal - V22.5
@@ -41,7 +40,7 @@ import TerminalManualInput from "./terminal/TerminalManualInput";
  * - Automatische selectie-reset bij navigatie.
  * - Alles-knop toegevoegd en zoekknop uit toolbar verwijderd.
  */
-const Terminal = ({ initialStation, onBack }) => {
+const Terminal = ({ initialStation }) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
 
@@ -105,27 +104,18 @@ const Terminal = ({ initialStation, onBack }) => {
     return isValid(d) ? d : null;
   };
 
-  const getUrgencyColor = (dateInput) => {
-    const d = parseDateSafe(dateInput);
-    if (!d) return "text-slate-400";
-    const daysUntil = differenceInDays(d, new Date());
-    if (daysUntil <= 7) return "text-red-600 font-black";
-    if (daysUntil <= 14) return "text-blue-600 font-black";
-    return "text-slate-600 font-bold";
-  };
-
-  const isOrderNew = (order) => {
-    if (!order.createdAt) return false;
-    const createdAt = order.createdAt.toMillis ? order.createdAt.toMillis() : new Date(order.createdAt).getTime();
-    return createdAt > Date.now() - 24 * 60 * 60 * 1000;
-  };
-
   // Real-time Data Sync
   useEffect(() => {
     if (!stationId) return;
     setLoading(true);
     
-    const unsubOrders = onSnapshot(collection(db, ...PATHS.PLANNING), (snap) => {
+    // PERFORMANCE: Haal alleen actieve orders op (server-side filtering)
+    const q = query(
+      collection(db, ...PATHS.PLANNING),
+      where("status", "in", ["planned", "in_progress", "delegated", "pending"])
+    );
+
+    const unsubOrders = onSnapshot(q, (snap) => {
       const processedOrders = snap.docs.map((doc) => {
         const data = doc.data();
         
@@ -234,6 +224,12 @@ const Terminal = ({ initialStation, onBack }) => {
 
   const filteredOrders = useMemo(() => {
     const base = myOrders.filter((o) => {
+      // BUGFIX: Voltooide orders verbergen - DIT MOET BOVENAAN STAAN
+      // Zelfs als een order SPOED is, als hij klaar is, moet hij weg uit de actieve lijst.
+      const produced = o.produced || 0;
+      const quantity = o.quantity || 0;
+      if (produced >= quantity && !showAllWeeks) return false; // Tenzij we expliciet alles willen zien
+
       if (o.status !== "pending" && o.status !== "in_progress" && o.status !== "planned" && o.status !== "delegated") return false;
       
       // FIX: BH31 (Reparatie) orders verdwijnen uit planning zodra ze in behandeling zijn
@@ -249,7 +245,7 @@ const Terminal = ({ initialStation, onBack }) => {
       if (isBM01) return true;
 
       // ALTIJD tonen als de order actief is of net gepland is voor deze machine, ongeacht de week
-      if (o.status === "in_progress" || o.status === "planned" || o.status === "delegated") return true;
+      if (o.status === "in_progress") return true;
 
       if (showAllWeeks || sidebarSearch) return true;
 
@@ -412,6 +408,14 @@ const Terminal = ({ initialStation, onBack }) => {
                 onStartProduction={() => setShowStartModal(true)}
                 selectedOrder={selectedOrder}
                 onViewDrawing={handleViewDrawing}
+                // Mal Optimalisatie: Toon gerelateerde orders in het paneel
+                optimizationPanel={
+                  <MalOptimizationPanel 
+                    currentOrder={selectedOrder}
+                    allOrders={myOrders}
+                    onSelectOrder={setSelectedOrderId}
+                  />
+                }
               />
             ) : activeTab === "wikkelen" ? (
               /* TAB WIKKELEN */

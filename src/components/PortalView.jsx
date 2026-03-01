@@ -8,8 +8,6 @@ import {
   LogOut,
   ArrowRight,
   Settings,
-  Monitor,
-  ScanBarcode,
   MessageSquare, // Nieuw icoon voor berichten
   Globe, // Taalwissel icoon
   Smartphone,
@@ -37,7 +35,7 @@ const PortalView = () => {
     if (user?.uid) {
       try {
         const userRef = doc(db, ...PATHS.USERS, user.uid);
-        await updateDoc(userRef, { language: newLang });
+        await updateDoc(userRef, { language: lang });
       } catch (error) {
         console.error("Kon taalvoorkeur niet opslaan:", error);
       }

@@ -35,6 +35,11 @@ const ProductMoveModal = ({ product, onClose, onMove, allowedStations = [], curr
             </h3>
             <p className="text-sm text-slate-500 font-bold">
               Lot: {product?.lotNumber}
+              {product?.currentStation && (
+                <span className="ml-2 text-slate-400 font-normal">
+                  • Huidig: {product.currentStation}
+                </span>
+              )}
             </p>
           </div>
           <button

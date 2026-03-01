@@ -11,7 +11,7 @@ import { lookupProductByManufacturedId } from "./conversionLogic";
 export async function findDrawingForProduct(manufacturedCode) {
   // 1. Probeer direct te zoeken op articleCode (meest actuele code)
   let articleCode = manufacturedCode;
-  let product = null;
+  let product;
 
   const productsRef = collection(db, ...PATHS.PRODUCTS);
   let q = query(productsRef, where("articleCode", "==", articleCode));

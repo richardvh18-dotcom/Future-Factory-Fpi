@@ -1,5 +1,3 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 import i18n from "../i18n";
 
 /**
@@ -43,6 +41,11 @@ const imageToDataUri = async (url) => {
 export const generateProductPDF = async (product, role = "operator") => {
   // Toon een kleine indicatie in de console dat we bezig zijn
   console.log(i18n.t("pdf.generating_for", "PDF genereren voor:"), product.name);
+
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
 
   const doc = new jsPDF();
   const isQC = role === "qc" || role === "admin";

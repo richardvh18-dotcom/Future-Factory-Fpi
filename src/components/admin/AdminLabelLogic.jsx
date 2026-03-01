@@ -8,7 +8,7 @@ import {
   serverTimestamp,
   getDoc
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { 
   Plus, 
@@ -20,7 +20,6 @@ import {
   ArrowRight,
   X,
   Beaker,
-  Copy,
   Lightbulb
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -54,7 +53,7 @@ const AdminLabelLogic = () => {
   const [testInputs, setTestInputs] = useState({});
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "future-factory", "settings", "label_logic"), (snap) => {
+    const unsub = onSnapshot(collection(db, ...PATHS.LABEL_LOGIC), (snap) => {
       setRules(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
@@ -165,15 +164,6 @@ const AdminLabelLogic = () => {
     setVariables(newVars);
   };
 
-  const duplicateVariable = (index) => {
-    const newVars = [...variables];
-    const variableToCopy = JSON.parse(JSON.stringify(newVars[index])); // Deep copy
-    variableToCopy.name = `${variableToCopy.name}_copy`;
-    // Voeg toe na het origineel
-    newVars.splice(index + 1, 0, variableToCopy);
-    setVariables(newVars);
-  };
-
   const removeVariable = (index) => {
     const newVars = [...variables];
     newVars.splice(index, 1);
@@ -191,7 +181,8 @@ const AdminLabelLogic = () => {
     };
 
     try {
-      await setDoc(doc(db, "future-factory", "settings", "label_logic", id), data);
+      await setDoc(doc(db, ...PATHS.LABEL_LOGIC, id), data);
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label logic saved: ${id}`);
       alert(t('admin.logicSaved', "Logica opgeslagen!"));
     } catch (e) {
       console.error(e);
@@ -201,7 +192,8 @@ const AdminLabelLogic = () => {
 
   const handleDelete = async (id) => {
     if(!window.confirm(t('common.areYouSure', "Zeker weten?"))) return;
-    await deleteDoc(doc(db, "future-factory", "settings", "label_logic", id));
+    await deleteDoc(doc(db, ...PATHS.LABEL_LOGIC, id));
+    await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label logic deleted: ${id}`);
     if (selectedRule?.id === id) setSelectedRule(null);
   };
 

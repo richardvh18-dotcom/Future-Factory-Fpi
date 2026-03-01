@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
-  TrendingUp,
   Users,
   Clock,
   AlertTriangle,
@@ -10,15 +9,12 @@ import {
   Activity,
   Target,
   Zap,
-  Package,
   Loader2,
-  Download,
   TrendingDown,
   AlertCircle,
   ChevronLeft,
   ChevronRight,
   FileDown,
-  History,
   Brain,
   Upload,
   ChevronDown,
@@ -26,13 +22,11 @@ import {
   LayoutDashboard,
   BarChart2
 } from "lucide-react";
-import { collection, query, where, getDocs, onSnapshot, doc } from "firebase/firestore";
+import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { getISOWeek, startOfISOWeek, endOfISOWeek, format, subWeeks, addWeeks, startOfDay, endOfDay, startOfYear, endOfYear, subYears, isAfter, isBefore } from "date-fns";
+import { getISOWeek, startOfISOWeek, endOfISOWeek, format, subWeeks, addWeeks, startOfYear, endOfYear } from "date-fns";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import jsPDF from "jspdf";
-import "jspdf-autotable";
 import CapacityImportModal from "../digitalplanning/modals/CapacityImportModal";
 import EfficiencyDashboard from "../digitalplanning/EfficiencyDashboard";
 import GanttChartView from "./GanttChartView";
@@ -136,6 +130,8 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
   // Load departments from factory structure
   useEffect(() => {
+    if (!PATHS || !PATHS.FACTORY_CONFIG) return;
+
     const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
     const unsub = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -186,6 +182,12 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
   }, [initialDepartment, departments]);
 
   useEffect(() => {
+    if (!PATHS || !PATHS.PLANNING) {
+      console.error("PATHS configuration missing in CapacityPlanningView");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
 
     // Load occupancy data
@@ -222,8 +224,10 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
   // Load efficiency/imported hours
   useEffect(() => {
+    if (!PATHS || !PATHS.EFFICIENCY_HOURS) return;
+
     const unsubEfficiency = onSnapshot(
-      collection(db, "future-factory", "production", "efficiency_hours"),
+      collection(db, ...PATHS.EFFICIENCY_HOURS),
       (snapshot) => {
         const data = {};
         snapshot.docs.forEach((doc) => {
@@ -288,7 +292,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
     // Bereken rand-uren (setup, pauze, overhead)
     // Aanname: 8 uur per dag - hoursWorked = overhead
-    const totalScheduledHours = periodOccupancy.reduce((sum, occ) => {
+    const totalScheduledHours = periodOccupancy.reduce((sum) => {
       return sum + 8; // Standaard werkdag
     }, 0);
 
@@ -664,7 +668,12 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
   }, [capacityMetrics, demandMetrics]);
 
   // PDF Export functie
-  const exportToPDF = () => {
+  const exportToPDF = async () => {
+    const [{ default: jsPDF }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
     

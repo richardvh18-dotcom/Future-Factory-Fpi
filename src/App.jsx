@@ -1,8 +1,8 @@
 import React, { useState, Suspense, lazy, useEffect } from "react";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { auth, db } from "./config/firebase";
+import { auth, db, logActivity } from "./config/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import LoggedOutView from "./components/LoggedOutView";
 
@@ -42,6 +42,7 @@ const ShopFloorMobileApp = lazy(() =>
 );
 const CalculatorView = lazy(() => import("./components/CalculatorView"));
 const AiAssistantView = lazy(() => import("./components/ai/AiAssistantView.jsx"));
+const AdminLogView = lazy(() => import("./components/admin/AdminLogView"));
 
 /**
  * App.jsx V18.0 - Responsive Design
@@ -59,11 +60,7 @@ const App = () => {
   const { user, isAdmin, role, loading: authLoading } = useAdminAuth();
   const { products = [] } = useProductsData(user);
   const { generalConfig } = useSettingsData(user);
-  const { messages = [] } = useMessages(user);
-
-  const unreadCount = messages
-    ? messages.filter((m) => !m.read && !m.archived).length
-    : 0;
+  useMessages(user);
 
   // Check of gebruiker wachtwoord moet wijzigen
   useEffect(() => {
@@ -88,11 +85,13 @@ const App = () => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log("✅ Login succesvol! UID:", userCredential.user.uid);
+      await logActivity(userCredential.user.uid, "LOGIN", `Succesvol ingelogd via email: ${email}`);
       navigate("/");
     } catch (err) {
       console.error("❌ Login fout:", err);
       console.error("Error code:", err.code);
       console.error("Error message:", err.message);
+      await logActivity("system", "LOGIN_FAILED", `Mislukte inlogpoging voor: ${email}. Reden: ${err.code}`, "warning");
       
       let errorMessage = "E-mail of wachtwoord onjuist.";
       
@@ -174,6 +173,9 @@ const App = () => {
             isAdmin={isAdmin}
             role={role}
             onLogout={async () => {
+              if (user) {
+                await logActivity(user.uid, "LOGOUT", `Gebruiker uitgelogd: ${user.email}`);
+              }
               await signOut(auth);
               navigate("/login");
             }}
@@ -201,6 +203,7 @@ const App = () => {
                 <Route path="/assistant" element={<AiAssistantView />} />
                 <Route path="/messages" element={<AdminMessagesView user={user} />} />
                 <Route path="/admin/*" element={<AdminDashboard />} />
+                <Route path="/logs" element={<AdminLogView />} />
                 <Route path="/login" element={<LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

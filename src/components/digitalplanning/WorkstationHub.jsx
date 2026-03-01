@@ -1,8 +1,8 @@
-import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, deleteDoc, getDoc, setDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, deleteDoc, getDoc, setDoc } from "firebase/firestore";
 import React, { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Loader2, Menu, X, Layers, Clock, Tv, Calendar } from "lucide-react";
+import { LogOut, Loader2, Menu, X, Clock, Calendar } from "lucide-react";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
@@ -13,22 +13,19 @@ import {
   WORKSTATIONS,
   getISOWeekInfo,
   isInspectionOverdue,
+  getNextFlowState,
+  getStepForStation,
 } from "../../utils/workstationLogic";
 import { normalizeMachine } from "../../utils/hubHelpers";
-import { calculateDuration } from "../../utils/efficiencyCalculator";
-import PlanningListView from "./views/PlanningListView";
 import ActiveProductionView from "./views/ActiveProductionView";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 
 import Terminal from "./Terminal";
 import LossenView from "./LossenView";
-import EfficiencyDashboard from "./EfficiencyDashboard";
 import ProductDetailModal from "../products/ProductDetailModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";
 import BM01Hub from "./BM01Hub";
-
-const COLLECTION_NAME = "digital_planning";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -42,21 +39,6 @@ const getDiameter = (str) => {
   if (match) return parseInt(match[1], 10);
   return 0;
 };
-
-// Machine Config
-const FITTING_MACHINES = [
-  "BM01",
-  "BH11",
-  "BH12",
-  "BH15",
-  "BH16",
-  "BH17",
-  "BH18",
-  "BH31",
-  "Mazak",
-  "Nabewerking",
-];
-const PIPE_MACHINES = ["BH05", "BH07", "BH08", "BH09"];
 
 const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const { t } = useTranslation();
@@ -73,7 +55,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const [occupancy, setOccupancy] = useState([]);
   const [personnel, setPersonnel] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchFilterOrder, setSearchFilterOrder] = useState(searchOrder || null);
+  const [searchFilterOrder] = useState(searchOrder || null);
   const [archivedStats, setArchivedStats] = useState({ done: 0 });
   
   // Huidige datum/tijd voor display
@@ -369,50 +351,6 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     // Standaard: altijd tonen als shift niet herkend wordt
     return true;
   };
-  const currentOperator = useMemo(() => {
-    if (!selectedStation || !occupancy.length || !personnel.length) return null;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Vind de meest recente occupancy voor dit station van vandaag
-    const todayOccupancy = occupancy
-      .filter((occ) => {
-        if (occ.station !== selectedStation) return false;
-        if (!occ.date) return false;
-        
-        const occDate = occ.date.toDate ? occ.date.toDate() : new Date(occ.date);
-        occDate.setHours(0, 0, 0, 0);
-        
-        return occDate.getTime() === today.getTime();
-      })
-      .sort((a, b) => {
-        const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
-        const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
-        return timeB - timeA;
-      })[0];
-
-    if (!todayOccupancy) return null;
-
-    // Vind de operator
-    const operator = personnel.find(
-      (p) => p.operatorNumber === todayOccupancy.operatorNumber
-    );
-
-    if (!operator) return null;
-
-    const timestamp = todayOccupancy.timestamp?.toDate 
-      ? todayOccupancy.timestamp.toDate() 
-      : new Date(todayOccupancy.timestamp);
-
-    return {
-      name: operator.name || operator.operatorNumber,
-      operatorNumber: operator.operatorNumber,
-      timestamp: timestamp,
-      date: todayOccupancy.date.toDate ? todayOccupancy.date.toDate() : new Date(todayOccupancy.date),
-    };
-  }, [selectedStation, occupancy, personnel]);
-
   // Alle operators voor dit station vandaag - ALLEEN DIE NU AAN HET WERK ZIJN
   const stationOccupancy = useMemo(() => {
     if (!selectedStation || occupancy.length === 0 || personnel.length === 0) return [];
@@ -697,9 +635,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const handleStartProduction = async (
     order,
     customLotNumber,
-    stringCount = 1,
-    isPrinterEnabled = false,
-    selectedLabel = null
+    stringCount = 1
   ) => {
     if (!currentUser || !customLotNumber) return;
     try {
@@ -741,6 +677,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           .map(occ => occ.operatorNumber)
           .filter(Boolean);
 
+        const flowState = getNextFlowState('START_WINDING');
+
         const unitData = {
           lotNumber: currentLotNumber,
           orderId: isOverflow ? "NOG_TE_BEPALEN" : order.orderId,
@@ -748,8 +686,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           drawing: order.drawing || "",
           originMachine: selectedStation,
           currentStation: selectedStation,
-          currentStep: "Wikkelen",
-          status: "in_progress",
+          currentStep: flowState.currentStep || "Wikkelen",
+          status: flowState.status || "in_progress",
           startTime: now.toISOString(),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -814,10 +752,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     if (!lotNumber || !newStation) return;
     try {
       const productRef = doc(db, ...PATHS.TRACKING, lotNumber);
+      
+      // Bepaal direct de juiste status voor het nieuwe station (bijv. Te Keuren voor BM01)
+      const nextState = getStepForStation(newStation);
+
       await updateDoc(productRef, {
         currentStation: newStation,
+        currentStep: nextState.currentStep,
+        status: nextState.status || "in_progress",
         isManualMove: true,
-        status: "in_progress",
         updatedAt: serverTimestamp(),
         note: `Handmatig verplaatst naar ${newStation} door ${currentUser?.email || 'Operator'}`
       });
@@ -825,6 +768,25 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
       showError("Fout bij verplaatsen: " + err.message);
+    }
+  };
+
+  const handlePauseResume = async (product) => {
+    if (!product) return;
+    try {
+      const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
+      const isPaused = product.status === "PAUSED";
+      
+      await updateDoc(productRef, {
+        status: isPaused ? "In Production" : "PAUSED",
+        updatedAt: serverTimestamp(),
+      });
+      
+      if (isPaused) showSuccess("Productie hervat");
+      else showInfo("Productie gepauzeerd");
+    } catch (err) {
+      console.error("Fout bij pauzeren:", err);
+      showError("Kon status niet wijzigen");
     }
   };
 
@@ -884,9 +846,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
       if (status === "completed") {
         if (selectedStation === "BM01" || selectedStation === "Station BM01") {
-          updates.currentStation = "GEREED";
-          updates.currentStep = "Finished";
-          updates.status = "completed";
+          const flowState = getNextFlowState('FINISH_INSPECTION');
+          updates.currentStation = flowState.currentStation || "GEREED";
+          updates.currentStep = flowState.currentStep || "Finished";
+          updates.status = flowState.status || "completed";
           updates["timestamps.finished"] = serverTimestamp();
           updates.lastStation = "BM01"; // Ensure lastStation is set for archiving context
 
@@ -911,8 +874,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           setItemToFinish(null);
           return;
         } else {
-          updates.currentStation = "BM01";
-          updates.currentStep = "Eindinspectie";
+          const flowState = getNextFlowState('FINISH_PROCESSING');
+          updates.currentStation = flowState.currentStation || "BM01";
+          updates.currentStep = flowState.currentStep || "Eindinspectie";
+          updates.status = flowState.status || "Te Keuren";
           updates.lastStation = selectedStation;
           updates["timestamps.eindinspectie_start"] = serverTimestamp();
         }
@@ -923,6 +888,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           timestamp: new Date().toISOString(),
         };
         updates.currentStep = "HOLD_AREA";
+        // Sla de vorige staat op zodat we kunnen hervatten
+        updates.previousStep = itemToFinish.currentStep;
+        updates.previousStatus = itemToFinish.status;
       } else if (status === "rejected") {
         updates.status = "rejected";
         updates.currentStep = "REJECTED";
@@ -983,19 +951,22 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       return;
     }
 
-    // FIX: Handmatige verplaatsing (bijv. reparatie) moet direct naar Nabewerking
-    // Slaat 'Lossen' over en reset de isManualMove flag
+    // FIX: Handmatige verplaatsing door Teamleader
+    // Bepaal dynamisch de juiste stap op basis van het nieuwe station
     if (product.isManualMove) {
       try {
+        const targetStation = product.currentStation || selectedStation;
+        const nextState = getStepForStation(targetStation);
+        
         const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
         await updateDoc(productRef, {
-          currentStep: "Nabewerking",
-          currentStation: "Nabewerking",
+          currentStep: nextState.currentStep,
+          status: nextState.status || "in_progress",
           isManualMove: false,
           updatedAt: serverTimestamp(),
-          note: product.note ? product.note + " (Doorgestuurd naar Nabewerking)" : "Doorgestuurd naar Nabewerking"
+          note: product.note ? product.note + ` (Hervat op ${targetStation})` : `Hervat op ${targetStation}`
         });
-        showSuccess(`Product ${product.lotNumber} doorgestuurd naar Nabewerking`);
+        showSuccess(`Product ${product.lotNumber} correct ingesteld voor ${targetStation}`);
         return;
       } catch (error) {
         console.error("Fout bij doorsturen:", error);
@@ -1028,8 +999,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         .map(occ => occ.operatorNumber)
         .filter(Boolean);
 
+      const flowState = getNextFlowState('FINISH_WINDING');
+
       const updates = {
-        currentStep: "Lossen",
+        currentStep: flowState.currentStep || "Wacht op Lossen",
+        status: flowState.status || "Te Lossen",
         updatedAt: serverTimestamp(),
         "timestamps.lossen_start": serverTimestamp(),
       };
@@ -1286,6 +1260,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                 smartSuggestions={isPostProcessing ? [] : []}
                 selectedStation={selectedStation}
                 onProcessUnit={handleProcessUnit}
+                onPauseResume={handlePauseResume}
                 onClickUnit={handleActiveUnitClick}
               />
             )}

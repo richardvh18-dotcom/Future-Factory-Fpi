@@ -2,14 +2,12 @@ import React, { useState, useRef } from "react";
 import {
   X,
   Upload,
-  FileSpreadsheet,
   CheckCircle2,
   Loader2,
   Zap,
   AlertTriangle,
 } from "lucide-react";
 import { db } from "../../../config/firebase";
-import * as XLSX from "xlsx";
 import { processInforUpdate } from "../../../utils/infor_sync_service";
 
 const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
@@ -29,6 +27,7 @@ const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
 
     reader.onload = async (evt) => {
       try {
+        const XLSX = await import("xlsx");
         const bstr = evt.target.result;
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];

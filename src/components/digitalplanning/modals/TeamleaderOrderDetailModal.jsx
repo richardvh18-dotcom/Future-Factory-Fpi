@@ -2,11 +2,9 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
   Calendar,
-  Clock,
   MapPin,
   FileText,
   Activity,
-  CheckCircle,
   AlertTriangle,
   AlertOctagon,
   Zap,
@@ -15,7 +13,7 @@ import {
   ArrowRight,
   History
 } from "lucide-react";
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../../../config/firebase.js";
 import StatusBadge from "../common/StatusBadge.jsx";
 

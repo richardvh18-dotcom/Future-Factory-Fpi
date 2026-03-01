@@ -12,7 +12,6 @@ import {
   Save,
   UserCircle,
   ShieldAlert,
-  ChevronRight,
   ChevronDown,
   Database,
   Fingerprint,
@@ -28,7 +27,7 @@ import {
   Briefcase,
   MapPin,
 } from "lucide-react";
-import { db, auth, firebaseConfig } from "../../config/firebase";
+import { db, auth, firebaseConfig, logActivity } from "../../config/firebase";
 import { initializeApp, deleteApp } from "firebase/app";
 import {
   collection,
@@ -39,7 +38,6 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
-  addDoc,
   setDoc,
 } from "firebase/firestore";
 import { PATHS, isValidPath } from "../../config/dbPaths";
@@ -185,7 +183,7 @@ const AdminUsersView = () => {
   useEffect(() => {
     if (!isValidPath("USERS")) return;
 
-    const requestsRef = collection(db, "future-factory", "Users", "AccountRequests");
+    const requestsRef = collection(db, ...PATHS.ACCOUNT_REQUESTS);
     const q = query(requestsRef, orderBy("createdAt", "desc"));
 
     const unsubRequests = onSnapshot(
@@ -245,7 +243,7 @@ const AdminUsersView = () => {
     const passwordToUse = newUser.tempPassword || generateTempPassword();
 
     let secondaryApp = null; 
-    let selectedUid = null;
+    let selectedUid;
     let isExistingUser = false;
 
     try {
@@ -313,7 +311,7 @@ const AdminUsersView = () => {
           // Valideer UID 
           selectedUid = uid.trim();
           if (selectedUid.length < 5) {
-             throw new Error("Ongeldige UID opgegeven.");
+             throw new Error("Ongeldige UID opgegeven.", { cause: authError });
           }
           
         } else {
@@ -341,6 +339,8 @@ const AdminUsersView = () => {
         importedAt: isExistingUser ? serverTimestamp() : null,
       });
 
+      await logActivity(auth.currentUser?.uid, "USER_CREATE", `User created: ${newUser.email} (${newUser.role})`);
+
       setStatus({
         type: "success",
         message: isExistingUser 
@@ -361,17 +361,13 @@ const AdminUsersView = () => {
 
     } catch (err) {
       console.error("Fout bij toevoegen gebruiker:", err);
-      let errorMessage = "Fout bij toevoegen gebruiker";
-      
-      if (err.code === "auth/invalid-email") {
-        errorMessage = "Ongeldig email-adres";
-      } else if (err.code === "auth/weak-password") {
-        errorMessage = "Wachtwoord is te zwak (minimaal 6 karakters)";
-      } else if (err.code === "auth/email-already-in-use"){
-         errorMessage = "E-mailadres is al in gebruik (en import geannuleerd).";
-      } else {
-        errorMessage = err.message;
-      }
+      const errorMessage = err.code === "auth/invalid-email"
+        ? "Ongeldig email-adres"
+        : err.code === "auth/weak-password"
+          ? "Wachtwoord is te zwak (minimaal 6 karakters)"
+          : err.code === "auth/email-already-in-use"
+            ? "E-mailadres is al in gebruik (en import geannuleerd)."
+            : err.message;
       
       setStatus({
         type: "error",
@@ -458,8 +454,10 @@ const AdminUsersView = () => {
         approvedAt: serverTimestamp(),
       });
 
+      await logActivity(auth.currentUser?.uid, "USER_CREATE", `User request approved: ${request.email}`);
+
       // Update de request status
-      await updateDoc(doc(db, "future-factory", "Users", "AccountRequests", request.id), {
+      await updateDoc(doc(db, ...PATHS.ACCOUNT_REQUESTS, request.id), {
         status: "approved",
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || "Admin",
@@ -487,12 +485,13 @@ const AdminUsersView = () => {
     setSaving(true);
 
     try {
-      await updateDoc(doc(db, "future-factory", "Users", "AccountRequests", requestId), {
+      await updateDoc(doc(db, ...PATHS.ACCOUNT_REQUESTS, requestId), {
         status: "rejected",
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || "Admin",
       });
 
+      await logActivity(auth.currentUser?.uid, "USER_REJECT", `Account request rejected: ${requestId}`);
       setStatus({ type: "success", message: "Aanvraag geweigerd" });
     } catch (err) {
       console.error("Fout bij weigeren:", err);
@@ -520,6 +519,8 @@ const AdminUsersView = () => {
         updatedBy: auth.currentUser?.email || "Master Admin",
       });
 
+      await logActivity(auth.currentUser?.uid, "USER_ROLE_CHANGE", `User updated: ${selectedUser.email}. Role: ${selectedUser.role}`);
+
       setStatus({ type: "success", msg: "Gebruikersprofiel bijgewerkt" });
       setTimeout(() => setStatus(null), 3000);
       setIsEditing(false);
@@ -540,6 +541,7 @@ const AdminUsersView = () => {
     try {
       const userRef = doc(db, ...PATHS.USERS, userId);
       await deleteDoc(userRef);
+      await logActivity(auth.currentUser?.uid, "USER_DELETE", `User deleted: ${userId}`);
       setStatus({ type: "success", msg: "Gebruiker verwijderd" });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {

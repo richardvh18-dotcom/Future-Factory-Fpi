@@ -62,7 +62,7 @@ const AdminDrillingView = () => {
     const q = query(colRef, orderBy("dn", "asc"));
 
     const unsub = onSnapshot(
-      colRef,
+      q,
       (snap) => {
         const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         // Handmatige sortering op DN (numeriek)

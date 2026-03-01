@@ -7,6 +7,10 @@ import {
   AlertTriangle,
   ClipboardList,
   Download,
+  Plus,
+  BrainCircuit,
+  Menu,
+  X,
 } from "lucide-react";
 import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -18,6 +22,7 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import StationDetailModal from "./modals/StationDetailModal";
 import TraceModal from "./modals/TraceModal";
 import PlanningImportModal from "./modals/PlanningImportModal";
+import { getStepForStation } from "../../utils/workstationLogic";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
 import TeamleaderDashboard from "../teamleader/TeamleaderDashboard";
@@ -27,6 +32,7 @@ import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView";
 import PlanningSidebar from "./PlanningSidebar";
 import OrderDetail from "./OrderDetail";
 import ProductDossierModal from "./modals/ProductDossierModal.jsx";
+import AiPredictionView from "./AiPredictionView";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -58,6 +64,17 @@ const TeamleaderHub = React.memo(({
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [isCopying, setIsCopying] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [showAddOrderModal, setShowAddOrderModal] = useState(false);
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [newOrderData, setNewOrderData] = useState({
+    orderId: "",
+    item: "",
+    machine: "",
+    plan: ""
+  });
+  const [departmentFilter, setDepartmentFilter] = useState("ALL"); // Nieuw filter
+  const [showAiPrediction, setShowAiPrediction] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Modals state
   const [activeKpi, setActiveKpi] = useState(null);
@@ -175,6 +192,11 @@ const TeamleaderHub = React.memo(({
     };
   }, [user]);
 
+  // Reset AI view bij wisselen van tab
+  useEffect(() => {
+    setShowAiPrediction(false);
+  }, [activeTab]);
+
   // 1. CENTRALE STATION LOGICA
   // Bepaal welke stations van toepassing zijn. Dit is de enige bron van waarheid.
   const safeScope = (fixedScope || "all").toLowerCase();
@@ -182,7 +204,7 @@ const TeamleaderHub = React.memo(({
   const targetSlug = scopeMap[safeScope] || safeScope;
   
   const effectiveStations = useMemo(() => {
-    let stations = [];
+    let stations;
 
     // Zoek de juiste afdeling (indien niet 'all')
     let deptStations = [];
@@ -192,7 +214,17 @@ const TeamleaderHub = React.memo(({
       );
       deptStations = dept ? (dept.stations || []) : [];
     } else if (factoryConfig && factoryConfig.departments) {
-      deptStations = factoryConfig.departments.flatMap(d => d.stations || []);
+      // safeScope is 'all' (Central Planner)
+      // Filter op departmentFilter als die is ingesteld
+      if (departmentFilter !== "ALL") {
+         const filterSlug = departmentFilter.toLowerCase();
+         const dept = factoryConfig.departments.find(
+            (d) => d.slug === filterSlug || d.id === filterSlug || d.name?.toLowerCase() === filterSlug
+         );
+         deptStations = dept ? (dept.stations || []) : [];
+      } else {
+         deptStations = factoryConfig.departments.flatMap(d => d.stations || []);
+      }
     }
 
     // A. Gebruik props als die er zijn (doorgegeven vanuit parent Hub)
@@ -231,7 +263,7 @@ const TeamleaderHub = React.memo(({
     }
 
     return stations;
-  }, [allowedMachines, factoryConfig, fixedScope, safeScope, targetSlug]);
+  }, [allowedMachines, factoryConfig, fixedScope, safeScope, targetSlug, departmentFilter]);
 
   // 2. Genereer genormaliseerde lijst voor filtering
   const effectiveAllowedNorms = useMemo(() => {
@@ -270,7 +302,7 @@ const TeamleaderHub = React.memo(({
         }
 
         // Machine filter
-        if (targetSlug === "all") return true;
+        if (targetSlug === "all" && departmentFilter === "ALL") return true;
 
         if (effectiveAllowedNorms.length > 0) {
           // Special case for delegated orders (Outgoing or Incoming)
@@ -287,7 +319,7 @@ const TeamleaderHub = React.memo(({
         // Als er geen stations bekend zijn (en scope is niet 'all'), toon niets om vervuiling te voorkomen
         return false;
       });
-  }, [rawOrders, effectiveAllowedNorms, fixedScope, targetSlug]);
+  }, [rawOrders, effectiveAllowedNorms, fixedScope, targetSlug, departmentFilter]);
 
   const selectedOrder = useMemo(() => {
     if (!selectedOrderId) return null;
@@ -436,14 +468,11 @@ const TeamleaderHub = React.memo(({
 
         const status = p.status || "";
         const step = p.currentStep || "";
-        const station = (p.currentStation || "").toUpperCase();
 
         const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
         const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
         
         if (isFinished || isRejected) return false;
-        if (station === 'BM01' || station === 'STATION BM01' || step === 'Eindinspectie') return false;
-
         return true;
       }).length,
 
@@ -583,11 +612,9 @@ const TeamleaderHub = React.memo(({
          if (!validOrderIds.has(p.orderId)) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
-         const station = (p.currentStation || "").toUpperCase();
          const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
          const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
-         const isAtBM01 = (station === 'BM01' || station === 'STATION BM01' || step === 'Eindinspectie');
-         return !isFinished && !isRejected && !isAtBM01;
+         return !isFinished && !isRejected;
       });
     }
     
@@ -733,10 +760,15 @@ const TeamleaderHub = React.memo(({
     if (!lotNumber || !newStation) return;
     try {
       const productRef = doc(db, ...PATHS.TRACKING, lotNumber);
+      
+      // Bepaal direct de juiste status (bijv. Te Nabewerken)
+      const nextState = getStepForStation(newStation);
+
       await updateDoc(productRef, {
         currentStation: newStation,
+        currentStep: nextState.currentStep,
+        status: nextState.status || "in_progress",
         isManualMove: true,
-        status: "in_progress",
         updatedAt: serverTimestamp(),
         note: `Handmatig verplaatst naar ${newStation} door ${user?.email || 'Teamleader'}`
       });
@@ -747,6 +779,33 @@ const TeamleaderHub = React.memo(({
     }
   };
 
+  const handleCreateOrder = async (e) => {
+    e.preventDefault();
+    if (!newOrderData.orderId || !newOrderData.item || !newOrderData.machine || !newOrderData.plan) {
+      alert("Vul alle velden in.");
+      return;
+    }
+    setCreatingOrder(true);
+    try {
+      await addDoc(collection(db, ...PATHS.PLANNING), {
+        orderId: newOrderData.orderId,
+        item: newOrderData.item,
+        machine: newOrderData.machine,
+        plan: Number(newOrderData.plan),
+        status: "planned",
+        createdAt: serverTimestamp(),
+        week: getISOWeek(new Date()),
+        year: new Date().getFullYear(),
+      });
+      setShowAddOrderModal(false);
+      setNewOrderData({ orderId: "", item: "", machine: "", plan: "" });
+    } catch (error) {
+      console.error("Error creating order:", error);
+      alert("Fout bij aanmaken order: " + error.message);
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
 
   if (loading)
     return (
@@ -781,19 +840,35 @@ const TeamleaderHub = React.memo(({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-left w-full animate-in fade-in duration-300 overflow-hidden relative">
-      <div className="bg-white border-b border-slate-200 shrink-0 z-40 shadow-sm px-6 py-3">
-        <div className="flex flex-col xl:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-6 w-full xl:w-auto">
-            <button onClick={onBack || onExit} className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl transition-all active:scale-90 shrink-0">
+      <div className="bg-white border-b border-slate-200 shrink-0 z-40 shadow-sm px-4 sm:px-6 py-3">
+        <div className="flex justify-between items-center gap-4">
+          <div className="flex items-center gap-4 w-full lg:w-auto">
+            <button onClick={onBack || onExit} className="p-2 sm:p-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl transition-all active:scale-90 shrink-0">
               <ArrowLeft size={24} />
             </button>
+            
+            {/* Afdeling Filter (Alleen zichtbaar voor Central Planner / All Scope) */}
+            {fixedScope === "all" && (
+              <select 
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+                className="bg-slate-100 border-none text-slate-700 text-sm rounded-xl focus:ring-blue-500 block p-2.5 font-bold outline-none cursor-pointer hover:bg-slate-200 transition-colors"
+              >
+                <option value="ALL">Alle Afdelingen</option>
+                <option value="FITTINGS">Fittings</option>
+                <option value="PIPES">Pipes</option>
+                <option value="SPOOLS">Spools</option>
+              </select>
+            )}
+
             <div className="text-left">
-              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none whitespace-nowrap">{t('teamleader.title', title)}</h2>
+              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none whitespace-nowrap">{title}</h2>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 truncate">{departmentName} {t('teamleader.dashboard', 'Dashboard')}</p>
             </div>
           </div>
 
-          <div className="flex bg-slate-100 p-1 rounded-2xl overflow-x-auto max-w-full no-scrollbar w-full xl:w-auto justify-start xl:justify-center">
+          {/* Desktop Navigation */}
+          <div className="hidden lg:flex bg-slate-100 p-1 rounded-2xl overflow-x-auto max-w-full no-scrollbar w-full lg:w-auto justify-start lg:justify-center">
             <button onClick={() => setActiveTab("dashboard")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "dashboard" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_dashboard', 'Dashboard')}</button>
             <button onClick={() => setActiveTab("planning")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_full_list', 'Volledige Lijst')}</button>
             <button onClick={() => setActiveTab("bezetting")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "bezetting" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_personnel', 'Personeel')}</button>
@@ -801,9 +876,52 @@ const TeamleaderHub = React.memo(({
             <button onClick={() => setActiveTab("gantt")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "gantt" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
           </div>
 
-          <div className="flex items-center gap-3 w-full xl:w-auto justify-end">
+          {/* Desktop Actions */}
+          <div className="hidden lg:flex items-center gap-3 w-full lg:w-auto justify-end">
+            {activeTab === "efficiency" && (
+              <button 
+                onClick={() => setShowAiPrediction(!showAiPrediction)} 
+                className={`px-4 py-2 ${showAiPrediction ? 'bg-purple-700' : 'bg-purple-600'} text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap hover:bg-purple-700`}
+              >
+                <BrainCircuit size={16} /> <span className="hidden sm:inline">AI Analyse</span>
+              </button>
+            )}
             <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title={t('teamleader.export_csv', 'Exporteer CSV')}><Download size={20} /></button>
+            <button onClick={() => setShowAddOrderModal(true)} className="px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><Plus size={16} /> <span className="hidden sm:inline">{t('teamleader.new_order', 'Nieuwe Order')}</span></button>
             <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">{t('teamleader.import', 'Import')}</span></button>
+          </div>
+
+          {/* Mobile Menu Button */}
+          <div className="lg:hidden relative">
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 bg-gray-100 rounded-lg text-gray-600 active:bg-gray-200"
+            >
+              {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+
+            {isMobileMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 p-2 flex flex-col gap-1 z-50 animate-in slide-in-from-top-2">
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">Navigatie</div>
+                <button onClick={() => { setActiveTab("dashboard"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "dashboard" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_dashboard', 'Dashboard')}</button>
+                <button onClick={() => { setActiveTab("planning"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "planning" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_full_list', 'Volledige Lijst')}</button>
+                <button onClick={() => { setActiveTab("bezetting"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "bezetting" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_personnel', 'Personeel')}</button>
+                <button onClick={() => { setActiveTab("efficiency"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "efficiency" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_efficiency', 'Efficiëntie')}</button>
+                <button onClick={() => { setActiveTab("gantt"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "gantt" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
+                
+                <div className="h-px bg-slate-100 my-1"></div>
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">Acties</div>
+                
+                {activeTab === "efficiency" && (
+                  <button onClick={() => { setShowAiPrediction(!showAiPrediction); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-purple-600 hover:bg-purple-50 flex items-center gap-2">
+                    <BrainCircuit size={16} /> AI Analyse
+                  </button>
+                )}
+                <button onClick={() => { setShowAddOrderModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-emerald-600 hover:bg-emerald-50 flex items-center gap-2"><Plus size={16} /> {t('teamleader.new_order', 'Nieuwe Order')}</button>
+                <button onClick={() => { setShowImportModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-blue-600 hover:bg-blue-50 flex items-center gap-2"><FileSpreadsheet size={16} /> {t('teamleader.import', 'Import')}</button>
+                <button onClick={() => { handleExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-slate-600 hover:bg-slate-50 flex items-center gap-2"><Download size={16} /> {t('teamleader.export_csv', 'Exporteer CSV')}</button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -813,17 +931,21 @@ const TeamleaderHub = React.memo(({
           {activeTab === "dashboard" ? (
             <TeamleaderDashboard metrics={metrics} onKpiClick={handleKpiClick} onStationSelect={setSelectedStationDetail} />
           ) : activeTab === "bezetting" ? (
-            <PersonnelOccupancyView scope={fixedScope} onCopyYesterday={handleCopyYesterday} isCopying={isCopying} onClearToday={handleClearToday} isClearing={isClearing} />
+            <PersonnelOccupancyView scope={departmentFilter !== "ALL" ? departmentFilter.toLowerCase() : fixedScope} onCopyYesterday={handleCopyYesterday} isCopying={isCopying} onClearToday={handleClearToday} isClearing={isClearing} />
           ) : activeTab === "efficiency" ? (
-            <TeamleaderEfficiencyView departmentName={departmentName} />
+            showAiPrediction ? (
+              <AiPredictionView onClose={() => setShowAiPrediction(false)} />
+            ) : (
+              <TeamleaderEfficiencyView departmentName={departmentFilter !== "ALL" ? departmentFilter : departmentName} />
+            )
           ) : activeTab === "gantt" ? (
             <TeamleaderGanttView metrics={metrics} />
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
-              <div className="w-80 shrink-0 flex flex-col min-h-0">
+              <div className={`shrink-0 flex flex-col min-h-0 transition-all duration-300 ${selectedOrder ? 'hidden lg:flex w-80' : 'w-full lg:w-80'}`}>
                 <PlanningSidebar orders={dataStore} selectedOrderId={selectedOrderId} onSelect={setSelectedOrderId} />
               </div>
-              <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+              <div className={`flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden ${selectedOrder ? 'flex' : 'hidden lg:flex'}`}>
                 {selectedOrder ? (
                   <OrderDetail 
                     order={selectedOrder} 
@@ -849,6 +971,61 @@ const TeamleaderHub = React.memo(({
       </div>
 
       {showImportModal && <PlanningImportModal isOpen={true} onClose={() => setShowImportModal(false)} />}
+      
+      {showAddOrderModal && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[30px] shadow-2xl p-8">
+            <h3 className="text-xl font-black text-slate-800 uppercase italic mb-6">Nieuwe Order</h3>
+            <form onSubmit={handleCreateOrder} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Order Nummer</label>
+                <input 
+                  type="text" 
+                  value={newOrderData.orderId} 
+                  onChange={e => setNewOrderData({...newOrderData, orderId: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
+                  placeholder="Bijv. TEST-PILOT-001"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Product</label>
+                <input 
+                  type="text" 
+                  value={newOrderData.item} 
+                  onChange={e => setNewOrderData({...newOrderData, item: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
+                  placeholder="Bijv. GRE-160-PN16"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Machine</label>
+                <select 
+                  value={newOrderData.machine} 
+                  onChange={e => setNewOrderData({...newOrderData, machine: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
+                >
+                  <option value="">Selecteer Machine...</option>
+                  {effectiveStations.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Aantal</label>
+                <input 
+                  type="number" 
+                  value={newOrderData.plan} 
+                  onChange={e => setNewOrderData({...newOrderData, plan: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setShowAddOrderModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs">Annuleren</button>
+                <button type="submit" disabled={creatingOrder} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-emerald-700">{creatingOrder ? "..." : "Aanmaken"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {selectedStationDetail && <StationDetailModal stationId={selectedStationDetail} allOrders={dataStore} allProducts={rawProducts} onClose={() => setSelectedStationDetail(null)} />}
       
       <TraceModal 

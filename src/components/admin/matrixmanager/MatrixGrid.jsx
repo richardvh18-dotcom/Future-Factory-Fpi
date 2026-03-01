@@ -1,10 +1,6 @@
 import React from "react";
 import {
   Plus,
-  Hash,
-  Ruler,
-  Type,
-  Trash2,
   LayoutGrid,
   ChevronRight,
   Settings2,
@@ -24,8 +20,6 @@ const MatrixGrid = ({
   onValueChange,
   onAddRow,
   onAddColumn,
-  onRemoveRow, // Optioneel: toegevoegd voor extra controle
-  onRemoveColumn, // Optioneel: toegevoegd voor extra controle
 }) => {
   return (
     <div className="w-full bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500 text-left">

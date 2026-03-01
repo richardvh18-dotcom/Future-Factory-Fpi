@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, setDoc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, getDocs, writeBatch } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import i18n from "../i18n";

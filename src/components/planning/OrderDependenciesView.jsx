@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle,
-  XCircle,
   Link,
   TrendingUp
 } from "lucide-react";

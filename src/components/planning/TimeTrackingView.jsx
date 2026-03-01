@@ -13,7 +13,6 @@ import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { format, getISOWeek, startOfWeek, endOfWeek, isWithinInterval, isValid } from "date-fns";
-import { nl } from "date-fns/locale";
 import { calculateDuration } from "../../utils/efficiencyCalculator";
 
 /**
@@ -22,11 +21,11 @@ import { calculateDuration } from "../../utils/efficiencyCalculator";
  */
 const TimeTrackingView = () => {
   const [orders, setOrders] = useState([]);
-  const [occupancy, setOccupancy] = useState([]);
+  const [, setOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);
   const [efficiencyData, setEfficiencyData] = useState({});
   const [trackingLogs, setTrackingLogs] = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState(new Date());
+  const [selectedWeek] = useState(new Date());
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedDepartment, setSelectedDepartment] = useState("ALLES");
   const [departments, setDepartments] = useState(["ALLES"]);
@@ -189,10 +188,11 @@ const TimeTrackingView = () => {
       const variance = actual - planned;
       const variancePercent = planned > 0 ? (variance / planned) * 100 : 0;
       
-      let status = "on_track";
-      if (Math.abs(variancePercent) < 10) status = "on_track";
-      else if (variancePercent > 0) status = "over";
-      else status = "under";
+      const status = Math.abs(variancePercent) < 10
+        ? "on_track"
+        : variancePercent > 0
+          ? "over"
+          : "under";
 
       return {
         ...order,
@@ -227,16 +227,6 @@ const TimeTrackingView = () => {
       under
     };
   }, [orderMetrics]);
-
-  // Get status color
-  const getStatusColor = (status) => {
-    const colors = {
-      on_track: "bg-emerald-50 border-emerald-200 text-emerald-800",
-      over: "bg-red-50 border-red-200 text-red-800",
-      under: "bg-blue-50 border-blue-200 text-blue-800"
-    };
-    return colors[status] || colors.on_track;
-  };
 
   // Get status icon
   const getStatusIcon = (status) => {

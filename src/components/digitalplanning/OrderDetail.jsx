@@ -24,8 +24,8 @@ import { format, differenceInDays } from "date-fns";
 import { doc, updateDoc, serverTimestamp, collection, addDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { nl } from "date-fns/locale";
 import { useNotifications } from "../../contexts/NotificationContext";
+import StatusBadge from "./common/StatusBadge";
 
 /**
  * OrderDetail V2.3
@@ -37,12 +37,8 @@ const OrderDetail = React.memo(({
   products = [],
   onClose,
   isManager = false,
-  onStartProduction,
-  onNextStep,
   onDeleteLot,
   onMoveLot,
-  loading,
-  showAllStations = false,
   currentDepartment,
   allowedStations = [],
 }) => {
@@ -205,7 +201,7 @@ const OrderDetail = React.memo(({
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.status")}</span>
-          <span className={`font-bold ${order.status === 'delegated' ? 'text-purple-600' : 'text-slate-700'}`}>{order.status}</span>
+          <StatusBadge status={order.status} />
         </div>
       </div>
 

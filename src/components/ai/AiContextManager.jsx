@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Save, RotateCcw, Loader2, FileText, AlertCircle } from "lucide-react";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { DEFAULT_CONTEXT } from "./AiChatView";
 
 const AiContextManager = () => {
+  const { t } = useTranslation();
   const { showSuccess, showError } = useNotifications();
   const [context, setContext] = useState("");
   const [loading, setLoading] = useState(true);
@@ -15,7 +17,7 @@ const AiContextManager = () => {
   useEffect(() => {
     const loadContext = async () => {
       try {
-        const docRef = doc(db, ...PATHS.AI_CONFIG);
+        const docRef = doc(db, ...(PATHS?.AI_CONFIG || ['future-factory', 'settings', 'ai_config', 'main']));
         const snap = await getDoc(docRef);
         if (snap.exists() && snap.data().systemPrompt) {
           setContext(snap.data().systemPrompt);
@@ -35,12 +37,13 @@ const AiContextManager = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const docRef = doc(db, ...PATHS.AI_CONFIG);
+      const docRef = doc(db, ...(PATHS?.AI_CONFIG || ['future-factory', 'settings', 'ai_config', 'main']));
       await setDoc(docRef, {
         systemPrompt: context,
         updatedAt: serverTimestamp(),
         updatedBy: auth.currentUser?.email || "Admin"
       }, { merge: true });
+      await logActivity(auth.currentUser?.uid, "AI_CONTEXT_UPDATE", "AI System Prompt updated");
       showSuccess(t('ai.context.save_success'));
     } catch (err) {
       console.error(t('ai.context.save_error'), err);

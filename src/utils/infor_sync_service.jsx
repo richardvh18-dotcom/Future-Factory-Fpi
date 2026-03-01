@@ -8,6 +8,7 @@ import {
   collection, doc, getDocs, query, where, 
   deleteDoc, addDoc, setDoc, getDoc 
 } from 'firebase/firestore';
+import { PATHS, getPlanningArchivePath, getEfficiencyArchivePath } from '../config/dbPaths';
 
 // Aliassen voor kolomherkenning (flexibiliteit voor export variaties)
 const ALIASES = {
@@ -62,10 +63,10 @@ export const processInforUpdate = async (db, appId, csvData) => {
   };
 
   // 1. Planning (Operationeel): Alleen Order, Item, Aantal
-  const planningRef = collection(db, 'future-factory', 'production', 'digital_planning');
+  const planningRef = collection(db, ...PATHS.PLANNING);
   
   // 2. Efficiency (Data): Uren, Normen, Efficiency
-  const efficiencyRef = collection(db, 'future-factory', 'production', 'efficiency_hours');
+  const efficiencyRef = collection(db, ...PATHS.EFFICIENCY_HOURS);
   
   let countCreated = 0;
   let countUpdated = 0;
@@ -157,7 +158,7 @@ export const processInforUpdate = async (db, appId, csvData) => {
       // Archiveer Planning Doc
       for (const d of snap.docs) {
         const docData = d.data();
-        const archiveRef = collection(db, 'future-factory', 'production', 'archive', currentYear, 'items');
+        const archiveRef = collection(db, ...getPlanningArchivePath(currentYear));
         
         await addDoc(archiveRef, {
           ...docData,
@@ -175,7 +176,7 @@ export const processInforUpdate = async (db, appId, csvData) => {
       const effDocSnap = await getDoc(effDocRef);
       if (effDocSnap.exists()) {
          // Archiveren per jaar in /archive/{JAAR}/efficiency
-         const yearEfficiencyArchiveRef = collection(db, 'future-factory', 'production', 'archive', currentYear, 'efficiency');
+         const yearEfficiencyArchiveRef = collection(db, ...getEfficiencyArchivePath(currentYear));
          
          await setDoc(doc(yearEfficiencyArchiveRef, String(orderId)), {
           ...effDocSnap.data(),

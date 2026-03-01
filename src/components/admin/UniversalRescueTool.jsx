@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { db, auth } from "../../config/firebase";
 import {
-  collection,
   getDocs,
   query,
   limit,
@@ -18,8 +17,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
-  SearchCode,
-  Zap,
   Globe,
   Terminal,
   ShieldCheck,
@@ -28,7 +25,6 @@ import {
   FolderSearch,
   ChevronRight,
 } from "lucide-react";
-import { PATHS } from "../../config/dbPaths";
 
 /**
  * UniversalRescueTool V6.0 - Advanced Forensic Validator
@@ -150,7 +146,7 @@ const UniversalRescueTool = () => {
           } else {
             addLog(t('universalRescueTool.nothingFoundFor', { colName, defaultValue: `- Niets gevonden voor '${colName}'` }));
           }
-        } catch (e) {
+        } catch {
           addLog(t('universalRescueTool.skipNoRights', { colName, defaultValue: `⚠️ Overslaan '${colName}': Geen leesrechten.` }));
         }
       }

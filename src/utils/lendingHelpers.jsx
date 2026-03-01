@@ -1,7 +1,7 @@
 // Lending logic for personnel (uitlenen)
 // This file will contain helper functions and types for lending personnel to other departments/teams
 
-export function getDefaultLendingState(person, structure) {
+export function getDefaultLendingState(person) {
   return {
     isLent: false,
     targetDepartmentId: '',

@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   Bell, 
-  AlertTriangle, 
-  Clock, 
   Users, 
-  Settings,
   CheckCircle,
   XCircle,
   TrendingUp,
@@ -100,7 +97,7 @@ const NotificationRulesView = () => {
     let severity = "info";
 
     switch (rule.trigger) {
-      case "capacity_shortage":
+      case "capacity_shortage": {
         // Check if capacity < demand by threshold
         const totalCapacity = occupancy.reduce((sum, o) => sum + (o.productionHours || 0), 0);
         const totalDemand = planning.reduce((sum, p) => sum + (p.estimatedHours || 0), 0);
@@ -112,8 +109,9 @@ const NotificationRulesView = () => {
           severity = "warning";
         }
         break;
+      }
 
-      case "low_efficiency":
+      case "low_efficiency": {
         // Check if efficiency drops below threshold
         const avgEfficiency = occupancy.reduce((sum, o) => {
           const eff = o.productionHours > 0 ? (o.actualHours || 0) / o.productionHours : 0;
@@ -126,8 +124,9 @@ const NotificationRulesView = () => {
           severity = "warning";
         }
         break;
+      }
 
-      case "order_delay":
+      case "order_delay": {
         // Check for orders past planned date
         const now = new Date();
         const delayedOrders = planning.filter(p => {
@@ -142,8 +141,9 @@ const NotificationRulesView = () => {
           severity = "critical";
         }
         break;
+      }
 
-      case "missing_operator":
+      case "missing_operator": {
         // Check for machines without operators
         const machinesWithoutOperators = occupancy.filter(o => 
           !o.operatorName || o.operatorName === ""
@@ -155,8 +155,9 @@ const NotificationRulesView = () => {
           severity = "warning";
         }
         break;
+      }
 
-      case "dependency_blocked":
+      case "dependency_blocked": {
         // Check for orders blocked by dependencies
         const blockedOrders = planning.filter(p => {
           if (!p.dependencies || p.dependencies.length === 0) return false;
@@ -173,6 +174,7 @@ const NotificationRulesView = () => {
           severity = "info";
         }
         break;
+      }
     }
 
     if (shouldTrigger) {

@@ -1,18 +1,17 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
-  Loader2, Cpu, Users, Layers, Info, Clock, MinusCircle, 
-  ChevronUp, ShieldCheck, X, ChevronDown, Activity, Calculator, TrendingUp, RotateCw,
-  UserCheck, AlertCircle, AlertTriangle, CheckCircle2, ArrowRight, PlusCircle, Copy, Trash2,
-  LayoutList, Grid, Save
+  Loader2, Cpu, Layers, Clock,
+  ChevronUp, ShieldCheck, X,
+  ArrowRight, Copy, Trash2,
+  Save
 } from "lucide-react";
-import { format, getWeek, getISOWeek, parse, addDays } from "date-fns";
+import { format, getISOWeek, parse, addDays } from "date-fns";
 import { db } from "../../config/firebase";
 import { 
-  collection, onSnapshot, doc, setDoc, 
+  collection, onSnapshot, doc, setDoc, addDoc,
   deleteDoc, query, orderBy, serverTimestamp, updateDoc 
 } from "firebase/firestore";
 import { normalizeMachine } from "../../utils/hubHelpers";
-import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { PATHS } from "../../config/dbPaths";
 import LoanPersonnelModal from "../digitalplanning/modals/LoanPersonnelModal";
 
@@ -287,7 +286,6 @@ const PersonnelOccupancyView = ({
   onClearToday,
   isClearing = false
 }) => {
-  const { user } = useAdminAuth();
   const [localPersonnel, setLocalPersonnel] = useState([]);
   const [localOccupancy, setLocalOccupancy] = useState([]);
   const [localStructure, setLocalStructure] = useState({ departments: [] });
@@ -319,8 +317,6 @@ const PersonnelOccupancyView = ({
   const occupancy = propOccupancy || localOccupancy;
   const personnel = propPersonnel || localPersonnel;
   const dateToUse = selectedDateStr || format(new Date(), "yyyy-MM-dd");
-
-  const currentWeek = getISOWeek(new Date());
 
   // 1. DATA SYNC
   useEffect(() => {
@@ -370,41 +366,7 @@ const PersonnelOccupancyView = ({
     };
   }, [propStructure, propOccupancy, propPersonnel]);
 
-  // 2. HELPERS
-  const getShiftDetails = (person, deptId) => {
-    const dept = (structure.departments || []).find(d => d.id === deptId);
-    const fallbackShift = { label: "DAGDIENST", start: "07:30", end: "16:15" };
-    let activeShift = null;
-    let isPloeg = false;
-
-    if (!dept || !dept.shifts || dept.shifts.length === 0) {
-        activeShift = fallbackShift;
-    } else if (person.rotationSchedule?.enabled && person.rotationSchedule.shifts?.length > 0) {
-        isPloeg = true;
-        const startWeekNum = person.rotationSchedule.startWeek || 1;
-        const rotationShifts = person.rotationSchedule.shifts;
-        const weeksSinceStart = currentWeek - startWeekNum;
-        const shiftIndex = ((weeksSinceStart % rotationShifts.length) + rotationShifts.length) % rotationShifts.length;
-        const currentShiftId = rotationShifts[shiftIndex];
-        activeShift = dept.shifts.find(s => s.id === currentShiftId) || dept.shifts[0];
-    } else {
-        activeShift = dept.shifts.find(s => s.id === person.shiftId) || fallbackShift;
-        if (person.shiftId !== "DAGDIENST" && person.shiftId) isPloeg = true;
-    }
-
-    try {
-        const start = parse(activeShift.start, 'HH:mm', new Date());
-        const end = parse(activeShift.end, 'HH:mm', new Date());
-        let diff = (end - start) / (1000 * 60 * 60);
-        if (diff < 0) diff += 24; 
-        const deduction = isPloeg ? 0 : 0.75;
-        return { ...activeShift, hours: Math.max(0, diff - deduction), isPloeg };
-    } catch (e) {
-        return { ...fallbackShift, hours: 8.0, isPloeg: false };
-    }
-  };
-
-  // 5. DISPLAY SECTIONS
+    // 2. DISPLAY SECTIONS
   const displaySections = useMemo(() => {
     const allDepts = structure.departments || [];
     
@@ -416,11 +378,11 @@ const PersonnelOccupancyView = ({
 
     return filtered.map(d => ({
         ...d,
-        stations: [...(d.stations || [])].sort((a,b) => a.name.toLowerCase().includes("teamleader") ? -1 : 1)
+        stations: [...(d.stations || [])].sort((a) => a.name.toLowerCase().includes("teamleader") ? -1 : 1)
     }));
   }, [structure.departments, scope]);
 
-  // 6. CRUD HANDLERS
+  // 3. CRUD HANDLERS
   const handleSavePerson = async (data) => {
     try {
       if (editingPerson) {
@@ -439,16 +401,6 @@ const PersonnelOccupancyView = ({
     } catch (err) {
       console.error("Fout bij opslaan medewerker:", err);
       alert("Er ging iets mis bij het opslaan.");
-    }
-  };
-
-  const handleDeletePerson = async (id) => {
-    if (window.confirm("Weet je zeker dat je deze medewerker wilt verwijderen?")) {
-      try {
-        await deleteDoc(doc(db, ...PATHS.PERSONNEL, id));
-      } catch (err) {
-        console.error("Fout bij verwijderen:", err);
-      }
     }
   };
 

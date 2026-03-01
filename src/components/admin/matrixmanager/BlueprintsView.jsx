@@ -5,13 +5,10 @@ import {
   Trash2,
   Save,
   X,
-  Edit3,
   ChevronDown,
   ChevronRight,
   Search,
   FileText,
-  Database,
-  Info,
   Type,
   AlertCircle,
   Sparkles,
@@ -80,12 +77,7 @@ const BlueprintsView = ({
       if (searchTerm && !key.toLowerCase().includes(searchTerm.toLowerCase()))
         return;
 
-      let type = "OVERIG";
-      if (key.startsWith("BORE_")) {
-        type = "BORINGEN";
-      } else {
-        type = key.split("_")[0];
-      }
+      const type = key.startsWith("BORE_") ? "BORINGEN" : key.split("_")[0] || "OVERIG";
 
       if (!groups[type]) groups[type] = [];
       groups[type].push(key);
@@ -178,20 +170,23 @@ const BlueprintsView = ({
   };
 
   const handleSaveToLocalState = () => {
-    let key = "";
-    if (designMode === "bore") {
+    const key = designMode === "bore"
+      ? (() => {
       if (!newBlueprint.boreType) return alert("Selecteer een Boring Type.");
-      key = `BORE_${newBlueprint.boreType}`;
-    } else {
-      if (!newBlueprint.productType || !newBlueprint.connectionType) {
-        return alert("Selecteer Product Type en Mof.");
-      }
-      key = `${newBlueprint.productType}_${newBlueprint.connectionType}${
+      return `BORE_${newBlueprint.boreType}`;
+    })()
+      : (() => {
+        if (!newBlueprint.productType || !newBlueprint.connectionType) {
+          return alert("Selecteer Product Type en Mof.");
+        }
+        return `${newBlueprint.productType}_${newBlueprint.connectionType}${
         newBlueprint.extraCode && newBlueprint.extraCode !== "-"
           ? "_" + newBlueprint.extraCode
           : ""
       }`;
-    }
+    })();
+
+    if (!key) return;
 
     setBlueprints({ ...blueprints, [key]: { fields: newBlueprint.fields } });
     if (setHasUnsavedChanges) setHasUnsavedChanges(true);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, ArrowRight, Users, Building2, Clock } from "lucide-react";
-import { doc, setDoc, collection, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { format, parse } from "date-fns";
@@ -53,7 +53,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
       if (diff < 0) diff += 24;
       const deduction = shiftObj.id === "DAGDIENST" ? 0.75 : 0; // Pauze aftrek voor dagdienst
       return Math.max(0, diff - deduction);
-    } catch (e) {
+    } catch {
       return 8.0;
     }
   };

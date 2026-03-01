@@ -2,17 +2,12 @@ import React, { useState, useMemo } from "react";
 import {
   X,
   Info,
-  Clock,
-  CheckCircle2,
   Ruler,
   ShieldCheck,
   Box,
   History,
   Activity,
-  User,
-  Folder,
   FileText,
-  Calendar,
   AlertTriangle,
   Plus,
   ArrowRightLeft,
@@ -403,7 +398,7 @@ const ProductDossierModal = ({
                   Kwaliteit Status
                 </span>
                 <StatusBadge
-                  label={product.inspection?.status || "Niet gecontroleerd"}
+                  status={product.inspection?.status || "Niet gecontroleerd"}
                 />
               </div>
             </div>

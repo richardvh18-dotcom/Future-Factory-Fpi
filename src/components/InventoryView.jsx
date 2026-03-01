@@ -1,22 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db, appId } from "../config/firebase";
 import {
   Box,
   MapPin,
   Wrench,
   Search,
-  qrCode,
   Truck,
-  AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 
 const InventoryView = () => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -24,25 +20,10 @@ const InventoryView = () => {
       collection(db, "artifacts", appId, "public", "data", "inventory"),
       (snap) => {
         setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        setLoading(false);
       }
     );
     return () => unsub();
   }, []);
-
-  const updateLocation = async (itemId, newLoc) => {
-    try {
-      await updateDoc(
-        doc(db, "artifacts", appId, "public", "data", "inventory", itemId),
-        {
-          location: newLoc,
-          lastUpdate: new Date(),
-        }
-      );
-    } catch (err) {
-      alert(err.message);
-    }
-  };
 
   const getStatusColor = (status) => {
     switch (status) {

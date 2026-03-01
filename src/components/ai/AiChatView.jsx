@@ -3,28 +3,23 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   Send,
   Paperclip,
-  X as LucideX,
 } from "lucide-react";
 import { addDoc, collection, doc, getDoc, getDocs, serverTimestamp, query, limit, orderBy } from "firebase/firestore";
-import { db, auth } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { aiService } from "../../services/aiService";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { PATHS } from "../../config/dbPaths";
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import { getLivePlanningContext } from "../../services/planningContext";
 import { useTranslation } from "react-i18next";
-
-// Configure PDF worker
-GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url
-).toString();
+import { extractTextFromPdf } from "../../utils/pdfUtils";
+import AiMessage from "./AiMessage";
 
 const logRejectedAnswer = async ({ content, userInput, context, userId }) => {
   try {
-    const colRef = collection(db, ...PATHS.AI_KNOWLEDGE_BASE);
+    const colRef = collection(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']));
     await addDoc(colRef, {
       type: "rejected",
+      feedback: "negative",
       answer: content,
       userInput,
       context,
@@ -33,16 +28,16 @@ const logRejectedAnswer = async ({ content, userInput, context, userId }) => {
       status: "pending"
     });
   } catch (err) {
-    console.error(t('ai.chat.log_reject_error'), err);
+    console.error("Fout bij loggen van afgewezen antwoord:", err);
   }
 };
 
 const getWelcomeMessage = (lang, t) => {
-  return t('ai.chat.welcome');
+  return t ? t('ai.chat.welcome') : "Hallo! Ik ben je AI assistent. Hoe kan ik je helpen?";
 };
 
 const AiChatView = () => {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { showError, showSuccess } = useNotifications();
   const location = useLocation();
   const navigate = useNavigate();
@@ -56,7 +51,7 @@ const AiChatView = () => {
   const [messages, setMessages] = useState([
     {
       role: "assistant",
-      content: getWelcomeMessage(i18n.language),
+      content: getWelcomeMessage(i18n.language, t),
     },
   ]);
   const [input, setInput] = useState("");
@@ -69,12 +64,12 @@ const AiChatView = () => {
       if (prev.length === 1 && prev[0].role === 'assistant') {
         return [{
           role: "assistant",
-          content: getWelcomeMessage(i18n.language)
+          content: getWelcomeMessage(i18n.language, t)
         }];
       }
       return prev;
     });
-  }, [i18n.language]);
+  }, [i18n.language, t]);
 
   // Handle initial query from header search
   useEffect(() => {
@@ -96,13 +91,13 @@ const AiChatView = () => {
   useEffect(() => {
     const fetchContext = async () => {
       try {
-        const factoryRef = doc(db, ...PATHS.FACTORY_CONFIG);
+        const factoryRef = doc(db, ...(PATHS?.FACTORY_CONFIG || ['future-factory', 'settings', 'factory_config', 'main']));
         const factorySnap = await getDoc(factoryRef);
         if (factorySnap.exists()) {
           setFactoryStructure(factorySnap.data());
         }
 
-        const docRef = doc(db, ...PATHS.AI_CONFIG);
+        const docRef = doc(db, ...(PATHS?.AI_CONFIG || ['future-factory', 'settings', 'ai_config', 'main']));
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists() && docSnap.data().systemPrompt) {
@@ -119,96 +114,6 @@ const AiChatView = () => {
     };
     fetchContext();
   }, []);
-
-  // Formatter voor AI responses
-  const formatResponse = (text) => {
-    const parseEntities = (line) => {
-      const entityRegex = /(N\d{8,})|\b(BH\d+|Mazak|Robot|CNC|Spuitgieten|Verpakking|Lossen|Nabewerking)\b/gi;
-      if (!entityRegex.test(line)) return line;
-      
-      entityRegex.lastIndex = 0;
-      const parts = [];
-      let lastIndex = 0;
-      let match;
-      
-      while ((match = entityRegex.exec(line)) !== null) {
-        if (match.index > lastIndex) parts.push(line.substring(lastIndex, match.index));
-        
-        const text = match[0];
-        const isOrder = text.toUpperCase().startsWith('N') && /\d/.test(text);
-        let targetDepartment = null;
-        if (!isOrder && factoryStructure?.departments) {
-          const lowerText = text.toLowerCase();
-          const foundDept = factoryStructure.departments.find(d => 
-            d.name.toLowerCase() === lowerText || 
-            d.stations?.some(s => s.name.toLowerCase() === lowerText)
-          );
-          if (foundDept) targetDepartment = foundDept.id;
-        }
-        
-        parts.push(
-          <button
-            key={`entity-${match.index}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (isOrder) {
-                navigate('/planning', { state: { searchOrder: text, initialView: 'FITTINGS' } });
-              } else {
-                navigate('/planning', { state: { searchMachine: text, initialView: 'WORKSTATIONS', targetDepartment } });
-              }
-            }}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 mx-1 text-xs font-bold border rounded-md transition-colors ${
-              isOrder ? "text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100" : "text-purple-700 bg-purple-50 border-purple-200 hover:bg-purple-100"
-            }`}
-            title={isOrder ? `Ga naar order ${text}` : `Bekijk planning voor ${text}`}
-          >
-            <span>{isOrder ? "📦" : "🏭"}</span>
-            <span>{text}</span>
-          </button>
-        );
-        lastIndex = match.index + text.length;
-      }
-      if (lastIndex < line.length) parts.push(line.substring(lastIndex));
-      return parts;
-    };
-    
-    const ClickableLine = ({ children, text, className = "" }) => {
-      const isClickable = text.length > 20;
-      if (!isClickable) return <div className={className}>{children}</div>;
-      return (
-        <div 
-          className={`group relative hover:bg-blue-50/80 rounded-lg px-2 -mx-2 transition-all cursor-help border border-transparent hover:border-blue-100 ${className}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSendChat(null, `Kun je dit verder toelichten: "${text.replace(/^[-*]\s|^\d+\.\s/, '')}"`);
-          }}
-          title="Klik voor verdieping"
-        >
-          <div className="group-hover:text-blue-900 transition-colors">{children}</div>
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-[9px] font-black uppercase tracking-widest text-blue-500 bg-white px-2 py-1 rounded-lg shadow-sm border border-blue-100 pointer-events-none transition-all transform translate-x-2 group-hover:translate-x-0 z-10">
-            ✨ Vraag Detail
-          </span>
-        </div>
-      );
-    };
-
-    return text.split('\n').map((line, i) => {
-      if (line.startsWith('### ')) return <h3 key={i} className="text-base font-bold mt-3 mb-2 first:mt-0">{line.replace('### ', '')}</h3>;
-      if (line.startsWith('## ')) return <h2 key={i} className="text-lg font-bold mt-4 mb-2 first:mt-0">{line.replace('## ', '')}</h2>;
-      if (line.startsWith('**') && line.endsWith('**')) return <p key={i} className="font-bold mb-2">{line.replace(/\*\*/g, '')}</p>;
-      if (line.match(/^\d+\./)) {
-        const content = line.replace(/^\d+\.\s/, '');
-        return <li key={i} className="ml-6 mb-1 list-decimal"><ClickableLine text={content} className="inline-block w-full">{parseEntities(content)}</ClickableLine></li>;
-      }
-      if (line.startsWith('- ') || line.startsWith('* ')) {
-        const content = line.substring(2);
-        return <li key={i} className="ml-6 mb-1 list-disc"><ClickableLine text={content} className="inline-block w-full">{parseEntities(content)}</ClickableLine></li>;
-      }
-      if (line === '---') return <hr key={i} className="my-4 border-slate-200" />;
-      if (line.trim() === '') return <br key={i} />;
-      return <div key={i} className="mb-2"><ClickableLine text={line}>{parseEntities(line)}</ClickableLine></div>;
-    });
-  };
 
   // Document Analyse
   const MAX_DOC_CHARS = 50000;
@@ -240,19 +145,6 @@ const AiChatView = () => {
     }
   };
 
-  const extractTextFromPdf = async (file) => {
-    const buffer = await file.arrayBuffer();
-    const pdf = await getDocument({ data: buffer }).promise;
-    let fullText = "";
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-      const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      fullText += `\n${textContent.items.map((item) => item.str).join(" ")}`;
-      if (fullText.length > MAX_DOC_CHARS * 3) break;
-    }
-    return fullText;
-  };
-
   const handleChatFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -278,7 +170,7 @@ const AiChatView = () => {
         showError("Analyse mislukt.");
         return;
       }
-      await addDoc(collection(db, ...PATHS.AI_DOCUMENTS), {
+      await addDoc(collection(db, ...(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records'])), {
         fileName: file.name,
         mimeType: file.type,
         size: file.size,
@@ -313,6 +205,8 @@ const AiChatView = () => {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsLoading(true);
+
+    await logActivity(auth.currentUser?.uid, 'AI_CHAT', `Query: ${messageText.substring(0, 50)}...`);
 
     try {
       if (!aiService.isConfigured()) throw new Error('Google AI API key niet gevonden.');
@@ -351,7 +245,7 @@ const AiChatView = () => {
       }
 
       try {
-        const occupancyRef = collection(db, ...PATHS.OCCUPANCY);
+        const occupancyRef = collection(db, ...(PATHS?.OCCUPANCY || ['future-factory', 'production', 'occupancy']));
         const occupancySnap = await getDocs(occupancyRef);
         const today = new Date().toISOString().slice(0, 10);
         const activeOperators = occupancySnap.docs.map(d => d.data()).filter(d => d.date === today);
@@ -365,9 +259,9 @@ const AiChatView = () => {
       } catch (err) { console.error("Kon bezetting niet ophalen:", err); }
 
       try {
-        const efficiencyRef = collection(db, "future-factory", "production", "efficiency_hours");
+        const efficiencyRef = collection(db, ...PATHS.EFFICIENCY_HOURS);
         const efficiencySnap = await getDocs(query(efficiencyRef, limit(50)));
-        const trackingRef = collection(db, ...PATHS.TRACKING);
+        const trackingRef = collection(db, ...(PATHS?.TRACKING || ['future-factory', 'production', 'tracking']));
         const trackingSnap = await getDocs(query(trackingRef, orderBy("updatedAt", "desc"), limit(500)));
         const trackingData = trackingSnap.docs.map(d => d.data());
 
@@ -388,7 +282,8 @@ const AiChatView = () => {
                 });
                 const normPerUnit = std.minutesPerUnit || 0;
                 const earnedMinutes = producedQty * normPerUnit;
-                let status = "Onbekend", efficiency = 0;
+                 let status;
+                 let efficiency = 0;
                 if (actualMinutes > 0) {
                    efficiency = (earnedMinutes / actualMinutes) * 100;
                    status = efficiency >= 100 ? "VOOR op schema" : efficiency >= 85 ? "OP schema" : "ACHTER op schema";
@@ -452,26 +347,17 @@ const AiChatView = () => {
     <div className="h-full flex flex-col max-w-4xl mx-auto">
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`relative max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${msg.role === "user" ? "bg-blue-600 text-white rounded-br-none" : "bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm"}`}>
-              {msg.role === "user" ? msg.content : (
-                <>
-                  <div className="prose prose-sm max-w-none">{formatResponse(msg.content)}</div>
-                  <button
-                    title="Markeer als foutief/hallucinatie"
-                    onClick={async () => {
-                      await logRejectedAnswer({ content: msg.content, userInput: messages[idx - 1]?.content || "", context: systemContext, userId: auth.currentUser?.uid || null });
-                      showSuccess("Antwoord gemarkeerd voor AI review.");
-                    }}
-                    className="absolute top-2 right-2 p-1 rounded-full bg-red-50 hover:bg-red-200 text-red-600 border border-red-100 shadow-sm transition-all"
-                    style={{ zIndex: 10 }}
-                  >
-                    <LucideX size={16} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
+          <AiMessage 
+            key={idx} 
+            message={msg} 
+            factoryStructure={factoryStructure}
+            onNavigate={navigate}
+            onQuery={(text) => handleSendChat(null, text)}
+            onReject={async () => {
+              await logRejectedAnswer({ content: msg.content, userInput: messages[idx - 1]?.content || "", context: systemContext, userId: auth.currentUser?.uid || null });
+              showSuccess("Antwoord gemarkeerd voor AI review.");
+            }}
+          />
         ))}
         <div ref={messagesEndRef} />
       </div>
@@ -521,6 +407,7 @@ BELANGRIJK: Gebruik altijd proper Markdown formatting in je antwoorden:
 - EST = Epoxy Standard Type (Wavistrong Blauw, bijv. 32mm, 40mm, 50mm)
 - CST = Conductive Standard Type (Zwart, Geleidend)
 - Belangrijke producten: Wavistrong (drukriool), Bocht 87.5°, T-stukken, Moffen
+- **Definitie Lossen:** Producten worden om een mal gewikkeld. Na een uur voorharden op 100°C wordt het product van de mal gehaald; dit heet "lossen".
 
 **Fabrieksstructuur:**
 De actuele afdelingen, machines en ploegendiensten worden dynamisch geladen uit de database. Gebruik deze data voor antwoorden over locaties en machines.
@@ -628,7 +515,7 @@ Jouw digitale assistent voor hulp en training.
 - Stel vragen over producten, processen, specificaties
 - Vraag uitleg over systeem functionaliteit
 - Krijg hulp bij problemen
-- Beantwoord in het Nederlands
+- Beantwoord in de geselecteerde taal
 
 #### **Training Mode:**
 - Genereer flashcards over elk onderwerp
@@ -787,7 +674,7 @@ A: Type je vraag in chat mode, of gebruik header zoekbalk met bot icon, of typ ?
 ---
 
 **ANTWOORD INSTRUCTIES:**
-- Beantwoord vragen altijd in het Nederlands
+- Beantwoord vragen in de geselecteerde taal (zie systeem instructie)
 - Wees specifiek en verwijs naar de juiste modules/pagina's
 - Gebruik Markdown formatting voor duidelijke structuur
 - Gebruik genummerde stappen voor processen

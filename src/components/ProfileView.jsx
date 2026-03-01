@@ -4,8 +4,6 @@ import { useTranslation } from "react-i18next";
 import {
   User,
   Mail,
-  Shield,
-  Bell,
   Save,
   CheckCircle2,
   Lock,
@@ -23,7 +21,6 @@ import {
   Monitor,
   Settings,
   BellRing,
-  Smartphone,
   ClipboardCheck,
   Factory,
   Package,

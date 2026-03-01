@@ -1,11 +1,11 @@
-import React, { useState, Suspense } from "react";
+import React, { useState, Suspense, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Package,
   Database,
   Users,
   Settings,
-  MessageSquare,
   Grid,
   Factory,
   ArrowRight,
@@ -16,19 +16,14 @@ import {
   UserCheck,
   Layout,
   DatabaseZap,
-  MapPin,
   Settings2,
-  Terminal,
   History,
   BoxSelect,
   BrainCircuit,
   BookOpen,
   ShieldCheck,
-  SearchCode,
   TrendingUp,
   Kanban,
-  GanttChart,
-  Flame,
   GitBranch,
   Bell,
   Zap,
@@ -36,14 +31,12 @@ import {
   Smartphone,
   Beaker,
   ChevronDown,
-  Activity,
   Printer,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 // --- LAZY LOAD IMPORTS ---
 const RoadmapViewer = React.lazy(() => import("./RoadmapViewer"));
-const ProjectStructureViewer = React.lazy(() => import("./ProjectStructureViewer"));
 const ProjectStructureExpertView = React.lazy(() => import("./ProjectStructureExpertView"));
 const AdminProductManager = React.lazy(() => import("./AdminProductManager"));
 const FactoryStructureManager = React.lazy(() =>
@@ -62,7 +55,6 @@ const AdminLogView = React.lazy(() => import("./AdminLogView"));
 const AdminSettingsView = React.lazy(() => import("./AdminSettingsView"));
 const ProductionTimeStandardsManager = React.lazy(() => import("./ProductionTimeStandardsManager"));
 const CapacityPlanningView = React.lazy(() => import("../planning/CapacityPlanningView"));
-const EfficiencyDashboard = React.lazy(() => import("../digitalplanning/EfficiencyDashboard"));
 const AiCenterView = React.lazy(() => import("../ai/AiCenterView"));
 const AdminLabelManager = React.lazy(() => import("./AdminLabelManager"));
 const PilotMigrationTool = React.lazy(() => import("./PilotMigrationTool"));
@@ -70,13 +62,10 @@ const PilotMigrationTool = React.lazy(() => import("./PilotMigrationTool"));
 const AdminReferenceTable = React.lazy(() => import("./AdminReferenceTable"));
 // NIEUW: Monday.com/vPlan-style Planning Views
 const KanbanBoardView = React.lazy(() => import("../planning/KanbanBoardView"));
-const GanttChartView = React.lazy(() => import("../planning/GanttChartView"));
-const WorkloadHeatmapView = React.lazy(() => import("../planning/WorkloadHeatmapView"));
 // Fase 2: Advanced Planning Features
 const OrderDependenciesView = React.lazy(() => import("../planning/OrderDependenciesView"));
 const NotificationRulesView = React.lazy(() => import("../planning/NotificationRulesView"));
 const AutomationRulesView = React.lazy(() => import("../planning/AutomationRulesView"));
-const TimeTrackingView = React.lazy(() => import("../planning/TimeTrackingView"));
 // Fase 3: Advanced Analytics & Future Planning
 const ShopFloorMobileApp = React.lazy(() => import("../planning/ShopFloorMobileApp"));
 const ScenarioPlanningView = React.lazy(() => import("../planning/ScenarioPlanningView"));
@@ -88,7 +77,16 @@ const ScenarioPlanningView = React.lazy(() => import("../planning/ScenarioPlanni
 const AdminDashboard = () => {
   const { t } = useTranslation();
   const { role, user } = useAdminAuth();
+  const location = useLocation();
   const [activeScreen, setActiveScreen] = useState(null);
+
+  // Reset naar dashboard overzicht als er op de sidebar knop wordt geklikt (geen state)
+  useEffect(() => {
+    if (!location.state) {
+      setActiveScreen(null);
+    }
+  }, [location]);
+
   const [expandedCategories, setExpandedCategories] = useState([]); // All categories collapsed by default
 
   // Toggle category expansion

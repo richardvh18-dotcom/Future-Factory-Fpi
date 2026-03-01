@@ -26,14 +26,14 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
               label: "Planning",
               val: Math.round(metrics.totalPlanned),
               icon: Layers,
-              color: "text-slate-400",
+              color: "text-blue-600",
             },
             {
               id: "in_proces",
               label: "Lopend",
               val: metrics.activeCount,
               icon: Zap,
-              color: "text-blue-500",
+              color: "text-purple-600",
             },
             {
               id: "gereed",
@@ -193,10 +193,10 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
                     </div>
                   )}
                   <div>
-                    <span className="text-[7px] font-black text-blue-400 uppercase block mb-0.5">
+                    <span className={`text-[7px] font-black uppercase block mb-0.5 ${machine.isDownstream ? "text-purple-400" : "text-blue-400"}`}>
                       {machine.isDownstream ? "Aanbod" : "Actief"}
                     </span>
-                    <span className="text-xs font-black text-blue-600 italic">
+                    <span className={`text-xs font-black italic ${machine.isDownstream ? "text-purple-600" : "text-blue-600"}`}>
                       {machine.active}
                     </span>
                   </div>

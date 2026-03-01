@@ -21,7 +21,8 @@ const TerminalPlanningView = ({
   isBM01,
   onStartProduction,
   selectedOrder,
-  onViewDrawing
+  onViewDrawing,
+  optimizationPanel
 }) => {
   // Helpers inside component to avoid prop drilling for simple logic
   const parseDateSafe = (dateInput) => {
@@ -45,15 +46,6 @@ const TerminalPlanningView = ({
     const createdAt = order.createdAt.toMillis ? order.createdAt.toMillis() : new Date(order.createdAt).getTime();
     return createdAt > Date.now() - 24 * 60 * 60 * 1000;
   };
-
-  const similarOrders = React.useMemo(() => {
-    if (!selectedOrder || !orders) return [];
-    return orders.filter(o => 
-      o.id !== selectedOrder.id && 
-      ((selectedOrder.itemCode && o.itemCode === selectedOrder.itemCode) || 
-       (!selectedOrder.itemCode && o.item === selectedOrder.item))
-    );
-  }, [selectedOrder, orders]);
 
   const sortedOrders = React.useMemo(() => {
     if (!orders) return [];
@@ -242,6 +234,7 @@ const TerminalPlanningView = ({
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 text-right">
+                    <StatusBadge status={order.status} />
                     <span className="text-[10px] font-black text-slate-900 block italic leading-none">{produced} / {total} ST</span>
                     <span className={`text-[9px] uppercase tracking-tighter ${getUrgencyColor(order.deliveryDate)} text-right`}>
                       {dDate ? format(dDate, "dd-MM", { locale: nl }) : "--"}
@@ -298,29 +291,7 @@ const TerminalPlanningView = ({
                 <PlayCircle size={28} /> Start Productie
               </button>
 
-              {similarOrders.length > 0 && (
-                <div className="pt-6 border-t border-slate-100">
-                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <Layers size={14} /> Vergelijkbare Orders
-                  </h4>
-                  <div className="space-y-2">
-                    {similarOrders.map(simOrder => (
-                      <div key={simOrder.id} onClick={() => onSelectOrder(simOrder.id)} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                        <div>
-                           <span className="font-black text-sm text-slate-700 block">{simOrder.orderId}</span>
-                           {simOrder.extraCode && <span className="text-[10px] font-bold text-slate-400">{simOrder.extraCode}</span>}
-                        </div>
-                        <div className="text-right">
-                           <span className="text-[10px] font-bold text-slate-500 block">
-                             {simOrder.deliveryDate ? format(parseDateSafe(simOrder.deliveryDate), "dd-MM-yyyy") : "-"}
-                           </span>
-                           <span className="text-[10px] font-black text-slate-400">{simOrder.plan} stuks</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {optimizationPanel}
             </div>
           </div>
         ) : (

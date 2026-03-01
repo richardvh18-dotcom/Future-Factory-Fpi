@@ -4,11 +4,8 @@ import {
   PlayCircle,
   Printer,
   RefreshCw,
-  Edit3,
   QrCode,
-  CheckCircle,
   Layers,
-  Loader2,
   X,
   Keyboard,
   Activity,
@@ -17,9 +14,9 @@ import {
   Wifi,
 } from "lucide-react";
 import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
-import { db } from "../../../config/firebase";
-import { generateLotNumber } from "../../../utils/lotLogic";
-import { getLotPlaceholder } from "../../../utils/lotPlaceholder";
+import { db, auth, logActivity } from "../../../config/firebase";
+import { PATHS } from "../../../config/dbPaths";
+import { generateLotNumber, getLotPlaceholder } from "../../../utils/lotLogic";
 import {
   processLabelData,
   resolveLabelContent,
@@ -28,7 +25,6 @@ import {
 import { generateZPL, downloadZPL } from "../../../utils/zplHelper";
 
 const PIXELS_PER_MM = 3.78;
-const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
 const getQRCodeUrl = (data) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${encodeURIComponent(
@@ -58,7 +54,7 @@ const ProductionStartModal = ({
 
   const [availableLabels, setAvailableLabels] = useState([]);
   const [selectedLabelId, setSelectedLabelId] = useState("");
-  const [loadingLabels, setLoadingLabels] = useState(false);
+  const [, setLoadingLabels] = useState(false);
   const [previewZoom, setPreviewZoom] = useState(1);
   const location = useLocation();
   
@@ -79,7 +75,7 @@ const ProductionStartModal = ({
       try {
         // Gebruik hetzelfde Firestore-path als AdminLabelDesigner
         // /future-factory/settings/label_templates
-        const labelsRef = collection(db, "future-factory", "settings", "label_templates");
+        const labelsRef = collection(db, ...PATHS.LABEL_TEMPLATES);
         const querySnapshot = await getDocs(labelsRef);
         const labels = querySnapshot.docs.map((doc) => ({
           id: doc.id,
@@ -103,7 +99,7 @@ const ProductionStartModal = ({
     fetchLabels();
 
     // Fetch Label Logic Rules
-    const rulesRef = collection(db, "future-factory", "settings", "label_logic");
+    const rulesRef = collection(db, ...PATHS.LABEL_LOGIC);
     getDocs(rulesRef).then(snap => {
       setLabelRules(snap.docs.map(d => d.data()));
     }).catch(err => console.error("Error loading label rules", err));
@@ -118,7 +114,7 @@ const ProductionStartModal = ({
       
       try {
         const q = query(
-          collection(db, "future-factory", "production", "machine_occupancy"),
+          collection(db, ...PATHS.OCCUPANCY),
           where("machineId", "==", stationId),
           where("date", "==", today)
         );
@@ -147,7 +143,7 @@ const ProductionStartModal = ({
 
   // 1c. Printers ophalen
   useEffect(() => {
-    const printersRef = collection(db, "future-factory", "settings", "printers");
+    const printersRef = collection(db, ...PATHS.PRINTERS);
     const unsub = onSnapshot(printersRef, (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setSavedPrinters(list);
@@ -532,7 +528,8 @@ const ProductionStartModal = ({
               Annuleer
             </button>
             <button
-              onClick={() =>
+              onClick={async () => {
+                await logActivity(auth.currentUser?.uid, "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${mode === "auto" ? lotNumber : manualLotInput}`);
                 onStart(
                   order,
                   mode === "auto" ? lotNumber : manualLotInput,
@@ -540,8 +537,8 @@ const ProductionStartModal = ({
                   manualOrderInput,
                   operatorInput,
                   selectedOperatorName // Geef ook de naam mee voor historie
-                )
-              }
+                );
+              }}
               disabled={
                 (mode === "manual" && (!manualOrderInput || !manualLotInput)) ||
                 (mode === "auto" && !lotNumber)

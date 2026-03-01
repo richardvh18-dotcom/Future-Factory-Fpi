@@ -43,7 +43,7 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
   const [liveSpecs, setLiveSpecs] = useState(null);
   const [boreSpecs, setBoreSpecs] = useState(null); // NIEUW: State voor boringen
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [, setError] = useState(null);
 
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
@@ -417,7 +417,7 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                             const decodedPath = decodeURIComponent(path);
                             const fileName = decodedPath.split('/').pop();
                             name = fileName.replace(/^\d+_/, ''); // Verwijder timestamp prefix
-                          } catch (e) { /* fallback */ }
+                          } catch { /* fallback */ }
                         }
 
                         return (

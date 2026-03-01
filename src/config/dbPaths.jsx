@@ -5,6 +5,8 @@
 
 const BASE = "future-factory";
 
+export const ACTIVE_SITE = BASE;
+
 export const PATHS = {
   // --- PRODUCTIE (Collecties: oneven segmenten) ---
   PRODUCTS: [BASE, "production", "products"],
@@ -14,6 +16,7 @@ export const PATHS = {
   OCCUPANCY: [BASE, "production", "machine_occupancy"],
   INVENTORY: [BASE, "production", "inventory"],
   PRODUCTION_STANDARDS: [BASE, "production", "time_standards"],
+  EFFICIENCY_HOURS: [BASE, "production", "efficiency_hours"],
   TIME_LOGS: [BASE, "production", "time_logs"],
   DOWNTIME: [BASE, "production", "downtime_reports"],
   DEFECTS: [BASE, "production", "defect_reports"],
@@ -36,6 +39,8 @@ export const PATHS = {
   MATRIX_CONFIG: [BASE, "settings", "matrix_configs", "main"],
   BLUEPRINTS: [BASE, "settings", "blueprint_configs", "main"],
   LABEL_TEMPLATES: [BASE, "settings", "label_templates"],
+  LABEL_LOGIC: [BASE, "settings", "label_logic"],
+  PRINTERS: [BASE, "settings", "printers"],
   AI_CONFIG: [BASE, "settings", "ai_config", "main"],
 
   // --- LOGGING & AUDIT (Collecties: oneven segmenten) ---
@@ -90,6 +95,14 @@ export const getPlanningArchivePath = (year, type = "archive") => {
 };
 
 /**
+ * getEfficiencyArchivePath - Genereert het pad voor gearchiveerde efficiency data
+ * @param {number|string} year - Het jaar van het archief
+ */
+export const getEfficiencyArchivePath = (year) => {
+  return [BASE, "production", "archive", String(year), "efficiency"];
+};
+
+/**
  * Legacy Artifacts Paden - Voor compatibiliteit met bestaande systemen
  * Deze functies genereren dynamische paden voor het artifacts systeem
  */
@@ -102,7 +115,7 @@ export const ARTIFACTS_PATHS = {
    * Genereer dynamische artifact paden met appId
    * Gebruik: getArtifactsPath(appId, "digital_planning")
    */
-  getPlanningPath: (appId) => ["artifacts", appId, "public", "data", "digital_planning"],
-  getProductsPath: (appId) => ["artifacts", appId, "public", "data", "products"],
-  getConfigPath: (appId) => ["artifacts", appId, "public", "data", "config", "factory_config"],
+  getPlanningPath: (appId) => getArtifactsPath(appId, "digital_planning"),
+  getProductsPath: (appId) => getArtifactsPath(appId, "products"),
+  getConfigPath: (appId) => getArtifactsPath(appId, "config", "factory_config"),
 };

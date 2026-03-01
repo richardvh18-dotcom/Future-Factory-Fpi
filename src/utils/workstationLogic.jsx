@@ -80,7 +80,7 @@ export const isInspectionOverdue = (timestampString) => {
     const daysSince = (now - inspectionDate) / (1000 * 60 * 60 * 24);
     
     return daysSince > 7;
-  } catch (e) {
+  } catch {
     return false;
   }
 };
@@ -100,4 +100,99 @@ export const getMaterialInfo = (itemCode) => {
     diameter: parts[1] ? parseInt(parts[1]) : null,
     pressure: parts[2] || null,
   };
+};
+
+// --- PILOT FLOW LOGICA (BH18 -> BM01) ---
+
+export const FLOW_STEPS = {
+  WIKKELEN: "Wikkelen",
+  WACHT_OP_LOSSEN: "Wacht op Lossen",
+  LOSSEN: "Lossen",
+  NABEWERKING: "Nabewerking",
+  EINDINSPECTIE: "Eindinspectie",
+  FINISHED: "Finished",
+  REJECTED: "REJECTED"
+};
+
+export const FLOW_STATUS = {
+  PLANNED: "planned",
+  IN_PROGRESS: "in_progress",
+  TE_LOSSEN: "Te Lossen",
+  TE_NABEWERKEN: "Te Nabewerken",
+  TE_KEUREN: "Te Keuren",
+  COMPLETED: "completed",
+  REJECTED: "rejected",
+  PAUSED: "paused"
+};
+
+/**
+ * Bepaalt de volgende status update op basis van de huidige actie.
+ * Dit centraliseert de logica voor de pilot flow.
+ * 
+ * @param {string} action - De actie die wordt uitgevoerd (bijv. 'FINISH_WINDING')
+ * @param {Object} [currentState] - Optioneel: de huidige state van het product (voor resume/pause)
+ * @returns {Object} De nieuwe status velden (status, currentStep, currentStation, etc.)
+ */
+export const getNextFlowState = (action, currentState = {}) => {
+  switch (action) {
+    case 'START_WINDING':
+      return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.WIKKELEN };
+      
+    case 'FINISH_WINDING':
+      return { status: FLOW_STATUS.TE_LOSSEN, currentStep: FLOW_STEPS.WACHT_OP_LOSSEN };
+      
+    case 'START_UNLOADING':
+      return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.LOSSEN };
+      
+    case 'FINISH_UNLOADING':
+      return { status: FLOW_STATUS.TE_NABEWERKEN, currentStep: FLOW_STEPS.NABEWERKING, currentStation: "Nabewerking" };
+      
+    case 'FINISH_PROCESSING':
+      return { status: FLOW_STATUS.TE_KEUREN, currentStep: FLOW_STEPS.EINDINSPECTIE, currentStation: "BM01" };
+      
+    case 'FINISH_INSPECTION':
+      return { status: FLOW_STATUS.COMPLETED, currentStep: FLOW_STEPS.FINISHED, currentStation: "GEREED" };
+      
+    case 'PAUSE_FLOW':
+      return { 
+        status: FLOW_STATUS.PAUSED, 
+        currentStep: "Onderbroken",
+        previousStep: currentState.currentStep,
+        previousStatus: currentState.status
+      };
+
+    case 'RESUME_FLOW':
+      // Als er historie is, keer terug naar de oude staat
+      if (currentState.previousStep) {
+        return {
+          status: currentState.previousStatus || FLOW_STATUS.IN_PROGRESS,
+          currentStep: currentState.previousStep,
+          previousStep: null, // Reset historie
+          previousStatus: null
+        };
+      }
+      // Geen historie? Bepaal logische stap op basis van station
+      return getStepForStation(currentState.currentStation);
+
+    default:
+      console.warn(`Unknown flow action: ${action}`);
+      return {};
+  }
+};
+
+/**
+ * Bepaalt de logische processtap op basis van een stationsnaam.
+ * Handig als een Teamleader een item handmatig verplaatst.
+ */
+export const getStepForStation = (stationName) => {
+  const name = String(stationName || "").toUpperCase();
+  
+  if (name.includes("BM01")) return { status: FLOW_STATUS.TE_KEUREN, currentStep: FLOW_STEPS.EINDINSPECTIE };
+  if (name.includes("NABEWERK") || name.includes("MAZAK")) return { status: FLOW_STATUS.TE_NABEWERKEN, currentStep: FLOW_STEPS.NABEWERKING };
+  if (name === "LOSSEN") return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.LOSSEN };
+  if (name.startsWith("BH")) return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.WIKKELEN };
+  if (name.includes("REPARATIE") || name.includes("REPAIR")) return { status: FLOW_STATUS.IN_PROGRESS, currentStep: "Reparatie" };
+  
+  // Fallback
+  return { status: FLOW_STATUS.IN_PROGRESS, currentStep: "Onbekend" };
 };

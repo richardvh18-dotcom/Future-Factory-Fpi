@@ -61,7 +61,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
     // 🔥 EMERGENCY GOD MODE BYPASS 🔥
     if (email === "god@mode.local" && password === "master2026") {
       console.log("🔥 EMERGENCY GOD MODE ACTIVATED");
-      alert(`⚠️ ${t('login.emergency_title')}: ${t('login.emergency_desc')}`);
+      alert(`⚠️ ${t('login.emergency_title', 'Emergency Mode')}: ${t('login.emergency_desc', 'Bypassing authentication')}`);
       // We kunnen hier niet direct inloggen zonder Firebase Auth
       // Maar we kunnen wel debugging info tonen
       console.log("Master Admin UID uit .env:", import.meta.env.VITE_MASTER_ADMIN_UID);
@@ -82,7 +82,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
       await onLogin(email, password);
     } catch (err) {
       console.error("❌ Login Component Fout:", err);
-      setInternalError(t('login.error_auth'));
+      setInternalError(t('login.error_auth', 'Login failed'));
 
     } finally {
       setLoading(false);
@@ -94,7 +94,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-orange-950 overflow-y-auto">
       {/* Language Toggle - Top Right */}
-      <div className="absolute top-6 right-6 z-50 relative">
+      <div className="absolute top-6 right-6 z-50">
         <button
           onClick={() => setShowLangMenu(!showLangMenu)}
           className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 text-cyan-200 transition-all hover:scale-110 active:scale-95 group"
@@ -108,31 +108,31 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
           <div className="absolute top-full right-0 mt-2 w-40 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <button
               onClick={() => handleLanguageSelect('nl')}
-              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'nl' ? 'text-cyan-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.resolvedLanguage === 'nl' ? 'text-cyan-400' : 'text-slate-400'}`}
             >
               <span>🇳🇱 Nederlands</span>
-              {i18n.language === 'nl' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'nl' && <Check size={14} />}
             </button>
             <button
               onClick={() => handleLanguageSelect('en')}
-              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'en' ? 'text-cyan-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.resolvedLanguage === 'en' ? 'text-cyan-400' : 'text-slate-400'}`}
             >
               <span>🇬🇧 English</span>
-              {i18n.language === 'en' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'en' && <Check size={14} />}
             </button>
             <button
               onClick={() => handleLanguageSelect('ar')}
-              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'ar' ? 'text-cyan-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.resolvedLanguage === 'ar' ? 'text-cyan-400' : 'text-slate-400'}`}
             >
               <span>🇦🇪 العربية</span>
-              {i18n.language === 'ar' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'ar' && <Check size={14} />}
             </button>
             <button
               onClick={() => handleLanguageSelect('de')}
-              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'de' ? 'text-cyan-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.resolvedLanguage === 'de' ? 'text-cyan-400' : 'text-slate-400'}`}
             >
               <span>🇩🇪 Deutsch</span>
-              {i18n.language === 'de' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'de' && <Check size={14} />}
             </button>
           </div>
         )}
@@ -167,7 +167,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
             )}
           </h1>
           <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
-            {t('login.subtitle')}
+            {t('login.subtitle', 'Smart Manufacturing Platform')}
           </p>
         </div>
 
@@ -185,7 +185,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1">
-                  {t('login.email_label')}
+                  {t('login.email_label', 'Email Address')}
                 </label>
                 <div className="relative group">
                   <Mail
@@ -199,14 +199,13 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
-                    placeholder={t('login.email_placeholder')}
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1">
-                  {t('login.password_label')}
+                  {t('login.password_label', 'Password')}
                 </label>
                 <div className="relative group">
                   <KeyRound
@@ -220,8 +219,16 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
-                    placeholder={t('login.password_placeholder')}
                   />
+                </div>
+                <div className="flex justify-end mt-1">
+                  <button
+                    type="button"
+                    onClick={() => alert(t('login.reset_contact_admin', 'Contact the administrator to reset your password.'))}
+                    className="text-[10px] font-bold text-cyan-200/60 hover:text-cyan-200 transition-colors"
+                  >
+                    {t('login.forgot_password', 'Forgot password?')}
+                  </button>
                 </div>
               </div>
 
@@ -233,7 +240,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                   <Loader2 className="animate-spin" size={20} />
                 ) : (
                   <>
-                    {t('login.submit')} <ArrowRight size={18} />
+                    {t('login.submit', 'Login')} <ArrowRight size={18} />
                   </>
                 )}
               </button>
@@ -243,7 +250,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                 onClick={() => setShowRequestModal(true)}
                 className="w-full bg-white/10 border-2 border-white/20 text-cyan-200 py-4 rounded-2xl font-bold uppercase text-xs tracking-[0.15em] hover:bg-white/20 hover:border-white/30 transition-all flex items-center justify-center gap-2 mt-3"
               >
-                {t('login.request_account')}
+                {t('login.request_account', 'Request Account')}
               </button>
             </form>
 

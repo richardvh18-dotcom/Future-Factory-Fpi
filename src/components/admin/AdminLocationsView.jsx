@@ -10,12 +10,9 @@ import {
   Save,
   X,
   PackageCheck,
-  Hash,
-  ArrowUpDown,
   ShieldCheck,
   Database,
   Loader2,
-  AlertCircle,
 } from "lucide-react";
 import {
   doc,
@@ -27,7 +24,7 @@ import {
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { STANDARD_DIAMETERS, STANDARD_PRESSURES } from "../../data/constants";
+import { STANDARD_DIAMETERS } from "../../data/constants";
 
 /**
  * AdminLocationsView V4.0 - Root Sync Edition
@@ -36,7 +33,7 @@ import { STANDARD_DIAMETERS, STANDARD_PRESSURES } from "../../data/constants";
  */
 const AdminLocationsView = ({ canEdit = false }) => {
   const { t } = useTranslation();
-            <Plus size={18} /> {t('common.newTool')}
+  const [moffen, setMoffen] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -62,13 +59,13 @@ const AdminLocationsView = ({ canEdit = false }) => {
       (snap) => {
         const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setMoffen(data);
-                          <Edit2 size={18} /> {t('common.edit')}
+        setLoading(false);
       },
       (err) => {
         console.error("Fout bij laden inventaris:", err);
         setLoading(false);
       }
-                          <Trash2 size={18} /> {t('common.delete')}
+    );
 
     return () => unsubscribe();
   }, []);
@@ -107,7 +104,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
 
       await setDoc(docRef, data, { merge: true });
 
-      logActivity(
+      await logActivity(
         auth.currentUser?.uid,
         editingId ? "TOOL_UPDATE" : "TOOL_ADD",
         `Gereedschap ${data.id} bijgewerkt op locatie ${data.location}`
@@ -130,7 +127,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
       return;
     try {
       await deleteDoc(doc(db, ...PATHS.INVENTORY, id));
-      logActivity(
+      await logActivity(
         auth.currentUser?.uid,
         "TOOL_DELETE",
         `Gereedschap ${id} verwijderd.`

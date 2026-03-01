@@ -91,7 +91,7 @@ const PersonnelChecker = () => {
 
           {data.items.length > 0 && (
             <div className="max-h-64 overflow-y-auto space-y-2">
-              {data.items.map((item, idx) => (
+              {data.items.map((item) => (
                 <div key={item.id} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="text-xs font-black text-slate-900">{item.name || 'Unnamed'}</div>
                   <div className="text-[10px] text-slate-500 font-mono">#{item.employeeNumber}</div>

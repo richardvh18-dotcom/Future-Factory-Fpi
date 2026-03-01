@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Save,
-  Printer,
   Type,
   ScanBarcode,
   QrCode,
@@ -14,27 +13,18 @@ import {
   RotateCw,
   RotateCcw,
   BoxSelect,
-  FileEdit,
-  Plus,
   AlignHorizontalJustifyCenter,
   AlignVerticalJustifyCenter,
-  LayoutTemplate,
-  RefreshCcw,
   Database,
   X,
   Loader2,
   Minus,
   Square,
-  BringToFront,
-  SendToBack,
-  ArrowUp,
-  ArrowDown,
   Copy,
   AlignLeft,
   AlignCenter,
   AlignRight,
   ShieldCheck,
-  ChevronRight,
   Image as ImageIcon,
   Upload,
   Code,
@@ -53,7 +43,7 @@ import {
   onSnapshot,
   where,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
 // Importeer de logica en constanten uit het hulpbestand
@@ -89,7 +79,6 @@ const AdminLabelDesigner = ({ onBack }) => {
   const [showDataModal, setShowDataModal] = useState(false);
   const [availableOrders, setAvailableOrders] = useState([]);
 
-  const [isDragging, setIsDragging] = useState(false);
   const [savedLabels, setSavedLabels] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [labelLogicRules, setLabelLogicRules] = useState([]);
@@ -115,7 +104,7 @@ const AdminLabelDesigner = ({ onBack }) => {
 
   // 1b. Fetch Label Logic Rules
   useEffect(() => {
-    const logicRef = collection(db, "future-factory", "settings", "label_logic");
+    const logicRef = collection(db, ...PATHS.LABEL_LOGIC);
     const unsub = onSnapshot(logicRef, (snap) => {
         const rules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setLabelLogicRules(rules);
@@ -257,7 +246,6 @@ const AdminLabelDesigner = ({ onBack }) => {
   const handleMouseDown = (e, id) => {
     e.stopPropagation();
     setSelectedElementId(id);
-    setIsDragging(true);
     const element = elements.find((el) => el.id === id);
     const labelCenterX = labelWidth / 2;
     const labelCenterY = labelHeight / 2;
@@ -290,7 +278,6 @@ const AdminLabelDesigner = ({ onBack }) => {
     };
 
     const handleMouseUp = () => {
-      setIsDragging(false);
       setGuidelines([]);
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
@@ -328,6 +315,7 @@ const AdminLabelDesigner = ({ onBack }) => {
         lastUpdated: serverTimestamp(),
         updatedBy: "Admin Designer",
       });
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label template saved: ${nameToUse}`);
       setHasUnsavedChanges(false);
       
       if (nameOverride) {
@@ -360,7 +348,8 @@ const AdminLabelDesigner = ({ onBack }) => {
       const labelId = newName.trim().replace(/[^a-zA-Z0-9-_]/g, "_").toLowerCase() + "_" + Date.now();
       const docRef = doc(db, ...PATHS.LABEL_TEMPLATES, labelId);
 
-      const { id, ...labelData } = label;
+      const labelData = { ...label };
+      delete labelData.id;
 
       await setDoc(docRef, {
         ...labelData,
@@ -380,6 +369,7 @@ const AdminLabelDesigner = ({ onBack }) => {
     if (!window.confirm(t('adminLabelDesigner.confirmDelete'))) return;
     try {
       await deleteDoc(doc(db, ...PATHS.LABEL_TEMPLATES, id));
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label template deleted: ${id}`);
     } catch (e) {
       console.error("Delete error:", e);
       alert(t('adminLabelDesigner.deleteError'));

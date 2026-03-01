@@ -28,8 +28,6 @@ import { useSettingsData } from "../../hooks/useSettingsData";
 import {
   ALL_PRODUCT_TYPES,
   CONNECTION_TYPES,
-  TYPES_WITH_SECOND_DIAMETER,
-  BELL_KEYS,
   VERIFICATION_STATUS,
 } from "../../data/constants";
 
@@ -148,7 +146,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     }
   };
 
-  const handleStorageSelect = (url, name) => {
+  const handleStorageSelect = (url) => {
     if (pickerMode === 'image') {
         setFormData(prev => ({ ...prev, imageUrl: url, imageFile: null }));
         setImagePreview(null);
@@ -470,7 +468,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             const cDesc = (c.description || "").toLowerCase();
             const cTarget = (c.targetProductId || "").toLowerCase();
             
-            let typeMatch = false;
+            let typeMatch;
             if (formType.includes("elbow") || formType === "elb") {
                 typeMatch = cType.includes("el") || cType.includes("elmo") || cDesc.includes("elbow");
             } else if (formType.includes("tee")) {
@@ -583,13 +581,6 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
       const storageInfo = getStorageInfo();
       
-      // Helper voor storage path voor picker
-      const getStoragePath = () => {
-        // Gebruik dezelfde logica als bij uploaden om de juiste map te openen
-        return storageInfo.basePath;
-      };
-
-
       // Upload image if present
       let imageUrl = formData.imageUrl;
       if (formData.imageFile) {
@@ -619,16 +610,13 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
       // Filter out spec fields and temporary file objects before saving
       // We want to store ONLY identification and system links, specs should be live fetched.
-      // eslint-disable-next-line no-unused-vars
-      const { 
-        specs, 
-        bellSpecs, 
-        fittingSpecs, 
-        socketSpecs, 
-        imageFile, 
-        pdfFiles, 
-        ...cleanFormData 
-      } = formData;
+      const cleanFormData = { ...formData };
+      delete cleanFormData.specs;
+      delete cleanFormData.bellSpecs;
+      delete cleanFormData.fittingSpecs;
+      delete cleanFormData.socketSpecs;
+      delete cleanFormData.imageFile;
+      delete cleanFormData.pdfFiles;
 
       await setDoc(
         productRef,
@@ -1211,26 +1199,6 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     </div>
   );
 };
-
-/**
- * Interne X icon component voor de modal
- */
-const X = ({ size, className }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="3"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <line x1="18" y1="6" x2="6" y2="18"></line>
-    <line x1="6" y1="6" x2="18" y2="18"></line>
-  </svg>
-);
 
 const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) => {
   const { t } = useTranslation();

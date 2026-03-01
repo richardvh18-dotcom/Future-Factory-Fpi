@@ -15,6 +15,7 @@ import {
   formatDate,
   getISOWeekInfo,
 } from "../../../utils/hubHelpers";
+import StatusBadge from "../common/StatusBadge";
 
 const StationDetailModal = ({ stationId, allOrders, allProducts, onClose }) => {
   const [activeTab, setActiveTab] = useState("active");
@@ -363,17 +364,7 @@ const StationDetailModal = ({ stationId, allOrders, allProducts, onClose }) => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <span
-                            className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${
-                              order.status === "in_progress"
-                                ? "bg-blue-100 text-blue-700"
-                                : "bg-slate-100 text-slate-500"
-                            }`}
-                          >
-                            {order.status === "in_progress"
-                              ? "Actief"
-                              : "Gepland"}
-                          </span>
+                          <StatusBadge status={order.status} />
                           {order.liveFinish > 0 && (
                             <p className="text-[10px] text-green-600 font-bold mt-1">
                               {order.liveFinish} gereed
@@ -432,9 +423,7 @@ const StationDetailModal = ({ stationId, allOrders, allProducts, onClose }) => {
                       </p>
                     </div>
                     <div className="text-right">
-                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">
-                        Gereed
-                      </span>
+                      <StatusBadge status={item.status || "completed"} />
                       <p className="text-[10px] text-gray-400 font-mono mt-0.5">
                         {formatDate(item.updatedAt)}
                       </p>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   Save,
   Loader2,
@@ -17,7 +18,7 @@ import {
   Rocket,
 } from "lucide-react";
 import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS, ACTIVE_SITE } from "../../config/dbPaths";
 
 // Handige presets voor snelle branding
@@ -45,6 +46,7 @@ const PRESET_LOGOS = [
  * Pad: /future-factory/settings/general_configs/main
  */
 const AdminSettingsView = () => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(null);
@@ -118,6 +120,8 @@ const AdminSettingsView = () => {
           lastUpdated: serverTimestamp()
         }, { merge: true });
       }
+
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", "General settings updated");
 
       setStatus({ type: "success", msg: "Systeeminstellingen gepubliceerd!" });
       setTimeout(() => setStatus(null), 3000);

@@ -14,7 +14,7 @@ export const useAdminAuth = () => {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [error, setError] = useState(null);
+  const [error] = useState(null);
 
   // Master UID voor directe God Mode toegang (configureer via .env)
   const MASTER_ADMIN_UID = (import.meta.env.VITE_MASTER_ADMIN_UID || "").trim();

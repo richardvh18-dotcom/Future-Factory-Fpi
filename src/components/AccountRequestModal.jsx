@@ -75,8 +75,8 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
         onClose();
       }, 3000);
     } catch (err) {
-      console.error(t('accountRequest.submit_error_console'), err);
-      setError(t('accountRequest.submit_error'));
+      console.error(t('accountRequest.submit_error_console', 'Error submitting request:'), err);
+      setError(t('accountRequest.submit_error', 'Error submitting request'));
     } finally {
       setLoading(false);
     }
@@ -96,10 +96,10 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               </div>
             </div>
             <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-4">
-              {t('accountRequest.success.title')}
+              {t('accountRequest.success.title', 'Request Sent')}
             </h2>
             <p className="text-cyan-200/80 text-sm font-medium leading-relaxed">
-              {t('accountRequest.success.message')}
+              {t('accountRequest.success.message', 'Your request has been sent to the administrators.')}
             </p>
           </div>
         ) : (
@@ -113,11 +113,11 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                       <UserPlus size={24} className="text-cyan-400" />
                     </div>
                     <h2 className="text-3xl font-black uppercase italic tracking-tighter">
-                      {t('accountRequest.title')}
+                      {t('accountRequest.title', 'Request Account')}
                     </h2>
                   </div>
                   <p className="text-cyan-200/60 text-sm font-bold">
-                    {t('accountRequest.subtitle')}
+                    {t('accountRequest.subtitle', 'Enter your details below')}
                   </p>
                 </div>
                 <button
@@ -140,7 +140,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Naam */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <User size={12} /> {t('accountRequest.form.name')}
+                  <User size={12} /> {t('accountRequest.form.name', 'Name')}
                 </label>
                 <input
                   type="text"
@@ -156,7 +156,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Email */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <Mail size={12} /> {t('accountRequest.form.email')}
+                  <Mail size={12} /> {t('accountRequest.form.email', 'Email')}
                 </label>
                 <input
                   type="email"
@@ -172,7 +172,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Land */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <Globe size={12} /> {t('accountRequest.form.country')}
+                  <Globe size={12} /> {t('accountRequest.form.country', 'Country')}
                 </label>
                 <select
                   name="country"
@@ -181,7 +181,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   onChange={handleChange}
                   className="w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900"
                 >
-                  <option value="">{t('accountRequest.form.select_country')}</option>
+                  <option value="">{t('accountRequest.form.select_country', 'Select country')}</option>
                   {countries.map((country) => (
                     <option key={country} value={country}>
                       {country}
@@ -193,7 +193,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
               {/* Afdeling */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1 flex items-center gap-2">
-                  <Building2 size={12} /> {t('accountRequest.form.department')}
+                  <Building2 size={12} /> {t('accountRequest.form.department', 'Department')}
                 </label>
                 <select
                   name="department"
@@ -202,7 +202,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   onChange={handleChange}
                   className="w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900"
                 >
-                  <option value="">{t('accountRequest.form.select_department')}</option>
+                  <option value="">{t('accountRequest.form.select_department', 'Select department')}</option>
                   {departments.map((dept) => (
                     <option key={dept} value={dept}>
                       {dept}
@@ -218,7 +218,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   onClick={onClose}
                   className="flex-1 px-6 py-4 bg-white/10 border-2 border-white/20 text-cyan-200 rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-white/20 transition-all"
                 >
-                  {t('accountRequest.actions.cancel')}
+                  {t('accountRequest.actions.cancel', 'Cancel')}
                 </button>
                 <button
                   type="submit"
@@ -230,7 +230,7 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
                   ) : (
                     <>
                       <Send size={16} />
-                      {t('accountRequest.actions.send')}
+                      {t('accountRequest.actions.send', 'Send Request')}
                     </>
                   )}
                 </button>

@@ -371,8 +371,8 @@ export const executeSendNotification = async (params, triggerData) => {
 /**
  * Execute update status action
  */
-export const executeUpdateStatus = async (params, triggerData) => {
-  const { targetCollection = "planning", targetStatus = "in_progress" } = params;
+export const executeUpdateStatus = async (params) => {
+  const { targetStatus = "in_progress" } = params;
   
   // This would typically be executed with specific order IDs from trigger data
   // For now, return success

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { db, auth, logActivity } from '../../config/firebase';
 import { PATHS } from '../../config/dbPaths';
 import { User, Check, Save, X, Shield, Loader2, MapPin, Briefcase } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -78,16 +78,6 @@ const UserStationManager = () => {
     }
   };
 
-  const toggleStation = (stationId) => {
-    setTempAllowed(prev => {
-      if (prev.includes(stationId)) {
-        return prev.filter(id => id !== stationId);
-      } else {
-        return [...prev, stationId];
-      }
-    });
-  };
-
   const handleSave = async () => {
     if (!selectedUser) return;
     
@@ -96,6 +86,7 @@ const UserStationManager = () => {
       await updateDoc(userRef, {
         allowedStations: tempAllowed
       });
+      await logActivity(auth.currentUser?.uid, "USER_UPDATE", `Station access updated for user: ${selectedUser.email}`);
       setSelectedUser(null);
       // Optioneel: Toon succes melding
     } catch (error) {

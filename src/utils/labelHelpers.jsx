@@ -82,23 +82,25 @@ const parseConnections = (text) => {
 // Bepaalt productnaam + graden (voor elbows)
 const parseProductType = (text) => {
   const upper = text.toUpperCase();
-  let type = "";
-
-  // 1. Basis Type Bepalen
-  if (upper.includes("ELB") || upper.includes("BOCHT")) type = "ELBOW";
-  else if (upper.includes("UNEQUAL") || upper.includes("VERLOOP TEE"))
-    type = "UNEQUAL-TEE";
-  else if (upper.includes("TEE")) type = "EQUAL-TEE";
-  else if (upper.includes("COUPLER") || upper.includes("MOF")) type = "COUPLER";
-  else if (upper.includes("BLIND")) type = "BLIND FLANGE";
-  else if (upper.includes("FLANGE") || upper.includes("FLENS")) type = "FLANGE";
-  else if (upper.includes("CONC")) type = "CONCENTRIC REDUCER";
-  else if (upper.includes("ECC")) type = "ECCENTRIC REDUCER";
-  else if (upper.includes("REDUCER") || upper.includes("VERLOOP"))
-    type = "REDUCER";
-  else {
-    type = text.split(/[\s/]/)[0].toUpperCase();
-  }
+  let type = upper.includes("ELB") || upper.includes("BOCHT")
+    ? "ELBOW"
+    : upper.includes("UNEQUAL") || upper.includes("VERLOOP TEE")
+      ? "UNEQUAL-TEE"
+      : upper.includes("TEE")
+        ? "EQUAL-TEE"
+        : upper.includes("COUPLER") || upper.includes("MOF")
+          ? "COUPLER"
+          : upper.includes("BLIND")
+            ? "BLIND FLANGE"
+            : upper.includes("FLANGE") || upper.includes("FLENS")
+              ? "FLANGE"
+              : upper.includes("CONC")
+                ? "CONCENTRIC REDUCER"
+                : upper.includes("ECC")
+                  ? "ECCENTRIC REDUCER"
+                  : upper.includes("REDUCER") || upper.includes("VERLOOP")
+                    ? "REDUCER"
+                    : text.split(/[\s/]/)[0].toUpperCase();
 
   // 2. Graden toevoegen voor Elbows
   if (type === "ELBOW") {
@@ -168,7 +170,6 @@ export const processLabelData = (data) => {
   if (!data) return {};
 
   const desc = String(data.item || data.description || "").trim();
-  const orderId = String(data.orderId || data.orderNumber || "");
   const lotNumber = String(data.lotNumber || "");
 
   // 1. Bepaal Product Type
@@ -319,15 +320,14 @@ export const resolveLabelContent = (contentOrElement, data) => {
   if (matches) {
     matches.forEach((match) => {
       const key = match.slice(1, -1);
-      let value = "";
-
-      if (key === "date") {
-        value = format(new Date(), "dd-MM-yyyy");
-      } else {
-        const rawValue = getNestedValue(data, key);
-        value =
-          rawValue !== undefined && rawValue !== null ? String(rawValue) : "";
-      }
+      const value = key === "date"
+        ? format(new Date(), "dd-MM-yyyy")
+        : (() => {
+          const rawValue = getNestedValue(data, key);
+          return rawValue !== undefined && rawValue !== null
+            ? String(rawValue)
+            : "";
+        })();
 
       content = content.replace(match, value);
     });

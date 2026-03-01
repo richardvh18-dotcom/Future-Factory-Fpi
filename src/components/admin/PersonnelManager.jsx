@@ -74,7 +74,6 @@ const PersonnelManager = () => {
   const [modalTab, setModalTab] = useState("profile");
   const [listExpandedSections, setListExpandedSections] = useState({});
 
-  const currentWeek = getISOWeek(viewDate);
   const selectedDateStr = format(viewDate, "yyyy-MM-dd");
 
   const [personForm, setPersonForm] = useState({
@@ -191,7 +190,7 @@ const PersonnelManager = () => {
         total: Math.max(0, diff - deduction),
         times: `${activeShift.start}-${activeShift.end}`,
       };
-    } catch (e) {
+    } catch {
       return { label: t('personnel.dayShift', "Dagdienst"), total: DEFAULTS.SHIFT_HOURS, times: "07:15-16:00" };
     }
   };

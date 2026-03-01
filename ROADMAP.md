@@ -56,7 +56,7 @@ Omdat dit project functioneert als een Manufacturing Execution System (MES) voor
 
 **Status:** 1 februari 2026  
 **Projectleider:** Richard van Heerde  
-**Huidige Fase:** Fase 4 (Performance & Schaalbaarheid)  
+**Huidige Fase:** Fase 5 (Kwaliteitsborging & QC)  
 **Last Updated:** 1 feb 2026
 
 Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
@@ -123,7 +123,7 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
   - [ ] **Datastructuren:** Vermijd method chaining (.filter.map.sort) in grote loops.
 
 - [x] **react-window integratie:**
-- [x] PlanningListView (530 lines) - 100%+ sneller met 1000+ orders
+- [x] PlanningListView (530 lines) - 100%+ sneller met 1000+ orders (PlanningSidebar)
 - [ ] AdminReferenceTable (421 lines) - Table header sticky + virtual rows
 - [x] ProductDetailModal (526 lines) - Lazy-load product images & specs
 - **Impact:** Browser blijft responsief tot 10.000+ records
@@ -155,13 +155,14 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 
 ---
 
-## 🛡️ Fase 5: Kwaliteitsborging & QC (In Ontwikkeling)
+## 🛡️ Fase 5: Kwaliteitsborging & QC (Actief)
 
 **Doel:** Digitale registratie van meetwaarden.  
 **Target:** Q2 2026
 
 ### 5.1 Meetwaarde Invoer & Tolerantie Control
-- [ ] Meetwaarde Invoer: Verplichte invoer van toleranties tijdens productie-intervallen.
+ - [x] Meetwaarde Invoer: Basiscomponent `MeasurementInput` opgezet.
+ - [ ] Integratie: Koppelen aan WorkstationHub.
 - [ ] Real-time validatie tegen BORE_DIMENSIONS, CB/TB_DIMENSIONS specs
 - [ ] SPC (Statistical Process Control) dashboard met trend-visualisatie
 - [ ] Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.

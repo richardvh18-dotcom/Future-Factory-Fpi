@@ -10,12 +10,12 @@ import {
   Database,
   Trash2,
   History,
-  Clock,
   CheckCircle2,
   AlertCircle,
   Loader2,
   TrendingUp,
   MapPin,
+  ShieldCheck,
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
 
@@ -50,16 +50,6 @@ const DrillDownModal = React.memo(({
   }, [items, internalSearch]);
 
   if (!isOpen || location.pathname.includes("/login")) return null;
-
-  // Helper voor Excel datums indien aanwezig
-  const formatExcelDate = (val) => {
-    if (!val) return "-";
-    if (!isNaN(val) && parseFloat(val) > 30000) {
-      const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-      return date.toLocaleDateString("nl-NL");
-    }
-    return String(val);
-  };
 
   return (
     <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[250] flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-300">

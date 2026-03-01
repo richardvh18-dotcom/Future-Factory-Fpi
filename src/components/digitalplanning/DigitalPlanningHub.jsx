@@ -1,19 +1,23 @@
 import React, { useState, useEffect, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useLocation } from "react-router-dom";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 import {
   ArrowLeft,
   Activity,
   Monitor,
   Cpu,
-  Users,
   Calendar,
   Loader2,
   AlertTriangle,
 } from "lucide-react";
 
-import DepartmentStationSelector from "./DepartmentStationSelector";
-import PlannerHub from "./PlannerHub";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+
+const DepartmentStationSelector = React.lazy(() => import("./DepartmentStationSelector"));
+const PlannerHub = React.lazy(() => import("./PlannerHub"));
 
 /**
  * DigitalPlanningHub V5.0 - Stability Edition
@@ -24,18 +28,59 @@ const DigitalPlanningHub = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAdminAuth();
   const [activeDept, setActiveDept] = useState(null);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [searchOrderNumber, setSearchOrderNumber] = useState(null);
+  const [factoryConfig, setFactoryConfig] = useState(null);
+  const [configLoading, setConfigLoading] = useState(true);
+
+  // Laad factory config voor station-afdeling mapping
+  useEffect(() => {
+    const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
+    const unsubscribe = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        setFactoryConfig(snap.data());
+      }
+      setConfigLoading(false);
+    }, (err) => {
+        console.error("Factory config error in DigitalPlanningHub:", err);
+        setConfigLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // --- REFRESH VEILIGHEID ---
   useEffect(() => {
+    // Auto-navigatie voor gebruikers met maar één toegewezen station
+    if (!configLoading && user && factoryConfig && user.allowedStations?.length === 1) {
+      const singleStationName = user.allowedStations[0];
+      
+      // Ga niet automatisch naar de teamleader hub
+      if (singleStationName.toUpperCase() === 'TEAMLEADER') {
+          return;
+      }
+
+      let stationDept = null;
+      for (const dept of factoryConfig.departments || []) {
+        const station = (dept.stations || []).find(s => s.name === singleStationName);
+        if (station) {
+          stationDept = dept.id || dept.slug;
+          break;
+        }
+      }
+
+      if (stationDept) {
+        setActiveDept(stationDept.toUpperCase());
+        return; // Stop verdere logica om reset te voorkomen
+      }
+    }
+
     try {
       console.log('[DigitalPlanningHub] Location:', location.pathname);
       console.log('[DigitalPlanningHub] State:', location.state);
       
-      // Als we een order zoeken via AI link
       if (location.state?.searchOrder) {
         console.log('[DigitalPlanningHub] Search order:', location.state.searchOrder);
         setSearchOrderNumber(location.state.searchOrder);
@@ -45,13 +90,17 @@ const DigitalPlanningHub = () => {
       if (location.state?.initialView) {
         console.log('[DigitalPlanningHub] Setting activeDept:', location.state.initialView);
         setActiveDept(location.state.initialView);
+      } else if (!location.state?.searchOrder) {
+        // FIX: Reset naar hoofdmenu als er geen specifieke state is (bijv. klik op Sidebar)
+        // Dit zorgt ervoor dat een klik op 'Planning' je altijd terugbrengt naar de start
+        setActiveDept(null);
       }
     } catch (err) {
       console.error("Fout bij initialiseren planning view:", err);
       setErrorMessage(err.message);
       setHasError(true);
     }
-  }, [location.state?.initialView, location.state?.searchOrder]);
+  }, [location, user, factoryConfig, configLoading]); // Trigger bij elke navigatie en als user/config data laadt
 
   const DEPARTMENTS = [
     {

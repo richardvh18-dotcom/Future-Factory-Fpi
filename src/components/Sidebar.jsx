@@ -22,6 +22,8 @@ import {
   X,
   Wrench,
   Check,
+  Pin,
+  PinOff,
 } from "lucide-react";
 
 /**
@@ -43,6 +45,7 @@ const Sidebar = ({
     : 0;
   const location = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
 
   const handleLanguageSelect = async (lang) => {
@@ -53,7 +56,7 @@ const Sidebar = ({
     if (user?.uid) {
       try {
         const userRef = doc(db, ...PATHS.USERS, user.uid);
-        await updateDoc(userRef, { language: newLang });
+        await updateDoc(userRef, { language: lang });
       } catch (error) {
         console.error("Kon taalvoorkeur niet opslaan:", error);
       }
@@ -93,11 +96,11 @@ const Sidebar = ({
             ? "fixed left-0 top-0 h-full w-64 flex shadow-2xl"
             : "fixed -left-full md:flex md:left-0"
         } ${
-          isExpanded ? "md:w-64" : "md:w-16"
+          isExpanded || isPinned ? "md:w-64" : "md:w-16"
         }`}
         style={{ top: isMobileMenuOpen ? 0 : "4rem", height: isMobileMenuOpen ? "100vh" : "calc(100vh - 4rem)" }}
-        onMouseEnter={() => !isMobileMenuOpen && setIsExpanded(true)}
-        onMouseLeave={() => !isMobileMenuOpen && setIsExpanded(false)}
+        onMouseEnter={() => !isMobileMenuOpen && !isPinned && setIsExpanded(true)}
+        onMouseLeave={() => !isMobileMenuOpen && !isPinned && setIsExpanded(false)}
       >
         {/* Mobile header met close button */}
         {isMobileMenuOpen && (
@@ -124,7 +127,7 @@ const Sidebar = ({
                     isActive
                       ? "bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20"
                       : "hover:bg-slate-800 hover:text-white border border-transparent"
-                  } ${isExpanded || isMobileMenuOpen ? "justify-start" : "justify-center"}`
+                  } ${isExpanded || isMobileMenuOpen || isPinned ? "justify-start" : "justify-center"}`
                 }
               >
                 <div className="relative shrink-0">
@@ -137,7 +140,7 @@ const Sidebar = ({
                 </div>
                 <span
                   className={`transition-all duration-300 ${
-                    isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
+                    isExpanded || isMobileMenuOpen || isPinned ? "opacity-100" : "opacity-0 w-0"
                   }`}
                 >
                   {item.label}
@@ -145,7 +148,7 @@ const Sidebar = ({
               </NavLink>
 
               {/* Speciale filters voor de catalogus pagina */}
-              {item.path === "/products" && isActive && (isExpanded || isMobileMenuOpen) && (
+              {item.path === "/products" && isActive && (isExpanded || isMobileMenuOpen || isPinned) && (
                 <button
                   onClick={onToggleCatalogFilters}
                   className={`mt-1 flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border ${
@@ -164,72 +167,88 @@ const Sidebar = ({
       </nav>
 
       <div className="p-2 border-t border-slate-800 relative">
+        {/* Pin Button (Desktop) */}
+        <div className="hidden md:flex justify-end px-2 mb-2">
+          {(isExpanded || isPinned) && (
+            <button
+              onClick={() => {
+                if (isPinned) setIsExpanded(true);
+                setIsPinned(!isPinned);
+              }}
+              className="text-slate-500 hover:text-white transition-colors p-1"
+              title={isPinned ? "Unpin Sidebar" : "Pin Sidebar"}
+            >
+              {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            </button>
+          )}
+        </div>
+
         {/* Language Menu Popup (Upwards) */}
         {showLangMenu && (
-          <div className={`absolute bottom-full left-2 mb-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 ${!isExpanded && !isMobileMenuOpen ? 'left-14' : ''}`}>
+          <div className={`absolute bottom-full left-2 mb-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 ${!isExpanded && !isMobileMenuOpen && !isPinned ? 'left-14' : ''}`}>
             <button
               onClick={() => handleLanguageSelect('nl')}
-              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'nl' ? 'text-blue-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.resolvedLanguage === 'nl' ? 'text-blue-400' : 'text-slate-400'}`}
             >
               <span className="flex items-center gap-2">🇳🇱 Nederlands</span>
-              {i18n.language === 'nl' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'nl' && <Check size={14} />}
             </button>
             <button
               onClick={() => handleLanguageSelect('en')}
-              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'en' ? 'text-blue-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.resolvedLanguage === 'en' ? 'text-blue-400' : 'text-slate-400'}`}
             >
               <span className="flex items-center gap-2">🇬🇧 English</span>
-              {i18n.language === 'en' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'en' && <Check size={14} />}
             </button>
             <button
               onClick={() => handleLanguageSelect('ar')}
-              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'ar' ? 'text-blue-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.resolvedLanguage === 'ar' ? 'text-blue-400' : 'text-slate-400'}`}
             >
               <span className="flex items-center gap-2">🇦🇪 العربية</span>
-              {i18n.language === 'ar' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'ar' && <Check size={14} />}
             </button>
             <button
               onClick={() => handleLanguageSelect('de')}
-              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.language === 'de' ? 'text-blue-400' : 'text-slate-400'}`}
+              className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center justify-between hover:bg-slate-700 ${i18n.resolvedLanguage === 'de' ? 'text-blue-400' : 'text-slate-400'}`}
             >
               <span className="flex items-center gap-2">🇩🇪 Deutsch</span>
-              {i18n.language === 'de' && <Check size={14} />}
+              {i18n.resolvedLanguage === 'de' && <Check size={14} />}
             </button>
           </div>
         )}
 
         <button
           onClick={() => setShowLangMenu(!showLangMenu)}
-          className={`w-full mb-2 flex items-center gap-3 rounded-xl hover:bg-slate-800 hover:text-white transition-colors text-slate-400 border border-transparent hover:border-slate-700 ${
-            isExpanded || isMobileMenuOpen ? "px-4 py-3 justify-start" : "p-3 justify-center"
+          className={`w-full mb-2 flex items-center rounded-xl hover:bg-slate-800 hover:text-white transition-colors text-slate-400 border border-transparent hover:border-slate-700 ${
+            isExpanded || isMobileMenuOpen || isPinned ? "px-4 py-3 justify-start gap-3" : "p-3 justify-center"
           }`}
           title={t('profile.prefs.language')}
         >
           <Globe size={18} />
           <span
             className={`font-medium transition-all duration-300 whitespace-nowrap overflow-hidden ${
-              isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
+              isExpanded || isMobileMenuOpen || isPinned ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
-            {i18n.language === 'nl' ? 'Nederlands' : i18n.language === 'en' ? 'English' : i18n.language === 'de' ? 'Deutsch' : 'العربية'}
+            {i18n.resolvedLanguage === 'nl' ? 'Nederlands' : i18n.resolvedLanguage === 'en' ? 'English' : i18n.resolvedLanguage === 'de' ? 'Deutsch' : 'العربية'}
           </span>
         </button>
 
         <NavLink
           to="/profile"
           onClick={() => isMobileMenuOpen && onMobileMenuClose()}
-          className={`w-full mb-2 rounded-lg text-xs font-bold border flex items-center transition-all duration-300 overflow-hidden ${
-            isExpanded || isMobileMenuOpen ? "px-3 py-2 gap-2" : "p-2 justify-center"
+          className={`w-full mb-2 rounded-xl text-xs font-bold border flex items-center transition-all duration-300 overflow-hidden ${
+            isExpanded || isMobileMenuOpen || isPinned ? "px-3 py-2 gap-2" : "p-3 justify-center"
           } ${
             isAdmin
               ? "bg-blue-900/30 text-blue-400 border-blue-500/30"
               : "bg-slate-800 text-slate-400 border-slate-700"
           }`}
         >
-          {isAdmin ? <ShieldCheck size={14} /> : <User size={14} />}
+          {isAdmin ? <ShieldCheck size={18} /> : <User size={18} />}
           <span
             className={`truncate uppercase font-black tracking-widest ${
-              isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
+              isExpanded || isMobileMenuOpen || isPinned ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
             {user?.name || user?.displayName?.split(" ")[0] || t('sidebar.nav.common.profile')}
@@ -241,14 +260,14 @@ const Sidebar = ({
             window.location.href = "/login";
             isMobileMenuOpen && onMobileMenuClose();
           }}
-          className={`w-full flex items-center gap-3 rounded-xl hover:bg-red-500/10 hover:text-red-400 transition-colors text-slate-400 ${
-            isExpanded || isMobileMenuOpen ? "px-4 py-3 justify-start" : "p-3 justify-center"
+          className={`w-full flex items-center rounded-xl hover:bg-red-500/10 hover:text-red-400 transition-colors text-slate-400 ${
+            isExpanded || isMobileMenuOpen || isPinned ? "px-4 py-3 justify-start gap-3" : "p-3 justify-center"
           }`}
         >
           <LogOut size={18} />
           <span
             className={`font-medium ${
-              isExpanded || isMobileMenuOpen ? "opacity-100" : "opacity-0 w-0"
+              isExpanded || isMobileMenuOpen || isPinned ? "opacity-100" : "opacity-0 w-0"
             }`}
           >
             {t('sidebar.nav.common.logout')}

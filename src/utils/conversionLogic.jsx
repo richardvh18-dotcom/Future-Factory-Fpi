@@ -13,10 +13,8 @@ import {
   limit,
   startAfter,
   setDoc,
-  serverTimestamp,
 } from "firebase/firestore";
 import { PATHS } from "../config/dbPaths";
-import * as XLSX from "xlsx";
 import i18n from "../i18n";
 
 /**
@@ -275,6 +273,8 @@ export const uploadNewItemsOnly = async (items, unusedAppId, onProgress) => {
  * Verwerkt een Excel bestand naar JSON.
  */
 export const parseExcel = async (file) => {
+  const XLSX = await import("xlsx");
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {

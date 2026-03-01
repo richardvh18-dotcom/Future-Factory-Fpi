@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { ChevronDown, ChevronRight, Send, FileText, ListChecks, CheckCircle2, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-const RoadmapViewer = ({ user }) => {
+const RoadmapViewer = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("roadmap");
   const [expandedPhase, setExpandedPhase] = useState("8");

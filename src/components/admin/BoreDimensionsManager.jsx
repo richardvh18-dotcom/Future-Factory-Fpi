@@ -8,13 +8,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Database,
-  Filter,
   Target,
   ShieldCheck,
-  ChevronRight,
   Hash,
   Activity,
-  Info,
 } from "lucide-react";
 import {
   collection,
@@ -25,7 +22,7 @@ import {
   serverTimestamp,
   query,
 } from "firebase/firestore";
-import { db, auth } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 
 /**
@@ -94,8 +91,9 @@ const BoreDimensionsManager = () => {
       return;
     try {
       await deleteDoc(doc(db, ...PATHS.BORE_DIMENSIONS, id));
+      await logActivity(auth.currentUser?.uid, "DRILL_DELETE", `Bore dimension deleted: ${id}`);
       setStatus({ type: "success", msg: "Item verwijderd uit de root." });
-    } catch (error) {
+    } catch {
       setStatus({ type: "error", msg: "Verwijderen mislukt." });
     }
   };
@@ -127,6 +125,8 @@ const BoreDimensionsManager = () => {
         },
         { merge: true }
       );
+
+      await logActivity(auth.currentUser?.uid, "DRILL_ADD", `Bore dimension saved: ${docId}`);
 
       setStatus({
         type: "success",

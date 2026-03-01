@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   ChevronLeft, 
-  ChevronRight, 
-  Calendar,
-  ZoomIn,
-  ZoomOut,
-  Filter
+  ChevronRight
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -13,7 +9,6 @@ import { PATHS } from "../../config/dbPaths";
 import { 
   format, 
   startOfWeek, 
-  endOfWeek, 
   eachDayOfInterval,
   addDays,
   subDays,
@@ -221,14 +216,13 @@ const GanttChartView = () => {
     if (!isDraggingThis && (daysFromStart < 0 || daysFromStart >= viewRange)) return null;
 
     // Bereken duur in uren (Prioriteit: Efficiency Data > Estimated Hours > Fallback)
-    let totalHours = 0;
-    let isEfficiencyBased = false;
+    let totalHours;
     const importedInfo = efficiencyData[order.orderId];
+    const isEfficiencyBased = Boolean(importedInfo && importedInfo.minutesPerUnit);
 
-    if (importedInfo && importedInfo.minutesPerUnit) {
+    if (isEfficiencyBased) {
       const planCount = parseInt(order.plan) || 0;
       totalHours = (importedInfo.minutesPerUnit * planCount) / 60;
-      isEfficiencyBased = true;
     } else {
       totalHours = parseFloat(order.estimatedHours) || 0;
       if (totalHours === 0) {

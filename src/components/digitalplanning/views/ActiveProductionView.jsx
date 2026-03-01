@@ -3,13 +3,11 @@ import {
   Activity,
   Zap,
   ArrowRight,
-  Info,
   AlertTriangle,
   AlertOctagon,
   BellRing,
   Lightbulb,
   Repeat,
-  Clock,
 } from "lucide-react";
 import {
   getMaterialInfo,
@@ -22,7 +20,6 @@ const ActiveProductionView = ({
   selectedStation,
   onProcessUnit,
   onClickUnit,
-  onSendReminder,
 }) => {
   // Alleen tonen als we NIET op BM01 zitten (die heeft een andere view)
   if (selectedStation === "BM01" || selectedStation === "Station BM01")

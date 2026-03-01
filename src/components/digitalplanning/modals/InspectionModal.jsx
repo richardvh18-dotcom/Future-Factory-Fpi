@@ -8,9 +8,9 @@ import {
   MessageSquare,
   ShieldCheck,
   Zap,
-  Loader2,
 } from "lucide-react";
 import ProductionStartModal from "./ProductionStartModal";
+import { auth, logActivity } from "../../../config/firebase";
 
 /**
  * InspectionModal V2.0 - Final Quality Assurance
@@ -23,8 +23,13 @@ const InspectionModal = ({ isOpen, onClose, order, onInspect }) => {
 
   if (!isOpen || !order) return null;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // onInspect handles the database write in the parent component
+    try {
+      await logActivity(auth.currentUser?.uid, "INSPECTION_COMPLETE", `Inspection completed for order ${order.id}. Status: ${status}`);
+    } catch (e) {
+      console.error("Log error", e);
+    }
     onInspect(order.id, status, notes);
     onClose();
   };

@@ -5,11 +5,9 @@ import {
   CheckCircle2,
   Loader2,
   Table,
-  ArrowRight,
   AlertCircle,
   ShieldAlert,
   FileSpreadsheet,
-  Download,
   Clipboard,
   Zap,
   X,
@@ -434,7 +432,7 @@ const BulkUploadView = () => {
                   <tr key={i} className="hover:bg-blue-50/30 transition-colors">
                     {Object.entries(row)
                       .filter(([k]) => k.trim() !== "")
-                      .map(([k, v], j) => (
+                      .map(([, v], j) => (
                         <td
                           key={j}
                           className="px-8 py-4 text-[11px] font-bold text-slate-600 font-mono italic"

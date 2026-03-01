@@ -28,10 +28,10 @@ import {
   getDocs,
   getDoc
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { formatMinutes } from "../../utils/efficiencyCalculator";
-import { getRecommendations, analyzeAndUpdateStandards } from "../../utils/autoLearningService";
+import { analyzeAndUpdateStandards } from "../../utils/autoLearningService";
 
 /**
  * ProductionTimeStandardsManager
@@ -143,6 +143,8 @@ const ProductionTimeStandardsManager = () => {
         updatedAt: serverTimestamp()
       });
 
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Production standard added: ${newEntry.itemCode} (${newEntry.machine})`);
+
       setNewEntry({ itemCode: "", machine: "", standardMinutes: "", description: "" });
       setStatus({ type: "success", message: t('productionStandards.success_added', "Standaard toegevoegd") });
       setTimeout(() => setStatus(null), 3000);
@@ -162,6 +164,9 @@ const ProductionTimeStandardsManager = () => {
         { ...updates, updatedAt: serverTimestamp() },
         { merge: true }
       );
+
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Production standard updated: ${id}`);
+
       setEditMode(null);
       setStatus({ type: "success", message: t('productionStandards.success_updated', "Standaard bijgewerkt") });
       setTimeout(() => setStatus(null), 3000);
@@ -178,6 +183,7 @@ const ProductionTimeStandardsManager = () => {
     
     try {
       await deleteDoc(doc(db, ...PATHS.PRODUCTION_STANDARDS, id));
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Production standard deleted: ${id}`);
       setStatus({ type: "success", message: t('productionStandards.success_deleted', "Standaard verwijderd") });
       setTimeout(() => setStatus(null), 3000);
     } catch (error) {
@@ -229,6 +235,10 @@ const ProductionTimeStandardsManager = () => {
           }
         }
 
+        if (imported > 0) {
+          await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Production standards imported: ${imported} records`);
+        }
+
         setStatus({ 
           type: "success", 
           message: t('productionStandards.success_imported', { count: imported, defaultValue: `${imported} standaarden geïmporteerd` })
@@ -277,6 +287,7 @@ const ProductionTimeStandardsManager = () => {
       setShowRecommendations(true);
 
       if (applyUpdates) {
+        await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Production standards auto-updated: ${results.updated} records`);
         setStatus({ 
           type: "success", 
           message: t('productionStandards.success_auto_updated', { count: results.updated, defaultValue: `${results.updated} standaarden automatisch bijgewerkt` })

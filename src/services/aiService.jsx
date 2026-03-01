@@ -7,7 +7,7 @@
  * VITE_GOOGLE_AI_KEY=AIza...
  */
 
-import { collection, query, getDocs, limit, where } from 'firebase/firestore';
+import { collection, query, getDocs, limit } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { PATHS } from '../config/dbPaths';
 import i18n from '../i18n';
@@ -810,7 +810,7 @@ class AIService {
       return JSON.parse(cleanedResponse);
     } catch (error) {
       console.error('Failed to parse flashcard JSON:', error);
-      throw new Error(i18n.t("ai.flashcard_error", "AI returned invalid flashcard format"));
+      throw new Error(i18n.t("ai.flashcard_error", "AI returned invalid flashcard format"), { cause: error });
     }
   }
 }

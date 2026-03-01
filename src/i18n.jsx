@@ -5,11 +5,13 @@ import LanguageDetector from "i18next-browser-languagedetector";
 import { nl } from "./lang/nl";
 import { en } from "./lang/en";
 import { ar } from "./lang/ar";
+import { de } from "./lang/de";
 
 const resources = {
   nl,
   en,
-  ar
+  ar,
+  de
 };
 
 i18n
@@ -17,8 +19,9 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
-    supportedLngs: ['nl', 'en', 'ar'],
+    supportedLngs: ['nl', 'en', 'ar', 'de'],
     fallbackLng: "en", // Set English as fallback
+    load: 'languageOnly',
     // lng: "en", // Verwijderd: Dit forceerde Engels en negeerde de detector/localStorage
     detection: {
       order: ['localStorage', 'navigator'],

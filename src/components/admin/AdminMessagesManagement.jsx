@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  MessageSquare,
   Users,
   Plus,
   Trash2,
@@ -26,7 +25,7 @@ import {
   doc,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
@@ -51,7 +50,6 @@ const AdminMessagesManagement = () => {
     members: [],
     color: "bg-blue-500",
   });
-  const [editingGroupId, setEditingGroupId] = useState(null);
 
   // Settings State
   const [settings, setSettings] = useState({
@@ -120,6 +118,8 @@ const AdminMessagesManagement = () => {
         createdBy: user?.email || "Admin",
       });
 
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Message group created: ${newGroup.name}`);
+
       setNewGroup({ name: "", description: "", members: [], color: "bg-blue-500" });
       setShowNewGroupForm(false);
       setStatus({ type: "success", msg: t('adminMessages.groupCreated') });
@@ -140,6 +140,7 @@ const AdminMessagesManagement = () => {
     setSaving(true);
     try {
       await deleteDoc(doc(db, ...PATHS.MESSAGES, "config", "groups", groupId));
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Message group deleted: ${groupId}`);
       setStatus({ type: "success", msg: t('adminMessages.groupDeleted') });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
@@ -160,6 +161,8 @@ const AdminMessagesManagement = () => {
         updatedAt: serverTimestamp(),
         updatedBy: user?.email || "Admin",
       }, { merge: true });
+
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", "Message settings updated");
 
       setStatus({ type: "success", msg: t('adminMessages.settingsSaved') });
       setTimeout(() => setStatus(null), 3000);

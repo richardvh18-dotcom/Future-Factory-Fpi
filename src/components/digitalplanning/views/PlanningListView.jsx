@@ -10,18 +10,15 @@ import {
   ListFilter,
   CalendarDays,
   Activity,
-  Tag,
   Clock,
   FileText,
   Briefcase,
   Layers,
-  Hash,
   Info,
   X,
   Printer,
   ExternalLink,
   MapPin,
-  ClipboardList,
 } from "lucide-react";
 import {
   format,
@@ -35,6 +32,7 @@ import {
 } from "date-fns";
 import { nl } from "date-fns/locale";
 
+// Importeer de centrale StatusBadge (vanuit ../common/)
 import StatusBadge from "../common/StatusBadge";
 import { syncMissingDrawings } from "../../../utils/planningSyncLogic";
 
@@ -59,9 +57,13 @@ const OrderDetailPane = ({ order, onClose }) => {
             <FileText size={24} />
           </div>
           <div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">
-              {order.orderId}
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">
+                {order.orderId}
+              </h2>
+              {/* StatusBadge ook hier toegevoegd voor duidelijkheid */}
+              <StatusBadge status={order.status} />
+            </div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 text-left">
               Gedetailleerd Order Dossier
             </p>

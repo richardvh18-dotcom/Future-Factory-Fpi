@@ -9,6 +9,8 @@ import {
   Timer,
   ShieldCheck,
   PlayCircle,
+  PauseCircle,
+  ArrowRight,
 } from "lucide-react";
 
 /**
@@ -25,7 +27,7 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
     const cleanStatus = String(s).toLowerCase();
 
     // 1. KWALITEITS LABELS (QC)
-    if (cleanStatus === "goed" || cleanStatus === "approved") {
+    if (cleanStatus === "goed" || cleanStatus === "approved" || cleanStatus === "released") {
       return {
         label: t('status.good', 'Goed'),
         style: "bg-emerald-50 text-emerald-600 border-emerald-200",
@@ -77,10 +79,68 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
         icon: <Clock size={12} />,
       };
     }
+    
+    // 3. PILOT FLOW & NIEUWE STATUSSEN
+    if (cleanStatus === "active") {
+      return {
+        label: t('status.active', 'Actief'),
+        style: "bg-green-100 text-green-800 border-green-200 animate-pulse",
+        icon: <Zap size={12} />,
+      };
+    }
+    if (cleanStatus === "paused") {
+      return {
+        label: t('status.paused', 'Gepauzeerd'),
+        style: "bg-orange-100 text-orange-800 border-orange-200",
+        icon: <PauseCircle size={12} />,
+      };
+    }
+    if (cleanStatus === "problem") {
+      return {
+        label: t('status.problem', 'Probleem'),
+        style: "bg-red-100 text-red-800 border-red-200",
+        icon: <AlertTriangle size={12} />,
+      };
+    }
+    if (cleanStatus === "to_unload") {
+      return {
+        label: t('status.to_unload', 'Te Lossen'),
+        style: "bg-yellow-100 text-yellow-800 border-yellow-200",
+        icon: <ArrowRight size={12} />,
+      };
+    }
+    if (cleanStatus === "unloading") {
+      return {
+        label: t('status.unloading', 'Lossen...'),
+        style: "bg-cyan-100 text-cyan-800 border-cyan-200 animate-pulse",
+        icon: <Zap size={12} />,
+      };
+    }
+    if (cleanStatus === "post_processing") {
+      return {
+        label: t('status.post_processing', 'Nabewerking'),
+        style: "bg-indigo-100 text-indigo-800 border-indigo-200",
+        icon: <Clock size={12} />,
+      };
+    }
+    if (cleanStatus === "to_inspect") {
+      return {
+        label: t('status.to_inspect', 'Te Keuren'),
+        style: "bg-pink-100 text-pink-800 border-pink-200",
+        icon: <ShieldCheck size={12} />,
+      };
+    }
+    if (cleanStatus === "planned") {
+      return {
+        label: t('status.planned', 'Gepland'),
+        style: "bg-blue-100 text-blue-800 border-blue-200",
+        icon: <Clock size={12} />,
+      };
+    }
 
     // FALLBACK
     return {
-      label: s,
+      label: s?.replace(/_/g, ' ') || 'UNKNOWN',
       style: "bg-slate-50 text-slate-400 border-slate-200",
       icon: <PlayCircle size={12} />,
     };

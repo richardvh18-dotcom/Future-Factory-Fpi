@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
  * Biedt een interactieve 3D interface voor het leren van technische termen en processen.
  */
 const FlashcardViewer = ({ data, onClose }) => {
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
 

@@ -1,16 +1,14 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   BrainCircuit,
-  ThumbsDown,
   ThumbsUp,
   Trash2,
   CheckCircle2,
   Clock,
-  MessageSquareQuote,
   RefreshCw,
   History as LucideHistory,
-  Database,
   ShieldCheck,
   Save,
   X,
@@ -27,7 +25,7 @@ import {
   orderBy,
   getDocs,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
 /**
@@ -35,6 +33,7 @@ import { PATHS } from "../../config/dbPaths";
  * Module voor kwaliteitsborging van AI antwoorden in de root: /future-factory/settings/ai_knowledge_base/
  */
 const AiTrainingView = () => {
+  const { t } = useTranslation();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
@@ -43,7 +42,7 @@ const AiTrainingView = () => {
 
   useEffect(() => {
     // Gebruik het nieuwe root pad uit dbPaths.js
-    const colRef = collection(db, ...PATHS.AI_KNOWLEDGE_BASE);
+    const colRef = collection(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']));
     const q = query(colRef, orderBy("timestamp", "desc"));
 
     const unsubscribe = onSnapshot(
@@ -64,7 +63,7 @@ const AiTrainingView = () => {
   const handleVerify = async (id, correctedText = null) => {
     setSaving(true);
     try {
-      const docRef = doc(db, ...PATHS.AI_KNOWLEDGE_BASE, id);
+      const docRef = doc(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']), id);
       await updateDoc(docRef, {
         verified: true,
         correctedAnswer: correctedText || null,
@@ -72,6 +71,7 @@ const AiTrainingView = () => {
         verifiedBy: "Admin",
       });
       setEditingId(null);
+      await logActivity(auth.currentUser?.uid, 'AI_VERIFY', `Training verified for ID: ${id}. Correction: ${correctedText ? 'Yes' : 'No'}`);
       setCorrection("");
     } catch (e) {
       console.error(t('ai.training.verify_error'), e);
@@ -84,7 +84,7 @@ const AiTrainingView = () => {
     if (!window.confirm(t('ai.training.delete_confirm')))
       return;
     try {
-      await deleteDoc(doc(db, ...PATHS.AI_KNOWLEDGE_BASE, id));
+      await deleteDoc(doc(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']), id));
     } catch (e) {
       console.error(t('ai.training.delete_error'), e);
     }
@@ -94,7 +94,7 @@ const AiTrainingView = () => {
     if (!window.confirm(t('ai.training.migrate_confirm'))) return;
     
     try {
-      const colRef = collection(db, ...PATHS.AI_KNOWLEDGE_BASE);
+      const colRef = collection(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']));
       const snap = await getDocs(colRef);
       let updated = 0;
       
@@ -107,7 +107,7 @@ const AiTrainingView = () => {
         
         if (Object.keys(updates).length > 0) {
           updated++;
-          await updateDoc(doc(db, ...PATHS.AI_KNOWLEDGE_BASE, d.id), updates);
+          await updateDoc(doc(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']), d.id), updates);
         }
       });
       
@@ -120,7 +120,7 @@ const AiTrainingView = () => {
   };
 
   const negativeLogs = logs.filter(
-    (l) => l.feedback === "negative" && !l.verified
+    (l) => (l.feedback === "negative" || l.type === "rejected") && !l.verified
   );
   const recentLogs = logs
     .filter((l) => l.feedback !== "negative" || l.verified)
@@ -152,7 +152,7 @@ const AiTrainingView = () => {
               <ShieldCheck size={10} /> Root Protected
             </span>
             <span className="text-[9px] font-mono text-slate-500 italic">
-              /{PATHS.AI_KNOWLEDGE_BASE.join("/")}
+              /{(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']).join("/")}
             </span>
           </div>
         </div>

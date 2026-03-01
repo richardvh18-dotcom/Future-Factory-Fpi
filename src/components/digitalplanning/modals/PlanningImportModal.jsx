@@ -5,13 +5,11 @@ import {
   Upload,
   FileSpreadsheet,
   CheckCircle2,
-  AlertTriangle,
   Loader2,
   Table,
   RefreshCw,
   PlusCircle,
   Info,
-  Calendar,
   Filter,
 } from "lucide-react";
 import {
@@ -21,9 +19,8 @@ import {
   serverTimestamp,
   getDocs,
 } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
-import * as XLSX from "xlsx";
 import {
   subWeeks,
   format,
@@ -67,13 +64,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const processDates = (rawDate) => {
     if (!rawDate) return { delivery: null, planned: null };
 
-    let dateObj = null;
-    if (rawDate instanceof Date) {
-      dateObj = rawDate;
-    } else {
-      dateObj = new Date(rawDate);
-      if (!isValid(dateObj)) dateObj = parseISO(rawDate);
-    }
+    const parsedDate = rawDate instanceof Date ? rawDate : new Date(rawDate);
+    const dateObj = isValid(parsedDate) ? parsedDate : parseISO(rawDate);
 
     if (!isValid(dateObj)) return { delivery: null, planned: null };
 
@@ -112,34 +104,32 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     setLoading(true);
     const reader = new FileReader();
 
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
+        const XLSX = await import("xlsx");
         const bstr = evt.target.result;
         const wb = XLSX.read(bstr, { type: "binary", cellDates: true });
-        
+
         let allData = [];
         let sheetsFound = 0;
 
-        // Iterate over all sheets instead of just the first one
-        wb.SheetNames.forEach(sheetName => {
+        wb.SheetNames.forEach((sheetName) => {
           const ws = wb.Sheets[sheetName];
           const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
-          // Zoek header rij (case-insensitive)
           const headerIndex = rawRows.findIndex((row) => {
-            const rowStr = row.map(c => String(c).toLowerCase().trim());
+            const rowStr = row.map((c) => String(c).toLowerCase().trim());
             return rowStr.includes("machine") && rowStr.includes("order");
           });
 
           if (headerIndex !== -1) {
             sheetsFound++;
-            const headers = rawRows[headerIndex].map(h => String(h).trim());
+            const headers = rawRows[headerIndex].map((h) => String(h).trim());
             const dataRows = rawRows.slice(headerIndex + 1);
 
-            // Helper om kolom index te vinden (case-insensitive)
-            const getIdx = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+            const getIdx = (name) =>
+              headers.findIndex((h) => h.toLowerCase() === name.toLowerCase());
 
-            // Cache indices
             const idxOrder = getIdx("order");
             const idxMachine = getIdx("machine");
             const idxItemCode = getIdx("manufactured item");
@@ -148,7 +138,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             const idxWeek = getIdx("week");
             const idxItemDesc = getIdx("item desc");
             const idxCode = getIdx("code");
-            const idxPoText = getIdx("po text") !== -1 ? getIdx("po text") : getIdx("po-text");
+            const idxPoText =
+              getIdx("po text") !== -1 ? getIdx("po text") : getIdx("po-text");
             const idxProject = getIdx("project");
             const idxProjectDesc = getIdx("project desc");
             const idxDrawing = getIdx("drawing");
@@ -166,23 +157,24 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                 const rawDateVal = row[idxDatum];
                 const { delivery, planned } = processDates(rawDateVal);
 
-                // Calculate Plan Quantity
                 const rawPlan = row[idxPlan];
-                let quantity = typeof rawPlan === 'string' ? parseFloat(rawPlan.replace(',', '.')) : parseFloat(rawPlan);
+                let quantity =
+                  typeof rawPlan === "string"
+                    ? parseFloat(rawPlan.replace(",", "."))
+                    : parseFloat(rawPlan);
                 if (isNaN(quantity)) quantity = 1;
 
                 const machine = normalizeMachine(row[idxMachine]);
-                
-                // BA Machines (Pipes) logic: Meters to Pieces conversion
-                const PIPE_MACHINES = ['BA05', 'BA07', 'BA08', 'BA09'];
+
+                const PIPE_MACHINES = ["BA05", "BA07", "BA08", "BA09"];
                 if (PIPE_MACHINES.includes(machine)) {
                   quantity = quantity / 10;
                 }
 
                 return {
                   id: docId,
-                  orderId: orderId,
-                  machine: machine,
+                  orderId,
+                  machine,
                   deliveryDate: delivery,
                   plannedDate: planned,
                   weekNumber: parseInt(row[idxWeek]) || null,
@@ -199,7 +191,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                   sourceSheet: sheetName,
                 };
               });
-            
+
             allData = [...allData, ...sheetData];
           }
         });
@@ -208,14 +200,12 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           alert(
             "Geen geldige sheets gevonden. Zorg dat de kolommen 'Machine' en 'order' aanwezig zijn in ten minste één tabblad."
           );
-          setLoading(false);
           return;
         }
 
-        // Deduplicatie: Filter dubbele regels uit het bestand zelf (op basis van gegenereerd ID)
         const uniqueData = [];
         const seenIds = new Set();
-        
+
         allData.forEach((item) => {
           if (!seenIds.has(item.id)) {
             seenIds.add(item.id);
@@ -281,7 +271,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         const chunk = dataToProcess.slice(i, i + batchSize);
 
         chunk.forEach((item) => {
-          const { isExisting, ...dbData } = item;
+          const dbData = Object.fromEntries(
+            Object.entries(item).filter(([key]) => key !== "isExisting")
+          );
           const docRef = doc(db, ...PATHS.PLANNING, item.id);
           batch.set(
             docRef,
@@ -298,10 +290,12 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         processed += chunk.length;
       }
 
+      await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", `Planning imported: ${processed} records`);
+
       alert(`Import voltooid! ${processed} regels verwerkt.`);
       if (onSuccess) onSuccess();
       onClose();
-    } catch (err) {
+    } catch {
       alert("Fout tijdens opslaan.");
     } finally {
       setImporting(false);

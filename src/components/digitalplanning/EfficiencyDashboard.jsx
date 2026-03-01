@@ -1,38 +1,46 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
-  BarChart3, 
   Clock, 
-  CheckCircle2, 
   AlertTriangle, 
   TrendingUp, 
   Activity,
   Search,
-  Filter,
   Timer,
+  BrainCircuit,
   History
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { PATHS, getEfficiencyArchivePath } from '../../config/dbPaths';
 import { calculateDuration, formatMinutes, getEfficiencyColor } from '../../utils/efficiencyCalculator';
+import AiPredictionView from './AiPredictionView';
 
 const EfficiencyDashboard = () => {
   const { t } = useTranslation();
   const [standards, setStandards] = useState([]);
   const [tracking, setTracking] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('active'); // 'active', 'all'
+  const [departmentFilter, setDepartmentFilter] = useState('ALL'); // Nieuw: Afdeling filter
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive'
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showAiAnalysis, setShowAiAnalysis] = useState(false);
 
   useEffect(() => {
     setLoading(true);
+
+    if (!PATHS || !PATHS.EFFICIENCY_HOURS) {
+      setLoading(false);
+      return;
+    }
+
     // 1. Haal de standaarden op (Targets uit Infor LN import)
     // Wissel tussen actuele collectie en archief op basis van viewMode
     const collectionPath = viewMode === 'active' 
-      ? ['future-factory', 'production', 'efficiency_hours']
-      : ['future-factory', 'production', 'archive', String(selectedYear), 'efficiency'];
+      ? PATHS.EFFICIENCY_HOURS
+      : getEfficiencyArchivePath(selectedYear);
 
     const standardsRef = collection(db, ...collectionPath);
     const unsubStandards = onSnapshot(standardsRef, (snapshot) => {
@@ -42,7 +50,7 @@ const EfficiencyDashboard = () => {
 
     // 2. Haal de werkelijke tracking data op (Actuals van de vloer)
     // We gebruiken de tracking collectie waar operators hun start/stop tijden loggen
-    const trackingRef = collection(db, 'future-factory', 'production', 'tracking');
+    const trackingRef = collection(db, ...PATHS.TRACKING);
     const unsubTracking = onSnapshot(trackingRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTracking(data);
@@ -57,8 +65,28 @@ const EfficiencyDashboard = () => {
   }, [viewMode, selectedYear]);
 
   const dashboardData = useMemo(() => {
+    // 1. AI Learning: Bouw een kennisbank op van historische tijden per product
+    const productKnowledgeBase = {};
+    
+    tracking.forEach(log => {
+      if ((log.status === 'completed' || log.status === 'shipped') && log.itemCode && log.timestamps?.station_start) {
+        const start = log.timestamps.station_start.toDate ? log.timestamps.station_start.toDate() : new Date(log.timestamps.station_start);
+        const end = log.timestamps.completed?.toDate ? log.timestamps.completed.toDate() : new Date();
+        const duration = calculateDuration(start, end);
+        
+        if (duration > 0) {
+          if (!productKnowledgeBase[log.itemCode]) {
+            productKnowledgeBase[log.itemCode] = { totalTime: 0, count: 0 };
+          }
+          productKnowledgeBase[log.itemCode].totalTime += duration;
+          productKnowledgeBase[log.itemCode].count += 1;
+        }
+      }
+    });
+
     // Combineer standaarden met werkelijke data
     let processed = standards.map(std => {
+      const itemCode = std.itemCode || std.productId || "Onbekend";
       // Vind alle tracking records voor deze order
       // We matchen op orderId (string comparison voor veiligheid)
       const relatedLogs = tracking.filter(t => 
@@ -108,6 +136,11 @@ const EfficiencyDashboard = () => {
       // Voorspelling: Als we op dit tempo doorgaan, halen we het dan?
       const isOverrun = actualMinutes > targetTotal;
       
+      // AI Voorspelling ophalen
+      const history = productKnowledgeBase[itemCode];
+      const aiAveragePerUnit = history ? (history.totalTime / history.count) : normPerUnit;
+      const aiPredictedTotal = aiAveragePerUnit * (std.quantity || 1);
+
       return {
         ...std,
         actualMinutes,
@@ -117,13 +150,20 @@ const EfficiencyDashboard = () => {
         logsCount: relatedLogs.length,
         qcTimeTotal: qcTotal,
         productionTimeTotal: prodTotal,
-        postProcessingTimeTotal: postTotal
+        postProcessingTimeTotal: postTotal,
+        aiPredictedTotal, // De voorspelde tijd op basis van historie
+        aiConfidence: history ? Math.min(100, history.count * 10) : 0, // Hoe zeker is de AI? (meer data = meer zekerheid)
+        department: std.department || 'Overig'
       };
     });
 
     // Filteren
     if (filterStatus === 'active' && viewMode === 'active') {
       processed = processed.filter(i => i.status !== 'completed' && i.status !== 'completed_in_ln');
+    }
+
+    if (departmentFilter !== 'ALL') {
+      processed = processed.filter(i => (i.department || "").toUpperCase() === departmentFilter);
     }
 
     if (searchTerm) {
@@ -157,7 +197,11 @@ const EfficiencyDashboard = () => {
         totalActual
       }
     };
-  }, [standards, tracking, filterStatus, searchTerm, viewMode]);
+  }, [standards, tracking, filterStatus, searchTerm, viewMode, departmentFilter]);
+
+  if (showAiAnalysis) {
+    return <AiPredictionView onClose={() => setShowAiAnalysis(false)} />;
+  }
 
   return (
     <div className="space-y-6 p-6 max-w-7xl mx-auto">
@@ -206,6 +250,18 @@ const EfficiencyDashboard = () => {
 
       {/* Filters & Search */}
       <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+        {/* Afdeling Filter */}
+        <select
+          value={departmentFilter}
+          onChange={(e) => setDepartmentFilter(e.target.value)}
+          className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5 font-bold outline-none"
+        >
+          <option value="ALL">Alle Afdelingen</option>
+          <option value="FITTINGS">Fittings</option>
+          <option value="PIPES">Pipes</option>
+          <option value="SPOOLS">Spools</option>
+        </select>
+
         <div className="flex items-center gap-2 w-full md:w-auto">
           <Search className="text-slate-400" size={20} />
           <input 
@@ -218,6 +274,14 @@ const EfficiencyDashboard = () => {
         </div>
         
         <div className="flex flex-wrap gap-2 items-center">
+          <button
+            onClick={() => setShowAiAnalysis(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl shadow-md font-black text-[10px] uppercase tracking-wider hover:bg-purple-700 transition-all"
+          >
+            <BrainCircuit size={16} />
+            <span className="hidden sm:inline">AI Analyse</span>
+          </button>
+
           {/* View Mode Selector (Actueel vs Archief) */}
           <div className="flex items-center bg-slate-100 rounded-lg p-1 mr-2">
             <button
@@ -265,13 +329,17 @@ const EfficiencyDashboard = () => {
               
               {/* Order Info */}
               <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-3 mb-1">
                   <span className="text-lg font-black text-slate-800">{item.orderId}</span>
                   <span className={`px-2 py-1 rounded-md text-xs font-bold uppercase ${item.isOverrun ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
                     {item.isOverrun ? t('efficiency_dashboard.status_overrun') : t('efficiency_dashboard.status_on_schedule')}
                   </span>
                 </div>
-                <div className="text-sm text-slate-500 flex gap-4">
+                <div className="text-sm font-bold text-blue-600 mb-2">
+                  {item.itemCode} <span className="text-slate-400">•</span> {item.item}
+                </div>
+
+                <div className="text-xs text-slate-500 flex flex-wrap gap-4 items-center">
                   <span>{t('efficiency_dashboard.qty')}: <b>{item.quantity}</b></span>
                   <span>{t('efficiency_dashboard.produced')}: <b>{item.producedQty}</b></span>
                   <span>{t('efficiency_dashboard.norm')}: <b>{Math.round(item.minutesPerUnit * 10) / 10}m</b> / {t('efficiency_dashboard.per_piece')}</span>
@@ -298,8 +366,13 @@ const EfficiencyDashboard = () => {
               {/* Progress Bar & Stats */}
               <div className="flex-1 flex flex-col justify-center">
                 <div className="flex justify-between text-sm font-bold mb-2">
-                  <span className="text-slate-600">{formatMinutes(item.actualMinutes)} {t('efficiency_dashboard.spent')}</span>
-                  <span className="text-slate-400">{t('efficiency_dashboard.of')} {formatMinutes(item.standardTimeTotal)}</span>
+                  <span className="text-slate-600">
+                    {formatMinutes(item.actualMinutes)} {t('efficiency_dashboard.spent')}
+                  </span>
+                  <div className="text-right">
+                    <span className="text-slate-400 block text-[10px] uppercase">Target</span>
+                    <span className="text-slate-600">{formatMinutes(item.standardTimeTotal)}</span>
+                  </div>
                 </div>
                 <div className="h-4 bg-slate-100 rounded-full overflow-hidden">
                   <div 
@@ -315,6 +388,12 @@ const EfficiencyDashboard = () => {
                   {Math.round(item.efficiency)}%
                 </div>
                 <div className="text-xs text-slate-400 font-bold uppercase">{t('efficiency_dashboard.efficiency')}</div>
+                
+                {/* AI Prediction Badge */}
+                <div className="mt-2 flex items-center gap-1 bg-purple-50 px-2 py-1 rounded border border-purple-100" title={`Gebaseerd op ${Math.round(item.aiConfidence/10)} eerdere producties`}>
+                  <BrainCircuit size={10} className="text-purple-500" />
+                  <span className="text-[9px] font-bold text-purple-700">AI: ~{formatMinutes(item.aiPredictedTotal)}</span>
+                </div>
               </div>
             </div>
           </div>

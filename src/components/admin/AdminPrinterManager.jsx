@@ -7,9 +7,7 @@ import {
   Save, 
   Wifi, 
   CheckCircle2, 
-  AlertCircle, 
   Play,
-  Monitor,
   X,
   Scan,
   MapPin,
@@ -26,7 +24,7 @@ import {
   serverTimestamp,
   getDoc
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
 const AdminPrinterManager = () => {
@@ -54,7 +52,7 @@ const AdminPrinterManager = () => {
 
   // Fetch printers
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "future-factory", "settings", "printers"), (snap) => {
+    const unsub = onSnapshot(collection(db, ...PATHS.PRINTERS), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setPrinters(list);
       setLoading(false);
@@ -98,7 +96,7 @@ const AdminPrinterManager = () => {
         
         clearTimeout(timeoutId);
         setPrinterStatuses(prev => ({ ...prev, [printer.id]: 'online' }));
-    } catch (err) {
+    } catch {
         setPrinterStatuses(prev => ({ ...prev, [printer.id]: 'offline' }));
     }
   };
@@ -122,21 +120,23 @@ const AdminPrinterManager = () => {
       if (formData.isDefault) {
         const updates = printers
           .filter(p => p.isDefault && p.id !== editingId)
-          .map(p => updateDoc(doc(db, "future-factory", "settings", "printers", p.id), { isDefault: false }));
+          .map(p => updateDoc(doc(db, ...PATHS.PRINTERS, p.id), { isDefault: false }));
         await Promise.all(updates);
       }
 
       if (editingId) {
-        await updateDoc(doc(db, "future-factory", "settings", "printers", editingId), {
+        await updateDoc(doc(db, ...PATHS.PRINTERS, editingId), {
           ...formData,
           updatedAt: serverTimestamp()
         });
       } else {
-        await addDoc(collection(db, "future-factory", "settings", "printers"), {
+        await addDoc(collection(db, ...PATHS.PRINTERS), {
           ...formData,
           createdAt: serverTimestamp()
         });
       }
+
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Printer saved: ${formData.name}`);
 
       setIsAdding(false);
       setEditingId(null);
@@ -150,7 +150,8 @@ const AdminPrinterManager = () => {
   const handleDelete = async (id) => {
     if (!window.confirm(t('adminPrinterManager.confirmDeletePrinter'))) return;
     try {
-      await deleteDoc(doc(db, "future-factory", "settings", "printers", id));
+      await deleteDoc(doc(db, ...PATHS.PRINTERS, id));
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Printer deleted: ${id}`);
     } catch (err) {
       console.error("Error deleting:", err);
     }
@@ -160,11 +161,12 @@ const AdminPrinterManager = () => {
     try {
       // Zet alle anderen op false
       const updates = printers.map(p => 
-        updateDoc(doc(db, "future-factory", "settings", "printers", p.id), { 
+        updateDoc(doc(db, ...PATHS.PRINTERS, p.id), { 
           isDefault: p.id === id 
         })
       );
       await Promise.all(updates);
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Printer default set to: ${id}`);
     } catch (err) {
       console.error("Error setting default:", err);
     }

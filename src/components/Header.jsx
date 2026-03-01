@@ -7,7 +7,7 @@ import { Search, Factory, X, Bot, Sparkles, Menu } from "lucide-react";
  * Header - Donker Thema v2.3 - Responsive voor mobiel en tablet
  * Nu met AI Assistant integratie in zoekbalk
  */
-const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMenuToggle }) => {
+const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [isAIMode, setIsAIMode] = useState(false);

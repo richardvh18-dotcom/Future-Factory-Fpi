@@ -1,601 +1,156 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { useTranslation } from "react-i18next";
-import {
-  Camera,
-  Search,
-  ArrowLeft,
-  X,
-  Loader2,
-  FileText,
-  Zap,
-  ArrowRight,
-  Scan,
-  AlertCircle,
-  Volume2,
-  CheckCircle2,
-  Maximize,
-  FileImage,
-} from "lucide-react";
-import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
-import ProductPassportModal from "./modals/ProductPassportModal";
+import React, { useState, useEffect, useRef } from "react";
+import { X } from "lucide-react";
 
-/**
- * MobileScanner V26 - Focus op Helderheid & Snelheid.
- * Verwijdert zware filters voor een lichter beeld en snellere QR-detectie.
- */
-const MobileScanner = () => {
-  const navigate = useNavigate();
-  const { t } = useTranslation();
-  const [loading, setLoading] = useState(true);
-  const [allOrders, setAllOrders] = useState([]);
-  const [allTracked, setAllTracked] = useState([]);
-
-  // UI & Scan States
-  const [activeMode, setActiveMode] = useState("idle");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [cameraError, setCameraError] = useState(null);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [hasFlash, setHasFlash] = useState(false);
-  const [flashOn, setFlashOn] = useState(false);
-  const [viewingProduct, setViewingProduct] = useState(null);
-  // jsQrLoaded niet meer nodig, want we importeren het direct
-
-  // Refs voor de engine
+const MobileScanner = ({ onScan, onClose }) => {
+  const [scannerLoaded, setScannerLoaded] = useState(false);
+  const [manualCode, setManualCode] = useState("");
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const requestRef = useRef(null);
+  const codeReaderRef = useRef(null);
   const isScanningRef = useRef(false);
-  const isProcessingFrameRef = useRef(false);
 
-  const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-
-  // 1. Initialisatie
   useEffect(() => {
-    // FAILSAFE: Laad jsQR via CDN als de import faalt (voor zekerheid)
-    if (!window.jsQR) {
-        const script = document.createElement("script");
-        script.id = "jsqr-cdn-fallback";
-        script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
-        script.async = true;
-        document.head.appendChild(script);
+    // Load ZXing library via CDN (Multi-format support: QR + Barcodes)
+    const scriptId = "zxing-scanner";
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://unpkg.com/@zxing/library@0.20.0";
+      script.async = true;
+      script.onload = () => setScannerLoaded(true);
+      document.head.appendChild(script);
+    } else {
+      setScannerLoaded(true);
     }
 
-    // Synchroniseer met de database voor direct resultaat na een scan
-    const unsubOrders = onSnapshot(
-      collection(db, ...PATHS.PLANNING),
-      (snap) => {
-        setAllOrders(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-      },
-      (error) => {
-        console.error("Orders listener error:", error);
-      }
-    );
-
-    const unsubProducts = onSnapshot(
-      collection(db, ...PATHS.TRACKING),
-      (snap) => {
-        setAllTracked(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Products listener error:", error);
-        setLoading(false);
-      }
-    );
-
+    // Cleanup bij unmount
     return () => {
-      console.log("[MobileScanner] Cleanup: listeners worden afgesloten");
-      unsubOrders();
-      unsubProducts();
       stopCamera();
     };
-  }, []); // Leeg array - de listeners moeten één keer worden opgezet bij mount
+  }, []);
 
-  // 2. Camera aansturing
+  // Start camera zodra scanner geladen is
+  useEffect(() => {
+    if (scannerLoaded) {
+      startCamera();
+    }
+  }, [scannerLoaded]);
+
   const startCamera = async () => {
-    setCameraError(null);
-    setIsSuccess(false);
-    setActiveMode("camera");
-
     try {
-      // PROBEER FOCUS TE FORCEREN (Cruciaal voor dichtbij scannen)
       const constraints = {
         video: {
-          facingMode: "environment",
-          width: { ideal: 1920 }, // Hogere resolutie vragen voor betere focus
+          facingMode: "environment", 
+          width: { ideal: 1920 }, // Hogere resolutie voor betere detectie
           height: { ideal: 1080 },
-          advanced: [{ focusMode: "continuous" }]
-        },
+          advanced: [{ focusMode: "continuous" }] // Probeer autofocus te forceren
+        }
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      if (videoRef.current) {
-        // ... bestaande code ...
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        isScanningRef.current = true;
-        isProcessingFrameRef.current = false;
-
-        // Apply track constraints (Focus fix)
-        const track = stream.getVideoTracks()[0];
-        const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-        setHasFlash(!!capabilities.torch);
-
-        // Probeer autofocus te activeren als de hardware het ondersteunt
-        if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
-             try {
-                await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
-             } catch(e) { console.warn("Focus constraint failed", e); }
-        }
-
-        videoRef.current.setAttribute("playsinline", "true");
-        await videoRef.current.play();
-
-        // Start de analyse-loop
-        requestRef.current = requestAnimationFrame(scanFrame);
+      
+      // Apply focus constraint if supported (Cruciaal voor mobiel!)
+      const track = stream.getVideoTracks()[0];
+      const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+      if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+        try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) { console.error(e); }
       }
-    } catch (err) {
-      console.error("Camera fout:", err);
-      setCameraError(t('scanner.camera_error'));
-      setActiveMode("idle");
-    }
-  };
 
-  const toggleFlash = async () => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
-    try {
-      const newFlashState = !flashOn;
-      await track.applyConstraints({ advanced: [{ torch: newFlashState }] });
-      setFlashOn(newFlashState);
-    } catch (err) {
-      console.warn("Zaklamp niet ondersteund door browser/hardware");
+      // Gebruik window.ZXing (geladen via CDN)
+      if (videoRef.current && window.ZXing) {
+        const codeReader = new window.ZXing.BrowserMultiFormatReader();
+        codeReaderRef.current = codeReader;
+        isScanningRef.current = true;
+
+        // ZXing handles the video stream and decoding loop
+        await codeReader.decodeFromStream(stream, videoRef.current, (result) => {
+          if (result) {
+            if (navigator.vibrate) navigator.vibrate(100);
+            onScan(result.getText());
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Camera error:", error);
+      alert("Kan camera niet starten. Controleer permissies.");
+      onClose();
     }
   };
 
   const stopCamera = () => {
     isScanningRef.current = false;
-    isProcessingFrameRef.current = false;
-    setFlashOn(false);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (requestRef.current) cancelAnimationFrame(requestRef.current);
-    setActiveMode("idle");
-  };
-
-  // 3. De Scan Engine (Geoptimaliseerd voor snelheid)
-  const scanFrame = async () => {
-    if (
-      !isScanningRef.current ||
-      !videoRef.current ||
-      !canvasRef.current
-    ) {
-      if (isScanningRef.current)
-        requestRef.current = requestAnimationFrame(scanFrame);
-      return;
-    }
-
-    // Voorkom dat de processor overbelast raakt
-    if (isProcessingFrameRef.current) {
-      requestRef.current = requestAnimationFrame(scanFrame);
-      return;
-    }
-
-    const video = videoRef.current;
-    if (video.readyState === 4 && video.videoWidth > 0 && video.videoHeight > 0) {
-      isProcessingFrameRef.current = true;
-
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-
-      // FIX: Scherper beeld voor de scanner (720p is vaak sweet spot)
-      const maxDimension = 800; // Verhoogd van 500 naar 800 voor meer detail
-      const scale = Math.min(maxDimension / video.videoWidth, maxDimension / video.videoHeight);
-      
-      const targetWidth = Math.floor(video.videoWidth * scale);
-      const targetHeight = Math.floor(video.videoHeight * scale);
-
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-
-      // Scan het VOLLEDIGE beeld
-      context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, 0, 0, targetWidth, targetHeight);
-
-      const imageData = context.getImageData(0, 0, targetWidth, targetHeight);
-
-      try {
-        // ROBUUSTE LIBRARY LOADER
-        // We gebruiken nu uitsluitend window.jsQR om build-issues te voorkomen
-        const scannerFunc = window.jsQR;
-
-        if (scannerFunc && typeof scannerFunc === 'function') {
-            // Gebruik ALTIJD attemptBoth - kost iets meer CPU maar pakt alles
-            const code = scannerFunc(imageData.data, targetWidth, targetHeight, {
-                inversionAttempts: "attemptBoth",
-            });
-
-            if (code && code.data && code.data.length > 0) {
-                // QR GEVONDEN!
-                if (navigator.vibrate) navigator.vibrate(200);
-                console.log("✅ QR Code Gevonden:", code.data);
-                
-                setIsSuccess(true);
-                setSearchTerm(code.data);
-
-                setTimeout(() => stopCamera(), 800);
-                return;
-            }
-        } else {
-             // Als de scanner nog niet geladen is, probeer over 500ms opnieuw de fallback te laden
-             if (!document.getElementById("jsqr-cdn-fallback")) {
-                const script = document.createElement("script");
-                script.id = "jsqr-cdn-fallback";
-                script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
-                script.async = true;
-                document.head.appendChild(script);
-             }
-        }
-      } catch (e) {
-        console.error("Scan error:", e);
-      } finally {
-        isProcessingFrameRef.current = false;
-      }
-    }
-
-    // Probeer het opnieuw bij het volgende beeldje (frame)
-    requestRef.current = requestAnimationFrame(scanFrame);
-  };
-
-  // 4. Filteren van database resultaten op basis van gescande code
-  const searchResults = useMemo(() => {
-    const term = (searchTerm || "").toLowerCase().trim();
-    if (!term) return [];
-
-    const matchedOrders = allOrders
-      .filter(
-        (o) =>
-          (o.orderId || "").toLowerCase().includes(term) ||
-          (o.itemCode || "").toLowerCase().includes(term) ||
-          (o.item || "").toLowerCase().includes(term)
-      )
-      .map((o) => ({ ...o, searchType: "order", displayId: o.orderId }));
-
-    const matchedTracked = allTracked
-      .filter(
-        (p) =>
-          (p.lotNumber || "").toLowerCase().includes(term) ||
-          (p.orderId || "").toLowerCase().includes(term) ||
-          (p.itemCode || "").toLowerCase().includes(term)
-      )
-      .map((p) => ({ ...p, searchType: "lot", displayId: p.lotNumber }));
-
-    return [...matchedTracked, ...matchedOrders].slice(0, 15);
-  }, [allOrders, allTracked, searchTerm]);
-
-  const handleOpenItem = (item) => {
-    const machineId = item.machine || item.stationLabel;
-    if (machineId) {
-      navigate(`/terminal/${machineId}`, { state: { selectedId: item.id } });
-    } else {
-      alert(t('scanner.no_machine_linked'));
+    if (codeReaderRef.current) {
+      codeReaderRef.current.reset();
+      codeReaderRef.current = null;
     }
   };
 
-  const handleViewDrawing = async (e, productId) => {
-    e.stopPropagation();
-    if (!productId) return;
-    try {
-      if (typeof productId === 'object') {
-        setViewingProduct(productId);
-        return;
-      }
-      const docRef = doc(db, ...PATHS.PRODUCTS, productId);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        setViewingProduct({ id: snap.id, ...snap.data() });
-      } else {
-        alert(t('scanner.product_not_found'));
-      }
-    } catch (err) {
-      console.error("Fout bij laden product:", err);
+  const handleManualSubmit = (e) => {
+    e.preventDefault();
+    if (manualCode.trim()) {
+      onScan(manualCode.trim());
     }
   };
-
-  if (loading)
-    return (
-      <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white">
-        <Loader2 className="animate-spin text-blue-500 mb-6" size={56} />
-        <p className="text-xs font-black uppercase tracking-widest italic animate-pulse">
-          {t('common.loading', 'Systeem laden...')}
-        </p>
-      </div>
-    );
 
   return (
-    <div className="fixed inset-0 bg-slate-50 flex flex-col z-[200] animate-in fade-in overflow-hidden text-left">
-      {/* HEADER */}
-      <div className="p-6 bg-white border-b border-slate-200 flex items-center justify-between shadow-sm shrink-0">
+    <div className="fixed inset-0 z-[9999] bg-black">
+      <div className="relative h-full">
+        {/* Close Button */}
         <button
-          onClick={() => navigate("/portal")}
-          className="p-3 -ml-3 text-slate-400 hover:text-slate-900 transition-colors"
+          onClick={onClose}
+          className="absolute top-4 right-4 z-10 p-3 bg-white rounded-full shadow-lg"
         >
-          <ArrowLeft size={28} />
+          <X size={24} className="text-slate-900" />
         </button>
-        <div className="text-center">
-          <h1 className="text-xl font-black uppercase italic tracking-tighter leading-none">
-            {t('scanner.title').split(' ')[0]} <span className="text-blue-600">{t('scanner.title').split(' ')[1]}</span>
-          </h1>
-          <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-            {t('scanner.subtitle')}
-          </p>
-        </div>
-        <div className="w-10"></div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8 pb-32">
-        {/* SCAN TRIGGER */}
-        <div className="space-y-4">
-          <button
-            onClick={startCamera}
-            className="w-full py-12 bg-blue-600 text-white rounded-[45px] shadow-2xl shadow-blue-200 flex flex-col items-center justify-center gap-5 active:scale-95 transition-all border-4 border-blue-400/20 group relative overflow-hidden"
-          >
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-400/20 to-transparent opacity-50"></div>
-            <div className="p-6 bg-white/10 rounded-[30px] backdrop-blur-md relative z-10 group-hover:scale-110 transition-transform">
-              <Scan size={56} className="text-white" strokeWidth={2.5} />
-            </div>
-            <div className="text-center relative z-10">
-              <span className="font-black uppercase tracking-[0.3em] text-sm block">
-                {t('scanner.open_camera')}
-              </span>
-              <span className="text-[10px] font-bold text-blue-100/60 uppercase mt-2 italic tracking-widest">
-                {t('scanner.point_at_qr')}
-              </span>
-            </div>
-          </button>
-        </div>
-
-        {/* ZOEKBALK / HANDMATIG */}
-        <div className="space-y-6">
-          <div className="relative group">
-            <Search
-              className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors"
-              size={24}
-            />
-            <input
-              type="text"
-              placeholder={t('scanner.search_placeholder')}
-              className="w-full pl-14 pr-12 py-7 bg-white border-2 border-slate-100 rounded-[30px] shadow-sm outline-none focus:border-blue-500 font-bold transition-all text-lg"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm("")}
-                className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600"
-              >
-                <X size={24} />
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-4">
-              {t('scanner.results')} ({searchResults.length})
-            </h3>
-
-            <div className="grid grid-cols-1 gap-3">
-              {searchResults.map((item, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => handleOpenItem(item)}
-                  className="bg-white p-7 rounded-[40px] border border-slate-100 shadow-sm flex items-center justify-between active:scale-95 transition-all group hover:border-blue-300 animate-in slide-in-from-bottom-2"
-                >
-                  <div className="flex items-center gap-6 text-left overflow-hidden">
-                    <div
-                      className={`p-4 rounded-[20px] shrink-0 ${
-                        item.searchType === "lot"
-                          ? "bg-orange-50 text-orange-600"
-                          : "bg-blue-50 text-blue-600"
-                      }`}
-                    >
-                      {item.searchType === "lot" ? (
-                        <Zap size={32} />
-                      ) : (
-                        <FileText size={32} />
-                      )}
-                    </div>
-                    <div className="overflow-hidden">
-                      <h4 className="font-black text-slate-900 leading-none mb-2 text-xl italic tracking-tighter">
-                        {item.displayId}
-                      </h4>
-                      <p className="text-xs font-bold text-slate-400 uppercase truncate pr-4">
-                        {item.item || item.itemCode}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-3 shrink-0">
-                    <span className="text-[10px] font-black bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl uppercase tracking-tighter border border-slate-200">
-                      {item.machine || "Planning"}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {item.drawing && (
-                        <button
-                          onClick={(e) => handleViewDrawing(e, item.drawing)}
-                          className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 hover:bg-blue-100 transition-all shadow-inner"
-                        >
-                          <FileImage size={20} />
-                        </button>
-                      )}
-                      <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-inner">
-                        <ArrowRight size={20} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {searchTerm && searchResults.length === 0 && (
-                <div className="py-24 text-center bg-white rounded-[60px] border-2 border-dashed border-slate-100 opacity-60">
-                  <AlertCircle
-                    size={64}
-                    className="mx-auto text-slate-200 mb-4"
-                  />
-                  <p className="text-sm font-black uppercase tracking-widest text-slate-400">
-                    {t('scanner.no_results')}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* --- CAMERA OVERLAY (VIEWFINDER) --- */}
-      {activeMode === "camera" && (
-        <div className="fixed inset-0 z-[300] bg-black flex flex-col animate-in fade-in">
-          <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/60 to-transparent z-[320]">
-            <button
-              onClick={stopCamera}
-              className="p-4 bg-white/10 rounded-full text-white active:scale-90 transition-all border border-white/10 backdrop-blur-md shadow-2xl"
-            >
-              <X size={32} />
-            </button>
-            <div className="text-center">
-              <span className="font-black uppercase tracking-[0.4em] text-[11px] text-white italic drop-shadow-lg block">
-                {t('scanner.scan_overlay_title')}
-              </span>
-              <span className="text-[8px] font-bold text-blue-400 uppercase tracking-widest">
-                {t('scanner.scan_overlay_subtitle')}
-              </span>
-            </div>
-            {hasFlash ? (
-              <button
-                onClick={toggleFlash}
-                className={`p-4 rounded-full transition-all border border-white/10 backdrop-blur-md ${
-                  flashOn
-                    ? "bg-amber-400 text-slate-900 shadow-[0_0_25px_rgba(251,191,36,0.6)]"
-                    : "bg-white/10 text-white"
-                }`}
-              >
-                <Zap size={24} />
-              </button>
-            ) : (
-              <div className="w-16"></div>
-            )}
-          </div>
-
-          <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-slate-950">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            <canvas ref={canvasRef} className="hidden" />
-
-            {/* SCAN KADER */}
-            <div className="absolute inset-0 z-[310] flex items-center justify-center">
-              <div className="absolute inset-0 bg-black/30"></div>
-
-              <div
-                className={`relative w-80 h-80 bg-transparent rounded-[60px] flex flex-col items-center justify-center transition-all duration-500 border-4 ${
-                  isSuccess
-                    ? "border-emerald-400 scale-110 shadow-[0_0_50px_rgba(16,185,129,0.5)]"
-                    : "border-white/60"
-                }`}
-              >
-                <div
-                  className={`absolute top-0 left-0 w-full h-1.5 shadow-[0_0_25px_rgba(59,130,246,0.9)] animate-scanner-line ${
-                    isSuccess ? "bg-emerald-400" : "bg-blue-500"
-                  }`}
-                ></div>
-
-                {isSuccess ? (
-                  <div className="animate-in zoom-in text-emerald-400 flex flex-col items-center gap-4 bg-black/40 p-6 rounded-full backdrop-blur-sm">
-                    <CheckCircle2 size={80} strokeWidth={3} />
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-6">
-                    <Maximize
-                      size={80}
-                      className="text-white/20 animate-pulse"
-                    />
-                    <span className="text-[9px] font-black text-white/50 uppercase tracking-[0.4em] drop-shadow-md">
-                      {t('scanner.align_center')}
-                    </span>
-                  </div>
-                )}
-
-                {/* Duidelijke Hoeken */}
-                <div
-                  className={`absolute -top-3 -left-3 w-16 h-16 border-t-8 border-l-8 rounded-tl-3xl transition-colors ${
-                    isSuccess ? "border-emerald-400" : "border-blue-500"
-                  }`}
-                ></div>
-                <div
-                  className={`absolute -top-3 -right-3 w-16 h-16 border-t-8 border-r-8 rounded-tr-3xl transition-colors ${
-                    isSuccess ? "border-emerald-400" : "border-blue-500"
-                  }`}
-                ></div>
-                <div
-                  className={`absolute -bottom-3 -left-3 w-16 h-16 border-b-8 border-l-8 rounded-bl-3xl transition-colors ${
-                    isSuccess ? "border-emerald-400" : "border-blue-500"
-                  }`}
-                ></div>
-                <div
-                  className={`absolute -bottom-3 -right-3 w-16 h-16 border-b-8 border-r-8 rounded-br-3xl transition-colors ${
-                    isSuccess ? "border-emerald-400" : "border-blue-500"
-                  }`}
-                ></div>
-              </div>
-            </div>
-
-            {cameraError && (
-              <div className="absolute bottom-40 left-8 right-8 p-6 bg-red-600 text-white rounded-3xl text-center text-xs font-black uppercase shadow-2xl z-[350] border-2 border-red-400">
-                {cameraError}
-              </div>
-            )}
-          </div>
-
-          <div className="p-10 bg-slate-900 border-t border-white/10 z-[320] shadow-2xl">
-            <p className="text-blue-400 text-[10px] font-black uppercase tracking-[0.3em] text-center mb-8 flex items-center justify-center gap-3 opacity-90 leading-none">
-              {t('scanner.place_qr')}
-            </p>
-            <button
-              onClick={stopCamera}
-              className="w-full py-6 bg-white/5 hover:bg-white/10 border-2 border-white/20 text-white rounded-[35px] font-black uppercase text-xs tracking-widest active:scale-95 transition-all shadow-lg"
-            >
-              {t('scanner.close')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {viewingProduct && (
-        <ProductPassportModal
-          item={viewingProduct}
-          onClose={() => setViewingProduct(null)}
+        {/* Camera View */}
+        <video
+          ref={videoRef}
+          className="w-full h-full object-cover"
+          playsInline
+          autoPlay
+          muted
         />
-      )}
+        
+        {/* Scan Overlay */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="relative w-72 h-72">
+            {/* Scanning animation */}
+            <div className="absolute inset-0 border-4 border-white/30 rounded-3xl"></div>
+            <div className="absolute inset-0 border-4 border-indigo-500 rounded-3xl animate-pulse"></div>
+            
+            {/* Corner markers */}
+            <div className="absolute -top-2 -left-2 w-16 h-16 border-t-4 border-l-4 border-indigo-400 rounded-tl-3xl"></div>
+            <div className="absolute -top-2 -right-2 w-16 h-16 border-t-4 border-r-4 border-indigo-400 rounded-tr-3xl"></div>
+            <div className="absolute -bottom-2 -left-2 w-16 h-16 border-b-4 border-l-4 border-indigo-400 rounded-bl-3xl"></div>
+            <div className="absolute -bottom-2 -right-2 w-16 h-16 border-b-4 border-r-4 border-indigo-400 rounded-br-3xl"></div>
+          </div>
+        </div>
 
-      <style>{`
-        @keyframes scanner-line {
-            0% { top: 0%; opacity: 0; }
-            15% { opacity: 1; }
-            85% { opacity: 1; }
-            100% { top: 100%; opacity: 0; }
-        }
-        .animate-scanner-line {
-            animation: scanner-line 2.0s ease-in-out infinite;
-        }
-      `}</style>
+        {/* Manual Input */}
+        <div className="absolute bottom-24 left-0 right-0 px-6">
+          <form onSubmit={handleManualSubmit} className="flex gap-2">
+            <input 
+              type="text" 
+              placeholder="Of typ code handmatig..." 
+              className="flex-1 bg-white/90 backdrop-blur border-0 rounded-xl px-4 py-3 text-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+            />
+            <button type="submit" className="bg-indigo-600 text-white px-4 rounded-xl font-bold">Go</button>
+          </form>
+        </div>
+        
+        {/* Instructions */}
+        <div className="absolute bottom-8 left-0 right-0 text-center px-4">
+          <div className="bg-black/70 backdrop-blur-sm px-6 py-4 rounded-2xl inline-block">
+            <div className="text-white font-bold text-lg mb-1">Scan QR Code</div>
+            <div className="text-xs text-white/70">Plaats de QR code in het midden van het vierkant</div>
+            {!scannerLoaded && (
+              <div className="text-xs text-amber-300 mt-2">⏳ Scanner wordt geladen...</div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

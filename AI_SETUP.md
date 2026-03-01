@@ -79,6 +79,7 @@ De AI heeft uitgebreide kennis over:
 - GRE, EST, CST specificaties
 - Product codes en categorieën
 - Afdelingen: Spuitgieten, Verpakking, Lossen
+- **Definitie Lossen:** Producten worden om een mal gewikkeld. Na een uur voorharden op 100°C wordt het product van de mal gehaald; dit heet "lossen".
 - Shift tijden en kleuren
 
 ### Document Analyse

@@ -12,10 +12,6 @@ import {
   RefreshCw,
   X,
   FileSpreadsheet,
-  Eye,
-  Info,
-  PlusCircle,
-  ArrowRightCircle,
   Plus,
   ChevronDown,
   ShieldCheck,
@@ -27,14 +23,12 @@ import {
 } from "lucide-react";
 import {
   parseCSV,
-  uploadConversionBatch,
   lookupProductByManufacturedId,
   fetchConversions,
 } from "../../utils/conversionLogic";
 import { doc, setDoc, deleteDoc, serverTimestamp, collection, query, where, limit, getDocs, writeBatch } from "firebase/firestore";
-import { db, auth } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import * as XLSX from "xlsx";
 
 /**
  * ConversionManager V6.0 - Root Integrated
@@ -47,7 +41,7 @@ export default function ConversionManager() {
   // Upload State
   const [fileData, setFileData] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [, setProgress] = useState(0);
   const [status, setStatus] = useState("idle");
   const [testCode, setTestCode] = useState("");
   const [testResult, setTestResult] = useState(null);
@@ -137,6 +131,7 @@ export default function ConversionManager() {
     try {
       let parsedData = [];
       if (isExcel) {
+        const XLSX = await import("xlsx");
         const data = await file.arrayBuffer();
         const wb = XLSX.read(data, { type: "array" });
         
@@ -176,10 +171,11 @@ export default function ConversionManager() {
     );
   };
 
-  const handleConfirmSheetSelection = () => {
+  const handleConfirmSheetSelection = async () => {
     if (selectedSheets.length === 0) return;
 
     try {
+      const XLSX = await import("xlsx");
       let allData = [];
       selectedSheets.forEach((name) => {
         const ws = workbook.Sheets[name];
@@ -234,6 +230,7 @@ export default function ConversionManager() {
         setProgress(Math.round((processed / total) * 100));
       }
 
+      await logActivity(auth.currentUser?.uid, "MATRIX_UPDATE", `Batch import conversion matrix: ${total} records`);
       setStatus("done");
       alert(
         `Import voltooid! ${total} records naar de root geschreven.`
@@ -427,6 +424,7 @@ export default function ConversionManager() {
         { merge: true }
       );
 
+      await logActivity(auth.currentUser?.uid, "MATRIX_UPDATE", `Conversion record updated: ${editingItem.manufacturedId}`);
       setEditingItem(null);
       setIsCreating(false);
       loadInitialConversions();
@@ -442,9 +440,10 @@ export default function ConversionManager() {
       return;
     try {
       await deleteDoc(doc(db, ...PATHS.CONVERSION_MATRIX, id));
+      await logActivity(auth.currentUser?.uid, "MATRIX_UPDATE", `Conversion record deleted: ${id}`);
       setConversions((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
-      alert("Delete failed");
+      alert("Fout bij verwijderen: " + err.message);
     }
   };
 

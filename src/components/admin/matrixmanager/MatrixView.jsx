@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import {
-  Filter,
   Package,
   Info,
   Layers,

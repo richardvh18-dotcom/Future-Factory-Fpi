@@ -1,33 +1,27 @@
-import React, { useState, useEffect, useMemo, Suspense, lazy } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Loader2,
-  Edit3,
   Trash2,
   Ruler,
   Search,
   Layout,
-  Settings,
   ChevronRight,
   Plus,
   Box,
   Target,
   Save,
   RefreshCw,
-  Layers,
   Database,
-  AlertCircle,
   Info,
   X,
 } from "lucide-react";
 import {
   collection,
-  getDocs,
   doc,
   setDoc,
   deleteDoc,
   onSnapshot,
   query,
-  orderBy,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../../../config/firebase";
@@ -177,7 +171,7 @@ const DimensionsView = ({ libraryData, blueprints, productRange }) => {
     const pathKey = getPathKey();
     if (!pathKey) return;
 
-    let id = "";
+    let id;
     let baseData = {
       pressure: Number(dimFilters.pn),
       diameter: Number(dimFilters.id),

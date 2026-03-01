@@ -13,14 +13,11 @@ import {
   X,
   Tag,
   Hash,
-  Calendar,
   Search,
   Clock,
-  AlertCircle,
   Trash2,
   Lock as LockIcon,
   Wifi,
-  FileText,
 } from "lucide-react";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
@@ -28,14 +25,8 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { resolveLabelContent, processLabelData, applyLabelLogic } from "../../utils/labelHelpers";
 import { getISOWeek } from "date-fns";
-
-// Helper om diameter uit item omschrijving te halen (het eerste getal is de diameter)
-const getDiameter = (str) => {
-  if (!str) return 0;
-  const match = str.match(/(\d+)/);
-  if (match) return parseInt(match[1], 10);
-  return 0;
-};
+import { getNextFlowState } from "../../utils/workstationLogic";
+import StatusBadge from "./common/StatusBadge";
 
 const PIXELS_PER_MM = 3.78;
 const getQRCodeUrl = (data) => `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${encodeURIComponent(data)}`;
@@ -69,7 +60,6 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   const [occupancy, setOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [showFinishModal, setShowFinishModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printInput, setPrintInput] = useState("");
 
@@ -274,13 +264,16 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
              // BH18 restrictie: alleen > 300mm
              if (origin === "BH18" || originLabel === "BH18" || current === "BH18" || origin === "18") {
-                 if (getDiameter(item.item || "") > 300) isOurStation = true;
+                 // PILOT FIX: Tijdelijk alle diameters toestaan voor BH18 zodat testorders zichtbaar zijn
+                 // if (getDiameter(item.item || "") > 300) isOurStation = true;
+                 isOurStation = true;
              } else {
                  isOurStation = true;
              }
           } else if (!useStrictFilter && (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || current === "BH18")) {
              // Fallback voor BH18 als er geen user filter is (standaard gedrag)
-             if (getDiameter(item.item || "") > 300) isOurStation = true;
+             // if (getDiameter(item.item || "") > 300) isOurStation = true;
+             isOurStation = true;
           }
         }
 
@@ -289,7 +282,14 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
         // Of items die status "in_progress" hebben en nog niet finished zijn
         // FIX: 'completed' toegestaan voor BM01/Mazak/Nabewerking omdat inkomende items deze status kunnen hebben van vorig station
-        const isActive = (item.status === "in_progress" || item.status === "Te Lossen" || item.status === "Wacht op Lossen" || ((isBM01 || isMazak || isNabewerking) && !["Finished", "GEREED"].includes(item.status))) && item.currentStep !== "Finished" && item.status !== "rejected" && item.currentStep !== "REJECTED";
+        const isActive = (
+          item.status === "in_progress" || 
+          item.status === "Te Lossen" || 
+          item.status === "Wacht op Lossen" || 
+          item.status === "Te Nabewerken" || 
+          item.status === "Te Keuren" || 
+          ((isBM01 || isMazak || isNabewerking) && !["Finished", "GEREED"].includes(item.status))
+        ) && item.currentStep !== "Finished" && item.status !== "rejected" && item.currentStep !== "REJECTED";
 
         return isOurStation && isLossenStep && isActive;
       });
@@ -344,14 +344,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
   const handleItemClick = (item) => {
     setSelectedProduct(item);
-    if (isAdvancedStation) {
-      setShowFinishModal(true);
-    }
   };
 
   const handleCloseModal = () => {
     setSelectedProduct(null);
-    setShowFinishModal(false);
   };
 
   const handlePostProcessingFinish = async (status, data) => {
@@ -373,9 +369,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
       if (status === "completed") {
         if (isBM01) {
-          updates.currentStation = "GEREED";
-          updates.currentStep = "Finished";
-          updates.status = "completed";
+          const flowState = getNextFlowState('FINISH_INSPECTION');
+          updates.currentStation = flowState.currentStation || "GEREED";
+          updates.currentStep = flowState.currentStep || "Finished";
+          updates.status = flowState.status || "completed";
           updates["timestamps.finished"] = serverTimestamp();
           updates.lastStation = "BM01";
 
@@ -398,9 +395,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           handleCloseModal();
           return;
         } else {
-          updates.currentStation = "BM01";
-          updates.currentStep = "BM01";
-          updates.status = "in_progress"; // Reset status zodat item zichtbaar wordt op BM01
+          const flowState = getNextFlowState('FINISH_PROCESSING');
+          updates.currentStation = flowState.currentStation || "BM01";
+          updates.currentStep = flowState.currentStep || "Eindinspectie";
+          updates.status = flowState.status || "Te Keuren";
           updates.lastStation = stationId;
           updates["timestamps.bm01_start"] = serverTimestamp();
         }
@@ -652,8 +650,6 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 ^XZ
 `;
       }
-
-      let printed = false;
 
       // MODE: STANDAARD (Browser Print - PDF/Systeem Dialoog)
       if (mode === "standard") {
@@ -1251,6 +1247,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                                 <div>
                                     <h4 className="font-black text-slate-800">{order.orderId}</h4>
                                     <p className="text-xs text-slate-500 line-clamp-1">{order.item}</p>
+                                    <div className="mt-1"><StatusBadge status={order.status} /></div>
                                 </div>
                                 <span className="text-[10px] font-bold bg-slate-100 px-2 py-1 rounded text-slate-500">{order.plan} st</span>
                             </div>

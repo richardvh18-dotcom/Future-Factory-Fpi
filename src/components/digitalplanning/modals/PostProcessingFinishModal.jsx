@@ -9,7 +9,7 @@ import {
   Loader2,
   Save,
 } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, query, where, collection, getDocs, increment } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, increment } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS } from "../../../utils/workstationLogic";

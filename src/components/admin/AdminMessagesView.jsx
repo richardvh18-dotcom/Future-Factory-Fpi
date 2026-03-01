@@ -14,11 +14,11 @@ import {
   Reply,
   ShieldCheck,
   Loader2,
-  AlertCircle,
   AlertTriangle,
   MessageSquare,
   Quote,
   Edit3,
+  Download,
 } from "lucide-react";
 import {
   doc,
@@ -35,14 +35,14 @@ import {
   getDoc,
   or,
 } from "firebase/firestore";
-import { db, auth } from "../../config/firebase";
+import { db } from "../../config/firebase";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { format } from "date-fns";
 import { nl } from "date-fns/locale";
 import { storage } from "../../config/firebase";
-import { ref as storageRef, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 /**
  * AdminMessagesView V6.0 - Master Communication Hub
@@ -60,8 +60,6 @@ const AdminMessagesView = ({ user: propUser }) => {
   const [selectedThread, setSelectedThread] = useState(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [replyContext, setReplyContext] = useState(null);
-  const [attachment, setAttachment] = useState(null);
-  const [attachmentPreview, setAttachmentPreview] = useState(null);
 
   // Bepaal relevante groepen voor de huidige gebruiker (voor filtering en query)
   const userGroups = useMemo(() => {
@@ -188,6 +186,45 @@ const AdminMessagesView = ({ user: propUser }) => {
       console.error(err);
       showError("Verwijderen mislukt: " + err.message);
     }
+  };
+
+  const handleSaveConversation = (thread) => {
+    if (!thread) return;
+    
+    const lines = [];
+    lines.push(`Onderwerp: ${thread.subject}`);
+    lines.push(`Laatste update: ${format(thread.timestamp, "dd-MM-yyyy HH:mm")}`);
+    lines.push(`Deelnemers: ${Array.from(thread.participants).join(", ")}`);
+    lines.push("-".repeat(50));
+    lines.push("");
+    
+    const sortedMessages = [...thread.messages].sort((a, b) => {
+        const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+        const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+        return tA - tB;
+    });
+
+    sortedMessages.forEach(msg => {
+      const time = msg.timestamp?.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp);
+      const timeStr = format(time, "dd-MM-yyyy HH:mm");
+      const sender = msg.senderName || msg.from || "Onbekend";
+      
+      lines.push(`[${timeStr}] ${sender}:`);
+      lines.push(msg.content);
+      if (msg.attachmentUrl) {
+          lines.push(`[Bijlage: ${msg.attachmentMeta?.name || "Bestand"}]`);
+      }
+      lines.push("");
+    });
+    
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `conversatie_${thread.id}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // 3. Grouping Logic (Threads)
@@ -455,6 +492,13 @@ const AdminMessagesView = ({ user: propUser }) => {
                 </div>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => handleSaveConversation(selectedThread)}
+                    className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
+                    title="Opslaan als tekstbestand"
+                  >
+                    <Download size={20} />
+                  </button>
+                  <button
                     onClick={() => handleArchive(selectedThread)}
                     className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
                     title="Archiveren"
@@ -502,7 +546,7 @@ const AdminMessagesView = ({ user: propUser }) => {
             {/* Detail Body */}
             <div className="p-6 overflow-y-auto flex-1 text-left bg-slate-50/50">
               <div className="max-w-4xl mx-auto space-y-6">
-                {selectedThread.messages.sort((a,b) => a.timestamp - b.timestamp).map((msg, idx) => {
+                {selectedThread.messages.sort((a,b) => a.timestamp - b.timestamp).map((msg) => {
                   const isMe = msg.senderId === user?.uid;
                   return (
                     <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
@@ -625,7 +669,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
   const [userList, setUserList] = useState([]);
   const [attachment, setAttachment] = useState(null);
   const [attachmentPreview, setAttachmentPreview] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadProgress] = useState(0);
   const [customSignature, setCustomSignature] = useState(null);
 
   useEffect(() => {
@@ -649,8 +693,6 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
     };
     fetchData();
   }, [user]);
-
-  const signature = customSignature || `Met vriendelijke groet,\n${user?.name || user?.displayName || user?.email || "Gebruiker"}`;
 
   useEffect(() => {
     if (customSignature) {

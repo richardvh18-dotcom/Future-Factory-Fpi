@@ -3,6 +3,7 @@ import { DatabaseZap, Loader2, CheckCircle2, AlertTriangle } from "lucide-react"
 import { useTranslation } from "react-i18next";
 import { manualSyncDrawings } from "../../utils/manualSyncDrawings";
 import ProductDetailModal from "../products/ProductDetailModal";
+import { auth, logActivity } from "../../config/firebase";
 
 export default function ManualSyncDrawings() {
   const { t } = useTranslation();
@@ -26,6 +27,7 @@ export default function ManualSyncDrawings() {
       console.log("Sync resultaat:", res);
       setResult(res);
       setProgress({ current: res.length, total: res.length });
+      await logActivity(auth.currentUser?.uid, "MASTER_SYNC", `Manual sync executed. Matches: ${res.filter(r => r.found).length}`);
     } catch (err) {
       setError(err.message || t('manualSync.unknownError', "Onbekende fout"));
     } finally {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Loader2, Download } from "lucide-react";
+import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Download } from "lucide-react";
 import { format, isValid, isSameDay, subDays, addDays, startOfISOWeek, endOfISOWeek, isWithinInterval } from "date-fns";
 import { nl } from "date-fns/locale";
 import OrderDetail from "./OrderDetail";
@@ -10,8 +10,9 @@ import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot, arrayUnion } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import StatusBadge from "./common/StatusBadge";
 
-const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) => {
+const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     const { t } = useTranslation();
     const { user } = useAdminAuth();
   // AANGEPAST: Standaard view op 'inspectie' (Aan te bieden)
@@ -404,6 +405,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                                 <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg font-black uppercase tracking-wider border border-slate-200">
                                                     {order.machine || t('common.unknown', 'Onbekend')}
                                                 </span>
+                                                <StatusBadge status={order.status} />
                                                 {order.isUrgent && <span className="text-[9px] bg-red-100 text-red-600 px-2 py-0.5 rounded-lg font-black uppercase tracking-wider">{t('bm01.urgent', 'SPOED')}</span>}
                                             </div>
                                             <p className="text-xs text-slate-500 font-bold uppercase truncate">{order.item}</p>
@@ -465,7 +467,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }) =
                                 <div className="text-right shrink-0 pl-4 border-l border-slate-100 ml-4">
                                     <button
                                         onClick={() => handleItemClick(item)}
-                                        className="px-6 py-3 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-600 transition-all shadow-lg active:scale-95"
+                                        className="px-6 py-3 bg-purple-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-purple-700 transition-all shadow-lg active:scale-95"
                                     >
                                         {t('bm01.report_ready')}
                                     </button>

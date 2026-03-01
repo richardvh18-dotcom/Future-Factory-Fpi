@@ -6,7 +6,6 @@ import {
   CheckCircle,
   Search,
   ChevronDown,
-  ChevronRight,
   AlertOctagon,
   Package,
   Filter,

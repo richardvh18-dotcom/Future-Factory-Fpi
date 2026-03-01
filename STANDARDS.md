@@ -36,3 +36,16 @@ Dit project is ontwikkeld als Manufacturing Execution System (MES) voor de "Futu
 *   **Implementatie:**
     *   HTTPS encryptie.
     *   Veilige API-sleutels (`.env`).
+
+## 6. Audit Logging & Traceability (ISO 9001/27001)
+**Vereiste:** Een onveranderlijk logboek van kritieke acties voor reconstructie en bewijsvoering.
+
+### ISO 9001 (Kwaliteit)
+*   **Productie Wijzigingen:** Aanpassingen aan recepturen, toleranties of productspecificaties (`PRODUCT_UPDATE`, `MATRIX_UPDATE`).
+*   **Kwaliteitscontrole:** Inspectieresultaten en vrijgifte (`INSPECTION_COMPLETE`, `ORDER_RELEASE`).
+*   **Afwijkingen:** Registratie van non-conformities.
+
+### ISO 27001 (Beveiliging)
+*   **Toegangsbeheer:** Succesvolle en mislukte inlogpogingen (`LOGIN`, `LOGIN_FAILED`).
+*   **Rechtenbeheer:** Wijzigingen in gebruikersrollen of permissies (`USER_ROLE_CHANGE`).
+*   **Configuratie:** Aanpassingen aan systeeminstellingen (`SETTINGS_UPDATE`).

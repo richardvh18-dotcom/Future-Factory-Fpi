@@ -111,6 +111,18 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
     return availableStations;
   }, [factoryConfig, department, user]);
 
+  // Auto-select station if user has only one assigned
+  useEffect(() => {
+    if (!selectedStation && stations.length === 1) {
+      const singleStation = stations[0];
+      // Don't auto-select teamleader hub
+      if (!singleStation.name.toLowerCase().includes('teamleader')) {
+        console.log(`[DeptStationSelector] Auto-selecting single station: ${singleStation.name}`);
+        setSelectedStation(singleStation.name);
+      }
+    }
+  }, [stations, selectedStation]);
+
   // Als Teamleader is geselecteerd, toon TeamleaderHub
   if (showTeamleader) {
     return (

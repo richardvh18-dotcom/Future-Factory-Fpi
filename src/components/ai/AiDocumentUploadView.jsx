@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Upload,
   FileText,
@@ -20,8 +21,8 @@ import {
   query,
   serverTimestamp,
 } from "firebase/firestore";
-import { db, auth, storage } from "../../config/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, auth, storage, logActivity } from "../../config/firebase";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
 import { aiService } from "../../services/aiService";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
@@ -35,6 +36,7 @@ const MAX_CHARS = 50000;
 const MAX_FILE_SIZE_MB = 10; // Maximaal 10MB per bestand
 
 const AiDocumentUploadView = () => {
+  const { t } = useTranslation();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -42,7 +44,7 @@ const AiDocumentUploadView = () => {
   const [filter, setFilter] = useState("");
 
   useEffect(() => {
-    const colRef = collection(db, ...PATHS.AI_DOCUMENTS);
+    const colRef = collection(db, ...(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records']));
     const q = query(colRef, orderBy("uploadedAt", "desc"));
     const unsub = onSnapshot(
       q,
@@ -154,7 +156,7 @@ IMPORTANT RULES:
         analysis = JSON.parse(jsonText);
       } catch (parseErr) {
         console.error("❌ JSON Parse Error:", parseErr, "\nText:", jsonText.substring(0, 500) + "...");
-        throw new Error("Ongeldige JSON structuur ontvangen van AI");
+        throw new Error("Ongeldige JSON structuur ontvangen van AI", { cause: parseErr });
       }
       console.log('✅ JSON parsing succesvol');
       
@@ -266,7 +268,7 @@ IMPORTANT RULES:
           text = await extractTextFromPdf(file);
         } catch (pdfErr) {
           console.error("PDF parsing error:", pdfErr);
-          throw new Error(`Kon PDF niet lezen (check worker configuratie): ${pdfErr.message}`);
+          throw new Error(`Kon PDF niet lezen (check worker configuratie): ${pdfErr.message}`, { cause: pdfErr });
         }
       } else {
         text = await new Promise((resolve, reject) => {
@@ -283,7 +285,7 @@ IMPORTANT RULES:
       // Sla ook de volledige tekst op (tot 50000 chars) voor betere context
       const fullTextContent = String(text).slice(0, MAX_CHARS);
       
-      await addDoc(collection(db, ...PATHS.AI_DOCUMENTS), {
+      await addDoc(collection(db, ...(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records'])), {
         fileName: file.name,
         mimeType: file.type,
         size: file.size,
@@ -296,6 +298,8 @@ IMPORTANT RULES:
         characterCount: fullTextContent.length,
         fileUrl, // downloadlink naar storage
       });
+
+      await logActivity(auth.currentUser?.uid, 'AI_UPLOAD', `Document uploaded: ${file.name} (${Math.round(file.size/1024)}KB)`);
 
       const statusMessage = analysisResult.parsed 
         ? "✅ Document succesvol geüpload, geanalyseerd en opgeslagen." 
@@ -323,10 +327,22 @@ IMPORTANT RULES:
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (docItem) => {
     if (!window.confirm("Document verwijderen uit de AI kennisbank?")) return;
     try {
-      await deleteDoc(doc(db, ...PATHS.AI_DOCUMENTS, id));
+      // 1. Verwijder record uit Firestore
+      await deleteDoc(doc(db, ...(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records']), docItem.id));
+      
+      // 2. Verwijder bestand uit Storage (indien aanwezig)
+      if (docItem.fileUrl) {
+        try {
+          const fileRef = ref(storage, docItem.fileUrl);
+          await deleteObject(fileRef);
+        } catch (storageErr) {
+          console.warn("Kon bestand niet verwijderen uit storage (mogelijk al weg):", storageErr);
+        }
+      }
+      await logActivity(auth.currentUser?.uid, 'AI_DELETE', `Document deleted: ${docItem.fileName}`);
     } catch (err) {
       console.error("Verwijderen mislukt:", err);
     }
@@ -347,7 +363,7 @@ IMPORTANT RULES:
               <Database size={10} /> {documents.length} records
             </span>
             <span className="text-[9px] font-mono text-slate-500 italic">
-              /{PATHS.AI_DOCUMENTS.join("/")}
+              /{(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records']).join("/")}
             </span>
           </div>
         </div>
@@ -448,7 +464,7 @@ IMPORTANT RULES:
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDelete(docItem.id)}
+                    onClick={() => handleDelete(docItem)}
                     className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
                     title="Verwijderen"
                   >
