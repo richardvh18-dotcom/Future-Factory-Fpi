@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, setDoc, deleteDoc, orderBy, limit, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, setDoc, deleteDoc, orderBy, limit, writeBatch, arrayUnion, increment } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import {
@@ -18,6 +18,7 @@ import {
   Trash2,
   Lock as LockIcon,
   Wifi,
+  ScanBarcode,
 } from "lucide-react";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
@@ -38,6 +39,14 @@ const getMachineCode = (station) => {
     const match = station.match(/(\d+)/);
     if (match) return "4" + match[1].padStart(2, '0');
     return "000";
+};
+
+// Helper voor diameter (simpel)
+const getDiameter = (str) => {
+  if (!str) return 0;
+  const match = str.match(/(\d+)/);
+  if (match) return parseInt(match[1], 10);
+  return 0;
 };
 
 const getLotPrefix = (station) => {
@@ -62,6 +71,8 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printInput, setPrintInput] = useState("");
+  const [scanInput, setScanInput] = useState("");
+  const scanInputRef = useRef(null);
 
   // Hub / Planning State
   const [activeView, setActiveView] = useState("incoming"); // 'incoming' | 'planning'
@@ -83,7 +94,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       count: 1,
       mode: "standard", // 'standard' (USB/Local) | 'network' (IP)
       printerIp: "",
-      showCutLine: true
+      showCutLine: true,
   });
 
   // Label Preview State
@@ -94,6 +105,47 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   const [labelRules, setLabelRules] = useState([]);
 
   const isCentralHub = normalizeMachine(stationId) === "LOSSEN";
+
+  // Auto-focus logic voor scanner
+  useEffect(() => {
+    const handleClick = (e) => {
+        // Focus niet stelen als er op een interactief element wordt geklikt
+        if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+        
+        // Alleen focussen in de inkomende view (waar gescand wordt)
+        if (activeView === "incoming" && !selectedProduct && !showPrintModal && !showSimplePrintModal && !reserveConfig) {
+            scanInputRef.current?.focus();
+        }
+    };
+    
+    // Focus bij laden
+    if (activeView === "incoming") {
+        scanInputRef.current?.focus();
+    }
+
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [activeView, selectedProduct, showPrintModal, showSimplePrintModal, reserveConfig]);
+
+  const handleScan = (e) => {
+    if (e.key === 'Enter') {
+        const code = scanInput.trim();
+        if (!code) return;
+        
+        const found = items.find(i => 
+            (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
+            (i.orderId || "").toLowerCase() === code.toLowerCase()
+        );
+        
+        if (found) {
+            handleItemClick(found);
+            setScanInput("");
+        } else {
+            alert(t('lossen.item_not_found', { code }) || `Item ${code} niet gevonden`);
+            setScanInput("");
+        }
+    }
+  };
 
   // Haal occupancy data op voor operator tracking
   useEffect(() => {
@@ -201,10 +253,15 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         let isOurStation = itemStationNorm === currentStationNorm;
 
         // FIX: Als item op 'Lossen' staat, toon het ook op het station van herkomst (bv BH11)
-        if (!isOurStation && (item.currentStep === "Lossen" || normalizeMachine(item.currentStation) === "LOSSEN")) {
+        if (!isOurStation && (item.currentStep === "Lossen" || item.currentStep === "Wacht op Lossen" || normalizeMachine(item.currentStation) === "LOSSEN")) {
           const originNorm = normalizeMachine(item.originMachine || item.machine || "");
           if (originNorm === currentStationNorm) {
-            isOurStation = true;
+            // BH18 Logic: Only <= 300 stays local
+            if (currentStationNorm === "BH18" || currentStationNorm === "18") {
+                if (getDiameter(item.item || "") <= 300) isOurStation = true;
+            } else {
+                isOurStation = true;
+            }
           }
         }
 
@@ -264,21 +321,17 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
              // BH18 restrictie: alleen > 300mm
              if (origin === "BH18" || originLabel === "BH18" || current === "BH18" || origin === "18") {
-                 // PILOT FIX: Tijdelijk alle diameters toestaan voor BH18 zodat testorders zichtbaar zijn
-                 // if (getDiameter(item.item || "") > 300) isOurStation = true;
-                 isOurStation = true;
+                 if (getDiameter(item.item || "") > 300) isOurStation = true;
              } else {
                  isOurStation = true;
              }
           } else if (!useStrictFilter && (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || current === "BH18")) {
-             // Fallback voor BH18 als er geen user filter is (standaard gedrag)
-             // if (getDiameter(item.item || "") > 300) isOurStation = true;
-             isOurStation = true;
+             if (getDiameter(item.item || "") > 300) isOurStation = true;
           }
         }
 
         // Alleen items tonen die op "Lossen" stap staan
-        const isLossenStep = item.currentStep === "Lossen" || isBM01 || isMazak || isNabewerking;
+        const isLossenStep = item.currentStep === "Lossen" || item.currentStep === "Wacht op Lossen" || isBM01 || isMazak || isNabewerking;
 
         // Of items die status "in_progress" hebben en nog niet finished zijn
         // FIX: 'completed' toegestaan voor BM01/Mazak/Nabewerking omdat inkomende items deze status kunnen hebben van vorig station
@@ -360,6 +413,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         updatedAt: serverTimestamp(),
         note: data.note || "",
         processedBy: user?.email || "Unknown",
+        history: arrayUnion({
+          action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
+          timestamp: new Date().toISOString(),
+          user: user?.email || "Operator",
+          station: stationId,
+          details: status === "completed" ? "Verwerking afgerond" : `Reden: ${data.reasons?.join(", ")}`
+        })
       };
 
       // Voeg operators toe aan tracking
@@ -392,6 +452,27 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
           await setDoc(archiveRef, finalData);
           await deleteDoc(productRef);
+
+          // Update Planning Order
+          if (selectedProduct.orderId && selectedProduct.orderId !== "NOG_TE_BEPALEN") {
+              try {
+                  const planningRef = collection(db, ...PATHS.PLANNING);
+                  const q = query(planningRef, where("orderId", "==", selectedProduct.orderId));
+                  const snap = await getDocs(q);
+                  if (!snap.empty) {
+                      const orderDoc = snap.docs[0];
+                      const newProduced = (orderDoc.data().produced || 0) + 1;
+                      const plan = orderDoc.data().plan || 0;
+                      const orderUpdates = {
+                          produced: increment(1),
+                          lastUpdated: serverTimestamp()
+                      };
+                      if (newProduced >= plan) orderUpdates.status = "completed";
+                      await updateDoc(orderDoc.ref, orderUpdates);
+                  }
+              } catch (e) { console.error(e); }
+          }
+
           handleCloseModal();
           return;
         } else {
@@ -401,6 +482,35 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           updates.status = flowState.status || "Te Keuren";
           updates.lastStation = stationId;
           updates["timestamps.bm01_start"] = serverTimestamp();
+
+          // --- FIX: Update Order Status for non-BM01 stations ---
+          // Zorgt ervoor dat orders automatisch sluiten als alle items de machine hebben verlaten
+          if (selectedProduct.orderId && selectedProduct.orderId !== "NOG_TE_BEPALEN") {
+              try {
+                  const planningRef = collection(db, ...PATHS.PLANNING);
+                  const q = query(planningRef, where("orderId", "==", selectedProduct.orderId));
+                  const snap = await getDocs(q);
+                  if (!snap.empty) {
+                      const orderDoc = snap.docs[0];
+                      const orderData = orderDoc.data();
+                      const plan = parseInt(orderData.plan || orderData.quantity || 0);
+                      
+                      // Tel items die klaar zijn of voorbij dit station zijn
+                      // We gebruiken de 'products' prop als cache indien beschikbaar, anders query
+                      const currentItems = products.length > 0 ? products : (await getDocs(query(collection(db, ...PATHS.TRACKING), where("orderId", "==", selectedProduct.orderId)))).docs.map(d => d.data());
+                      
+                      const finishedCount = currentItems.filter(p => 
+                          p.orderId === selectedProduct.orderId && 
+                          (p.status === 'completed' || p.currentStep === 'Finished' || p.currentStep === 'Eindinspectie' || p.currentStep === 'Te Keuren' || p.currentStep === 'Te Nabewerken')
+                      ).length;
+
+                      // +1 omdat het huidige item nu ook verwerkt wordt
+                      if (finishedCount + 1 >= plan) {
+                          await updateDoc(orderDoc.ref, { status: 'completed', lastUpdated: serverTimestamp() });
+                      }
+                  }
+              } catch (e) { console.error("Error updating order status:", e); }
+          }
         }
       } else if (status === "temp_reject") {
         updates.inspection = {
@@ -833,6 +943,24 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   return (
     <div className="p-4 space-y-3 bg-white h-full overflow-y-auto custom-scrollbar text-left relative">
       
+      {/* Pulse animatie stylesheet */}
+      <style>{`
+        @keyframes scan-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+          50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+        }
+        .scan-pulse {
+          animation: scan-pulse 2s infinite;
+        }
+        @keyframes pulse-text {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .pulse-text {
+          animation: pulse-text 1.5s ease-in-out infinite;
+        }
+      `}</style>
+
       {/* HUB TABS (Alleen zichtbaar op LOSSEN station) */}
       {isCentralHub && (
         <div className="flex bg-slate-100 p-1 rounded-xl mb-4 shrink-0">
@@ -1265,6 +1393,30 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       ) : (
         /* INKOMEND VIEW (Bestaande functionaliteit) */
         <>
+          <div className="mb-6 space-y-2">
+            {/* Scan Indicator Label */}
+            <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-lg border border-blue-100 w-fit">
+              <div className="w-2 h-2 bg-blue-500 rounded-full pulse-text"></div>
+              <span className="text-xs font-black text-blue-600 uppercase tracking-widest">
+                🔍 {t('lossen.ready_to_scan', 'Klaar voor scan')}
+              </span>
+            </div>
+            {/* Scan Input Field */}
+            <div className="relative">
+              <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 transition-all scan-pulse" size={24} />
+              <input
+                  ref={scanInputRef}
+                  type="text"
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  onKeyDown={handleScan}
+                  placeholder="Scan lotnummer of order..."
+                  className="w-full pl-14 pr-4 py-4 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
+                  autoFocus
+              />
+            </div>
+          </div>
+
           {items.length === 0 ? (
             <div className="p-12 text-center bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200 opacity-40">
               <Package size={48} className="mx-auto mb-4 text-slate-300" />

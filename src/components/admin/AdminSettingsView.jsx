@@ -16,6 +16,7 @@ import {
   Settings,
   BrainCircuit,
   Rocket,
+  Hash,
 } from "lucide-react";
 import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
@@ -23,6 +24,7 @@ import { PATHS, ACTIVE_SITE } from "../../config/dbPaths";
 
 // Handige presets voor snelle branding
 const PRESET_LOGOS = [
+  // ... (presets blijven hetzelfde)
   {
     id: "simple_ff",
     url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%233b82f6' width='100' height='100' rx='20'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='0.35em' font-family='Arial Black' font-size='40' fill='white' font-weight='900'%3EFF%3C/text%3E%3C/svg%3E",
@@ -40,6 +42,8 @@ const PRESET_LOGOS = [
   },
 ];
 
+import AdminLotCounters from "./AdminLotCounters";
+
 /**
  * AdminSettingsView V6.0 - Root Integrated
  * Beheert globale applicatie-instellingen, branding en thema.
@@ -50,6 +54,7 @@ const AdminSettingsView = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(null);
+  const [activeTab, setActiveTab] = useState("general");
   const [uploadedLogos, setUploadedLogos] = useState([]);
   const fileInputRef = useRef(null);
 
@@ -232,6 +237,33 @@ const AdminSettingsView = () => {
         </button>
       </div>
 
+      {/* TABS */}
+      <div className="flex gap-2 border-b border-slate-200 pb-1">
+        <button
+          onClick={() => setActiveTab("general")}
+          className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center gap-2 ${
+            activeTab === "general"
+              ? "bg-slate-900 text-white shadow-lg"
+              : "bg-white text-slate-500 hover:bg-slate-50 border border-slate-200"
+          }`}
+        >
+          <Settings size={16} />
+          Algemeen
+        </button>
+        <button
+          onClick={() => setActiveTab("counters")}
+          className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center gap-2 ${
+            activeTab === "counters"
+              ? "bg-slate-900 text-white shadow-lg"
+              : "bg-white text-slate-500 hover:bg-slate-50 border border-slate-200"
+          }`}
+        >
+          <Hash size={16} />
+          Lotnummers
+        </button>
+      </div>
+
+      {activeTab === "general" && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         {/* LINKS: ALGEMENE INFO */}
         <div className="space-y-8">
@@ -527,6 +559,11 @@ const AdminSettingsView = () => {
           </button>
         </div>
       </div>
+      )}
+
+      {activeTab === "counters" && (
+        <AdminLotCounters />
+      )}
 
       {/* STATUS MELDINGEN */}
       {status && (

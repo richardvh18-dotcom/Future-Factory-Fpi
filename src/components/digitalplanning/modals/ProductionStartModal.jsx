@@ -12,11 +12,15 @@ import {
   FileText,
   Code,
   Wifi,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2
 } from "lucide-react";
-import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
-import { db, auth, logActivity } from "../../../config/firebase";
+import { collection, getDocs, query, where, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+
+// Import met fallback voor dbPaths & firebase om build errors te voorkomen
+import { db, auth, logActivity } from "../../../config/firebase"; 
 import { PATHS } from "../../../config/dbPaths";
-import { generateLotNumber, getLotPlaceholder } from "../../../utils/lotLogic";
 import {
   processLabelData,
   resolveLabelContent,
@@ -28,13 +32,33 @@ const PIXELS_PER_MM = 3.78;
 
 const getQRCodeUrl = (data) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${encodeURIComponent(
-    data
+    data || "leeg"
   )}`;
 
 const getBarcodeUrl = (data) =>
   `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(
-    data
+    data || "leeg"
   )}&scale=3&height=10&incltext&guardwhitespace`;
+
+// Functie om ISO week en bijbehorend ISO jaar te berekenen
+// Dit voorkomt mismatches rond de jaarwisseling (bv. 29 dec 2025 is week 1 van 2026)
+const getIsoWeekAndYear = (d) => {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const year = date.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return { week: String(weekNo).padStart(2, '0'), year: String(year) };
+};
+
+// Machine naar FPI code mapping
+const getMachineCode = (station) => {
+  const map = {
+    'BH18': '418',
+    'BA07': '417'
+  };
+  return map[station] || station.replace(/\D/g,'').padStart(3, '0') || '999';
+};
 
 const ProductionStartModal = ({
   order,
@@ -44,13 +68,19 @@ const ProductionStartModal = ({
   stationId = "",
   existingProducts = [],
 }) => {
-  const [mode, setMode] = useState("manual");
+  const [mode, setMode] = useState("manual"); // Standaard manueel voor pilot
   const [lotNumber, setLotNumber] = useState("");
   const [stringCount, setStringCount] = useState(1);
   const [manualLotInput, setManualLotInput] = useState("");
   const [manualOrderInput, setManualOrderInput] = useState("");
   const [assignedOperators, setAssignedOperators] = useState([]);
   const [operatorInput, setOperatorInput] = useState("");
+  
+  // Refs voor autofocus bij barcode scanning
+  const orderInputRef = useRef(null);
+  const lotInputRef = useRef(null);
+  const [orderValidated, setOrderValidated] = useState(false);
+  const [orderError, setOrderError] = useState("");
 
   const [availableLabels, setAvailableLabels] = useState([]);
   const [selectedLabelId, setSelectedLabelId] = useState("");
@@ -60,22 +90,34 @@ const ProductionStartModal = ({
   
   const [savedPrinters, setSavedPrinters] = useState([]);
   const [printConfig, setPrintConfig] = useState({
-    mode: "standard", // 'standard' | 'network'
+    mode: "standard", 
     printerIp: ""
   });
 
   const [labelRules, setLabelRules] = useState([]);
   const containerRef = useRef(null);
 
-  // 1. Label Templates Laden
+  const [isCheckingLot, setIsCheckingLot] = useState(false);
+  const [lotError, setLotError] = useState("");
+
+  // Autofocus naar ordernummer bij openen in manuele modus
+  useEffect(() => {
+    if (isOpen && mode === "manual" && orderInputRef.current) {
+      // Kleine delay zodat modal animatie voltooid is
+      setTimeout(() => {
+        orderInputRef.current?.focus();
+      }, 300);
+    }
+  }, [isOpen, mode]);
+
+  // 1. Label Templates & Rules Laden
   useEffect(() => {
     const fetchLabels = async () => {
       if (!isOpen) return;
       setLoadingLabels(true);
       try {
-        // Gebruik hetzelfde Firestore-path als AdminLabelDesigner
-        // /future-factory/settings/label_templates
-        const labelsRef = collection(db, ...PATHS.LABEL_TEMPLATES);
+        const tplPaths = PATHS?.LABEL_TEMPLATES || ['future-factory', 'settings', 'label_templates'];
+        const labelsRef = collection(db, ...tplPaths);
         const querySnapshot = await getDocs(labelsRef);
         const labels = querySnapshot.docs.map((doc) => ({
           id: doc.id,
@@ -84,7 +126,6 @@ const ProductionStartModal = ({
         setAvailableLabels(labels);
 
         if (labels.length > 0) {
-          // Kies standaard een smal label voor de meeste stations
           let defaultLabel = labels.find(
             (l) => l.name?.toLowerCase().includes("smal") || l.height < 45
           );
@@ -98,36 +139,35 @@ const ProductionStartModal = ({
     };
     fetchLabels();
 
-    // Fetch Label Logic Rules
-    const rulesRef = collection(db, ...PATHS.LABEL_LOGIC);
-    getDocs(rulesRef).then(snap => {
-      setLabelRules(snap.docs.map(d => d.data()));
-    }).catch(err => console.error("Error loading label rules", err));
+    try {
+       const lblPaths = PATHS?.LABEL_LOGIC || ['future-factory', 'settings', 'label_logic'];
+       const rulesRef = collection(db, ...lblPaths);
+       getDocs(rulesRef).then(snap => {
+         setLabelRules(snap.docs.map(d => d.data()));
+       }).catch(err => console.error("Error loading label rules", err));
+    } catch(err) {
+      console.error("Error in label fetch", err);
+    }
   }, [isOpen]);
 
   // 1b. Operators ophalen voor dit station
   useEffect(() => {
     const fetchOccupancy = async () => {
       if (!isOpen || !stationId) return;
-      
       const today = new Date().toISOString().split('T')[0];
-      
       try {
+        const occPaths = PATHS?.OCCUPANCY || ['future-factory', 'personnel', 'occupancy'];
         const q = query(
-          collection(db, ...PATHS.OCCUPANCY),
+          collection(db, ...occPaths),
           where("machineId", "==", stationId),
           where("date", "==", today)
         );
-        
         const snapshot = await getDocs(q);
         const operators = snapshot.docs.map(doc => ({
           number: doc.data().operatorNumber,
           name: doc.data().operatorName
         }));
-        
         setAssignedOperators(operators);
-        
-        // Als er precies 1 operator is, vul deze alvast in
         if (operators.length === 1) {
           setOperatorInput(operators[0].number);
         } else {
@@ -137,63 +177,249 @@ const ProductionStartModal = ({
         console.error("Kon operators niet ophalen", err);
       }
     };
-    
     fetchOccupancy();
   }, [isOpen, stationId]);
 
   // 1c. Printers ophalen
   useEffect(() => {
-    const printersRef = collection(db, ...PATHS.PRINTERS);
-    const unsub = onSnapshot(printersRef, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setSavedPrinters(list);
-      
-      // Automatisch printer selecteren: Eerst kijken naar station koppeling, dan naar global default
-      const stationPrinter = list.find(p => p.linkedStations && p.linkedStations.includes(stationId));
-      const globalDefault = list.find(p => p.isDefault);
-      const targetPrinter = stationPrinter || globalDefault;
+    if(!isOpen) return;
+    try {
+        const prnPaths = PATHS?.PRINTERS || ['future-factory', 'settings', 'printers'];
+        const printersRef = collection(db, ...prnPaths);
+        const unsub = onSnapshot(printersRef, (snap) => {
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setSavedPrinters(list);
+          const stationPrinter = list.find(p => p.linkedStations && p.linkedStations.includes(stationId));
+          const globalDefault = list.find(p => p.isDefault);
+          const targetPrinter = stationPrinter || globalDefault;
 
-      if (targetPrinter) {
-        if (targetPrinter.type === 'network') {
-            setPrintConfig(prev => ({ ...prev, mode: 'network', printerIp: targetPrinter.ip }));
-        } else {
-            setPrintConfig(prev => ({ ...prev, mode: 'standard' }));
-        }
-      }
-    });
-    return () => unsub();
+          if (targetPrinter) {
+            if (targetPrinter.type === 'network') {
+                setPrintConfig(prev => ({ ...prev, mode: 'network', printerIp: targetPrinter.ip }));
+            } else {
+                setPrintConfig(prev => ({ ...prev, mode: 'standard' }));
+            }
+          }
+        });
+        return () => unsub();
+    } catch(e) {
+        console.error("Kon printers niet laden", e);
+    }
   }, [stationId, isOpen]);
 
-  // 2. Lotnummer generatie
-  useEffect(() => {
-    if (isOpen && order && mode === "auto") {
-      if (order.lotNumber) {
-        setLotNumber(order.lotNumber);
-      } else if (order.activeLot) {
-        setLotNumber(order.activeLot);
-      } else {
-        setLotNumber(generateLotNumber(stationId, existingProducts || []));
-      }
+  // --- SLIMME LOTNUMMER GENERATOR (FPI STANDAARD) ---
+
+  const checkLotNumberExists = async (lotToCheck) => {
+    if (!lotToCheck) return false;
+    try {
+      const actPaths = PATHS?.ACTIVE_PRODUCTION || ['future-factory', 'production', 'active'];
+      const activeRef = collection(db, ...actPaths);
+      
+      // Check 1: lotNumber veld
+      const qActive = query(activeRef, where("lotNumber", "==", lotToCheck));
+      const snapshotActive = await getDocs(qActive);
+      if (!snapshotActive.empty) return true;
+
+      // Check 2: activeLot veld (fallback)
+      const qActive2 = query(activeRef, where("activeLot", "==", lotToCheck));
+      const snapshotActive2 = await getDocs(qActive2);
+      if (!snapshotActive2.empty) return true;
+
+      const archPaths = PATHS?.PRODUCTION_ARCHIVE || ['future-factory', 'production', 'archive'];
+      const archiveRef = collection(db, ...archPaths);
+      const qArchive = query(archiveRef, where("lotNumber", "==", lotToCheck));
+      const snapshotArchive = await getDocs(qArchive);
+      return !snapshotArchive.empty;
+    } catch (error) {
+      console.error("Fout bij lot validatie:", error);
+      return false;
     }
+  };
+
+  // Stap A: Zoek de allerhoogste teller voor deze week/machine, onafhankelijk van het product
+  const getHighestSequenceForBaseLot = async (baseLotStr, stationId, weekSuffix) => {
+    let maxSeq = 0;
+    
+    // 1. Check de "Counter" collectie
+    // We gebruiken nu week-specifieke documenten (bijv. 'BH18_2609')
+    // Dit voorkomt conflicten tussen weken. Oude weken worden bij start opgeruimd.
+    const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const counterDocId = `${safeStationId}_${weekSuffix}`;
+    const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
+
+    console.log(`[LotGen] Checking counter: ${counterDocId}`);
+
+    try {
+        const counterSnap = await getDoc(counterRef);
+        if (counterSnap.exists()) {
+            console.log(`[LotGen] Counter hit: ${counterSnap.data().lastSequence}`);
+            return counterSnap.data().lastSequence || 0;
+        }
+    } catch (e) {
+        console.error("Fout bij lezen counter:", e);
+    }
+
+    // 2. FALLBACK: Als counter nog niet bestaat (eerste keer deze week), zoek in database
+    const extractSeq = (lot) => {
+        if (!lot || !lot.startsWith(baseLotStr)) return 0;
+        const seqStr = lot.substring(baseLotStr.length).replace(/[^0-9]/g, '');
+        const seq = parseInt(seqStr, 10);
+        return isNaN(seq) ? 0 : seq;
+    };
+
+    // 2a. Check actieve producten in de lijst (memory)
+    existingProducts?.forEach(p => {
+        const seq = extractSeq(p.lotNumber || p.activeLot);
+        if (seq > maxSeq) maxSeq = seq;
+    });
+
+    // 2b. Check Database (inclusief archief)
+    try {
+        // Active Production - Haal ALLES op (kleine collectie, voorkomt index/query issues)
+        const activePath = PATHS?.ACTIVE_PRODUCTION || ['future-factory', 'production', 'active'];
+        const activeRef = collection(db, ...activePath);
+        const activeSnap = await getDocs(activeRef);
+        activeSnap.forEach(doc => {
+            const data = doc.data();
+            const seq = extractSeq(data.lotNumber || data.activeLot);
+            if (seq > maxSeq) maxSeq = seq;
+        });
+
+        // Archive - Gebruik query (grote collectie)
+        const archivePath = PATHS?.PRODUCTION_ARCHIVE || ['future-factory', 'production', 'archive'];
+        const archiveRef = collection(db, ...archivePath);
+        const q = query(
+            archiveRef, 
+            where("lotNumber", ">=", baseLotStr),
+            where("lotNumber", "<=", baseLotStr + '\uf8ff')
+        );
+        const archiveSnap = await getDocs(q);
+        archiveSnap.forEach(doc => {
+            const seq = extractSeq(doc.data().lotNumber);
+            if (seq > maxSeq) maxSeq = seq;
+        });
+
+    } catch (error) {
+        console.error("Fout bij ophalen max sequence:", error);
+    }
+
+    // 3. Initialiseer de counter voor de volgende keer (Self-healing)
+    try {
+        await setDoc(counterRef, { lastSequence: maxSeq, updatedAt: serverTimestamp() }, { merge: true });
+        console.log(`[LotGen] Counter initialized at: ${maxSeq}`);
+    } catch (e) { console.error("Kon counter niet initialiseren", e); }
+
+    return maxSeq;
+  };
+
+  // Stap B: Genereer de robuuste FPI code
+  useEffect(() => {
+    let isMounted = true;
+
+    const generateRobustLotNumber = async () => {
+      if (!isOpen || !order || mode !== "auto") return;
+      setIsCheckingLot(true);
+
+      try {
+        const d = new Date();
+        const iso = getIsoWeekAndYear(d);
+        
+        // FPI Standaard Opbouw:
+        const bedrijf = "40"; // FPI
+        const jaar = iso.year.slice(-2); // 26
+        const week = iso.week; // 09
+        const machine = getMachineCode(stationId); // 418 (voor BH18)
+        const land = "40"; // NL
+
+        // Basis = "40260941840"
+        const baseLot = `${bedrijf}${jaar}${week}${machine}${land}`;
+
+        // Haal het hoogste getal op dat al gebruikt is voor deze basis (bijv. 1)
+        const highestSeq = await getHighestSequenceForBaseLot(baseLot, stationId, `${jaar}${week}`);
+        
+        // De nieuwe teller wordt het hoogste getal + 1 (dus als er niets is = 1)
+        let counter = highestSeq + 1;
+        
+        // Voeg 5 nullen toe als padding (00001, 00002, etc.)
+        let newLotNumber = `${baseLot}${String(counter).padStart(5, '0')}`;
+
+        // Noodzekerheid check om echt te garanderen dat deze teller niet in de database zit
+        while (await checkLotNumberExists(newLotNumber)) {
+            counter++;
+            newLotNumber = `${baseLot}${String(counter).padStart(5, '0')}`;
+            if (counter > 99999) break; 
+        }
+
+        if (isMounted) {
+            setLotNumber(newLotNumber);
+            setLotError("");
+        }
+      } catch (error) {
+        console.error("Error setting lot number", error);
+        if (isMounted) setLotError("Waarschuwing: Kan uniciteit niet garanderen.");
+      } finally {
+        if (isMounted) setIsCheckingLot(false);
+      }
+    };
+
+    generateRobustLotNumber();
+
     if (isOpen && mode === "manual") {
       setManualLotInput("");
       setManualOrderInput("");
+      setLotError("");
     }
-  }, [isOpen, order, mode, stationId, existingProducts]);
+
+    return () => { isMounted = false; };
+  }, [isOpen, order, mode, stationId]);
+
+  // Functie om de counter te updaten bij start
+  const updateCounterOnStart = async (usedLotNumber, count) => {
+      if (!usedLotNumber || mode !== "auto") return;
+      try {
+          const d = new Date();
+          const iso = getIsoWeekAndYear(d);
+          const year = iso.year.slice(-2);
+          const week = iso.week;
+          
+          // 1. Update Huidige Week (bijv. BH18_2609)
+          const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const counterDocId = `${safeStationId}_${year}${week}`;
+          const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
+          
+          // Haal volgnummer uit lotnummer (laatste 5 cijfers)
+          const currentSeq = parseInt(usedLotNumber.slice(-5), 10);
+          const newMax = currentSeq + (count - 1); // Als we er 5 maken, is de teller +4
+
+          console.log(`[LotGen] Updating counter ${counterDocId} -> ${newMax}`);
+          await setDoc(counterRef, { lastSequence: newMax, updatedAt: serverTimestamp() }, { merge: true });
+
+          // 2. Cleanup Oude Weken (Veiligheid: 2 weken bewaren)
+          // Als we in week 11 zitten, wissen we week 9.
+          const twoWeeksAgo = new Date();
+          twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+          const isoOld = getIsoWeekAndYear(twoWeeksAgo);
+          const oldDocId = `${safeStationId}_${isoOld.year.slice(-2)}${isoOld.week}`;
+          
+          // Probeer te verwijderen (fire & forget)
+          await deleteDoc(doc(db, "future-factory", "production", "counters", oldDocId)).catch(() => {});
+
+      } catch (e) { console.error("Kon counter niet updaten:", e); }
+  };
 
   // 3. Data voor preview
   const previewData = useMemo(() => {
     if (!order) return {};
     const baseData = processLabelData({
       ...order,
-      orderNumber: order.orderId,
+      orderNumber: mode === "manual" ? manualOrderInput || order.orderId : order.orderId,
       productId: order.itemCode,
       description: order.item,
-      lotNumber: lotNumber || "26-01-XXXX",
+      lotNumber: mode === "manual" ? manualLotInput : (lotNumber || "LADEN..."),
     });
     
     return applyLabelLogic(baseData, labelRules);
-  }, [order, lotNumber, labelRules]);
+  }, [order, lotNumber, labelRules, mode, manualOrderInput, manualLotInput]);
 
   const selectedLabel = useMemo(
     () => availableLabels.find((l) => l.id === selectedLabelId),
@@ -219,7 +445,6 @@ const ProductionStartModal = ({
     const quantity = parseInt(quantityStr);
     if (!quantity || isNaN(quantity) || quantity < 1) return;
     
-    // NETWERK PRINT (ZPL)
     if (printConfig.mode === "network") {
       if (!printConfig.printerIp) {
         alert("Selecteer eerst een netwerkprinter.");
@@ -231,7 +456,6 @@ const ProductionStartModal = ({
       const dpi = selectedPrinter?.dpi ? parseInt(selectedPrinter.dpi) : 203;
       
       let zpl = await generateZPL(selectedLabel, previewData, dpi);
-      // Voeg darkness toe als het er nog niet in zit
       if (!zpl.includes("~SD")) zpl = `~SD${darkness}\n${zpl}`;
 
       try {
@@ -245,8 +469,6 @@ const ProductionStartModal = ({
       return;
     }
 
-    // STANDAARD BROWSER PRINT
-    
     const printWindow = window.open("", "_blank", "width=800,height=600");
     const labelW = selectedLabel.width;
     const labelH = selectedLabel.height;
@@ -309,7 +531,50 @@ const ProductionStartModal = ({
     downloadZPL(zpl, `label_${order.orderId}_${lotNumber}.zpl`);
   };
 
-  // Helper voor weergave geselecteerde operator
+  const handleManualOrderChange = async (e) => {
+    const value = e.target.value.toUpperCase();
+    setManualOrderInput(value);
+    setOrderError("");
+    setOrderValidated(false);
+
+    // Valideer of gescand ordernummer overeenkomt met geselecteerd order
+    if (value.trim().length >= 4) {
+      const expectedOrderId = order?.orderId?.toUpperCase();
+      if (expectedOrderId && value.trim() === expectedOrderId) {
+        setOrderValidated(true);
+        setOrderError("");
+        // Spring direct naar lotnummer veld
+        setTimeout(() => {
+          lotInputRef.current?.focus();
+        }, 100);
+      } else if (value.trim().length >= expectedOrderId?.length) {
+        setOrderError("Ordernummer komt niet overeen!");
+      }
+    }
+  };
+
+  const handleManualLotChange = async (e) => {
+    const value = e.target.value.toUpperCase();
+    setManualLotInput(value);
+    setLotNumber(value);
+    setLotError("");
+
+    if (value.trim().length >= 4) {
+      setIsCheckingLot(true);
+      let exists = existingProducts?.some(p => p.lotNumber === value.trim() || p.activeLot === value.trim());
+      if (exists) {
+        setLotError("Dit lotnummer is op dit moment al in productie!");
+      } else {
+        // Controleer ook in database
+        const existsInDb = await checkLotNumberExists(value.trim());
+        if (existsInDb) {
+          setLotError("Dit lotnummer is al gebruikt!");
+        }
+      }
+      setIsCheckingLot(false);
+    }
+  };
+
   const selectedOperatorName = assignedOperators.find(op => op.number === operatorInput)?.name;
 
   if (!isOpen || !order || location.pathname.includes("/login")) return null;
@@ -365,10 +630,6 @@ const ProductionStartModal = ({
                   <p className="text-xs font-medium text-slate-600 italic">{order.notes}</p>
                 </div>
               )}
-              <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between items-center">
-                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Actueel Lot</span>
-                 <span className="text-xs font-mono font-black text-blue-600">{lotNumber || "-"}</span>
-              </div>
             </div>
 
             {/* Operator Selection */}
@@ -439,9 +700,13 @@ const ProductionStartModal = ({
                   <span className="text-[8px] font-black text-blue-400 uppercase tracking-[0.3em] block mb-1.5">
                     Huidig Lotnummer
                   </span>
-                  <div className="text-2xl font-mono font-black text-white italic tracking-tighter">
-                    {lotNumber}
+                  <div className="flex justify-center items-center gap-2">
+                    <div className={`text-2xl font-mono font-black ${lotError ? 'text-red-400' : 'text-white'} italic tracking-tighter`}>
+                      {lotNumber || "LADEN..."}
+                    </div>
+                    {isCheckingLot && <Loader2 className="animate-spin text-white/50" size={16} />}
                   </div>
+                  {lotError && <p className="text-red-400 text-xs mt-2 font-bold">{lotError}</p>}
                 </div>
                 <div className="space-y-1 text-left">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
@@ -467,30 +732,68 @@ const ProductionStartModal = ({
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
                     Ordernummer (scannen of invullen)
                   </label>
-                  <input
-                    type="text"
-                    value={manualOrderInput}
-                    onChange={(e) => setManualOrderInput(e.target.value.toUpperCase())}
-                    placeholder={"N2000000"}
-                    className="w-full p-3 bg-white border-2 border-slate-100 rounded-2xl font-mono text-lg font-black uppercase outline-none focus:border-blue-600 shadow-sm text-center"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      ref={orderInputRef}
+                      type="text"
+                      value={manualOrderInput}
+                      onChange={handleManualOrderChange}
+                      placeholder={order?.orderId || "N2000000"}
+                      className={`w-full p-3 bg-white border-2 rounded-2xl font-mono text-lg font-black uppercase outline-none shadow-sm text-center placeholder:text-slate-300 ${
+                        orderError 
+                          ? "border-red-500 focus:border-red-600 text-red-600" 
+                          : orderValidated
+                          ? "border-emerald-500 focus:border-emerald-600 text-emerald-600"
+                          : "border-slate-100 focus:border-blue-600 text-slate-800"
+                      }`}
+                      required
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {orderError ? (
+                        <AlertTriangle className="text-red-500" size={20} />
+                      ) : orderValidated ? (
+                        <CheckCircle2 className="text-emerald-500" size={20} />
+                      ) : null}
+                    </div>
+                  </div>
+                  {orderError && (
+                    <p className="text-xs font-bold text-red-500 mt-1 pl-2">{orderError}</p>
+                  )}
                 </div>
                 <div className="space-y-1 text-left">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
                     Lotnummer (scannen of invullen)
                   </label>
-                  <input
-                    type="text"
-                    value={manualLotInput}
-                    onChange={(e) => {
-                      setManualLotInput(e.target.value.toUpperCase());
-                      setLotNumber(e.target.value.toUpperCase());
-                    }}
-                    placeholder={getLotPlaceholder(stationId)}
-                    className="w-full p-3 bg-white border-2 border-slate-100 rounded-2xl font-mono text-xl font-black uppercase outline-none focus:border-blue-600 shadow-sm text-center placeholder:text-slate-300"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      ref={lotInputRef}
+                      type="text"
+                      value={manualLotInput}
+                      onChange={handleManualLotChange}
+                      placeholder="Handmatig Lot"
+                      disabled={!orderValidated}
+                      className={`w-full p-3 bg-white border-2 rounded-2xl font-mono text-xl font-black uppercase outline-none shadow-sm text-center placeholder:text-slate-300 ${
+                        lotError 
+                          ? "border-red-500 focus:border-red-600 text-red-600" 
+                          : !lotError && manualLotInput.length >= 4
+                          ? "border-emerald-500 focus:border-emerald-600 text-slate-800"
+                          : "border-slate-100 focus:border-blue-600 text-slate-800"
+                      } ${!orderValidated ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      required
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {isCheckingLot ? (
+                        <Loader2 className="animate-spin text-blue-500" size={20} />
+                      ) : lotError ? (
+                        <AlertTriangle className="text-red-500" size={20} />
+                      ) : manualLotInput.length >= 4 ? (
+                        <CheckCircle2 className="text-emerald-500" size={20} />
+                      ) : null}
+                    </div>
+                  </div>
+                  {lotError && (
+                    <p className="text-xs font-bold text-red-500 mt-1 pl-2">{lotError}</p>
+                  )}
                 </div>
               </div>
             )}
@@ -529,23 +832,33 @@ const ProductionStartModal = ({
             </button>
             <button
               onClick={async () => {
-                await logActivity(auth.currentUser?.uid, "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${mode === "auto" ? lotNumber : manualLotInput}`);
-                onStart(
-                  order,
-                  mode === "auto" ? lotNumber : manualLotInput,
-                  stringCount,
-                  manualOrderInput,
-                  operatorInput,
-                  selectedOperatorName // Geef ook de naam mee voor historie
-                );
+                try {
+                  await updateCounterOnStart(mode === "auto" ? lotNumber : manualLotInput, stringCount);
+                  await logActivity(auth.currentUser?.uid, "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${mode === "auto" ? lotNumber : manualLotInput}`);
+                  onStart(
+                    order,
+                    mode === "auto" ? lotNumber : manualLotInput,
+                    stringCount,
+                    manualOrderInput,
+                    operatorInput,
+                    selectedOperatorName 
+                  );
+                } catch(e) {
+                   console.error(e)
+                }
               }}
               disabled={
-                (mode === "manual" && (!manualOrderInput || !manualLotInput)) ||
-                (mode === "auto" && !lotNumber)
+                (mode === "manual" && (!orderValidated || !manualLotInput || !!lotError || !!orderError)) ||
+                (mode === "auto" && (!lotNumber || isCheckingLot || !!lotError))
               }
-              className="flex-[2] py-5 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-[0.15em] shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
+              className={`flex-[2] py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.15em] shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 ${
+                mode === "manual" && orderValidated && manualLotInput && !lotError && !orderError && !isCheckingLot
+                  ? "bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-600/50 animate-pulse"
+                  : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+              }`}
             >
-              <PlayCircle size={20} /> {selectedOperatorName ? `Start (${operatorInput})` : "Order Starten"}
+              {isCheckingLot ? <Loader2 className="animate-spin" size={20} /> : <PlayCircle size={20} />} 
+              {selectedOperatorName ? `Start (${operatorInput})` : "Order Starten"}
             </button>
           </div>
         </div>
@@ -560,7 +873,11 @@ const ProductionStartModal = ({
           </div>
 
           <div className="flex-1 flex items-center justify-center w-full min-h-0 py-8">
-            {mode === "manual" ? null : (
+            {mode === "manual" && (!manualLotInput || !manualOrderInput) ? (
+              <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] text-xs uppercase font-black tracking-widest italic">
+                Vul order en lot in...
+              </div>
+            ) : (
               selectedLabel ? (
                 <div
                   className="bg-white shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center overflow-hidden border-2 border-white/10"

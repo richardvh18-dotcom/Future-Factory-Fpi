@@ -22,6 +22,7 @@ De keten is: **Productie (BH18) -> Lossen -> Nabewerken -> Eindinspectie (BM01)*
 - **Status Flow:** Zorg dat de statusovergangen naadloos zijn. Zodra BH18 "Gereed" meldt, moet de order direct zichtbaar zijn in de "Te Lossen" lijst.
 - **Nabewerking:** Voeg indien nodig een expliciete stap/status "Nabewerken" toe in de `WorkstationHub` als tussenstap voor de eindinspectie.
 - **Eindinspectie (BM01):** De digitale checklist in `BM01Hub.jsx` is leidend. Geen papieren backup meer.
+- **Unieke Lotnummer Validatie:** CRUCIAAL. Voeg een `getDoc` check toe vóór het starten van een order. Als het lotnummer (handmatig of auto) al bestaat in `tracked_products`, blokkeer de actie en toon een alert. Dit voorkomt dat product 2 de data van product 1 overschrijft.
 - **Fail-safe:** Zorg dat operators een order handmatig kunnen opzoeken (via zoekbalk) als deze niet automatisch in hun lijst verschijnt.
 
 ## 4. AI Assistent Optimalisatie (Fittings Specifiek)

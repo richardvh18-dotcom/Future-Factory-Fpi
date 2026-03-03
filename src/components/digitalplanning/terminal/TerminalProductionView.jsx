@@ -1,16 +1,64 @@
 import React from "react";
-import { Zap, ChevronRight, ArrowLeft, ClipboardCheck } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Zap, ChevronRight, ArrowLeft, ClipboardCheck, ScanBarcode } from "lucide-react";
 
 const TerminalProductionView = ({
   activeWikkelingen = [],
   selectedTrackedId,
   onSelectTracked,
   selectedWikkeling,
-  onReleaseProduct
+  onReleaseProduct,
+  scanInput = "",
+  setScanInput = () => {},
+  onScan = () => {},
+  scanInputRef
 }) => {
+  const { t } = useTranslation();
+  
   return (
     <>
+      <style>{`
+        @keyframes scan-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7); }
+          50% { box-shadow: 0 0 0 10px rgba(249, 115, 22, 0); }
+        }
+        .scan-pulse-wikkelen {
+          animation: scan-pulse 2s infinite;
+        }
+        @keyframes pulse-text {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .pulse-text-wikkelen {
+          animation: pulse-text 1.5s ease-in-out infinite;
+        }
+      `}</style>
       <div className={`w-full lg:w-5/12 p-6 bg-white border-r border-slate-100 flex flex-col overflow-hidden ${selectedTrackedId ? "hidden lg:flex" : "flex"} text-left`}>
+        {/* Scan Indicator & Input */}
+        <div className="mb-4 space-y-2">
+          {/* Indicator Label */}
+          <div className="flex items-center gap-2 px-4 py-2 bg-orange-50 rounded-lg border border-orange-100 w-fit">
+            <div className="w-2 h-2 bg-orange-500 rounded-full pulse-text-wikkelen"></div>
+            <span className="text-xs font-black text-orange-600 uppercase tracking-widest">
+              🔍 {t('digitalplanning.terminal.ready_for_winding_scan', 'Klaar voor wikkelen scan')}
+            </span>
+          </div>
+          {/* Scan Input */}
+          <div className="relative">
+            <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500 transition-all scan-pulse-wikkelen" size={24} />
+            <input
+              ref={scanInputRef}
+              type="text"
+              value={scanInput}
+              onChange={(e) => setScanInput(e.target.value)}
+              onKeyDown={onScan}
+              placeholder="Scan lotnummer..."
+              className="w-full pl-14 pr-4 py-4 bg-white border-2 border-orange-100 focus:border-orange-500 focus:ring-2 focus:ring-orange-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
+              autoFocus
+            />
+          </div>
+        </div>
+
         <div className="flex justify-between items-center mb-6 px-2 text-left">
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
             <Zap size={16} className="text-orange-500" /> Actieve Wikkelingen

@@ -1,4 +1,4 @@
-import { collection, query, onSnapshot, doc, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, deleteDoc, getDoc, setDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, deleteDoc, getDoc, setDoc, arrayUnion, increment } from "firebase/firestore";
 import React, { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -26,6 +26,7 @@ import ProductDetailModal from "../products/ProductDetailModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";
 import BM01Hub from "./BM01Hub";
+import RepairModal from "./modals/RepairModal";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -73,6 +74,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const [orderToLink, setOrderToLink] = useState(null);
   const [finishModalOpen, setFinishModalOpen] = useState(false);
   const [itemToFinish, setItemToFinish] = useState(null);
+  const [showRepairModal, setShowRepairModal] = useState(false);
+  const [itemToRepair, setItemToRepair] = useState(null);
 
   const currentAppId = getAppId();
   const isPostProcessing = [
@@ -612,6 +615,14 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       if (cleanStationId === "BM01" || cleanStationId.includes("BM01"))
         return pClean === "BM01" || pClean.includes("BM01");
 
+      // NIEUW: BH31 (Reparatie) - Toon alles wat op dit station staat
+      if (cleanStationId === "BH31") {
+        return pClean === "BH31";
+      }
+      
+      // Verberg items die in de wacht staan voor reparatie (Tijdelijke afkeur) op reguliere stations
+      if (p.currentStep === "HOLD_AREA") return false;
+
       if (selectedStation.startsWith("BH")) {
         return (
           (pMachine === selectedStation ||
@@ -839,6 +850,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         processedBy: currentUser?.email || "Unknown",
       };
 
+      // Maak history entry aan
+      const historyEntry = {
+          action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
+          timestamp: new Date().toISOString(),
+          user: currentUser?.email || "Operator",
+          station: selectedStation,
+          details: status === "completed" ? "Verwerking afgerond" : `Reden: ${data.reasons?.join(", ")}`
+      };
+
       // Update personnel tracking
       if (stationOperators.length > 0) {
         updates[`personnelTracking.${selectedStation}`] = stationOperators;
@@ -864,11 +884,35 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               timestamps: {
                   ...itemToFinish.timestamps,
                   finished: new Date()
-              }
+              },
+              // Override history met array inclusief laatste stap (ipv arrayUnion)
+              history: [...(itemToFinish.history || []), historyEntry]
           };
 
           await setDoc(archiveRef, finalData);
           await deleteDoc(productRef);
+
+          // Update Planning Order
+          if (itemToFinish.orderId && itemToFinish.orderId !== "NOG_TE_BEPALEN") {
+              try {
+                  const planningRef = collection(db, ...PATHS.PLANNING);
+                  const q = query(planningRef, where("orderId", "==", itemToFinish.orderId));
+                  const snap = await getDocs(q);
+                  if (!snap.empty) {
+                      const orderDoc = snap.docs[0];
+                      const newProduced = (orderDoc.data().produced || 0) + 1;
+                      const plan = orderDoc.data().plan || 0;
+                      const orderUpdates = {
+                          produced: increment(1),
+                          lastUpdated: serverTimestamp()
+                      };
+                      if (newProduced >= plan) orderUpdates.status = "completed";
+                      await updateDoc(orderDoc.ref, orderUpdates);
+                  }
+              } catch (e) {
+                  console.error("Error updating planning order:", e);
+              }
+          }
           
           setFinishModalOpen(false);
           setItemToFinish(null);
@@ -881,6 +925,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           updates.lastStation = selectedStation;
           updates["timestamps.eindinspectie_start"] = serverTimestamp();
         }
+        
+        // Voor niet-archivering updates: gebruik arrayUnion
+        if (!updates.history) updates.history = arrayUnion(historyEntry);
       } else if (status === "temp_reject") {
         updates.inspection = {
           status: "Tijdelijke afkeur",
@@ -891,6 +938,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         // Sla de vorige staat op zodat we kunnen hervatten
         updates.previousStep = itemToFinish.currentStep;
         updates.previousStatus = itemToFinish.status;
+        updates.history = arrayUnion(historyEntry);
       } else if (status === "rejected") {
         updates.status = "rejected";
         updates.currentStep = "REJECTED";
@@ -900,6 +948,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           reasons: data.reasons,
           timestamp: new Date().toISOString(),
         };
+        updates.history = arrayUnion(historyEntry);
         
         // Bij definitieve afkeur: update order teller
         if (itemToFinish.orderId && itemToFinish.orderId !== "NOG_TE_BEPALEN") {
@@ -939,6 +988,13 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
   const handleProcessUnit = async (product) => {
     const stationCheck = String(selectedStation).toLowerCase();
+
+    // NIEUW: BH31 Reparatie flow
+    if (stationCheck === "bh31") {
+        setItemToRepair(product);
+        setShowRepairModal(true);
+        return;
+    }
 
     if (
       stationCheck === "nabewerking" ||
@@ -1018,6 +1074,37 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       console.error("Fout bij proces:", error);
       showError("Kon status niet updaten", "Fout bij proces");
     }
+  };
+
+  // NIEUW: Afhandelen van reparatie op BH31
+  const handleRepairComplete = async (data) => {
+      if (!itemToRepair) return;
+      try {
+          const productRef = doc(db, ...PATHS.TRACKING, itemToRepair.id || itemToRepair.lotNumber);
+          
+          const updates = {
+              currentStation: "BM01",
+              currentStep: "Eindinspectie",
+              status: "Te Keuren",
+              updatedAt: serverTimestamp(),
+              note: itemToRepair.note ? `${itemToRepair.note}\nReparatie: ${data.notes}` : `Reparatie: ${data.notes}`,
+              history: arrayUnion({
+                  action: "Reparatie Voltooid",
+                  timestamp: new Date().toISOString(),
+                  user: currentUser?.email || "Operator",
+                  station: "BH31",
+                  details: `Acties: ${data.actions.join(", ")}. ${data.notes}`
+              })
+          };
+
+          await updateDoc(productRef, updates);
+          showSuccess(`Product ${itemToRepair.lotNumber} gerepareerd en doorgestuurd naar BM01`);
+          setShowRepairModal(false);
+          setItemToRepair(null);
+      } catch (err) {
+          console.error("Fout bij reparatie afronden:", err);
+          showError("Kon reparatie niet opslaan");
+      }
   };
 
   const handleOpenProductInfo = async (productId) => {
@@ -1334,6 +1421,13 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           }}
           onConfirm={handlePostProcessingFinish}
           currentStation={selectedStation}
+        />
+      )}
+      {showRepairModal && itemToRepair && (
+        <RepairModal
+            product={itemToRepair}
+            onClose={() => { setShowRepairModal(false); setItemToRepair(null); }}
+            onConfirm={handleRepairComplete}
         />
       )}
     </div>

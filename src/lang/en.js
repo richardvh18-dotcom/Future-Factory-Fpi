@@ -477,7 +477,8 @@ export const en = {
       daily_overview_offered: 'Daily Overview BM01 - Offered',
       no_products_date: 'No products found for this date.',
       order_number: 'Order Number',
-      lot_number: 'Lot Number'
+      lot_number: 'Lot Number',
+      ready_for_inspection_scan: 'Ready for inspection scan'
     },
     lossen: {
       incoming: 'Incoming',
@@ -526,7 +527,9 @@ export const en = {
       print_error: 'Could not print. Check if Zebra Browser Print is running or if the IP is correct.\nError: ',
       reservation_success: 'Successfully reserved {{count}} labels:\n{{lots}}\n\nThese numbers are reserved for 24 hours.',
       reservation_error: 'Error reserving: ',
-      confirm_release: 'Release reservation {{lot}}? This removes the number so it can be reused.'
+      confirm_release: 'Release reservation {{lot}}? This removes the number so it can be reused.',
+      ready_to_scan: 'Ready to scan',
+      item_not_found: 'Item {{code}} not found'
     },
     adminLocations: {
       registerNew: 'Register New',
@@ -878,7 +881,8 @@ export const en = {
         tab_to_offer: "To Offer",
         tab_winding: "Winding",
         tab_lossen: "Unloading",
-        product_not_found: "Product not found in catalog."
+        product_not_found: "Product not found in catalog.",
+        ready_for_winding_scan: "Ready for winding scan"
       },
       hub: {
         fitting_title: "Fitting Productions",

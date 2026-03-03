@@ -117,7 +117,8 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
           action: "Stap Voltooid",
           timestamp: new Date(),
           user: activeOperator, // Gebruik de opgehaalde operator
-          details: `Doorgestuurd van ${currentStep} naar ${nextStep}`
+          details: `Doorgestuurd van ${currentStep} naar ${nextStep}`,
+          station: product.currentStation || product.machine || "Onbekend"
         });
 
         if (updateStation) {
@@ -137,7 +138,8 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
           action: "Tijdelijke Afkeur",
           timestamp: new Date(),
           user: activeOperator, // Gebruik de opgehaalde operator
-          details: `Reden: ${reason} - ${comment}`
+          details: `Reden: ${reason} - ${comment}`,
+          station: product.currentStation || product.machine || "Onbekend"
         });
 
       } else if (status === "rejected") {
@@ -153,7 +155,8 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
           action: "Definitieve Afkeur",
           timestamp: new Date(),
           user: activeOperator, // Gebruik de opgehaalde operator
-          details: `Reden: ${reason} - ${comment}`
+          details: `Reden: ${reason} - ${comment}`,
+          station: product.currentStation || product.machine || "Onbekend"
         });
 
         // CRITICAl: Update de moeder-order zodat deze weer in de planning komt

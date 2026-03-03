@@ -29,7 +29,7 @@
     "react-router-dom": "^6.21.1",
     "react-window": "^2.2.7",
     "terser": "^5.36.0",
-    "vercel": "^50.23.2",
+    "vercel": "^50.25.4",
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },

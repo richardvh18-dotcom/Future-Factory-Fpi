@@ -352,13 +352,17 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       console.log("📋 Department Names:", uniqueDeptNames);
     }
 
+    // DEBUG: Toon alle machines die in de database gevonden zijn voordat er gefilterd wordt
+    console.log("🔍 Machines in database (Raw):", [...new Set(planningOrders.map(o => o.machine))]);
+
     // Filter op afdeling als niet "ALLES"
     if (selectedDepartment !== "ALLES") {
       periodOrders = periodOrders.filter(order => {
         // Altijd meenemen als machine bij de afdeling hoort
         const machine = (order.machine || "").toUpperCase();
         const selDept = selectedDepartment.toUpperCase();
-        if (selDept === "FITTINGS" && machine.startsWith("BH")) return true;
+        // Toleranter filter: BH machines horen bij Fittings, maar sta ook toe als de import BM18 bevatte (voor de zekerheid)
+        if (selDept === "FITTINGS" && (machine.startsWith("BH") || machine === "BM18")) return true;
         if (selDept === "PIPES" && machine.startsWith("BA")) return true;
         // Anders: standaard department check
         return matchesDepartment(order.departmentId, selectedDepartment);

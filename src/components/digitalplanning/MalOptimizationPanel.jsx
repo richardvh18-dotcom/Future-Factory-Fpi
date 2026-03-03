@@ -22,11 +22,11 @@ const MalOptimizationPanel = ({ currentOrder, allOrders, onSelectOrder }) => {
   return (
     <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800 overflow-hidden animate-in fade-in slide-in-from-top-2">
       <div className="p-3 border-b border-blue-100 dark:border-blue-800 bg-blue-100/50 dark:bg-blue-900/40">
-        <h4 className="font-bold text-blue-800 dark:text-blue-300 flex items-center gap-2 text-sm">
+        <h4 className="font-bold text-blue-900 dark:text-blue-300 flex items-center gap-2 text-sm">
           <span className="text-lg">📦</span> 
-          Mal Optimalisatie
+          Optimalisatie
         </h4>
-        <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+        <p className="text-xs text-slate-900 dark:text-slate-200 mt-1 font-medium">
           Nog <strong>{relatedOrders.length}</strong> orders voor {currentOrder.itemCode || currentOrder.productId}.
         </p>
       </div>
@@ -40,7 +40,7 @@ const MalOptimizationPanel = ({ currentOrder, allOrders, onSelectOrder }) => {
           >
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-gray-800 dark:text-gray-200 text-sm">
+                <span className="font-bold text-slate-900 dark:text-white text-sm">
                   {order.orderId || order.orderNumber}
                 </span>
                 <StatusBadge status={order.status} showIcon={false} />

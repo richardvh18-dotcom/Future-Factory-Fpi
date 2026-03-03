@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Loader2,
@@ -13,6 +13,7 @@ import {
   getDoc,
   query,
   where,
+  arrayUnion
 } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -33,6 +34,7 @@ import TerminalPlanningView from "./terminal/TerminalPlanningView";
 import TerminalProductionView from "./terminal/TerminalProductionView";
 import TerminalManualInput from "./terminal/TerminalManualInput";
 import MalOptimizationPanel from "./MalOptimizationPanel";
+import RepairModal from "./modals/RepairModal";
 
 /**
  * Workstation Terminal - V22.5
@@ -55,6 +57,7 @@ const Terminal = ({ initialStation }) => {
   const isMazak = normalizedStationId === "MAZAK" || cleanStationId === "MAZAK";
   const isLossenStation = normalizedStationId === "LOSSEN";
   const isSimpleViewStation = isNabewerking || isMazak || isLossenStation;
+  const isBH31 = normalizedStationId === "BH31";
   const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || normalizedStationId.includes("BM01");
 
   // State management
@@ -71,10 +74,16 @@ const Terminal = ({ initialStation }) => {
   const [showStartModal, setShowStartModal] = useState(false);
   const [productToRelease, setProductToRelease] = useState(null);
   const [viewingProduct, setViewingProduct] = useState(null);
+  const [showRepairModal, setShowRepairModal] = useState(false);
+  const [itemToRepair, setItemToRepair] = useState(null);
+
+  // Scan functionaliteit voor wikkelen tab
+  const [scanInput, setScanInput] = useState("");
+  const scanInputRef = useRef(null);
 
   // Planning filters (Week / Alles)
   const [referenceDate, setReferenceDate] = useState(new Date());
-  const [showAllWeeks, setShowAllWeeks] = useState(false);
+  const [showAllWeeks, setShowAllWeeks] = useState(true); // STANDAARD AAN: Toon alles om verwarring te voorkomen
   
   const targetWeekNum = getISOWeek(referenceDate);
   const targetYearNum = getISOWeekYear(referenceDate);
@@ -171,6 +180,17 @@ const Terminal = ({ initialStation }) => {
     };
   }, [stationId]);
 
+  // DEBUG: Log data flow om te zien waar het misgaat
+  useEffect(() => {
+    if (!loading) {
+      console.log(`[Terminal DEBUG] Station: ${normalizedStationId}`);
+      console.log(`[Terminal DEBUG] Totaal actieve orders in DB: ${allOrders.length}`);
+      // Tel orders die matchen met dit station
+      const matching = allOrders.filter(o => (normalizeMachine(o.machine) || "").toUpperCase().trim() === normalizedStationId);
+      console.log(`[Terminal DEBUG] Orders voor ${normalizedStationId}: ${matching.length}`);
+    }
+  }, [loading, allOrders, normalizedStationId]);
+
   // Gefilterde data voor het huidige station
   const myOrders = useMemo(() => {
     if (isBM01) return allOrders;
@@ -188,6 +208,30 @@ const Terminal = ({ initialStation }) => {
       const oid = String(p.orderId || "").trim();
       if (!map[oid]) map[oid] = 0;
       map[oid]++;
+    });
+    return map;
+  }, [allTracked]);
+
+  // NIEUW: Map voor items die klaar zijn op de machine (voorbij Wikkelen)
+  const finishedOnMachineMap = useMemo(() => {
+    const map = {};
+    allTracked.forEach((p) => {
+      const oid = String(p.orderId || "").trim();
+      
+      // FIX: Afgekeurde items tellen NIET mee als gereed.
+      // Hierdoor daalt de 'produced' teller en komt de order terug in de planning (om bij te maken).
+      const isRejected = ['rejected', 'Rejected', 'AFKEUR', 'REJECTED'].includes(p.status) || p.currentStep === 'REJECTED';
+      if (isRejected) return;
+
+      // Items die niet meer op 'Wikkelen' of 'HOLD_AREA' staan, zijn klaar voor de machine
+      // FIX: HOLD_AREA (Tijdelijke afkeur) telt nu ook als 'klaar op BH18' (want gaat naar BH31), dus order verdwijnt.
+      const activeMachineSteps = ["Wikkelen"];
+      const isFinishedForMachine = !activeMachineSteps.includes(p.currentStep) || p.currentStep === "Finished" || p.status === "completed";
+      
+      if (isFinishedForMachine) {
+        if (!map[oid]) map[oid] = 0;
+        map[oid]++;
+      }
     });
     return map;
   }, [allTracked]);
@@ -222,13 +266,30 @@ const Terminal = ({ initialStation }) => {
     return active.filter(p => (p.lotNumber || "").toLowerCase().includes(term) || (p.orderId || "").toLowerCase().includes(term));
   }, [allTracked, normalizedStationId, sidebarSearch]);
 
+  // NIEUW: Items die in de planning tab moeten verschijnen (Reparaties / Verplaatsingen)
+  const repairItems = useMemo(() => {
+    return activeWikkelingen.filter(p => 
+      p.isManualMove || 
+      p.inspection?.status === "Tijdelijke afkeur" || 
+      isBH31
+    );
+  }, [activeWikkelingen, isBH31]);
+
   const filteredOrders = useMemo(() => {
-    const base = myOrders.filter((o) => {
-      // BUGFIX: Voltooide orders verbergen - DIT MOET BOVENAAN STAAN
-      // Zelfs als een order SPOED is, als hij klaar is, moet hij weg uit de actieve lijst.
-      const produced = o.produced || 0;
-      const quantity = o.quantity || 0;
-      if (produced >= quantity && !showAllWeeks) return false; // Tenzij we expliciet alles willen zien
+    // Eerst verrijken met live data
+    const enrichedOrders = myOrders.map(o => ({
+        ...o,
+        // FIX: Combineer opgeslagen 'produced' (archived) met live 'finishedOnMachine' (active)
+        produced: (o.produced || 0) + (finishedOnMachineMap[o.orderId] || 0)
+    }));
+
+    const base = enrichedOrders.filter((o) => {
+      // FIX: Gebruik 'plan' als fallback voor 'quantity', anders is quantity 0 en wordt de order verborgen (0 >= 0)
+      const quantity = o.quantity || o.plan || 0;
+      
+      // BUGFIX: Voltooide orders ALTIJD verbergen uit de actieve lijst, ook als 'Alles tonen' aan staat.
+      // Een order is klaar voor deze machine als alle stuks voorbij de wikkel-fase zijn.
+      if (quantity > 0 && o.produced >= quantity) return false;
 
       if (o.status !== "pending" && o.status !== "in_progress" && o.status !== "planned" && o.status !== "delegated") return false;
       
@@ -275,7 +336,7 @@ const Terminal = ({ initialStation }) => {
     
     const term = sidebarSearch.toLowerCase();
     return base.filter(o => (o.orderId || "").toLowerCase().includes(term) || (o.item || "").toLowerCase().includes(term));
-  }, [myOrders, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01, normalizedStationId, productionProgressMap]);
+  }, [myOrders, finishedOnMachineMap, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01, normalizedStationId, productionProgressMap]);
 
   const selectedOrder = useMemo(() => 
     myOrders.find(o => o.id === selectedOrderId || o.orderId === selectedOrderId), 
@@ -283,6 +344,45 @@ const Terminal = ({ initialStation }) => {
   );
 
   const selectedWikkeling = useMemo(() => activeWikkelingen.find(p => p.id === selectedTrackedId), [activeWikkelingen, selectedTrackedId]);
+
+  // Auto-focus voor scan input in wikkelen tab
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+      
+      if (activeTab === "wikkelen" && !selectedTrackedId && !productToRelease && !showStartModal) {
+        scanInputRef.current?.focus();
+      }
+    };
+    
+    if (activeTab === "wikkelen") {
+      scanInputRef.current?.focus();
+    }
+
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [activeTab, selectedTrackedId, productToRelease, showStartModal]);
+
+  // Scan handler voor wikkelen tab
+  const handleScan = (e) => {
+    if (e.key === 'Enter') {
+      const code = scanInput.trim();
+      if (!code) return;
+      
+      const found = activeWikkelingen.find(i => 
+        (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
+        (i.orderId || "").toLowerCase() === code.toLowerCase()
+      );
+      
+      if (found) {
+        setSelectedTrackedId(found.id);
+        setScanInput("");
+      } else {
+        alert(`Item ${code} niet gevonden in actieve wikkelingen.`);
+        setScanInput("");
+      }
+    }
+  };
 
   // Handlers
   const handleTabChange = (tab) => {
@@ -332,9 +432,42 @@ const Terminal = ({ initialStation }) => {
       });
 
       setShowStartModal(false);
-      if (!isNabewerking && !isLossenStation && !isBM01) setActiveTab("wikkelen");
+      if (!isNabewerking && !isLossenStation && !isBM01 && !isBH31) setActiveTab("wikkelen");
     } catch (err) {
       console.error("Fout bij starten productie:", err);
+    }
+  };
+
+  const handleRepair = (item) => {
+    setItemToRepair(item);
+    setShowRepairModal(true);
+  };
+
+  const handleRepairComplete = async (data) => {
+    if (!itemToRepair) return;
+    try {
+        const productRef = doc(db, ...PATHS.TRACKING, itemToRepair.id || itemToRepair.lotNumber);
+        
+        const updates = {
+            currentStation: "BM01",
+            currentStep: "Eindinspectie",
+            status: "Te Keuren",
+            updatedAt: serverTimestamp(),
+            note: itemToRepair.note ? `${itemToRepair.note}\nReparatie: ${data.notes}` : `Reparatie: ${data.notes}`,
+            history: arrayUnion({
+                action: "Reparatie Voltooid",
+                timestamp: new Date().toISOString(),
+                user: user?.email || "Operator",
+                station: effectiveStationId,
+                details: `Acties: ${data.actions.join(", ")}. ${data.notes}`
+            })
+        };
+
+        await updateDoc(productRef, updates);
+        setShowRepairModal(false);
+        setItemToRepair(null);
+    } catch (err) {
+        console.error("Fout bij reparatie afronden:", err);
     }
   };
 
@@ -408,6 +541,8 @@ const Terminal = ({ initialStation }) => {
                 onStartProduction={() => setShowStartModal(true)}
                 selectedOrder={selectedOrder}
                 onViewDrawing={handleViewDrawing}
+                repairItems={repairItems}
+                onRepair={handleRepair}
                 // Mal Optimalisatie: Toon gerelateerde orders in het paneel
                 optimizationPanel={
                   <MalOptimizationPanel 
@@ -425,6 +560,10 @@ const Terminal = ({ initialStation }) => {
                 onSelectTracked={setSelectedTrackedId}
                 selectedWikkeling={selectedWikkeling}
                 onReleaseProduct={setProductToRelease}
+                scanInput={scanInput}
+                setScanInput={setScanInput}
+                onScan={handleScan}
+                scanInputRef={scanInputRef}
               />
             ) : (
               /* TAB LOSSEN */
@@ -462,6 +601,14 @@ const Terminal = ({ initialStation }) => {
           isOpen={true} product={productToRelease}
           onClose={() => { setProductToRelease(null); setSelectedTrackedId(null); }}
           appId={appId}
+        />
+      )}
+
+      {showRepairModal && itemToRepair && (
+        <RepairModal
+            product={itemToRepair}
+            onClose={() => { setShowRepairModal(false); setItemToRepair(null); }}
+            onConfirm={handleRepairComplete}
         />
       )}
 

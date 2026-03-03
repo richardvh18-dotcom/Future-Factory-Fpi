@@ -56,7 +56,11 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
   const normalizeMachine = (val) => {
     if (!val) return "-";
-    const str = String(val).toUpperCase();
+    let str = String(val).toUpperCase().trim();
+    
+    // Auto-correctie voor bekende typo's in importbestanden
+    if (str === "BM18") str = "BH18";
+
     return str.startsWith("40") ? str.substring(2) : str;
   };
 

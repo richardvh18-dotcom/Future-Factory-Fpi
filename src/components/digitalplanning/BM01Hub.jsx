@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Download } from "lucide-react";
+import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Download, ScanBarcode } from "lucide-react";
 import { format, isValid, isSameDay, subDays, addDays, startOfISOWeek, endOfISOWeek, isWithinInterval } from "date-fns";
 import { nl } from "date-fns/locale";
 import OrderDetail from "./OrderDetail";
@@ -26,6 +26,47 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [archivedProducts, setArchivedProducts] = useState([]);
   const [viewMode, setViewMode] = useState("day"); // 'day' or 'week'
+  
+  const [scanInput, setScanInput] = useState("");
+  const scanInputRef = useRef(null);
+
+  // Auto-focus logic voor scanner
+  useEffect(() => {
+    const handleClick = (e) => {
+        if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+        
+        if (activeTab === "inspectie" && !showFinishModal && !viewingDossier && !selectedOrder) {
+            scanInputRef.current?.focus();
+        }
+    };
+    
+    if (activeTab === "inspectie") {
+        scanInputRef.current?.focus();
+    }
+
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [activeTab, showFinishModal, viewingDossier, selectedOrder]);
+
+  const handleScan = (e) => {
+    if (e.key === 'Enter') {
+        const code = scanInput.trim();
+        if (!code) return;
+        
+        const found = bm01Products.find(i => 
+            (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
+            (i.orderId || "").toLowerCase() === code.toLowerCase()
+        );
+        
+        if (found) {
+            handleItemClick(found);
+            setScanInput("");
+        } else {
+            alert(`Item ${code} niet gevonden in de lijst 'Aan te bieden'.`);
+            setScanInput("");
+        }
+    }
+  };
 
   const filteredOrders = useMemo(() => {
     let res = orders;
@@ -170,6 +211,15 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         note: data.note || "",
         processedBy: user?.email || "Unknown",
       };
+      
+      // Maak history entry aan voor de laatste stap
+      const historyEntry = {
+          action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
+          timestamp: new Date().toISOString(),
+          user: user?.email || "Operator",
+          station: "BM01",
+          details: status === "completed" ? "Eindinspectie voltooid & Aangeboden" : `Reden: ${data.reasons?.join(", ")}`
+      };
 
       if (status === "completed") {
           updates.currentStation = "GEREED";
@@ -192,7 +242,9 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
               timestamps: {
                   ...selectedProduct.timestamps,
                   finished: new Date()
-              }
+              },
+              // Voeg de laatste historie stap toe aan de array (belangrijk voor archief!)
+              history: [...(selectedProduct.history || []), historyEntry]
           };
 
           // 1. Sla op in archief
@@ -204,6 +256,9 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
           handleCloseModal();
           return; // Stop hier, want product bestaat niet meer in tracking
       } else if (status === "temp_reject") {
+        // Voeg history toe aan updates voor updateDoc
+        updates.history = arrayUnion(historyEntry);
+        
         updates.inspection = {
           status: "Tijdelijke afkeur",
           reasons: data.reasons,
@@ -211,6 +266,9 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         };
         updates.currentStep = "HOLD_AREA";
       } else if (status === "rejected") {
+        // Voeg history toe aan updates voor updateDoc
+        updates.history = arrayUnion(historyEntry);
+        
         updates.status = "rejected";
         updates.currentStep = "REJECTED";
         updates.currentStation = "AFKEUR";
@@ -352,6 +410,22 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         </div>
       </div>
 
+      <style>{`
+        @keyframes scan-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.7); }
+          50% { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); }
+        }
+        @keyframes pulse-text {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .scan-pulse-bm01 {
+          animation: scan-pulse 2s infinite;
+        }
+        .pulse-text-bm01 {
+          animation: pulse-text 1.5s ease-in-out infinite;
+        }
+      `}</style>
       <div className="flex-1 overflow-hidden relative">
         {activeTab === "planning" ? (
             <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full">
@@ -433,6 +507,31 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         ) : activeTab === "inspectie" ? (
             <div className="h-full w-full">
                 <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full overflow-y-auto custom-scrollbar space-y-3">
+                    {/* Scan Indicator & Input */}
+                    <div className="shrink-0 space-y-2 mb-4">
+                        {/* Indicator Label */}
+                        <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 rounded-lg border border-purple-100 w-fit">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full pulse-text-bm01"></div>
+                            <span className="text-xs font-black text-purple-600 uppercase tracking-widest">
+                                🔍 {t('bm01.ready_for_inspection_scan', 'Klaar voor inspectie scan')}
+                            </span>
+                        </div>
+                        {/* Scan Input */}
+                        <div className="relative">
+                            <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-purple-500 transition-all scan-pulse-bm01" size={24} />
+                            <input
+                                ref={scanInputRef}
+                                type="text"
+                                value={scanInput}
+                                onChange={(e) => setScanInput(e.target.value)}
+                                onKeyDown={handleScan}
+                                placeholder="Scan lotnummer voor inspectie..."
+                                className="w-full pl-14 pr-4 py-4 bg-white border-2 border-purple-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
+                                autoFocus
+                            />
+                        </div>
+                    </div>
+
                     {bm01Products.length === 0 ? (
                         <div className="text-center py-20 opacity-40">
                             <Package size={64} className="mx-auto mb-4 text-slate-300" />

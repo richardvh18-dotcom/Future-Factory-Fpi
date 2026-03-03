@@ -478,7 +478,8 @@ export const nl = {
       daily_overview_offered: 'Dagoverzicht BM01 - Aangeboden',
       no_products_date: 'Geen producten gevonden voor deze datum.',
       order_number: 'Ordernummer',
-      lot_number: 'Lotnummer'
+      lot_number: 'Lotnummer',
+      ready_for_inspection_scan: 'Klaar voor inspectie scan'
     },
     lossen: {
       incoming: 'Inkomend',
@@ -527,7 +528,9 @@ export const nl = {
       print_error: 'Kon niet printen. Controleer of Zebra Browser Print draait of het IP juist is.\nFout: ',
       reservation_success: 'Succesvol {{count}} labels gereserveerd:\n{{lots}}\n\nDeze nummers zijn 24 uur gereserveerd.',
       reservation_error: 'Fout bij reserveren: ',
-      confirm_release: 'Reservering {{lot}} vrijgeven? Dit verwijdert het nummer zodat het opnieuw gebruikt kan worden.'
+      confirm_release: 'Reservering {{lot}} vrijgeven? Dit verwijdert het nummer zodat het opnieuw gebruikt kan worden.',
+      ready_to_scan: 'Klaar voor scan',
+      item_not_found: 'Item {{code}} niet gevonden'
     },
     adminLocations: {
       registerNew: 'Nieuw Registreren',
@@ -879,7 +882,8 @@ export const nl = {
         tab_to_offer: "Aan te bieden",
         tab_winding: "Wikkelen",
         tab_lossen: "Lossen",
-        product_not_found: "Product niet gevonden in catalogus."
+        product_not_found: "Product niet gevonden in catalogus.",
+        ready_for_winding_scan: "Klaar voor wikkelen scan"
       },
       hub: {
         fitting_title: "Fitting Producties",

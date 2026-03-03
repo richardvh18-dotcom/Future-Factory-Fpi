@@ -9,11 +9,12 @@ import {
   Loader2,
   Save,
 } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, increment } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, increment, addDoc, collection } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS } from "../../../utils/workstationLogic";
 import { useNotifications } from "../../../contexts/NotificationContext";
+import { useTranslation } from "react-i18next";
 
 const PostProcessingFinishModal = ({
   product,
@@ -21,6 +22,7 @@ const PostProcessingFinishModal = ({
   onConfirm,
   currentStation,
 }) => {
+  const { t } = useTranslation();
   const { showWarning } = useNotifications();
   const [status, setStatus] = useState("completed");
   const [selectedReasons, setSelectedReasons] = useState([]);
@@ -53,6 +55,21 @@ const PostProcessingFinishModal = ({
       } catch (e) {
         console.error("Kon order niet updaten na afkeur:", e);
       }
+    }
+
+    // Stuur notificatie naar teamleider bij afkeur
+    if (status === "rejected" || status === "temp_reject") {
+      try {
+        await addDoc(collection(db, ...PATHS.MESSAGES), {
+          to: "FITTINGS_TEAM",
+          subject: status === "rejected" ? "Definitieve Afkeur Melding" : "Tijdelijke Afkeur Melding",
+          content: `Product ${product?.lotNumber} is ${status === "rejected" ? "afgekeurd" : "tijdelijk afgekeurd"} op station ${currentStation}. Reden: ${selectedReasons.map(r => t(r)).join(", ")}`,
+          type: "alert",
+          priority: "high",
+          read: false,
+          timestamp: serverTimestamp()
+        });
+      } catch (e) { console.error("Kon notificatie niet versturen", e); }
     }
 
     await onConfirm(status, { reasons: selectedReasons, note });
@@ -150,7 +167,7 @@ const PostProcessingFinishModal = ({
                         <Check size={8} className="text-white" />
                       )}
                     </div>
-                    {reason}
+                    {t(reason)}
                   </div>
                 ))}
               </div>
