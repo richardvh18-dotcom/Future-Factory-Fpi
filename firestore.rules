@@ -1,37 +1,36 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Regels voor het berichtensysteem (Notification System)
+
+    // --- Gedeelde Collecties ---
+    // Gebruikers en hun rollen zijn gedeeld. Pad is /future-factory/users/
+    match /future-factory/users/{userId} {
+      // Alleen de gebruiker zelf of een admin mag eigen data aanpassen.
+      allow read, write: if request.auth != null && (request.auth.uid == userId ||
+        get(/databases/$(database)/documents/future-factory/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    // --- Productie Omgeving (Live Pilot) ---
+    // Strikte regels voor de live fabriek data onder /future-factory/production
+    match /future-factory/production/{document=**} {
+      // Ingelogde gebruikers mogen productiedata lezen en schrijven.
+      // Dit kan verder worden aangescherpt per rol.
+      allow read: if request.auth != null;
+    }
+
+    // Specifieke, strengere regel voor productie-berichten
     match /future-factory/production/messages/{messageId} {
-      // Iedereen die ingelogd is mag berichten aanmaken
-      allow create: if request.auth != null;
-
-      // Lezen: Alleen de afzender, ontvanger of een admin
-      allow read: if request.auth != null && (
-        resource.data.senderId == request.auth.uid ||
-        resource.data.to == request.auth.token.email ||
-        (exists(/databases/$(database)/documents/future-factory/Users/Accounts/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/future-factory/Users/Accounts/$(request.auth.uid)).data.role == 'admin')
-      );
-
-      // Updaten (bijv. markeren als gelezen): Alleen betrokkenen
-      allow update: if request.auth != null && (
-        resource.data.senderId == request.auth.uid ||
-        resource.data.to == request.auth.token.email
-      );
+      allow create: if request.auth != null; // Iedereen mag berichten maken
+      allow read, update: if request.auth != null && (
+            resource.data.senderId == request.auth.uid ||
+            resource.data.to == request.auth.token.email ||
+            get(/databases/$(database)/documents/future-factory/users/$(request.auth.uid)).data.role == 'admin'
+          );
     }
-
-    // Expliciete regels voor stamdata (voorkomt 403 in AdminReferenceTable & ProductSearchView)
-    match /future-factory/production/dimensions/{document=**} {
-      allow read: if request.auth != null;
-    }
-    match /future-factory/production/products/{document=**} {
-      allow read: if request.auth != null;
-    }
-
-    match /{document=**} {
-      // Basisregel: Ingelogde gebruikers mogen lezen/schrijven (tijdens dev/test fase)
+    
+    // --- Preview/Test Omgeving ---
+    // Flexibele regels voor de testomgeving onder /artifacts/{appId}
+    match /artifacts/{appId}/{document=**} {
       allow read, write: if request.auth != null;
     }
   }

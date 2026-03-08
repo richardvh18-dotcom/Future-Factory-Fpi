@@ -15,6 +15,7 @@ import ProfileView from "./components/ProfileView";
 import ProductSearchView from "./components/products/ProductSearchView";
 import ForcePasswordChangeView from "./components/ForcePasswordChangeView";
 import GodModeBootstrap from "./components/admin/GodModeBootstrap";
+import AutoLogoutWarning from "./components/AutoLogoutWarning";
 
 // Notification System
 import { NotificationProvider } from "./contexts/NotificationContext";
@@ -25,6 +26,7 @@ import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useProductsData } from "./hooks/useProductsData";
 import { useSettingsData } from "./hooks/useSettingsData";
 import { useMessages } from "./hooks/useMessages";
+import { useAutoLogout } from "./hooks/useAutoLogout";
 
 // Lazy Loading Modules
 const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
@@ -62,22 +64,38 @@ const App = () => {
   const { generalConfig } = useSettingsData(user);
   useMessages(user);
 
+  // Auto-logout na inactiviteit (60 minuten inactiviteit, 5 minuten waarschuwing)
+  const { showWarning, remainingTime, dismissWarning } = useAutoLogout(
+    60, // Timeout in minuten
+    5,  // Waarschuwing in minuten voor timeout
+    !!user // Alleen actief als gebruiker ingelogd is
+  );
+
   // Check of gebruiker wachtwoord moet wijzigen
   useEffect(() => {
+    console.log("🔐 App mounted, user:", user?.email || "No user");
+    console.log("📊 Auth loading:", authLoading);
+    console.log("👤 Role:", role);
+    console.log("🔧 Is Admin:", isAdmin);
+    
     if (user) {
       const checkPasswordChange = async () => {
         try {
+          console.log("🔍 Checking password change requirement for:", user.uid);
           const userDoc = await getDoc(doc(db, "future-factory", "Users", "Accounts", user.uid));
           if (userDoc.exists() && userDoc.data().requirePasswordChange) {
+            console.log("⚠️ Password change required");
             setRequiresPasswordChange(true);
+          } else {
+            console.log("✅ No password change required");
           }
         } catch (err) {
-          console.error("Error checking password change:", err);
+          console.error("❌ Error checking password change:", err);
         }
       };
       checkPasswordChange();
     }
-  }, [user]);
+  }, [user, authLoading, role, isAdmin]);
 
   const handleLogin = async (email, password) => {
     setLoginError(null);
@@ -115,6 +133,7 @@ const App = () => {
 
 
   if (authLoading) {
+    console.log("⏳ Auth loading...");
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-slate-950">
         <Loader2 className="animate-spin text-blue-400" size={48} />
@@ -128,25 +147,30 @@ const App = () => {
   // Check for specialized bootstrapping view (Orphaned Admin)
   const bootstrapAdminUid = import.meta.env.VITE_BOOTSTRAP_ADMIN_UID;
   if (user?.uid === bootstrapAdminUid && role === "guest") {
+    console.log("🔧 Bootstrap admin mode");
     return <GodModeBootstrap />;
   }
 
 
   // Fallback: Afmeldpagina tonen als user null is en niet loading, behalve op /login
   if (!user && !authLoading) {
+    console.log("🚫 No user, showing logged out view");
     const path = window.location.pathname;
     if (path === "/login") {
+      console.log("📝 Showing login view");
       return <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
     }
     return <LoggedOutView />;
   }
 
   if (role === "guest") {
+    console.log("👤 Guest role, showing login");
     return <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
   }
 
   // Force password change voor nieuwe gebruikers
   if (requiresPasswordChange) {
+    console.log("🔑 Password change required");
     return (
       <ForcePasswordChangeView 
         user={user} 
@@ -155,6 +179,7 @@ const App = () => {
     );
   }
 
+  console.log("✅ Rendering main app");
   return (
     <NotificationProvider>
       <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
@@ -167,7 +192,7 @@ const App = () => {
           onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         />
 
-        <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex overflow-hidden relative md:mt-0 pt-16 md:pt-0">
           <Sidebar
             user={user}
             isAdmin={isAdmin}
@@ -183,7 +208,7 @@ const App = () => {
             onMobileMenuClose={() => setIsMobileMenuOpen(false)}
           />
 
-          <main className="flex-1 flex flex-col overflow-hidden relative md:pl-16">
+          <main className="flex-1 flex flex-col overflow-hidden relative md:pl-16" style={{ WebkitOverflowScrolling: 'touch' }}>
             <Suspense
               fallback={
                 <div className="flex-1 flex items-center justify-center bg-white">
@@ -210,6 +235,14 @@ const App = () => {
             </Suspense>
           </main>
         </div>
+
+        {/* Auto-logout waarschuwing */}
+        {showWarning && (
+          <AutoLogoutWarning 
+            remainingTime={remainingTime} 
+            onDismiss={dismissWarning} 
+          />
+        )}
       </div>
     </NotificationProvider>
   );

@@ -157,12 +157,16 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 
 ## 🛡️ Fase 5: Kwaliteitsborging & QC (Actief)
 
-**Doel:** Digitale registratie van meetwaarden.  
+**Doel:** Digitale registratie van meetwaarden en borging van data-integriteit.  
 **Target:** Q2 2026
 
 ### 5.1 Meetwaarde Invoer & Tolerantie Control
  - [x] Meetwaarde Invoer: Basiscomponent `MeasurementInput` opgezet.
- - [ ] Integratie: Koppelen aan WorkstationHub.
+ - [ ] **Integratie:** Koppelen van `MeasurementInput` in de `WorkstationHub` flow (bij afronden).
+ - [ ] **Validatie:** Koppelen van meetwaarden aan toleranties (Min/Max) uit productdatabase.
+ - [ ] **Feedback:** Visuele feedback voor operators (Groen=OK, Rood=Niet OK) direct na invoer.
+ - [ ] **Opslag:** Opslaan van QC-data in de `tracked_products` historie.
+ - [ ] **Security:** Firestore Rules update toepassen voor strikte scheiding productie/test omgeving.
 - [ ] Real-time validatie tegen BORE_DIMENSIONS, CB/TB_DIMENSIONS specs
 - [ ] SPC (Statistical Process Control) dashboard met trend-visualisatie
 - [ ] Digitale Werkinstructies met Video: Toon korte instructievideo's of 3D-modellen uit de DRAWING_LIBRARY direct bij workstations.
@@ -183,6 +187,13 @@ Dit document is de **'Single Source of Truth'** voor de technische ontwikkeling.
 - [ ] Skill Matrix Dashboard: Visualiseer vaardigheden van personeel in PersonnelManager voor optimale machine-indeling.
 - [ ] Shift Handover Tool: Gestructureerde overdrachtmodule in DigitalPlanningHub; ploeg draagt status/orders over via MESSAGES.
 - **Impact:** ISO 9001 compliance klaar
+
+### 5.4 Order Management & Integriteit (NIEUW)
+- [ ] **Rol-gebaseerde Prioritering:** Alleen Teamleiders/Admins mogen order prioriteit wijzigen. Central Planners niet.
+- [ ] **Veilige Annulering:** Orders kunnen niet verwijderd worden, alleen geannuleerd met verplichte reden.
+- [ ] **Audit Trail:** Annuleringen worden gelogd in `activity_logs` met reden en gebruiker.
+- [ ] **Permissies:** Annuleren is voorbehouden aan Planners, Teamleiders en Admins.
+- **Impact:** Voorkomt dataverlies en borgt traceerbaarheid van niet-geproduceerde orders.
 
 **Prioriteit:** 🟠 Gemiddeld - Essentieel voor kwaliteitscontrole.
 

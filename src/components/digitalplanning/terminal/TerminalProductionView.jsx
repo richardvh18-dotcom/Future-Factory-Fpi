@@ -11,7 +11,8 @@ const TerminalProductionView = ({
   scanInput = "",
   setScanInput = () => {},
   onScan = () => {},
-  scanInputRef
+  scanInputRef,
+  scannerMode = true
 }) => {
   const { t } = useTranslation();
   
@@ -51,10 +52,10 @@ const TerminalProductionView = ({
               type="text"
               value={scanInput}
               onChange={(e) => setScanInput(e.target.value)}
+              inputMode={scannerMode ? "none" : "text"}
               onKeyDown={onScan}
               placeholder="Scan lotnummer..."
               className="w-full pl-14 pr-4 py-4 bg-white border-2 border-orange-100 focus:border-orange-500 focus:ring-2 focus:ring-orange-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
-              autoFocus
             />
           </div>
         </div>

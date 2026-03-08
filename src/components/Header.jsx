@@ -33,7 +33,7 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
   };
 
   return (
-    <header className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-3 md:px-6 shrink-0 z-50 shadow-lg">
+    <header className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-3 md:px-6 shrink-0 z-50 shadow-lg fixed top-0 left-0 right-0 md:relative">
       {/* Hamburger Menu voor mobiel/tablet */}
       <button
         onClick={onMenuToggle}

@@ -32,6 +32,7 @@ import { PATHS } from "../config/dbPaths";
 import { db, auth } from "../config/firebase";
 import { updatePassword, updateProfile } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import RoleSwitcher from "./admin/RoleSwitcher";
 
 /**
  * ProfileView V2.1 - Robuuste Identiteit Guard
@@ -333,6 +334,11 @@ const ProfileView = () => {
                 }`}
               >
                 <ShieldCheck size={16} /> {t('profile.prefs.permissions_title')} ({t('profile.prefs.role', 'Rol')}: {user?.role || t('profile.prefs.guest', 'Guest')})
+                {user?.isImpersonating && (
+                  <span className="ml-2 bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[8px] border border-amber-200 animate-pulse">
+                    VIEW MODE
+                  </span>
+                )}
               </h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <PermissionItem
@@ -725,6 +731,8 @@ const ProfileView = () => {
           </div>
         </div>
       </div>
+
+      <RoleSwitcher />
     </div>
   );
 };

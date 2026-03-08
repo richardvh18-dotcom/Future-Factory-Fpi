@@ -152,4 +152,35 @@ body {
   }
 }
 
+/* iOS/Safari Optimalisaties */
+html, body {
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Enable momentum scrolling op iOS */
+.custom-scrollbar,
+[style*="WebkitOverflowScrolling"] {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Preventeer zoom op input focus op iOS */
+input, textarea, select {
+  font-size: 16px;
+}
+
+/* Fix voor fixed positioning op iOS */
+@supports (-webkit-appearance: none) {
+  @media (max-width: 768px) {
+    header[class*="fixed"] {
+      position: fixed !important;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+    }
+  }
+}
+
 /* Einde van het bestand */

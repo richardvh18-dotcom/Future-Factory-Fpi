@@ -84,10 +84,10 @@ const PostProcessingFinishModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col border border-slate-200">
-        <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg md:max-w-2xl overflow-hidden flex flex-col border border-slate-200 max-h-[95vh] md:max-h-[90vh]">
+        <div className="bg-slate-50 px-4 py-3 md:px-6 md:py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div>
-            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">
+            <h3 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight">
               Kwaliteitscontrole & Afronden
             </h3>
             <p className="text-xs text-slate-500 font-mono font-bold">
@@ -102,45 +102,45 @@ const PostProcessingFinishModal = ({
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-3 gap-3">
+        <div className="p-4 md:p-6 space-y-4 md:space-y-6 overflow-y-auto custom-scrollbar">
+          <div className="grid grid-cols-3 gap-2 md:gap-3">
             <button
               onClick={() => setStatus("completed")}
-              className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+              className={`p-2 md:p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
                 status === "completed"
                   ? "border-green-500 bg-green-50 text-green-700 shadow-md transform scale-105"
                   : "border-slate-100 hover:border-green-200 text-slate-400"
               }`}
             >
-              <CheckCircle size={24} />
+              <CheckCircle size={20} className="md:w-6 md:h-6" />
               <span className="font-black text-xs uppercase">Akkoord</span>
             </button>
             <button
               onClick={() => setStatus("temp_reject")}
-              className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+              className={`p-2 md:p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
                 status === "temp_reject"
                   ? "border-orange-500 bg-orange-50 text-orange-700 shadow-md transform scale-105"
                   : "border-slate-100 hover:border-orange-200 text-slate-400"
               }`}
             >
-              <AlertTriangle size={24} />
+              <AlertTriangle size={20} className="md:w-6 md:h-6" />
               <span className="font-black text-xs uppercase">Herstel</span>
             </button>
             <button
               onClick={() => setStatus("rejected")}
-              className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+              className={`p-2 md:p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
                 status === "rejected"
                   ? "border-red-500 bg-red-50 text-red-700 shadow-md transform scale-105"
                   : "border-slate-100 hover:border-red-200 text-slate-400"
               }`}
             >
-              <XCircle size={24} />
+              <XCircle size={20} className="md:w-6 md:h-6" />
               <span className="font-black text-xs uppercase">Afkeur</span>
             </button>
           </div>
 
           {status !== "completed" && (
-            <div className="bg-red-50 p-4 rounded-xl border border-red-100 animate-in slide-in-from-top-2">
+            <div className="bg-red-50 p-3 md:p-4 rounded-xl border border-red-100 animate-in slide-in-from-top-2">
               <h4 className="font-bold text-red-900 text-xs uppercase mb-3 flex items-center gap-2">
                 <AlertOctagon size={14} /> Reden van{" "}
                 {status === "temp_reject" ? "Herstel" : "Afkeur"}
@@ -188,7 +188,7 @@ const PostProcessingFinishModal = ({
           </div>
         </div>
 
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3">
+        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3 shrink-0">
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-slate-500 font-bold hover:bg-slate-200 text-sm"

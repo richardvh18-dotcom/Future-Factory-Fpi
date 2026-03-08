@@ -82,16 +82,16 @@ const AdminUsersView = () => {
   });
 
   const USER_ROLES = [
-    { id: "admin", label: "Master Admin", color: "bg-blue-600" },
-    { id: "engineer", label: "Process Engineer", color: "bg-purple-600" },
-    { id: "teamleader", label: "Teamleider", color: "bg-emerald-600" },
-    { id: "operator", label: "Machine Operator", color: "bg-orange-600" },
-    { id: "guest", label: "Geen Toegang (Guest)", color: "bg-slate-400" },
+    { id: "admin", label: t('roles.admin', "Master Admin"), color: "bg-blue-600" },
+    { id: "engineer", label: t('roles.engineer', "Process Engineer"), color: "bg-purple-600" },
+    { id: "teamleader", label: t('roles.teamleader', "Teamleider"), color: "bg-emerald-600" },
+    { id: "operator", label: t('roles.operator', "Machine Operator"), color: "bg-orange-600" },
+    { id: "guest", label: t('roles.guest', "Geen Toegang (Guest)"), color: "bg-slate-400" },
   ];
 
   const COUNTRIES = [
-    "Nederland",
-    "België", 
+    "Nederland", // Values kept as-is for DB consistency
+    "België",
     "Duitsland",
     "Frankrijk",
     "Verenigd Koninkrijk",
@@ -99,7 +99,7 @@ const AdminUsersView = () => {
   ];
 
   const DEPARTMENTS = [
-    "Productie - Fittings",
+    "Productie - Fittings", // Values kept as-is for DB consistency
     "Productie - Pipes",
     "Productie - Spools",
     "Kwaliteitscontrole",
@@ -113,18 +113,18 @@ const AdminUsersView = () => {
   ];
 
   const EXTRA_MODULES = [
-    { id: "quality_control", label: "Kwaliteitscontrole (QC)", description: "Toegang tot meetwaarden en NCR" },
-    { id: "inventory_management", label: "Voorraadbeheer", description: "Beheer van gereedschap en materialen" },
-    { id: "digital_planning", label: "Digitale Planning", description: "Toegang tot planning modules" },
-    { id: "ai_assistant", label: "AI Assistent", description: "Toegang tot de AI helper" },
-    { id: "maintenance", label: "Onderhoud", description: "Meldingen en onderhoudsbeheer" },
+    { id: "quality_control", label: t('modules.qc', "Kwaliteitscontrole (QC)"), description: t('modules.qcDesc', "Toegang tot meetwaarden en NCR") },
+    { id: "inventory_management", label: t('modules.inventory', "Voorraadbeheer"), description: t('modules.inventoryDesc', "Beheer van gereedschap en materialen") },
+    { id: "digital_planning", label: t('modules.planning', "Digitale Planning"), description: t('modules.planningDesc', "Toegang tot planning modules") },
+    { id: "ai_assistant", label: t('modules.ai', "AI Assistent"), description: t('modules.aiDesc', "Toegang tot de AI helper") },
+    { id: "maintenance", label: t('modules.maintenance', "Onderhoud"), description: t('modules.maintenanceDesc', "Meldingen en onderhoudsbeheer") },
   ];
 
   const ADMIN_TOOLS = [
-    { id: "admin_products", label: "Product Beheer", description: "Product & Matrix Manager toegang" },
-    { id: "admin_factory", label: "Fabriek & Personeel", description: "Beheer shifts, lijnen en medewerkers" },
-    { id: "admin_settings", label: "Systeem Instellingen", description: "Globale configuratie en berichten" },
-    { id: "admin_logs", label: "Logs & Database", description: "Systeemlogs en database inspectie" },
+    { id: "admin_products", label: t('tools.products', "Product Beheer"), description: t('tools.productsDesc', "Product & Matrix Manager toegang") },
+    { id: "admin_factory", label: t('tools.factory', "Fabriek & Personeel"), description: t('tools.factoryDesc', "Beheer shifts, lijnen en medewerkers") },
+    { id: "admin_settings", label: t('tools.settings', "Systeem Instellingen"), description: t('tools.settingsDesc', "Globale configuratie en berichten") },
+    { id: "admin_logs", label: t('tools.logs', "Logs & Database"), description: t('tools.logsDesc', "Systeemlogs en database inspectie") },
   ];
 
   // 1. Live Sync met de Root Accounts collectie
@@ -617,7 +617,7 @@ const AdminUsersView = () => {
                 onChange={(e) => setSelectedDepartment(e.target.value)}
                 className="w-full pl-12 pr-10 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all appearance-none cursor-pointer text-slate-600"
               >
-                <option value="">Alle Afdelingen</option>
+                <option value="">{t('adminUsers.allDepartments', "Alle Afdelingen")}</option>
                 {DEPARTMENTS.map((dept) => (
                   <option key={dept} value={dept}>{dept}</option>
                 ))}
@@ -632,7 +632,7 @@ const AdminUsersView = () => {
                 onChange={(e) => setSelectedRole(e.target.value)}
                 className="w-full pl-12 pr-10 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all appearance-none cursor-pointer text-slate-600"
               >
-                <option value="">Alle Rollen</option>
+                <option value="">{t('adminUsers.allRoles', "Alle Rollen")}</option>
                 {USER_ROLES.map((role) => (
                   <option key={role.id} value={role.id}>{role.label}</option>
                 ))}
@@ -645,7 +645,7 @@ const AdminUsersView = () => {
               className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center gap-2 shadow-lg whitespace-nowrap"
             >
               <UserPlus size={18} />
-              <span className="hidden md:inline">Gebruiker Toevoegen</span>
+              <span className="hidden md:inline">{t('adminUsers.addUser', "Gebruiker Toevoegen")}</span>
             </button>
           </div>
         </div>
@@ -661,7 +661,7 @@ const AdminUsersView = () => {
             }`}
           >
             <Users size={16} className="inline mr-2" />
-            Gebruikers ({users.length})
+            {t('adminUsers.users', "Gebruikers")} ({users.length})
           </button>
           <button
             onClick={() => setActiveTab("requests")}
@@ -672,7 +672,7 @@ const AdminUsersView = () => {
             }`}
           >
             <UserPlus size={16} className="inline mr-2" />
-            Wachtrij ({accountRequests.filter(r => r.status === "pending").length})
+            {t('adminUsers.queue', "Wachtrij")} ({accountRequests.filter(r => r.status === "pending").length})
             {accountRequests.filter(r => r.status === "pending").length > 0 && (
               <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
             )}
@@ -711,7 +711,7 @@ const AdminUsersView = () => {
                 <div className="py-32 text-center bg-white rounded-[45px] border-2 border-dashed border-slate-200 opacity-50 flex flex-col items-center">
                   <Users size={64} className="text-slate-200 mb-4" />
                   <p className="text-sm font-black uppercase tracking-widest text-slate-400">
-                    Geen geautoriseerde accounts gevonden
+                    {t('adminUsers.noAccountsFound', "Geen geautoriseerde accounts gevonden")}
                   </p>
                 </div>
               ) : (
@@ -796,21 +796,21 @@ const AdminUsersView = () => {
                                 <button
                                   onClick={() => handleResetPassword(u.email)}
                                   className="p-3 bg-slate-50 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all"
-                                  title="Wachtwoord Resetten"
+                                  title={t('adminUsers.resetPassword', "Wachtwoord Resetten")}
                                 >
                                   <Key size={18} />
                                 </button>
                                 <button
                                   onClick={() => handleEdit(u)}
                                   className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                                  title="Bewerken"
+                                  title={t('common.edit', "Bewerken")}
                                 >
                                   <Edit3 size={18} />
                                 </button>
                                 <button
                                   onClick={() => handleDelete(u.id)}
                                   className="p-3 bg-slate-50 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                                  title="Account Verwijderen"
+                                  title={t('adminUsers.deleteAccount', "Account Verwijderen")}
                                 >
                                   <Trash2 size={18} />
                                 </button>
@@ -831,7 +831,7 @@ const AdminUsersView = () => {
                 <div className="py-32 text-center bg-white rounded-[45px] border-2 border-dashed border-slate-200 opacity-50 flex flex-col items-center">
                   <Clock size={64} className="text-slate-200 mb-4" />
                   <p className="text-sm font-black uppercase tracking-widest text-slate-400">
-                    Geen openstaande aanvragen
+                    {t('adminUsers.noPendingRequests', "Geen openstaande aanvragen")}
                   </p>
                 </div>
               ) : (
@@ -854,20 +854,20 @@ const AdminUsersView = () => {
                       </div>
                       <div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-2 rounded-xl border border-orange-200">
                         <Clock size={16} />
-                        <span className="text-xs font-black uppercase">In Wacht rij</span>
+                        <span className="text-xs font-black uppercase">{t('adminUsers.inQueue', "In Wachtrij")}</span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mb-6">
                       <div className="p-4 bg-slate-50 rounded-2xl">
                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
-                          Land
+                          {t('common.country', "Land")}
                         </span>
                         <span className="text-sm font-bold text-slate-900">{request.country}</span>
                       </div>
                       <div className="p-4 bg-slate-50 rounded-2xl">
                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
-                          Afdeling
+                          {t('common.department', "Afdeling")}
                         </span>
                         <span className="text-sm font-bold text-slate-900">{request.department}</span>
                       </div>
@@ -884,7 +884,7 @@ const AdminUsersView = () => {
                         ) : (
                           <>
                             <Check size={18} />
-                            Accepteren
+                            {t('common.accept', "Accepteren")}
                           </>
                         )}
                       </button>
@@ -894,7 +894,7 @@ const AdminUsersView = () => {
                         className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
                       >
                         <X size={18} />
-                        Weigeren
+                        {t('common.reject', "Weigeren")}
                       </button>
                     </div>
                   </div>
@@ -916,10 +916,10 @@ const AdminUsersView = () => {
                 </div>
                 <div className="text-left">
                   <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-                    Rechten <span className="text-blue-600">Beheren</span>
+                    {t('adminUsers.permissions', "Rechten")} <span className="text-blue-600">{t('adminUsers.manage', "Beheren")}</span>
                   </h3>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 italic">
-                    Identity Sync: {selectedUser.id.substring(0, 8)}
+                    {t('adminUsers.identitySync', "Identity Sync")}: {selectedUser.id.substring(0, 8)}
                   </p>
                 </div>
               </div>
@@ -937,19 +937,19 @@ const AdminUsersView = () => {
                 onClick={() => setEditModalTab("profile")}
                 className={`py-4 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${editModalTab === "profile" ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
-                Profiel & Rol
+                {t('adminUsers.profileAndRole', "Profiel & Rol")}
               </button>
               <button
                 onClick={() => setEditModalTab("modules")}
                 className={`py-4 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${editModalTab === "modules" ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
-                Extra Modules
+                {t('adminUsers.extraModules', "Extra Modules")}
               </button>
               <button
                 onClick={() => setEditModalTab("stations")}
                 className={`py-4 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${editModalTab === "stations" ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
-                Station Toegang
+                {t('adminUsers.stationAccess', "Station Toegang")}
               </button>
             </div>
 
@@ -958,7 +958,7 @@ const AdminUsersView = () => {
                 <>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-                  Volledige Naam
+                  {t('common.fullName', "Volledige Naam")}
                 </label>
                 <div className="relative group">
                   <UserCircle
@@ -978,7 +978,7 @@ const AdminUsersView = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-                    Land
+                    {t('common.country', "Land")}
                   </label>
                   <div className="relative group">
                     <MapPin
@@ -990,14 +990,14 @@ const AdminUsersView = () => {
                       value={selectedUser.country || ""}
                       onChange={(e) => setSelectedUser({ ...selectedUser, country: e.target.value })}
                     >
-                      <option value="">Selecteer land...</option>
+                      <option value="">{t('common.selectCountry', "Selecteer land...")}</option>
                       {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-                    Afdeling
+                    {t('common.department', "Afdeling")}
                   </label>
                   <div className="relative group">
                     <Briefcase
@@ -1009,7 +1009,7 @@ const AdminUsersView = () => {
                       value={selectedUser.department || ""}
                       onChange={(e) => setSelectedUser({ ...selectedUser, department: e.target.value })}
                     >
-                      <option value="">Selecteer afdeling...</option>
+                      <option value="">{t('common.selectDepartment', "Selecteer afdeling...")}</option>
                       {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
@@ -1018,7 +1018,7 @@ const AdminUsersView = () => {
 
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-                  Systeem Rol & Toegang
+                  {t('adminUsers.systemRoleAndAccess', "Systeem Rol & Toegang")}
                 </label>
                 <div className="grid grid-cols-1 gap-3">
                   {USER_ROLES.map((role) => (
@@ -1061,8 +1061,8 @@ const AdminUsersView = () => {
                 <div className="pt-4 border-t border-slate-50">
                   <label className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:border-blue-200 transition-all">
                     <div>
-                      <div className="font-bold text-sm text-slate-700">Bevoegd om te verifiëren</div>
-                      <div className="text-[10px] text-slate-400 font-medium">Kan producten goedkeuren (4-ogen principe)</div>
+                      <div className="font-bold text-sm text-slate-700">{t('adminUsers.authorizedToVerify', "Bevoegd om te verifiëren")}</div>
+                      <div className="text-[10px] text-slate-400 font-medium">{t('adminUsers.canVerifyDesc', "Kan producten goedkeuren (4-ogen principe)")}</div>
                     </div>
                     <div className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -1078,7 +1078,7 @@ const AdminUsersView = () => {
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-                    E-mail Handtekening
+                    {t('adminUsers.emailSignature', "E-mail Handtekening")}
                   </label>
                   <div className="relative group">
                     <Edit3
@@ -1090,7 +1090,7 @@ const AdminUsersView = () => {
                       rows={3}
                       value={selectedUser.signature || ""}
                       onChange={(e) => setSelectedUser({ ...selectedUser, signature: e.target.value })}
-                      placeholder="Met vriendelijke groet..."
+                      placeholder={t('adminUsers.signaturePlaceholder', "Met vriendelijke groet...")}
                     />
                   </div>
                 </div>
@@ -1103,7 +1103,7 @@ const AdminUsersView = () => {
                   {/* Functionele Modules */}
                   <div className="space-y-4">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
-                      <Layers size={14} /> Functionele Modules
+                      <Layers size={14} /> {t('adminUsers.functionalModules', "Functionele Modules")}
                     </label>
                     <div className="grid grid-cols-1 gap-3">
                       {EXTRA_MODULES.map(module => (
@@ -1133,7 +1133,7 @@ const AdminUsersView = () => {
                   {/* Admin Tools */}
                   <div className="space-y-4">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
-                      <ShieldAlert size={14} /> Admin Tools
+                      <ShieldAlert size={14} /> {t('adminUsers.adminTools', "Admin Tools")}
                     </label>
                     <div className="grid grid-cols-1 gap-3">
                       {ADMIN_TOOLS.map(tool => (
@@ -1166,20 +1166,20 @@ const AdminUsersView = () => {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
-                      <MapPin size={14} /> Station Toegang
+                      <MapPin size={14} /> {t('adminUsers.stationAccess', "Station Toegang")}
                     </label>
                     <button 
                         onClick={() => setSelectedUser({...selectedUser, allowedStations: []})}
                         className="text-[10px] text-rose-500 hover:underline font-bold"
                     >
-                        Alles wissen (Toegang tot alles)
+                        {t('adminUsers.clearAllAccess', "Alles wissen (Toegang tot alles)")}
                     </button>
                   </div>
                   
                   {/* Filters */}
                   <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
                     <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Locatie</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('common.location', "Locatie")}</label>
                         <div className="relative">
                             <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <select 
@@ -1192,7 +1192,7 @@ const AdminUsersView = () => {
                         </div>
                     </div>
                     <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Afdeling</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('common.department', "Afdeling")}</label>
                         <div className="relative">
                             <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <select 
@@ -1235,12 +1235,12 @@ const AdminUsersView = () => {
                     ))}
                     {filteredStations.length === 0 && (
                         <div className="col-span-full text-center py-8 text-slate-400 text-xs italic">
-                            Geen stations gevonden voor deze selectie.
+                            {t('adminUsers.noStationsFound', "Geen stations gevonden voor deze selectie.")}
                         </div>
                     )}
                   </div>
                   <p className="text-[10px] text-slate-400 italic ml-2 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <span className="font-bold">Let op:</span> Als er geen stations zijn geselecteerd (lijst is leeg), heeft de gebruiker standaard toegang tot <u>alle</u> stations. Selecteer één of meer stations om de toegang te beperken.
+                    <span className="font-bold">{t('common.attention', "Let op:")}</span> {t('adminUsers.stationAccessWarning1', "Als er geen stations zijn geselecteerd (lijst is leeg), heeft de gebruiker standaard toegang tot")} <u>{t('common.all', "alle")}</u> {t('adminUsers.stationAccessWarning2', "stations. Selecteer één of meer stations om de toegang te beperken.")}
                   </p>
                 </div>
               )}
@@ -1255,7 +1255,7 @@ const AdminUsersView = () => {
                 ) : (
                   <Save size={24} />
                 )}
-                Publiceren naar Root Node
+                {t('adminUsers.publishToRoot', "Publiceren naar Root Node")}
               </button>
             </div>
           </div>
@@ -1266,10 +1266,10 @@ const AdminUsersView = () => {
       <div className="p-4 bg-slate-950 border-t border-white/5 flex justify-between items-center text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] px-10 shrink-0">
         <div className="flex items-center gap-6">
           <span className="flex items-center gap-2 text-emerald-500/50">
-            <ShieldCheck size={14} /> Forensic Audit Active
+            <ShieldCheck size={14} /> {t('adminUsers.forensicAuditActive', "Forensic Audit Active")}
           </span>
           <span className="flex items-center gap-2">
-            <Database size={14} /> Central Identity Vault
+            <Database size={14} /> {t('adminUsers.centralIdentityVault', "Central Identity Vault")}
           </span>
         </div>
         <span className="opacity-30 italic">User Management v6.11</span>
@@ -1288,11 +1288,11 @@ const AdminUsersView = () => {
                       <UserPlus size={24} />
                     </div>
                     <h2 className="text-3xl font-black uppercase italic tracking-tighter">
-                      Gebruiker Toevoegen
+                      {t('adminUsers.addUser', "Gebruiker Toevoegen")}
                     </h2>
                   </div>
                   <p className="text-blue-100 text-sm font-bold">
-                    Nieuw account aanmaken met tijdelijk wachtwoord
+                    {t('adminUsers.createAccountDesc', "Nieuw account aanmaken met tijdelijk wachtwoord")}
                   </p>
                 </div>
                 <button
@@ -1312,12 +1312,12 @@ const AdminUsersView = () => {
                   <AlertCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
                   <div className="space-y-2">
                     <p className="font-bold text-blue-900">
-                      💡 Als het email-adres al bestaat in Firebase Authentication:
+                      {t('adminUsers.emailExistsHint', "💡 Als het email-adres al bestaat in Firebase Authentication:")}
                     </p>
                     <ol className="list-decimal list-inside space-y-1 text-blue-700 ml-2">
-                      <li>Je krijgt een melding met import-instructies</li>
-                      <li>Volg de stappen om de UID te vinden in Firebase Console</li>
-                      <li>OF verwijder de oude gebruiker eerst via Console</li>
+                      <li>{t('adminUsers.importInstruction1', "Je krijgt een melding met import-instructies")}</li>
+                      <li>{t('adminUsers.importInstruction2', "Volg de stappen om de UID te vinden in Firebase Console")}</li>
+                      <li>{t('adminUsers.importInstruction3', "OF verwijder de oude gebruiker eerst via Console")}</li>
                     </ol>
                     <a 
                       href="https://console.firebase.google.com" 
@@ -1326,25 +1326,25 @@ const AdminUsersView = () => {
                       className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-black underline mt-2"
                     >
                       <Globe size={12} />
-                      Open Firebase Console
+                      {t('adminUsers.openFirebaseConsole', "Open Firebase Console")}
                     </a>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">Naam</label>
+                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">{t('common.name', "Naam")}</label>
                 <input
                   type="text"
                   value={newUser.name}
                   onChange={(e) => setNewUser({...newUser, name: e.target.value})}
                   className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all"
-                  placeholder="Volledige naam"
+                  placeholder={t('common.fullNamePlaceholder', "Volledige naam")}
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">Email</label>
+                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">{t('common.email', "Email")}</label>
                 <input
                   type="email"
                   value={newUser.email}
@@ -1355,13 +1355,13 @@ const AdminUsersView = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">Land</label>
+                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">{t('common.country', "Land")}</label>
                 <select
                   value={newUser.country}
                   onChange={(e) => setNewUser({...newUser, country: e.target.value})}
                   className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all"
                 >
-                  <option value="">-- Selecteer land --</option>
+                  <option value="">{t('common.selectCountryDefault', "-- Selecteer land --")}</option>
                   {COUNTRIES.map(country => (
                     <option key={country} value={country}>{country}</option>
                   ))}
@@ -1369,13 +1369,13 @@ const AdminUsersView = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">Afdeling</label>
+                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">{t('common.department', "Afdeling")}</label>
                 <select
                   value={newUser.department}
                   onChange={(e) => setNewUser({...newUser, department: e.target.value})}
                   className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-sm focus:outline-none focus:border-blue-500 transition-all"
                 >
-                  <option value="">-- Selecteer afdeling --</option>
+                  <option value="">{t('common.selectDepartmentDefault', "-- Selecteer afdeling --")}</option>
                   {DEPARTMENTS.map(dept => (
                     <option key={dept} value={dept}>{dept}</option>
                   ))}
@@ -1383,7 +1383,7 @@ const AdminUsersView = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">Wachtwoord Instellingen</label>
+                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">{t('adminUsers.passwordSettings', "Wachtwoord Instellingen")}</label>
                 <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl space-y-4">
                    <div className="flex gap-2">
                       <div className="relative flex-1">
@@ -1392,14 +1392,14 @@ const AdminUsersView = () => {
                           type="text"
                           value={newUser.tempPassword}
                           onChange={(e) => setNewUser({...newUser, tempPassword: e.target.value})}
-                          placeholder="Automatisch gegenereerd (of typ zelf)"
+                          placeholder={t('adminUsers.autoGeneratedPassword', "Automatisch gegenereerd (of typ zelf)")}
                           className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl font-mono text-sm focus:outline-none focus:border-blue-500"
                         />
                       </div>
                       <button
                         onClick={() => setNewUser({...newUser, tempPassword: generateTempPassword()})}
                         className="p-3 bg-white border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-300 rounded-xl transition-all"
-                        title="Genereer nieuw wachtwoord"
+                        title={t('adminUsers.generateNewPassword', "Genereer nieuw wachtwoord")}
                       >
                         <RefreshCcw size={18} />
                       </button>
@@ -1416,14 +1416,14 @@ const AdminUsersView = () => {
                         onChange={(e) => setNewUser({...newUser, requirePasswordChange: e.target.checked})} 
                       />
                       <span className="text-sm font-bold text-slate-700 select-none">
-                        Wachtwoord wijzigen bij volgende login verplichten
+                        {t('adminUsers.requirePasswordChange', "Wachtwoord wijzigen bij volgende login verplichten")}
                       </span>
                    </label>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">Rol</label>
+                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">{t('common.role', "Rol")}</label>
                 <select
                   value={newUser.role}
                   onChange={(e) => setNewUser({...newUser, role: e.target.value})}
@@ -1443,7 +1443,7 @@ const AdminUsersView = () => {
                   onClick={() => setShowAddUserModal(false)}
                   className="flex-1 px-6 py-4 bg-slate-100 text-slate-700 rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-slate-200 transition-all"
                 >
-                  Annuleren
+                  {t('common.cancel', "Annuleren")}
                 </button>
                 <button
                   onClick={handleAddUser}
@@ -1455,7 +1455,7 @@ const AdminUsersView = () => {
                   ) : (
                     <>
                       <UserPlus size={18} />
-                      Toevoegen
+                      {t('common.add', "Toevoegen")}
                     </>
                   )}
                 </button>

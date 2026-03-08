@@ -235,8 +235,7 @@ IMPORTANT RULES:
     if (!allowed.includes(file.type) && !isPdfByName) {
       setStatus({
         type: "error",
-        message:
-          "Alleen .pdf, .txt, .md, .csv of .json bestanden zijn ondersteund.",
+        message: t('ai.upload.error_unsupported_file', "Alleen .pdf, .txt, .md, .csv of .json bestanden zijn ondersteund."),
       });
       e.target.value = "";
       return;
@@ -246,14 +245,14 @@ IMPORTANT RULES:
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
       setStatus({
         type: "error",
-        message: `Bestand is te groot. Maximaal ${MAX_FILE_SIZE_MB}MB toegestaan.`,
+        message: t('ai.upload.error_file_too_large', { size: MAX_FILE_SIZE_MB, defaultValue: `Bestand is te groot. Maximaal ${MAX_FILE_SIZE_MB}MB toegestaan.` }),
       });
       e.target.value = "";
       return;
     }
 
     setUploading(true);
-    setStatus({ type: "info", message: "Document analyseren..." });
+    setStatus({ type: "info", message: t('ai.upload.analyzing', "Document analyseren...") });
 
     try {
       let text = "";
@@ -302,8 +301,8 @@ IMPORTANT RULES:
       await logActivity(auth.currentUser?.uid, 'AI_UPLOAD', `Document uploaded: ${file.name} (${Math.round(file.size/1024)}KB)`);
 
       const statusMessage = analysisResult.parsed 
-        ? "✅ Document succesvol geüpload, geanalyseerd en opgeslagen." 
-        : "⚠️ Document geüpload en opgeslagen met basis analyse (JSON parsing verbeterd met fallback).";
+        ? t('ai.upload.success_parsed', "✅ Document succesvol geüpload, geanalyseerd en opgeslagen.")
+        : t('ai.upload.success_fallback', "⚠️ Document geüpload en opgeslagen met basis analyse (JSON parsing verbeterd met fallback).");
       
       setStatus({
         type: "success",
@@ -319,7 +318,7 @@ IMPORTANT RULES:
 
       setStatus({
         type: "error",
-        message: `Fout: ${errorMessage}`,
+        message: t('ai.upload.error_generic', { message: errorMessage, defaultValue: `Fout: ${errorMessage}` }),
       });
     } finally {
       setUploading(false);
@@ -328,7 +327,7 @@ IMPORTANT RULES:
   };
 
   const handleDelete = async (docItem) => {
-    if (!window.confirm("Document verwijderen uit de AI kennisbank?")) return;
+    if (!window.confirm(t('ai.upload.confirm_delete', "Document verwijderen uit de AI kennisbank?"))) return;
     try {
       // 1. Verwijder record uit Firestore
       await deleteDoc(doc(db, ...(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records']), docItem.id));
@@ -356,11 +355,11 @@ IMPORTANT RULES:
         </div>
         <div className="relative z-10 text-left flex-1">
           <h2 className="text-2xl font-black uppercase italic tracking-tighter leading-none">
-            AI <span className="text-blue-500">Documenten</span>
+            AI <span className="text-blue-500">{t('ai.upload.documents', 'Documenten')}</span>
           </h2>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-400 bg-white/5 px-2 py-0.5 rounded uppercase border border-white/10 italic">
-              <Database size={10} /> {documents.length} records
+              <Database size={10} /> {t('ai.upload.records_count', { count: documents.length, defaultValue: `${documents.length} records` })}
             </span>
             <span className="text-[9px] font-mono text-slate-500 italic">
               /{(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records']).join("/")}
@@ -373,7 +372,7 @@ IMPORTANT RULES:
         <div className="flex items-center gap-3">
           <Upload className="text-blue-600" />
           <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
-            Document Upload & Analyse
+            {t('ai.upload.title', 'Document Upload & Analyse')}
           </h3>
         </div>
 
@@ -384,7 +383,7 @@ IMPORTANT RULES:
             ) : (
               <Upload size={16} />
             )}
-            Upload document
+            {t('ai.upload.button', 'Upload document')}
             <input
               type="file"
               accept=".pdf,.txt,.md,.csv,.json,application/pdf"
@@ -394,8 +393,7 @@ IMPORTANT RULES:
             />
           </label>
           <p className="text-xs text-slate-500">
-            Ondersteund: .pdf, .txt, .md, .csv, .json. Max {MAX_FILE_SIZE_MB}MB of {MAX_CHARS} tekens.
-            Alleen de AI-context wordt opgeslagen; het bestand zelf niet.
+            {t('ai.upload.supported_formats', { size: MAX_FILE_SIZE_MB, chars: MAX_CHARS, defaultValue: `Ondersteund: .pdf, .txt, .md, .csv, .json. Max ${MAX_FILE_SIZE_MB}MB of ${MAX_CHARS} tekens. Alleen de AI-context wordt opgeslagen; het bestand zelf niet.` })}
           </p>
         </div>
 
@@ -426,7 +424,7 @@ IMPORTANT RULES:
           <div className="flex items-center gap-2">
             <FileText className="text-slate-600" />
             <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
-              Geanalyseerde Documenten
+              {t('ai.upload.analyzed_documents', 'Geanalyseerde Documenten')}
             </h3>
           </div>
           <div className="relative">
@@ -434,7 +432,7 @@ IMPORTANT RULES:
             <input
               type="text"
               className="pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 focus:border-blue-500 outline-none"
-              placeholder="Zoeken..."
+              placeholder={t('common.search_placeholder', 'Zoeken...')}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
@@ -443,10 +441,10 @@ IMPORTANT RULES:
 
         {loading ? (
           <div className="flex items-center gap-2 text-slate-500 text-xs">
-            <Loader2 className="animate-spin" size={14} /> Laden...
+            <Loader2 className="animate-spin" size={14} /> {t('common.loading', 'Laden...')}
           </div>
         ) : visibleDocuments.length === 0 ? (
-          <div className="text-xs text-slate-500">Nog geen documenten opgeslagen.</div>
+          <div className="text-xs text-slate-500">{t('ai.upload.no_documents', 'Nog geen documenten opgeslagen.')}</div>
         ) : (
           <div className="space-y-4">
             {visibleDocuments.map((docItem) => (
@@ -466,7 +464,7 @@ IMPORTANT RULES:
                   <button
                     onClick={() => handleDelete(docItem)}
                     className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
-                    title="Verwijderen"
+                    title={t('common.delete', 'Verwijderen')}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -474,25 +472,25 @@ IMPORTANT RULES:
 
                 <div className="mt-3 text-xs text-slate-600 space-y-2">
                   <div>
-                    <span className="font-bold">Samenvatting:</span>{" "}
-                    {docItem.analysis?.summary || "Geen samenvatting"}
+                    <span className="font-bold">{t('ai.upload.summary', 'Samenvatting:')}</span>{" "}
+                    {docItem.analysis?.summary || t('ai.upload.no_summary', 'Geen samenvatting')}
                   </div>
                   
                   {docItem.characterCount && (
                     <div className="text-[10px] text-slate-500">
-                      📊 Verwerkte tekst: {docItem.characterCount.toLocaleString()} karakters
+                      {t('ai.upload.processed_text', { count: docItem.characterCount.toLocaleString(), defaultValue: `📊 Verwerkte tekst: ${docItem.characterCount.toLocaleString()} karakters` })}
                     </div>
                   )}
                   
                   {docItem.analysis?.keyFacts && docItem.analysis.keyFacts.length > 0 && (
                     <div className="mt-2">
-                      <span className="font-bold text-[10px] text-slate-500 uppercase">Kernpunten:</span>
+                      <span className="font-bold text-[10px] text-slate-500 uppercase">{t('ai.upload.key_points', 'Kernpunten:')}</span>
                       <ul className="mt-1 ml-4 list-disc text-[10px] text-slate-600 space-y-0.5">
                         {docItem.analysis.keyFacts.slice(0, 3).map((fact, idx) => (
                           <li key={idx}>{fact}</li>
                         ))}
                         {docItem.analysis.keyFacts.length > 3 && (
-                          <li className="text-slate-400">...en {docItem.analysis.keyFacts.length - 3} meer</li>
+                          <li className="text-slate-400">{t('ai.upload.more_points', { count: docItem.analysis.keyFacts.length - 3, defaultValue: `...en ${docItem.analysis.keyFacts.length - 3} meer` })}</li>
                         )}
                       </ul>
                     </div>
@@ -516,10 +514,9 @@ IMPORTANT RULES:
                   <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 flex items-start gap-2">
                     <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" /> 
                     <div>
-                      <div className="font-bold">Fallback Analyse Gebruikt</div>
+                      <div className="font-bold">{t('ai.upload.fallback_analysis_used', 'Fallback Analyse Gebruikt')}</div>
                       <div className="text-[9px] mt-0.5">
-                        AI kon geen gestructureerd JSON genereren, maar document is wel verwerkt en doorzoekbaar. 
-                        De volledige tekst ({docItem.characterCount?.toLocaleString() || '?'} karakters) is opgeslagen voor context.
+                        {t('ai.upload.fallback_analysis_desc', { count: docItem.characterCount?.toLocaleString() || '?', defaultValue: `AI kon geen gestructureerd JSON genereren, maar document is wel verwerkt en doorzoekbaar. De volledige tekst (${docItem.characterCount?.toLocaleString() || '?'} karakters) is opgeslagen voor context.` })}
                       </div>
                     </div>
                   </div>

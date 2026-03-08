@@ -13,19 +13,24 @@ import {
   Factory,
   Building2,
   Cpu,
+  Ban,
+  Copy,
 } from "lucide-react";
 import ProductMoveModal from "./ProductMoveModal";
 import ProductJourneyModal from "./modals/ProductJourneyModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
 import ProductDetailModal from "../products/ProductDetailModal";
+import CancelOrderModal from "./modals/CancelOrderModal";
+import ConfirmationModal from "./modals/ConfirmationModal";
 import { FileImage } from "lucide-react";
 import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
 import { doc, updateDoc, serverTimestamp, collection, addDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useNotifications } from "../../contexts/NotificationContext";
 import StatusBadge from "./common/StatusBadge";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 /**
  * OrderDetail V2.3
@@ -43,6 +48,7 @@ const OrderDetail = React.memo(({
   allowedStations = [],
 }) => {
   const { t } = useTranslation();
+  const { user, role } = useAdminAuth();
   const { showSuccess, showError } = useNotifications();
   const [viewingJourney, setViewingJourney] = useState(null);
   const [viewingDossier, setViewingDossier] = useState(null);
@@ -50,6 +56,8 @@ const OrderDetail = React.memo(({
   const [productToMove, setProductToMove] = useState(null);
   const [drawingLoading, setDrawingLoading] = useState(false);
   const [showOrderMoveModal, setShowOrderMoveModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [moveConfirmData, setMoveConfirmData] = useState(null);
 
   const orderProducts = useMemo(() => {
     if (!order) return [];
@@ -135,25 +143,58 @@ const OrderDetail = React.memo(({
     }
   };
 
-  const handleRetrieveFromSpools = async () => {
+  const handleRetrieveOrder = async () => {
     if (!order) return;
-    if (!window.confirm(t("digitalplanning.order_detail.confirm_retrieve_spools", "Weet je zeker dat je deze order wilt terughalen van Spoolbouw?"))) return;
+    if (!window.confirm(t("digitalplanning.order_detail.confirm_retrieve", `Weet je zeker dat je deze order wilt terughalen van ${order.delegatedTo || 'andere afdeling'}?`))) return;
 
     try {
       const orderRef = doc(db, ...PATHS.PLANNING, order.id);
       await updateDoc(orderRef, {
-        machine: order.returnStation || order.originalMachine || order.machine,
+        machine: order.returnStation || order.originalMachine || "BH11", // Fallback naar BH11 als origineel onbekend is
         department: order.originalDepartment || "fittings",
         delegatedTo: null,
         status: "planned",
         lastUpdated: serverTimestamp()
       });
-      showSuccess(t("digitalplanning.order_detail.retrieve_success", "Order succesvol teruggehaald"));
+      showSuccess(t("digitalplanning.order_detail.retrieve_success", "Order succesvol teruggehaald naar planning"));
       onClose();
     } catch (err) {
       console.error("Error retrieving order:", err);
       showError(t("digitalplanning.order_detail.retrieve_error", "Fout bij terughalen: ") + err.message);
     }
+  };
+
+  const handleCancelOrder = async (reason) => {
+    try {
+      // 1. Update de order status (Soft Delete)
+      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
+      await updateDoc(orderRef, {
+        status: 'cancelled',
+        cancelledAt: serverTimestamp(),
+        cancelledBy: user?.uid || auth.currentUser?.uid,
+        cancellationReason: reason,
+        lastUpdated: serverTimestamp()
+      });
+
+      // 2. Log de activiteit (ISO 9001 eis)
+      await logActivity(
+        user?.uid || auth.currentUser?.uid,
+        "ORDER_CANCELLED", 
+        `Order ${order.orderId} geannuleerd. Reden: ${reason}`
+      );
+
+      setShowCancelModal(false);
+      onClose();
+      showSuccess(t("digitalplanning.order_detail.cancel_success", "Order succesvol geannuleerd"));
+    } catch (error) {
+      console.error("Fout bij annuleren:", error);
+      showError(t("digitalplanning.order_detail.cancel_error", "Kon order niet annuleren"));
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    showSuccess("Ordernummer gekopieerd");
   };
 
   const departments = [
@@ -168,7 +209,13 @@ const OrderDetail = React.memo(({
       <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50 shrink-0">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">{order.orderId}</h2>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight select-text">{order.orderId}</h2>
+            <button 
+              onClick={() => copyToClipboard(order.orderId)}
+              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+            >
+              <Copy size={16} />
+            </button>
             {order.isUrgent && (
               <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider">
                 {t("digitalplanning.order_detail.urgent")}
@@ -197,7 +244,7 @@ const OrderDetail = React.memo(({
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.machine")}</span>
-          <span className="font-bold text-slate-700">{order.machine || t("digitalplanning.order_detail.na")}</span>
+          <span className="font-bold text-slate-700">{order.machine?.replace("_INBOX", "") || t("digitalplanning.order_detail.na")}</span>
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.status")}</span>
@@ -341,13 +388,24 @@ const OrderDetail = React.memo(({
              {t("digitalplanning.order_detail.move_order", "Verplaats / Aanbieden")}
            </button>
 
-           {order.delegatedTo === "SPOOLS" && (
+           {(order.delegatedTo || order.status === 'delegated') && (
              <button
-               onClick={handleRetrieveFromSpools}
+               onClick={handleRetrieveOrder}
                className="flex items-center gap-2 px-4 py-3 bg-amber-500 text-white hover:bg-amber-600 shadow-md rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95"
              >
                <RotateCcw size={16} />
-               {t("digitalplanning.order_detail.retrieve_spools", "Terughalen van Spoolbouw")}
+               {t("digitalplanning.order_detail.retrieve", `Terughalen van ${order.delegatedTo || 'Afdeling'}`)}
+             </button>
+           )}
+
+           {/* Cancel Button - Alleen voor bevoegde rollen */}
+           {['admin', 'teamleader', 'planner'].includes(role) && (
+             <button
+               onClick={() => setShowCancelModal(true)}
+               className="flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95"
+             >
+               <Ban size={16} />
+               {t("digitalplanning.order_detail.cancel", "Order Annuleren")}
              </button>
            )}
         </div>
@@ -418,7 +476,7 @@ const OrderDetail = React.memo(({
                 {departments.filter(d => d.id.toLowerCase() !== (currentDepartment || "").toLowerCase()).map((dept) => (
                   <button
                     key={dept.id}
-                    onClick={() => handleMoveOrder("department", dept.label)}
+                    onClick={() => setMoveConfirmData({ type: "department", id: dept.label })}
                     className="p-4 bg-white border-2 border-slate-200 hover:border-purple-400 hover:bg-purple-50 rounded-2xl flex items-center justify-between group transition-all"
                   >
                     <span className="font-black text-slate-700 group-hover:text-purple-700 uppercase">{dept.label}</span>
@@ -436,7 +494,7 @@ const OrderDetail = React.memo(({
                 {allowedStations.sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((station) => (
                   <button
                     key={station.id}
-                    onClick={() => handleMoveOrder("station", station.name || station.id)}
+                    onClick={() => setMoveConfirmData({ type: "station", id: station.name || station.id })}
                     className="p-4 bg-slate-50 hover:bg-blue-50 border-2 border-slate-100 hover:border-blue-200 rounded-2xl text-sm font-bold text-slate-700 hover:text-blue-700 transition-all uppercase text-center"
                   >
                     {station.name || station.id}
@@ -452,6 +510,22 @@ const OrderDetail = React.memo(({
           </div>
         </div>
       )}
+
+      <CancelOrderModal 
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirm={handleCancelOrder}
+        orderId={order?.orderId}
+      />
+
+      <ConfirmationModal
+        isOpen={!!moveConfirmData}
+        onClose={() => setMoveConfirmData(null)}
+        onConfirm={() => handleMoveOrder(moveConfirmData.type, moveConfirmData.id)}
+        title="Order Verplaatsen"
+        message={`Weet je zeker dat je order ${order.orderId} wilt verplaatsen naar ${moveConfirmData?.id}?`}
+        confirmText="Ja, Verplaatsen"
+      />
 
     </div>
   );

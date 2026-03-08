@@ -658,3 +658,423 @@ Ondanks de eerdere implementatie bleven lotnummers op `00001` hangen bij opeenvo
     -   Toevoegen van een check na het afronden van een item:
     -   `if (newProducedCount >= order.quantity) { updateOrder(orderId, { status: 'completed' }) }`
     -   Dit garandeert dat de order uit de actieve lijsten verdwijnt zodra het laatste item gelost is.
+
+# Samenvatting Sessie: Pilot Go-Live & Code Review
+
+**Datum:** 4 maart 2026
+**Status:** Gevalideerd & Gereed
+
+## 🎯 Doelstellingen
+1.  Definitieve code-review van de start-logica (`ProductionStartModal`).
+2.  Borgen van security procedures voor de live-gang.
+
+## ✅ Geïmplementeerde Wijzigingen
+
+### 1. Production Start Logica (Definitief)
+-   **Lotnummer Generatie:** De functie `generateRobustLotNumber` is geïmplementeerd met de FPI-standaard (`40` + Jaar + Week + Machine + `40` + Volgnummer).
+-   **Uniekheidsgarantie:** Er is een `while`-loop toegevoegd die `checkLotNumberExists` aanroept. Dit controleert zowel de `active_production` als `production_archive` collecties om dubbele nummers absoluut uit te sluiten.
+-   **Printen:** De module ondersteunt nu hybride printen:
+    -   **Netwerk:** Direct ZPL naar IP-adres (via `fetch` naar printer).
+    -   **Lokaal:** PDF-generatie in een nieuw venster als fallback.
+
+### 2. Security & Compliance
+-   **API Keys:** `SECURITY.md` is opgesteld met procedures voor het roteren van keys en het opschonen van git-history.
+-   **Environment:** `.env` structuur is gevalideerd en `.env.example` is bijgewerkt.
+
+## 🔜 Vervolgstappen
+-   **Live Gang:** Systeem openstellen voor BH18 operators.
+-   **Monitoring:** Eerste uur van productie nauwgezet volgen via het `EfficiencyDashboard`.
+
+# Samenvatting Sessie: Mobile UX & Bugfix Implementatie
+
+**Datum:** 4 maart 2026 (Vervolg)
+**Status:** Geïmplementeerd
+
+## 🎯 Doelstellingen
+1.  Implementatie van de bugfix voor order-afronding in `LossenView`.
+2.  Verbeteren van de gebruikerservaring op mobiele apparaten en iPads (PWA).
+
+## ✅ Geïmplementeerde Wijzigingen
+
+### 1. Order Afronding (`LossenView.jsx`)
+-   **Directe Order Update:** Bij het afronden van een item wordt nu direct de `produced` teller in de hoofdorder opgehoogd.
+-   **Auto-Complete:** Als `produced >= plan`, wordt de status van de order direct op `completed` gezet, waardoor deze uit de actieve lijsten verdwijnt.
+
+### 2. Mobile & iPad UX (`WorkstationHub.jsx`)
+-   **Pull-to-Refresh:** Toegevoegd aan de hoofdcontainer zodat mobiele gebruikers de data makkelijk kunnen verversen.
+-   **Installatie Prompts:** Knoppen toegevoegd aan het mobiele menu voor "App Installeren" (met iOS instructies) en "Notificaties Aanzetten".
+-   **PWA Detectie:** De installatie-knop wordt verborgen als de app al in standalone modus draait.
+-   **Responsive Header:** De header schakelt nu eerder over naar de mobiele weergave (hamburger menu) op tablets om ruimtegebrek te voorkomen.
+
+## 🔜 Vervolgstappen
+-   Testen van de PWA installatie flow op een fysieke iPad.
+-   Verifiëren dat orders nu correct verdwijnen na het lossen van het laatste item.
+
+---
+
+# Bevinding iPad/Tablet: Toetsenbord springt automatisch in beeld
+
+**Datum:** 4 maart 2026
+**Status:** Onderzoek nodig
+
+## 📱 Probleemomschrijving
+Bij gebruik op een iPad springt het toetsenbord automatisch in beeld wanneer je wisselt tussen de tabs "Wikkelen", "Lossen", "Station Lossen" en "Station Nabewerking". Dit gebeurt omdat de focus direct naar het barcode-zoekveld gaat, terwijl invoer niet altijd direct nodig is. Ook bij het gereedmelden (popup) verschijnt het toetsenbord direct, wat het scherm onoverzichtelijk maakt.
+
+## 💡 Verbeterpunt
+
+## 🛠️ Oplossing
+- In alle relevante barcode scanvelden en popups is het `autoFocus` attribuut verwijderd.
+- Het toetsenbord opent nu alleen als de gebruiker zelf het invoerveld selecteert.
+- Dit voorkomt onnodige afleiding en zorgt voor een rustiger scherm op iPad/tablet.
+
+### Automatische Focus na Scan
+- Na elke succesvolle scan (Enter) wordt het scanveld automatisch weer geselecteerd.
+- Dit zorgt ervoor dat fysieke barcodescanners (USB/Bluetooth) direct opnieuw kunnen scannen zonder handmatige selectie.
+- Geïmplementeerd in: `LossenView.jsx`, `BM01Hub.jsx`, `Terminal.jsx` (Wikkelen).
+- Deze oplossing geldt voor alle stations: Wikkelen, Lossen, Nabewerking, Mazak, en BM01.
+
+---
+
+# Bevinding iPad/Tablet: Wit scherm na login
+
+**Datum:** 4 maart 2026
+**Status:** Onderzocht & Gefixed
+
+## 📱 Probleemomschrijving
+Na inloggen op een iPad (Chrome browser) verschijnt een wit scherm in plaats van de normale applicatie. Dit suggereert een JavaScript error die niet zichtbaar wordt opgevangen, of een iOS WebKit-specifiek compatibiliteitsprobleem. 
+
+**Let op:** Chrome op iOS gebruikt onder de motorkap dezelfde WebKit engine als Safari (iOS restrictie), dus het probleem is waarschijnlijk iOS-breed.
+
+## 🛠️ Oplossing
+- **ErrorBoundary toegevoegd:** De `ErrorBoundary` component is nu geïmplementeerd in `main.jsx` om alle onverwachte errors op te vangen en een gebruiksvriendelijke foutmelding te tonen.
+- **Global Error Handlers:** Voor Safari zijn extra error listeners toegevoegd om uncaught errors en unhandled promise rejections te loggen.
+- **Debug Logging:** Uitgebreide console.log statements toegevoegd in `App.jsx` en `main.jsx` om te traceren waar het mis gaat tijdens het laden.
+- **Safari Detectie:** User agent logging toegevoegd om Safari/iPad sessies te identificeren in de console.
+
+## � Debuggen op iPad (Chrome)
+
+Voor Chrome op iPad zijn er meerdere opties om errors te zien:
+
+### Optie 1: Eruda Console (Aanbevolen - Eenvoudigst!) ⭐
+Voeg `?debug=true` toe aan je URL, bijvoorbeeld:
+```
+http://localhost:3000/?debug=true
+```
+Er verschijnt dan automatisch een drijvende debug button rechtsboven in de app waar je de console kunt openen. Je kunt ook deze bookmark maken op je iPad voor hergebruik.
+
+### Optie 2: Desktop Chrome Remote Debugging
+1. Op iPad: Chrome → Instellingen → Enable Web Inspector
+2. Sluit iPad aan op Mac/PC via USB
+3. Open `chrome://inspect` in desktop Chrome
+4. Selecteer de iPad tab
+
+### Optie 3: Console Logs Bekijken
+De toegevoegde logs zijn nu zichtbaar:
+- `🚀 App initializing...`
+- `🔐 App mounted, user: ...`
+- `✅ Rendering main app`
+- `🔴 Global error caught:` (bij errors)
+
+### Optie 4: ErrorBoundary Rapportage
+Als er een crash is, verschijnt er automatisch een rood scherm met de foutmelding en een knop "Rapporteer aan Admins" die de error naar het Message Center stuurt.
+
+## 🔜 Vervolgstappen
+- Test met één van bovenstaande debug methoden om de exacte error te identificeren.
+- Indien nodig specifieke iOS WebKit polyfills toevoegen voor ontbrekende functies.
+
+### ✅ Opgelost: Wit scherm na login werkt nu!
+
+---
+
+# Bevinding iPad/Tablet: Verkeerde knop getriggerd bij login
+
+**Datum:** 4 maart 2026
+**Status:** Gefixed
+
+## 📱 Probleemomschrijving
+Na uitloggen en opnieuw inloggen op iPad/Chrome, verschijnt de "Account Aanvragen" modal in plaats van de normale login flow wanneer er op de "Inloggen" knop wordt geklikt. Dit suggereert een touch event conflict tussen de twee knoppen in het login formulier.
+
+## 🛠️ Oplossing
+- **Login knop:** Expliciet `type="submit"` attribuut toegevoegd voor duidelijkheid.
+- **Request Account knop:** `e.preventDefault()` en `e.stopPropagation()` toegevoegd aan de onClick handler om te voorkomen dat deze per ongeluk de form submit triggert.
+- Dit voorkomt conflicten tussen touch events op iPad/mobiele browsers.
+
+---
+
+# Bevinding iPad/Tablet: Header & Sidebar Layout Issues
+
+**Datum:** 4 maart 2026
+**Status:** Gefixed
+
+## 📱 Probleemomschrijving
+Op iPad (operator account BM18):
+- **Header scrollt uit beeld** - Wanneer je met je vinger scrolt, verdwijnt de header uit zicht
+- **Sidebar niet volledig zichtbaar** - De navigatie toont niet alle items of wordt afgesneden
+
+Dit zijn klassieke iOS/WebKit layout issues met fixed positioning en scrolling.
+
+## 🛠️ Oplossing
+
+### 1. Header Positioning ([Header.jsx](src/components/Header.jsx))
+- Header is nu `fixed top-0 left-0 right-0` op mobiel
+- Op desktop (md) is het `relative` zodat het meegroeit met de layout
+- Dit voorkomt dat de header uit beeld scrollt
+
+### 2. Content Offset ([App.jsx](src/App.jsx))
+- Main content container krijgt `pt-16 md:pt-0` (padding-top op mobiel voor fixed header)
+- Hierdoor scrolt de content onder de header, niet erin
+
+### 3. Sidebar Hoogte & Scrolling ([Sidebar.jsx](src/components/Sidebar.jsx))
+- Sidebar height gecorrigeerd naar `calc(100vh - 4rem)` (header hoogte)
+- Top position gecorrigeerd naar `4rem` (onder de fixed header)
+- `-webkit-overflow-scrolling: touch` toegevoegd voor smooth momentum scrolling op iOS
+
+### 4. iOS/WebKit CSS Optimalisaties ([styles.css](src/styles.css))
+- `-webkit-overflow-scrolling: touch` voor alle scrollable containers
+- `-webkit-touch-callout: none` en `-webkit-user-select: none` voor betere touch handling
+- Input font-size op `16px` om auto-zoom op iOS te voorkomen
+- Fixed positioning CSS media query voor WebKit browsers
+
+---
+
+# 📋 Status Einde Sessie - 4 maart 2026
+
+## ✅ Alle iPad/Tablet Optimalisaties Compleet
+
+### Opgeloste Issues:
+1. ✅ **Toetsenbord springt niet meer automatisch in beeld** bij tab-wissels
+2. ✅ **Scanveld blijft geselecteerd na scan** voor directe doorgang met barcodescanner
+3. ✅ **Wit scherm na login opgelost** met ErrorBoundary en debug logging
+4. ✅ **Login button conflict gefixed** - touch events correct afgehandeld
+5. ✅ **Header blijft zichtbaar** tijdens scrollen op iPad
+6. ✅ **Sidebar volledig zichtbaar** met correcte scroll behavior
+
+### Gewijzigde Bestanden:
+- `src/components/digitalplanning/LossenView.jsx`
+- `src/components/digitalplanning/BM01Hub.jsx`
+- `src/components/digitalplanning/Terminal.jsx`
+- `src/components/digitalplanning/terminal/TerminalProductionView.jsx`
+- `src/main.jsx`
+- `src/App.jsx`
+- `src/components/LoginView.jsx`
+- `src/components/Header.jsx`
+- `src/components/Sidebar.jsx`
+- `src/styles.css`
+
+### Dev Server Status:
+- ✅ Vite dev server draait op poort 3000
+- ✅ Bereikbaar via `http://localhost:3000/` en `http://10.0.10.5:3000/`
+- ✅ Debug mode beschikbaar via `?debug=true` URL parameter
+
+### Volgende Sessie:
+De app is nu volledig geoptimaliseerd voor iPad/tablet gebruik. Alle core functionaliteit werkt correct op mobiele browsers (Chrome/Safari op iOS). Test de volledige workflow op de werkvloer en rapporteer eventuele aanvullende bevindingen.
+
+# Samenvatting Sessie: Pilot Livegang & Monitoring
+
+**Datum:** 5 maart 2026
+**Status:** In Planning
+
+## 🎯 Doelstellingen
+1.  **Live Support:** Ondersteuning bieden bij de start van de ochtendploeg (BH18 & BM01).
+2.  **Validatie:** Verifiëren van de iPad-fixes (focus/keyboard gedrag) in een productie-omgeving.
+3.  **Monitoring:** Controleren van de `efficiency` metrics en `error` logs op anomalieën.
+
+## 📋 Te Verifiëren Punten
+-   **Scanner:** Werkt de 'auto-select' van het invoerveld robuust na intensief gebruik?
+-   **Stabiliteit:** Blijft de applicatie responsief na >1 uur gebruik op de iPad (memory leaks)?
+-   **Data:** Verschijnen afgeronde orders direct correct in het archief (geen 'hangende' orders)?
+
+## 🔜 Vervolgstappen
+-   Evaluatie van de eerste pilot-dag.
+-   Indien stabiel: Starten met implementatie van Fase 5 (QC/Meetwaarden).
+
+# Bevinding Android Tablet: Toetsenbord opent ongewenst in "Lossen" popup
+
+**Datum:** 5 maart 2026
+**Status:** Gediagnosticeerd
+
+## 📱 Probleemomschrijving
+Op een Android tablet opent het on-screen toetsenbord automatisch wanneer in "Station Lossen" op de knop "Verwerken" wordt geklikt en de bijbehorende popup verschijnt. Dit neemt onnodig veel schermruimte in en is vergelijkbaar met een eerder opgelost probleem op iPad.
+
+## 🔧 Diagnose
+De oorzaak is hoogstwaarschijnlijk een `autoFocus` attribuut op een invoerveld (zoals een notitie- of afkeurveld) binnen de "Verwerken" popup in de `LossenView.jsx` component. Dit veld krijgt direct de focus, wat op een tablet het toetsenbord activeert.
+
+## ✅ Oplossing
+-   **Verwijder `autoFocus`:** Het `autoFocus` attribuut moet worden verwijderd van het invoerveld in de popup die opent na het klikken op "Verwerken" in de `LossenView`.
+-   **Scanner Modus:** Een knop toegevoegd in `LossenView.jsx`, `Terminal.jsx` en `BM01Hub.jsx` om te wisselen tussen "Toetsenbord" en "Scanner Modus". In Scanner Modus wordt `inputMode="none"` gebruikt (geen toetsenbord) en is auto-focus actief. In Toetsenbord modus is auto-focus uitgeschakeld. **Scanner Modus staat nu standaard AAN.**
+-   **Testen:** Verifiëren dat in "Scanner Modus" het toetsenbord wegblijft maar de scanner wel direct werkt.
+
+# Bevinding Android Tablet: PWA niet volledig Full Screen
+
+**Datum:** 5 maart 2026
+**Status:** Gediagnosticeerd
+
+## 📱 Probleemomschrijving
+Op Android tablets toont de geïnstalleerde Web App (PWA) nog steeds de statusbalk (boven) en navigatiebalk (onder). De gebruiker wil een volledige full-screen ervaring.
+
+## ✅ Oplossing
+-   **Manifest Config:** De `display` setting in `public/manifest.json` moet worden aangepast van `"standalone"` naar `"fullscreen"`.
+
+# Samenvatting Sessie: Android Tablet Optimalisaties & Scanner Modus
+
+**Datum:** 5 maart 2026
+**Status:** Afgerond
+
+## 🎯 Doelstellingen
+1.  Oplossen van ongewenst toetsenbord-gedrag op Android tablets.
+2.  Verbeteren van de PWA-weergave (Full Screen).
+3.  Optimaliseren van modals voor tablet-schermen.
+
+## ✅ Geïmplementeerde Wijzigingen
+
+### 1. Scanner Modus (Toetsenbord Onderdrukking)
+-   **Functionaliteit:** Nieuwe "Scanner Modus" toegevoegd aan `LossenView.jsx`, `Terminal.jsx` en `BM01Hub.jsx`.
+-   **Werking:** In deze modus krijgt het invoerveld `inputMode="none"`, waardoor het virtuele toetsenbord niet verschijnt bij focus, maar scanners wel input kunnen leveren.
+-   **Default:** Scanner Modus staat standaard **AAN** (`true`).
+-   **Toggle:** Gebruikers kunnen via een knop wisselen tussen Scanner (geen keyboard) en Toetsenbord (wel keyboard) modus.
+
+### 2. PWA Full Screen
+-   **Manifest:** `public/manifest.json` aangepast van `standalone` naar `fullscreen` om statusbalken en navigatieknoppen op Android te verbergen.
+
+### 3. UI/UX Optimalisaties
+-   **Modals:** `ProductReleaseModal` en `PostProcessingFinishModal` responsive gemaakt voor tablets (`max-height`, `overflow-y-auto`, aangepaste padding).
+
+## 🔜 Vervolgstappen
+-   **Monitoring:** Controleren of de 'Scanner Modus' in de praktijk goed werkt voor de operators (geen ongewenst toetsenbord).
+-   **Start Fase 5:** Beginnen met de implementatie van QC (Quality Control) en meetwaarden registratie.
+
+# Samenvatting Sessie: Fase 5 - Kwaliteitsborging (QC) & Meetwaarden
+
+**Datum:** 6 maart 2026
+**Status:** In Planning
+
+## 🎯 Doelstellingen
+1.  Integratie van het `MeasurementInput` component in de `WorkstationHub` flow.
+2.  Koppelen van meetwaarden aan toleranties (Min/Max) uit de productdatabase.
+3.  Opslaan van QC-data in de `tracked_products` historie.
+4.  Visuele feedback voor operators (Groen=OK, Rood=Niet OK) direct na invoer.
+
+# Samenvatting Sessie: Order Management & ISO Compliance
+
+**Datum:** 6 maart 2026 (Vervolg)
+**Status:** Requirements Vastgelegd
+
+## 🎯 Doelstellingen
+1.  Borgen van data-integriteit door verwijderen van orders onmogelijk te maken.
+2.  Duidelijke scheiding van verantwoordelijkheden tussen Planners en Teamleiders.
+
+## ✅ Nieuwe Requirements
+-   **Prioritering:** Central Planners mogen orders uploaden/aanmaken, maar **niet** de prioriteit wijzigen. Dit is voorbehouden aan Teamleiders (werkvloer regie) en Admins.
+-   **Soft Delete:** De knop "Verwijderen" wordt vervangen door "Annuleren".
+-   **Verplichte Reden:** Bij het annuleren van een order moet verplicht een reden worden opgegeven (tekstveld).
+-   **Logging:** De annulering + reden + gebruiker wordt vastgelegd in de `activity_logs` en de order krijgt status `cancelled` (blijft in database).
+
+## 🔜 Vervolgstappen
+-   Aanpassen van `OrderDetail.jsx` en `PlanningListView.jsx` om deze regels te implementeren.
+
+# Samenvatting Sessie: UX Optimalisaties & Archief Toegang
+
+**Datum:** 6 maart 2026 (Vervolg)
+**Status:** Geïmplementeerd
+
+## ✅ Geïmplementeerde Wijzigingen
+-   **Veiligheid:** `CancelOrderModal` (met reden) en `ConfirmationModal` toegevoegd voor kritieke acties.
+-   **PlanningSidebar:** Machine-filter, Archief-toggle (live fetch uit jaar-mappen) en 'Nieuw' badge toegevoegd.
+-   **Archief:** Haalt nu correct data op uit `/future-factory/production/archive/{year}/items`.
+-   **UX:** Sidebar verbreed, kopieer-knop bij Order ID, en machine-namen opgeschoond (geen `_INBOX` suffix meer).
+
+## ❓ Openstaande Vragen (voor volgende sessie)
+1.  Kunnen we een jaar-selector toevoegen aan de PlanningSidebar zodat ik ook archieven van vorig jaar kan zien?
+2.  Ik wil graag dat de gearchiveerde orders een andere achtergrondkleur hebben in de lijst om ze te onderscheiden.
+
+## 🔜 Vervolgstappen
+-   Implementatie van bovenstaande openstaande punten.
+-   Starten met Fase 5: Integratie van `MeasurementInput` in de `WorkstationHub`.
+
+---
+
+# Samenvatting Sessie: Archief Functionaliteit & UX Verbeteringen
+
+**Datum:** 6 maart 2026 (Vervolg 2)
+**Status:** Geïmplementeerd
+
+## 🎯 Doelstellingen
+1.  Implementeren van de openstaande vragen uit de vorige sessie.
+2.  Verbeteren van de inzichtelijkheid van het archief.
+
+## ✅ Geïmplementeerde Wijzigingen
+
+### 1. PlanningSidebar & Archief
+-   **Jaar-Selector:** Een dropdown is toegevoegd naast de "Toon Archief" toggle. Hiermee kunnen gebruikers nu archieven van voorgaande jaren selecteren en inzien. De standaardwaarde is het huidige jaar.
+-   **Visueel Onderscheid:** Gearchiveerde orders krijgen nu een lichtgrijze achtergrond (`bg-slate-50`) in de `PlanningListView`, waardoor ze duidelijk te onderscheiden zijn van actieve orders.
+
+### 2. Data Fetching
+-   De `usePlanningData` hook is aangepast om de geselecteerde `year` uit de nieuwe dropdown te gebruiken bij het ophalen van gearchiveerde data.
+
+## 🔜 Vervolgstappen
+-   Starten met de implementatie van Fase 5: Integratie van `MeasurementInput` in de `WorkstationHub` voor QC-registratie.
+-   Starten met Fase 5: Integratie van `MeasurementInput` in de `WorkstationHub`.
+
+# Samenvatting Sessie: RoleSwitcher Fixes
+
+**Datum:** 6 maart 2026 (Vervolg 3)
+**Status:** Geïmplementeerd
+
+## ✅ Geïmplementeerde Wijzigingen
+-   **RoleSwitcher:** Fallback-functies toegevoegd voor `impersonateRole`, `impersonateUser` en `stopImpersonating` direct in de component. Dit lost de "Fout: functie ontbreekt" error op, zelfs als de `useAdminAuth` hook niet correct is bijgewerkt of gecached.
+-   **Foutafhandeling:** Alerts verwijderd en vervangen door robuuste lokale implementaties van de localStorage logica.
+
+## 🔜 Vervolgstappen
+-   Verder met Fase 5 (QC).
+
+# Samenvatting Sessie: RoleSwitcher Data Fix
+
+**Datum:** 6 maart 2026 (Vervolg 4)
+**Status:** Geïmplementeerd
+
+## ✅ Geïmplementeerde Wijzigingen
+-   **RoleSwitcher:** Correcte database-pad (`PATHS.USERS`) toegevoegd voor het ophalen van gebruikers. Dit lost het probleem op waarbij de gebruikerslijst leeg bleef omdat er in de verkeerde collectie werd gezocht.
+-   **Feedback:** Melding "Geen gebruikers gevonden" toegevoegd voor duidelijkheid als de lijst leeg is.
+
+## 🔜 Vervolgstappen
+-   Testen van de gebruikersselectie.
+
+# Samenvatting Sessie: RoleSwitcher Status Update
+
+**Datum:** 6 maart 2026 (Vervolg 5)
+**Status:** Openstaand Probleem
+
+## 🚨 Geconstateerd Probleem
+De Role Switcher functionaliteit werkt nog steeds niet naar behoren. Dit is toegevoegd als prioriteitstaak.
+
+## 🔜 Vervolgstappen
+-   **Debuggen RoleSwitcher:** Grondige analyse en fix van de Role Switcher (gebruikerslijst/selectie).
+-   Starten met Fase 5: Integratie van `MeasurementInput` in de `WorkstationHub`.
+
+# Samenvatting Sessie: Datum Navigatie UX
+
+**Datum:** 6 maart 2026 (Vervolg 6)
+**Status:** Geïmplementeerd
+
+## ✅ Geïmplementeerde Wijzigingen
+-   **BM01Hub:** Dubbelklikken (of dubbeltikken) op de datum/week weergave springt nu direct terug naar de huidige datum/week.
+-   **Terminal (BH18):** De `onDateChange` logica is uitgebreid met een `'reset'` optie om terug te springen naar vandaag.
+
+## 🔜 Vervolgstappen
+-   **TerminalPlanningView:** De `onDoubleClick={() => onDateChange('reset')}` handler moet nog worden toegevoegd aan de datum-weergave in `TerminalPlanningView.jsx` om de functionaliteit in BH18 te activeren.
+
+# Samenvatting Sessie: UI Cleanups & Terminal Planning
+
+**Datum:** 6 maart 2026 (Vervolg 7)
+**Status:** Geïmplementeerd
+
+## ✅ Geïmplementeerde Wijzigingen
+-   **Terminal Planning:**
+    -   Dubbelklik-navigatie naar huidige week toegevoegd in `TerminalPlanningView`.
+    -   Filtering en sortering aangepast: Backlog orders worden nu correct onderaan getoond bij de huidige week.
+-   **UI Cleanups:**
+    -   **KPI Popups:** Suffix `_INBOX` wordt nu automatisch verwijderd uit machinenamen in `TeamleaderHub`.
+    -   **Product Dossier:** Tekst "(Excel Context)" verwijderd uit de header.
+
+## 🔜 Vervolgstappen
+-   Starten met Fase 5: Integratie van `MeasurementInput` in de `WorkstationHub`.

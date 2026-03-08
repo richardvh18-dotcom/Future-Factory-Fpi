@@ -233,6 +233,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
               </div>
 
               <button
+                type="submit"
                 disabled={loading}
                 className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-500 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 mt-6 shadow-2xl shadow-blue-900/50"
               >
@@ -247,7 +248,11 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
 
               <button
                 type="button"
-                onClick={() => setShowRequestModal(true)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowRequestModal(true);
+                }}
                 className="w-full bg-white/10 border-2 border-white/20 text-cyan-200 py-4 rounded-2xl font-bold uppercase text-xs tracking-[0.15em] hover:bg-white/20 hover:border-white/30 transition-all flex items-center justify-center gap-2 mt-3"
               >
                 {t('login.request_account', 'Request Account')}

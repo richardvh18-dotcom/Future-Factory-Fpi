@@ -1,5 +1,5 @@
 import { collection, query, onSnapshot, doc, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, deleteDoc, getDoc, setDoc, arrayUnion, increment } from "firebase/firestore";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Loader2, Menu, X, Clock, Calendar } from "lucide-react";
@@ -123,6 +123,31 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     }
   }, [searchFilterOrder, rawOrders]);
 
+  // Helper functies voor iPad/Mobile support
+  const requestNotificationPermission = async () => {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      showSuccess("Notificaties zijn ingeschakeld!");
+    } else {
+      showWarning("Notificaties niet toegestaan. Controleer je browserinstellingen.");
+    }
+  };
+
+  const showInstallInstructions = () => {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+      alert("Installeren op iPad:\n\n1. Tik op de 'Deel' knop (vierkant met pijl omhoog)\n2. Scroll omlaag en kies 'Zet op beginscherm'");
+    } else {
+      alert("Gebruik het menu van je browser om de app te installeren (Toevoegen aan startscherm).");
+    }
+  };
+
+  // Detecteer of app al geïnstalleerd is (PWA)
+  const isPWA = useMemo(() => {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator && window.navigator.standalone === true);
+  }, []);
+
   // Data Fetching
   useEffect(() => {
     if (!currentUser) return;
@@ -137,29 +162,27 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     const unsubs = [];
     const initData = async () => {
       const auth = getAuth();
-      // 1. Wacht op Auth
-      if (!auth.currentUser && currentUser) {
-        await new Promise(resolve => {
-          const unsubscribe = auth.onAuthStateChanged(() => {
-            unsubscribe();
-            resolve();
-          });
-        });
-      }
-      // 2. Forceer refresh & wacht (Fix voor permission-denied)
-      if (auth.currentUser) {
-        try {
-          await auth.currentUser.getIdToken(true);
-          await new Promise(r => setTimeout(r, 500));
-          await new Promise(r => setTimeout(r, 1000));
-        } catch (e) { 
-          console.warn("Token refresh warning:", e); 
-        }
-      }
-      if (!isMounted) return;
+      
+      // Start loading immediately
       setLoading(true);
+      
+      // 1. Token refresh op achtergrond (niet-blokerend)
+      if (auth.currentUser) {
+        auth.currentUser.getIdToken(true).catch(e => 
+          console.warn("Token refresh warning:", e)
+        );
+      }
+      
+      // 2. Start data listeners direct (niet wachten op token)
+      if (!isMounted) return;
       const ordersRef = collection(db, ...PATHS.PLANNING);
-      const unsubOrders = onSnapshot(query(ordersRef, limit(50)), (snap) => {
+      // OPTIMIZED: Verlaagde limit voor snellere loading
+      const q = query(
+        ordersRef, 
+        where("status", "not-in", ["completed", "cancelled", "shipped", "COMPLETED", "CANCELLED", "SHIPPED"]),
+        limit(200) // Verlaagd van 1000 naar 200 voor snellere performance
+      );
+      const unsubOrders = onSnapshot(q, (snap) => {
         const loadedOrders = snap.docs.map((doc) => {
           const data = doc.data();
           let dateObj = data.plannedDate?.toDate
@@ -1139,6 +1162,39 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     }
   };
 
+  // Pull to Refresh Logic
+  const [pullStartY, setPullStartY] = useState(0);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const contentRef = useRef(null);
+
+  const handleTouchStart = (e) => {
+    if (contentRef.current && contentRef.current.scrollTop === 0) {
+      setPullStartY(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (pullStartY > 0 && contentRef.current && contentRef.current.scrollTop === 0) {
+      const touchY = e.touches[0].clientY;
+      const diff = touchY - pullStartY;
+      if (diff > 0) {
+        // Weerstand toevoegen (max 120px pull)
+        setPullDistance(Math.min(diff * 0.4, 120));
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (pullDistance > 60) {
+      setIsRefreshing(true);
+      setTimeout(() => window.location.reload(), 500);
+    } else {
+      setPullDistance(0);
+      setPullStartY(0);
+    }
+  };
+
   return (
     <>
     <div className="flex flex-col w-full h-[100dvh] bg-gray-50/50">
@@ -1162,7 +1218,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             </div>
 
             {/* KPI Tegels */}
-            <div className="hidden md:flex items-center gap-2 ml-2 border-l border-slate-200 pl-4">
+            <div className="hidden lg:flex items-center gap-2 ml-2 border-l border-slate-200 pl-4">
               <div className="flex flex-col items-center px-3 py-1 bg-blue-50 rounded-lg border border-blue-100 min-w-[60px]">
                 <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest leading-none mb-0.5">{t("digitalplanning.dashboard.plan")}</span>
                 <span className="text-sm font-black text-blue-700 leading-none">{stationStats.plan}</span>
@@ -1180,7 +1236,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             </div>
 
             {/* Midden: Bezetting Info */}
-            <div className="hidden lg:flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 shadow-sm min-w-[200px] justify-center">
+            <div className="hidden xl:flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 shadow-sm min-w-[200px] justify-center">
               <Clock className="w-4 h-4 text-slate-500" />
               {stationOccupancy.length > 0 ? (
                 <div
@@ -1198,7 +1254,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             </div>
 
             {/* Rechts: Datum, Tijd & Week - helemaal rechts met flex-1 */}
-            <div className="flex-1 hidden md:flex justify-end items-center">
+            <div className="flex-1 hidden lg:flex justify-end items-center">
               <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
                 <Calendar size={16} className="text-blue-600" />
                 <div className="text-xs font-bold text-gray-700">
@@ -1213,7 +1269,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             {/* Rechterkant: Mobiel Menu Button */}
             <div className="flex items-center">
               {/* Mobiel Hamburger Menu */}
-              <div className="md:hidden relative ml-2">
+              <div className="lg:hidden relative ml-2">
                 <button
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                   className="p-2 bg-gray-100 rounded-lg text-gray-600 active:bg-gray-200"
@@ -1315,6 +1371,23 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                     >
                       {t("common.efficiency")}
                     </button>
+                    
+                    {/* iPad/Mobile specifieke acties */}
+                    <div className="h-px bg-slate-100 my-1"></div>
+                    <button
+                      onClick={requestNotificationPermission}
+                      className="px-4 py-3 rounded-lg text-xs font-bold uppercase text-left w-full text-slate-500 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      🔔 Notificaties Aanzetten
+                    </button>
+                    {!isPWA && (
+                      <button
+                        onClick={showInstallInstructions}
+                        className="px-4 py-3 rounded-lg text-xs font-bold uppercase text-left w-full text-slate-500 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        📱 App Installeren
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1324,10 +1397,42 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       </div>
 
       {/* CONTENT AREA */}
-      <div className={`flex-1 overflow-y-auto w-full ${activeTab === 'terminal' ? 'p-0' : 'p-2 sm:p-6 lg:p-8'}`}>
+      <div 
+        ref={contentRef}
+        className={`flex-1 overflow-y-auto w-full ${activeTab === 'terminal' ? 'p-0' : 'p-2 sm:p-6 lg:p-8'} relative`}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Pull to Refresh Indicator */}
+        {(pullDistance > 0 || isRefreshing) && (
+          <div 
+            className="absolute top-4 left-0 w-full flex justify-center z-50 pointer-events-none"
+            style={{ 
+              transform: `translateY(${isRefreshing ? 10 : Math.max(0, pullDistance - 30)}px)`,
+              opacity: Math.min(pullDistance / 40, 1),
+              transition: isRefreshing ? 'transform 0.2s' : 'none'
+            }}
+          >
+            <div className="bg-white p-2 rounded-full shadow-lg border border-slate-100">
+              <Loader2 
+                className={`text-blue-600 ${isRefreshing || pullDistance > 60 ? 'animate-spin' : ''}`} 
+                size={24} 
+                style={{ transform: !isRefreshing ? `rotate(${pullDistance * 3}deg)` : undefined }}
+              />
+            </div>
+          </div>
+        )}
+
         {loading ? (
-          <div className="flex flex-col justify-center items-center h-full">
-            <Loader2 className="animate-spin rounded-full h-12 w-12 text-blue-600 mb-4" />
+          <div className="flex flex-col justify-center items-center h-full gap-4">
+            <Loader2 className="animate-spin rounded-full h-12 w-12 text-blue-600" />
+            <div className="text-center">
+              <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">
+                {t("digitalplanning.workstation.loading_station")} {selectedStation}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">{t("digitalplanning.workstation.loading_data")}</p>
+            </div>
           </div>
         ) : (!currentUser?.role || currentUser?.role === 'guest') ? (
           <div className="flex flex-col justify-center items-center h-full text-slate-400">
@@ -1376,6 +1481,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                     currentUser={currentUser}
                     initialStation={selectedStation}
                     products={rawProducts}
+                    orders={stationOrders}
                     onBack={() => setActiveTab("planning")}
                   />
                 )}

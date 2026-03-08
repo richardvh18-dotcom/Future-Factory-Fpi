@@ -8,8 +8,13 @@ import {
   Clock,
   Sparkles,
   Factory,
+  Filter,
+  Archive,
 } from "lucide-react";
 import StatusBadge from "./common/StatusBadge";
+import { collection, query, getDocs, limit, orderBy } from "firebase/firestore";
+import { db } from "../../config/firebase";
+import { getISOWeek } from "date-fns";
 
 const FixedSizeList = List;
 
@@ -42,12 +47,78 @@ const AutoSizer = ({ children }) => {
 const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
   const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedMachine, setSelectedMachine] = useState("ALL");
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedOrders, setArchivedOrders] = useState([]);
+  const [loadingArchive, setLoadingArchive] = useState(false);
+
+  const currentWeek = getISOWeek(new Date());
+  const currentYear = new Date().getFullYear();
+
+  // Haal archief data op wanneer de toggle aan gaat
+  useEffect(() => {
+    if (showArchived && archivedOrders.length === 0) {
+      setLoadingArchive(true);
+      const fetchArchive = async () => {
+        try {
+          const currentYear = new Date().getFullYear();
+          const q = query(
+            collection(db, "future-factory", "production", "archive", String(currentYear), "items"),
+            orderBy("orderId", "desc"),
+            limit(200)
+          );
+          const snap = await getDocs(q);
+          const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          
+          // Dedupliceren op orderId om unieke orders te tonen vanuit de items-collectie
+          const uniqueMap = new Map();
+          data.forEach(item => {
+            if (item.orderId && !uniqueMap.has(item.orderId)) {
+              uniqueMap.set(item.orderId, {
+                ...item,
+                id: item.orderId,
+                machine: item.machine || item.originMachine || "Onbekend",
+                status: 'completed'
+              });
+            }
+          });
+          setArchivedOrders(Array.from(uniqueMap.values()));
+        } catch (err) {
+          console.error("Fout bij laden archief:", err);
+        } finally {
+          setLoadingArchive(false);
+        }
+      };
+      fetchArchive();
+    }
+  }, [showArchived]);
+
+  // Bepaal de bron data: Actieve orders (prop) of Archief (state)
+  const sourceData = showArchived ? archivedOrders : orders;
+
+  // Unieke machines ophalen voor filter
+  const machines = useMemo(() => {
+    const m = new Set(sourceData.map(o => o.machine).filter(Boolean));
+    return ["ALL", ...Array.from(m).sort()];
+  }, [sourceData]);
 
   const filteredOrders = useMemo(() => {
-    const term = (searchTerm || "").toLowerCase().trim();
-    if (!term) return orders;
+    let result = sourceData;
 
-    return orders.filter((order) => {
+    // 1. Machine Filter
+    if (selectedMachine !== "ALL") {
+      result = result.filter(o => o.machine === selectedMachine);
+    }
+
+    // 2. Status Filter (Alleen voor actieve lijst: verberg completed)
+    if (!showArchived) {
+      result = result.filter(o => o.status !== 'completed' && o.status !== 'shipped' && o.status !== 'cancelled');
+    }
+
+    // 3. Zoeken
+    const term = (searchTerm || "").toLowerCase().trim();
+    if (term) {
+      result = result.filter((order) => {
       const orderId = (order?.orderId || "").toLowerCase();
       const itemCode = (
         order?.itemCode ||
@@ -64,7 +135,34 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
         project.includes(term)
       );
     });
-  }, [orders, searchTerm]);
+    }
+
+    // 4. Sorteren: Huidige/Toekomstige weken eerst, daarna Backlog (Oude weken)
+    return result.sort((a, b) => {
+      const weekA = Number(a.weekNumber || a.week || 999);
+      const yearA = Number(a.weekYear || a.year || currentYear);
+      const weekB = Number(b.weekNumber || b.week || 999);
+      const yearB = Number(b.weekYear || b.year || currentYear);
+      
+      // Absolute weekwaarde voor vergelijking
+      const absWeekA = yearA * 52 + weekA;
+      const absWeekB = yearB * 52 + weekB;
+      const absCurrent = currentYear * 52 + currentWeek;
+      
+      const isBacklogA = absWeekA < absCurrent;
+      const isBacklogB = absWeekB < absCurrent;
+      
+      // Backlog moet ONDERAAN ("daaronder moet een splitsing komen")
+      if (isBacklogA && !isBacklogB) return 1;
+      if (!isBacklogA && isBacklogB) return -1;
+      
+      // Binnen de groepen: Sorteer op week (Oplopend: Week 10, 11, 12...)
+      if (absWeekA !== absWeekB) return absWeekA - absWeekB;
+      
+      // Fallback: Order ID
+      return (a.orderId || "").localeCompare(b.orderId || "");
+    });
+  }, [sourceData, searchTerm, selectedMachine, showArchived, currentWeek, currentYear]);
 
   // Helper om te bepalen of een order nieuw is (< 24 uur)
   const isOrderNew = (order) => {
@@ -83,6 +181,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
     const isNew = isOrderNew(order);
     const isDelegated = !!order.delegatedTo;
     const isDelegatedStatus = order.status === 'delegated' || order.status === 'DELEGATED';
+    const isCancelled = order.status === 'cancelled';
 
     return (
       <div style={style} className="px-2 py-1">
@@ -93,16 +192,12 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
             ${
               isSelected
                 ? "bg-blue-50 border-blue-500 shadow-md shadow-blue-100"
-                : "bg-white border-slate-50 hover:border-slate-200 hover:bg-slate-50"
+                : isCancelled
+                  ? "bg-slate-50 border-slate-100 opacity-60 grayscale"
+                  : "bg-white border-slate-50 hover:border-slate-200 hover:bg-slate-50"
             }
           `}
         >
-          {isNew && (
-            <div className="absolute top-0 left-0 px-2 py-0.5 bg-emerald-500 text-white text-[7px] font-black uppercase tracking-tighter rounded-br-lg shadow-sm z-10">
-              {t("digitalplanning.sidebar.new")}
-            </div>
-          )}
-
           {order.isUrgent && (
             <div className="absolute top-0 right-0 w-1.5 h-full bg-red-500 animate-pulse" />
           )}
@@ -117,12 +212,6 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 >
                   {order.orderId || t("digitalplanning.sidebar.no_id")}
                 </span>
-                {isNew && (
-                  <Sparkles
-                    size={10}
-                    className="text-emerald-500 animate-bounce"
-                  />
-                )}
                 {isDelegated && (
                   <Factory size={12} className="text-purple-500" title={`Gedelegeerd aan ${order.delegatedTo}`} />
                 )}
@@ -152,6 +241,12 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
               <span className="text-[9px] font-black text-slate-400 uppercase">
                 {t("digitalplanning.sidebar.week")}{order.weekNumber || order.week || "--"}
               </span>
+              {isNew && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[8px] font-black uppercase tracking-wider">
+                  <Sparkles size={8} />
+                  Nieuw
+                </span>
+              )}
             </div>
             <ChevronRight
               size={14}
@@ -172,7 +267,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
   if (!FixedSizeList) {
     return (
       <div className="flex flex-col h-full bg-white border-r border-slate-200 animate-in fade-in duration-300">
-        <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-3">
           <div className="relative group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
@@ -183,6 +278,25 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <select 
+                value={selectedMachine}
+                onChange={(e) => setSelectedMachine(e.target.value)}
+                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
+              >
+                {machines.map(m => <option key={m} value={m}>{m === "ALL" ? "Alle Machines" : m}</option>)}
+              </select>
+            </div>
+            <button 
+              onClick={() => setShowArchived(!showArchived)}
+              className={`px-3 py-2 rounded-lg border flex items-center gap-2 transition-all ${showArchived ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-400'}`}
+              title="Toon gearchiveerde orders"
+            >
+              <Archive size={14} />
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-1 custom-scrollbar">
           {filteredOrders.map((order, index) => (
@@ -190,6 +304,11 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 <Row index={index} style={{ height: "100%", width: "100%" }} />
              </div>
           ))}
+          {filteredOrders.length === 0 && loadingArchive && showArchived && (
+             <div className="p-8 text-center text-xs text-slate-400 font-bold uppercase tracking-widest">
+               Archief laden...
+             </div>
+          )}
         </div>
       </div>
     );
@@ -197,7 +316,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-slate-200 animate-in fade-in duration-300">
-      <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+      <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-3">
         <div className="relative group">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors"
@@ -211,15 +330,40 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+        <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <select 
+                value={selectedMachine}
+                onChange={(e) => setSelectedMachine(e.target.value)}
+                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
+              >
+                {machines.map(m => <option key={m} value={m}>{m === "ALL" ? "Alle Machines" : m}</option>)}
+              </select>
+            </div>
+            <button 
+              onClick={() => setShowArchived(!showArchived)}
+              className={`px-3 py-2 rounded-lg border flex items-center gap-2 transition-all ${showArchived ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`}
+              title="Toon gearchiveerde (voltooide) orders"
+            >
+              <Archive size={14} />
+            </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-hidden p-1">
         {filteredOrders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center opacity-40">
-            <AlertCircle size={32} className="mb-2 text-slate-300" />
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              {t("digitalplanning.sidebar.no_results")}
-            </p>
+            {loadingArchive && showArchived ? (
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Archief laden...</p>
+            ) : (
+              <>
+                <AlertCircle size={32} className="mb-2 text-slate-300" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  {t("digitalplanning.sidebar.no_results")}
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <AutoSizer>

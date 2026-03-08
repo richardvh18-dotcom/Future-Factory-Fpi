@@ -126,7 +126,11 @@ const TerminalPlanningView = ({
         <div className="flex items-center gap-2 mb-6 shrink-0 text-left">
           <div className="flex-1 flex justify-between items-center bg-slate-100 p-2 rounded-[25px] border border-slate-200">
             <button onClick={() => onDateChange('prev')} className="p-3 bg-white rounded-2xl shadow-sm hover:text-blue-500 active:scale-90"><ChevronLeft size={20} /></button>
-            <div className="text-center px-4">
+            <div 
+              className="text-center px-4 cursor-pointer select-none"
+              onDoubleClick={() => onDateChange('reset')}
+              title="Dubbelklik om naar vandaag te gaan"
+            >
               <span className="text-[10px] font-black text-slate-400 uppercase block mb-0.5">Week</span>
               <span className="text-xl font-black text-slate-900 italic tracking-tighter">{showAllWeeks ? "Overzicht" : targetWeekNum}</span>
             </div>

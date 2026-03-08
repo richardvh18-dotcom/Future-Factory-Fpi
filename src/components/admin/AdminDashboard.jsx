@@ -32,6 +32,8 @@ import {
   Beaker,
   ChevronDown,
   Printer,
+  BarChart3,
+  FileText,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
@@ -69,6 +71,8 @@ const AutomationRulesView = React.lazy(() => import("../planning/AutomationRules
 // Fase 3: Advanced Analytics & Future Planning
 const ShopFloorMobileApp = React.lazy(() => import("../planning/ShopFloorMobileApp"));
 const ScenarioPlanningView = React.lazy(() => import("../planning/ScenarioPlanningView"));
+// Reports & Analytics
+const AdminReportsView = React.lazy(() => import("./AdminReportsView"));
 
 /**
  * AdminDashboard V5.7 - Reference Hub Integration
@@ -155,6 +159,23 @@ const AdminDashboard = () => {
           roles: ["admin", "engineer"],
           component: ScenarioPlanningView,
           requiredModule: "digital_planning",
+        },
+      ]
+    },
+    {
+      id: "reports",
+      title: "Rapportage & Analytics",
+      icon: <BarChart3 size={20} className="text-cyan-600" />,
+      color: "bg-cyan-50 border-cyan-200",
+      items: [
+        {
+          id: "reports",
+          title: "Rapportage Centre",
+          desc: "Uitgebreide rapporten voor productie, kwaliteit, efficiency en personeel.",
+          icon: <FileText size={24} className="text-cyan-600" />,
+          color: "bg-cyan-50 border-cyan-100",
+          roles: ["admin", "engineer", "teamleader"],
+          component: AdminReportsView,
         },
       ]
     },

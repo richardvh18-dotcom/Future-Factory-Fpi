@@ -183,14 +183,14 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg md:max-w-2xl overflow-hidden flex flex-col max-h-[95vh] md:max-h-[90vh]">
         {/* Header */}
-        <div className={`${status === 'approved' ? 'bg-emerald-600' : status === 'temp_reject' ? 'bg-orange-500' : 'bg-rose-600'} p-6 text-white flex justify-between items-start shrink-0 transition-colors duration-300`}>
+        <div className={`${status === 'approved' ? 'bg-emerald-600' : status === 'temp_reject' ? 'bg-orange-500' : 'bg-rose-600'} p-4 md:p-6 text-white flex justify-between items-start shrink-0 transition-colors duration-300`}>
           <div>
-            <h2 className="text-2xl font-black uppercase italic">
+            <h2 className="text-xl md:text-2xl font-black uppercase italic">
               {status === 'approved' ? 'Vrijgeven' : status === 'temp_reject' ? 'Tijdelijke Afkeur' : 'Definitieve Afkeur'}
             </h2>
-            <p className="text-white/80 text-sm font-bold mt-1">
+            <p className="text-white/80 text-xs md:text-sm font-bold mt-1">
               {product?.lotNumber} • {product?.item}
             </p>
           </div>
@@ -199,35 +199,35 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto custom-scrollbar">
+        <div className="p-4 md:p-6 overflow-y-auto custom-scrollbar">
           {/* Status Selection */}
           {isLossenStep && (
-            <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-3 gap-2 md:gap-3 mb-4 md:mb-6">
               <button
                 onClick={() => setStatus("approved")}
-                className={`p-3 rounded-xl border-2 font-black uppercase text-xs flex flex-col items-center gap-2 ${status === "approved" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-100 text-slate-400 hover:border-emerald-200"}`}
+                className={`p-2 md:p-3 rounded-xl border-2 font-black uppercase text-[10px] md:text-xs flex flex-col items-center gap-1 md:gap-2 ${status === "approved" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-100 text-slate-400 hover:border-emerald-200"}`}
               >
-                <CheckCircle size={24} /> Goed
+                <CheckCircle size={20} className="md:w-6 md:h-6" /> Goed
               </button>
               <button
                 onClick={() => setStatus("temp_reject")}
-                className={`p-3 rounded-xl border-2 font-black uppercase text-xs flex flex-col items-center gap-2 ${status === "temp_reject" ? "border-orange-500 bg-orange-50 text-orange-700" : "border-slate-100 text-slate-400 hover:border-orange-200"}`}
+                className={`p-2 md:p-3 rounded-xl border-2 font-black uppercase text-[10px] md:text-xs flex flex-col items-center gap-1 md:gap-2 ${status === "temp_reject" ? "border-orange-500 bg-orange-50 text-orange-700" : "border-slate-100 text-slate-400 hover:border-orange-200"}`}
               >
-                <AlertTriangle size={24} /> Tijdelijk Afkeur
+                <AlertTriangle size={20} className="md:w-6 md:h-6" /> Tijdelijk Afkeur
               </button>
               <button
                 onClick={() => setStatus("rejected")}
-                className={`p-3 rounded-xl border-2 font-black uppercase text-xs flex flex-col items-center gap-2 ${status === "rejected" ? "border-rose-500 bg-rose-50 text-rose-700" : "border-slate-100 text-slate-400 hover:border-rose-200"}`}
+                className={`p-2 md:p-3 rounded-xl border-2 font-black uppercase text-[10px] md:text-xs flex flex-col items-center gap-1 md:gap-2 ${status === "rejected" ? "border-rose-500 bg-rose-50 text-rose-700" : "border-slate-100 text-slate-400 hover:border-rose-200"}`}
               >
-                <AlertOctagon size={24} /> Definitief Afkeur
+                <AlertOctagon size={20} className="md:w-6 md:h-6" /> Definitief Afkeur
               </button>
             </div>
           )}
 
           {/* Measurements (Only if Lossen Step) */}
           {isLossenStep && (
-            <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+            <div className="mb-4 md:mb-6 bg-slate-50 p-3 md:p-4 rounded-2xl border border-slate-100">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 md:mb-3 flex items-center gap-2">
                 <Ruler size={14} /> Meetwaarden
               </h4>
               <div className="grid grid-cols-2 gap-4">
@@ -286,8 +286,8 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
 
           {/* Rejection Reasons (Only if not approved) */}
           {status !== "approved" && (
-            <div className="mb-6">
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Reden van afkeur</h4>
+            <div className="mb-4 md:mb-6">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 md:mb-3">Reden van afkeur</h4>
               <div className="grid grid-cols-2 gap-2">
                 {["Sticker onjuist", "Onjuiste maatvoering", "Beschadiging", "Anders"].map((r) => (
                   <button
@@ -303,21 +303,21 @@ const ProductReleaseModal = ({ product, onClose, onComplete }) => {
           )}
 
           {/* Comment Field */}
-          <div className="mb-6">
-            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+          <div className="mb-4 md:mb-6">
+            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 md:mb-3 flex items-center gap-2">
               <FileText size={14} /> Opmerking
             </h4>
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              className="w-full p-4 rounded-xl border border-slate-200 font-medium text-sm text-slate-700 focus:border-blue-500 outline-none min-h-[100px]"
+              className="w-full p-3 md:p-4 rounded-xl border border-slate-200 font-medium text-sm text-slate-700 focus:border-blue-500 outline-none min-h-[80px] md:min-h-[100px]"
               placeholder="Voeg eventueel een opmerking toe..."
             />
           </div>
 
           {/* Flow Info (Only if approved) */}
           {status === "approved" && (
-            <div className="flex items-center justify-center gap-4 mb-6 opacity-60">
+            <div className="flex items-center justify-center gap-4 mb-4 md:mb-6 opacity-60">
               <div className="text-center">
                 <div className="text-[10px] font-bold text-slate-400 uppercase">Huidig</div>
                 <div className="font-black text-slate-800">{currentStep}</div>

@@ -27,6 +27,7 @@ import {
   applyLabelLogic,
 } from "../../../utils/labelHelpers";
 import { generateZPL, downloadZPL } from "../../../utils/zplHelper";
+import { isUsbDirectSupported, printRawUsb } from "../../../utils/usbPrintService";
 
 const PIXELS_PER_MM = 3.78;
 
@@ -91,7 +92,8 @@ const ProductionStartModal = ({
   const [savedPrinters, setSavedPrinters] = useState([]);
   const [printConfig, setPrintConfig] = useState({
     mode: "standard", 
-    printerIp: ""
+    printerIp: "",
+    printerId: ""
   });
 
   const [labelRules, setLabelRules] = useState([]);
@@ -195,9 +197,9 @@ const ProductionStartModal = ({
 
           if (targetPrinter) {
             if (targetPrinter.type === 'network') {
-                setPrintConfig(prev => ({ ...prev, mode: 'network', printerIp: targetPrinter.ip }));
+                setPrintConfig(prev => ({ ...prev, mode: 'network', printerIp: targetPrinter.ip, printerId: targetPrinter.id }));
             } else {
-                setPrintConfig(prev => ({ ...prev, mode: 'standard' }));
+                setPrintConfig(prev => ({ ...prev, mode: 'usb', printerIp: '', printerId: targetPrinter.id }));
             }
           }
         });
@@ -452,6 +454,11 @@ const ProductionStartModal = ({
       }
       
       const selectedPrinter = savedPrinters.find(p => p.ip === printConfig.printerIp);
+      const protocol = (selectedPrinter?.protocol || "zpl").toLowerCase();
+      if (protocol !== "zpl") {
+        alert(`Netwerkprinten ondersteunt momenteel alleen ZPL (geselecteerd: ${protocol.toUpperCase()}).`);
+        return;
+      }
       const darkness = selectedPrinter?.darkness ? parseInt(selectedPrinter.darkness) : 15;
       const dpi = selectedPrinter?.dpi ? parseInt(selectedPrinter.dpi) : 203;
       
@@ -465,6 +472,25 @@ const ProductionStartModal = ({
         alert(`Opdracht verzonden naar ${selectedPrinter?.name || printConfig.printerIp}`);
       } catch (e) {
         alert("Fout bij printen naar netwerkprinter: " + e.message);
+      }
+      return;
+    }
+
+    if (printConfig.mode === "usb") {
+      const selectedPrinter = savedPrinters.find(p => p.id === printConfig.printerId) || savedPrinters.find(p => p.type !== "network");
+      const darkness = selectedPrinter?.darkness ? parseInt(selectedPrinter.darkness) : 15;
+      const dpi = selectedPrinter?.dpi ? parseInt(selectedPrinter.dpi) : 203;
+
+      let zpl = await generateZPL(selectedLabel, previewData, dpi);
+      if (!zpl.includes("~SD")) zpl = `~SD${darkness}\n${zpl}`;
+
+      try {
+        for (let i = 0; i < quantity; i++) {
+          await printRawUsb({ content: zpl, printer: selectedPrinter || {} });
+        }
+        alert(`USB-opdracht verzonden${selectedPrinter?.name ? ` naar ${selectedPrinter.name}` : ""}.`);
+      } catch (e) {
+        alert("USB direct print mislukt: " + e.message);
       }
       return;
     }
@@ -1014,6 +1040,12 @@ const ProductionStartModal = ({
                   PDF
                 </button>
                 <button 
+                  onClick={() => setPrintConfig({...printConfig, mode: 'usb'})}
+                  className={`px-2 py-1 rounded-md text-[8px] font-black uppercase transition-all ${printConfig.mode === 'usb' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                  USB
+                </button>
+                <button 
                   onClick={() => setPrintConfig({...printConfig, mode: 'network'})}
                   className={`px-2 py-1 rounded-md text-[8px] font-black uppercase transition-all flex items-center gap-1 ${printConfig.mode === 'network' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                 >
@@ -1022,6 +1054,28 @@ const ProductionStartModal = ({
               </div>
             </div>
 
+            {printConfig.mode === 'usb' && (
+              <>
+                <select
+                  value={printConfig.printerId}
+                  onChange={(e) => setPrintConfig({...printConfig, printerId: e.target.value})}
+                  className="w-full p-2 bg-slate-900 border border-white/10 rounded-lg text-[10px] font-bold text-slate-300 outline-none focus:border-blue-500"
+                >
+                  <option value="">-- Kies USB Printer --</option>
+                  {savedPrinters
+                    .filter(p => p.type !== 'network')
+                    .map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                </select>
+                {!isUsbDirectSupported() && (
+                  <p className="text-[9px] text-amber-400 font-bold uppercase tracking-wide">
+                    USB direct vereist een browser met WebUSB op https/localhost.
+                  </p>
+                )}
+              </>
+            )}
+
             {printConfig.mode === 'network' && (
               <select 
                 value={printConfig.printerIp}
@@ -1029,7 +1083,7 @@ const ProductionStartModal = ({
                 className="w-full p-2 bg-slate-900 border border-white/10 rounded-lg text-[10px] font-bold text-slate-300 outline-none focus:border-blue-500"
               >
                 <option value="">-- Kies Printer --</option>
-                {savedPrinters.map(p => (
+                {savedPrinters.filter(p => p.type === 'network').map(p => (
                   <option key={p.id} value={p.ip}>{p.name} ({p.ip})</option>
                 ))}
               </select>

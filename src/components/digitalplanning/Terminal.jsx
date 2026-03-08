@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Loader2,
+  ScanBarcode,
+  Keyboard,
 } from "lucide-react";
 import {
   collection,
@@ -79,14 +81,21 @@ const Terminal = ({ initialStation }) => {
 
   // Scan functionaliteit voor wikkelen tab
   const [scanInput, setScanInput] = useState("");
+  const [scannerMode, setScannerMode] = useState(true);
   const scanInputRef = useRef(null);
 
   // Planning filters (Week / Alles)
   const [referenceDate, setReferenceDate] = useState(new Date());
-  const [showAllWeeks, setShowAllWeeks] = useState(true); // STANDAARD AAN: Toon alles om verwarring te voorkomen
+  const [showAllWeeks, setShowAllWeeks] = useState(false); // STANDAARD UIT: Focus op huidige week + backlog
   
   const targetWeekNum = getISOWeek(referenceDate);
   const targetYearNum = getISOWeekYear(referenceDate);
+
+  // NIEUW: Huidige datum voor backlog berekening (Absoluut 'Nu')
+  const currentRealDate = new Date();
+  const currentRealWeek = getISOWeek(currentRealDate);
+  const currentRealYear = getISOWeekYear(currentRealDate);
+  const absCurrentReal = currentRealYear * 52 + currentRealWeek;
 
   const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
@@ -305,38 +314,55 @@ const Terminal = ({ initialStation }) => {
       // BM01: Geen week filter, toon alles (behalve als search actief is, wat hieronder gebeurt)
       if (isBM01) return true;
 
-      // ALTIJD tonen als de order actief is of net gepland is voor deze machine, ongeacht de week
-      if (o.status === "in_progress") return true;
-
       if (showAllWeeks || sidebarSearch) return true;
+      
+      const absOrder = o.parsedYear * 52 + o.parsedWeek;
+      const absTarget = targetYearNum * 52 + targetWeekNum;
 
-      // Filter op berekende week/jaar
-      if (o.parsedYear === targetYearNum && o.parsedWeek === targetWeekNum) return true;
+      // Als we de HUIDIGE week bekijken, toon ook de backlog (alles uit verleden dat niet af is)
+      if (absTarget === absCurrentReal) {
+          if (o.status === "in_progress") return true; // ALTIJD tonen in huidige week als actief (ook als gepland in toekomst)
+          if (absOrder === absTarget) return true; // Deze week
+          if (absOrder < absTarget) return true;   // Backlog
+      } else {
+          // Voor andere weken (toekomst/verleden) alleen die week tonen
+          if (absOrder === absTarget) return true;
+      }
       
       return false;
     });
 
     if (!sidebarSearch) {
       return base.sort((a, b) => {
-        // 0. Status 'planned' of 'delegated' (Nieuw toegewezen) bovenaan
+        const absOrderA = a.parsedYear * 52 + a.parsedWeek;
+        const absOrderB = b.parsedYear * 52 + b.parsedWeek;
+        
+        const isBacklogA = absOrderA < absCurrentReal;
+        const isBacklogB = absOrderB < absCurrentReal;
+
+        // 1. Backlog ONDERAAN (Splitsing: Huidig/Toekomst eerst, dan Verleden)
+        if (isBacklogA && !isBacklogB) return 1;
+        if (!isBacklogA && isBacklogB) return -1;
+
+        // 2. Status 'planned' of 'delegated' (Nieuw toegewezen) bovenaan binnen de groep
         const isPlannedA = a.status === "planned" || a.status === "delegated";
         const isPlannedB = b.status === "planned" || b.status === "delegated";
         if (isPlannedA !== isPlannedB) return isPlannedA ? -1 : 1;
 
-        // 1. Urgentie
+        // 3. Urgentie
         if (a.isUrgent !== b.isUrgent) return a.isUrgent ? -1 : 1;
-        // 2. Jaar
-        if (a.parsedYear !== b.parsedYear) return a.parsedYear - b.parsedYear;
-        // 3. Week
-        if (a.parsedWeek !== b.parsedWeek) return a.parsedWeek - b.parsedWeek;
-        // 4. Order ID
+        
+        // 4. Week (Oplopend)
+        if (absOrderA !== absOrderB) return absOrderA - absOrderB;
+        
+        // 5. Order ID
         return String(a.orderId).localeCompare(String(b.orderId));
       });
     }
     
     const term = sidebarSearch.toLowerCase();
     return base.filter(o => (o.orderId || "").toLowerCase().includes(term) || (o.item || "").toLowerCase().includes(term));
-  }, [myOrders, finishedOnMachineMap, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01, normalizedStationId, productionProgressMap]);
+  }, [myOrders, finishedOnMachineMap, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01, normalizedStationId, productionProgressMap, absCurrentReal]);
 
   const selectedOrder = useMemo(() => 
     myOrders.find(o => o.id === selectedOrderId || o.orderId === selectedOrderId), 
@@ -347,6 +373,9 @@ const Terminal = ({ initialStation }) => {
 
   // Auto-focus voor scan input in wikkelen tab
   useEffect(() => {
+    // Alleen auto-focus gebruiken als Scanner Modus AAN staat
+    if (!scannerMode) return;
+
     const handleClick = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
       
@@ -361,7 +390,7 @@ const Terminal = ({ initialStation }) => {
 
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
-  }, [activeTab, selectedTrackedId, productToRelease, showStartModal]);
+  }, [activeTab, selectedTrackedId, productToRelease, showStartModal, scannerMode]);
 
   // Scan handler voor wikkelen tab
   const handleScan = (e) => {
@@ -381,6 +410,10 @@ const Terminal = ({ initialStation }) => {
         alert(`Item ${code} niet gevonden in actieve wikkelingen.`);
         setScanInput("");
       }
+      // Na scan altijd weer focus op het scanveld
+      setTimeout(() => {
+        scanInputRef.current?.focus();
+      }, 50);
     }
   };
 
@@ -493,7 +526,7 @@ const Terminal = ({ initialStation }) => {
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
       {/* TABS HEADER (ZOEKEN VERWIJDERD) */}
         <div className="p-2 bg-white border-b border-slate-200 shrink-0 shadow-sm text-left">
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-center relative">
             <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-xl">
               {(isBM01
                 ? [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_to_offer")]
@@ -515,6 +548,18 @@ const Terminal = ({ initialStation }) => {
                 );
               })}
             </div>
+
+            {/* Scanner Mode Toggle */}
+            {activeTab === "wikkelen" && (
+                <button 
+                    onClick={() => setScannerMode(!scannerMode)}
+                    className={`absolute right-0 md:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 px-3 py-2 rounded-lg border-2 font-bold text-[10px] uppercase tracking-widest transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
+                    title={scannerMode ? "Toetsenbord verborgen (Scanner Modus)" : "Normale invoer"}
+                >
+                    {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
+                    <span className="hidden sm:inline">{scannerMode ? "Scanner" : "Toetsenbord"}</span>
+                </button>
+            )}
           </div>
         </div>
 
@@ -531,7 +576,10 @@ const Terminal = ({ initialStation }) => {
                 searchTerm={sidebarSearch}
                 onSearchChange={setSidebarSearch}
                 referenceDate={referenceDate}
-                onDateChange={(direction) => setReferenceDate(direction === 'prev' ? subWeeks(referenceDate, 1) : addWeeks(referenceDate, 1))}
+                onDateChange={(direction) => {
+                  if (direction === 'reset') setReferenceDate(new Date());
+                  else setReferenceDate(direction === 'prev' ? subWeeks(referenceDate, 1) : addWeeks(referenceDate, 1));
+                }}
                 showAllWeeks={showAllWeeks}
                 onToggleAllWeeks={() => setShowAllWeeks(!showAllWeeks)}
                 targetWeekNum={targetWeekNum}
@@ -564,6 +612,7 @@ const Terminal = ({ initialStation }) => {
                 setScanInput={setScanInput}
                 onScan={handleScan}
                 scanInputRef={scanInputRef}
+                scannerMode={scannerMode}
               />
             ) : (
               /* TAB LOSSEN */

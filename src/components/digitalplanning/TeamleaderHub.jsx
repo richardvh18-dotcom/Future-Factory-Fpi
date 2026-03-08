@@ -602,13 +602,14 @@ const TeamleaderHub = React.memo(({
     if (!activeKpi) return [];
     
     const validOrderIds = new Set(dataStore.map((o) => o.orderId));
+    let data = [];
 
     if (activeKpi === "gepland") {
-      return dataStore.filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status));
+      data = dataStore.filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status));
     }
     
-    if (activeKpi === "in_proces") {
-      return rawProducts.filter((p) => {
+    else if (activeKpi === "in_proces") {
+      data = rawProducts.filter((p) => {
          if (!validOrderIds.has(p.orderId)) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
@@ -618,7 +619,7 @@ const TeamleaderHub = React.memo(({
       });
     }
     
-    if (activeKpi === "gereed") {
+    else if (activeKpi === "gereed") {
       const activeList = rawProducts.filter((p) => {
          if (!validOrderIds.has(p.orderId)) return false;
          const status = p.status || "";
@@ -626,11 +627,11 @@ const TeamleaderHub = React.memo(({
          return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
       });
       const archivedList = archivedProducts.filter(p => validOrderIds.has(p.orderId));
-      return [...activeList, ...archivedList];
+      data = [...activeList, ...archivedList];
     }
     
-    if (activeKpi === "afkeur") {
-      return rawProducts.filter((p) => {
+    else if (activeKpi === "afkeur") {
+      data = rawProducts.filter((p) => {
          if (!validOrderIds.has(p.orderId)) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
@@ -638,8 +639,8 @@ const TeamleaderHub = React.memo(({
       });
     }
     
-    if (["tijdelijke_afkeur", "temp_rejected", "tijdelijke afkeur", "tijdelijk_afkeur"].includes(activeKpi)) {
-      return rawProducts
+    else if (["tijdelijke_afkeur", "temp_rejected", "tijdelijke afkeur", "tijdelijk_afkeur"].includes(activeKpi)) {
+      data = rawProducts
         .filter((p) => {
             if (!validOrderIds.has(p.orderId)) return false;
             return p.inspection?.status === "Tijdelijke afkeur";
@@ -647,9 +648,9 @@ const TeamleaderHub = React.memo(({
         .sort((a, b) => new Date(a.inspection?.timestamp || 0) - new Date(b.inspection?.timestamp || 0));
     }
     
-    if (activeKpi === "bezetting") {
+    else if (activeKpi === "bezetting") {
       const currentDayStr = format(new Date(), 'yyyy-MM-dd');
-      return bezetting
+      data = bezetting
         .filter(b => b.date === currentDayStr)
         .map(b => ({
           ...b,
@@ -660,7 +661,12 @@ const TeamleaderHub = React.memo(({
         }));
     }
 
-    return [];
+    // Clean up machine names (remove _INBOX)
+    return data.map(item => ({
+        ...item,
+        machine: item.machine ? item.machine.replace("_INBOX", "") : item.machine,
+        currentStation: item.currentStation ? item.currentStation.replace("_INBOX", "") : item.currentStation
+    }));
   }, [activeKpi, dataStore, rawProducts, archivedProducts, bezetting]);
 
   const handleKpiClick = (kpiId, label) => {
@@ -942,7 +948,7 @@ const TeamleaderHub = React.memo(({
             <TeamleaderGanttView metrics={metrics} />
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
-              <div className={`shrink-0 flex flex-col min-h-0 transition-all duration-300 ${selectedOrder ? 'hidden lg:flex w-80' : 'w-full lg:w-80'}`}>
+              <div className={`shrink-0 flex flex-col min-h-0 transition-all duration-300 ${selectedOrder ? 'hidden lg:flex w-96' : 'w-full lg:w-96'}`}>
                 <PlanningSidebar orders={dataStore} selectedOrderId={selectedOrderId} onSelect={setSelectedOrderId} />
               </div>
               <div className={`flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden ${selectedOrder ? 'flex' : 'hidden lg:flex'}`}>

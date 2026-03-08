@@ -1,21 +1,73 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
   MessageSquare,
-  GraduationCap,
+  BookOpen,
   Download,
+  Loader2,
 } from "lucide-react";
 import * as XLSX from 'xlsx';
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "../../config/firebase";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { getRawPlanningData } from "../../services/planningContext";
 import AiChatView from "./AiChatView";
-import AiTrainingView from "./AiTrainingView";
+import FlashcardViewer from "./FlashcardViewer";
+import { MOCK_FLASHCARDS } from "../../data/aiPrompts";
 
 const AiAssistantView = () => {
   const { t } = useTranslation();
   const { showError, showSuccess, showInfo } = useNotifications();
   const [activeTab, setActiveTab] = useState("chat");
+  const [flashcards, setFlashcards] = useState(MOCK_FLASHCARDS);
+  const [loadingFlashcards, setLoadingFlashcards] = useState(true);
+
+  // Load flashcards from Firestore and AI knowledge base
+  useEffect(() => {
+    const loadFlashcards = async () => {
+      try {
+        // 1. Load custom flashcards from admin
+        const flashcardsRef = collection(db, "future-factory", "settings", "flashcards");
+        const flashcardsSnap = await getDocs(query(flashcardsRef, where("active", "==", true)));
+        const customCards = flashcardsSnap.docs.map(doc => ({
+          front: doc.data().front || { text: doc.data().question, language: "nl-NL" },
+          back: doc.data().back || { text: doc.data().answer, language: "nl-NL" },
+          category: doc.data().category || "general",
+        }));
+
+        // 2. Load verified Q&A from AI knowledge base
+        const knowledgeRef = collection(db, "future-factory", "settings", "ai_knowledge_base");
+        const knowledgeSnap = await getDocs(query(knowledgeRef, where("verified", "==", true)));
+        const knowledgeCards = knowledgeSnap.docs
+          .filter(doc => doc.data().question && doc.data().answer)
+          .map(doc => ({
+            front: { text: doc.data().question || doc.data().userInput, language: "nl-NL" },
+            back: { text: doc.data().correctedAnswer || doc.data().answer, language: "nl-NL" },
+            category: "ai_verified",
+          }));
+
+        // 3. Combine with mock flashcards
+        const allCards = [
+          ...MOCK_FLASHCARDS.flashcards,
+          ...customCards,
+          ...knowledgeCards,
+        ];
+
+        setFlashcards({ flashcards: allCards });
+      } catch (error) {
+        console.error("Error loading flashcards:", error);
+        // Fallback to mock cards only
+        setFlashcards(MOCK_FLASHCARDS);
+      } finally {
+        setLoadingFlashcards(false);
+      }
+    };
+
+    if (activeTab === "flashcards") {
+      loadFlashcards();
+    }
+  }, [activeTab]);
 
   const handleExportExcel = async () => {
     try {
@@ -67,14 +119,14 @@ const AiAssistantView = () => {
             <MessageSquare size={16} /> {t('ai.tabs.chat', 'Chat')}
           </button>
           <button
-            onClick={() => setActiveTab("training")}
+            onClick={() => setActiveTab("flashcards")}
             className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
-              activeTab === "training"
+              activeTab === "flashcards"
                 ? "bg-white text-purple-600 shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <GraduationCap size={16} /> {t('ai.tabs.training', 'Training')}
+            <BookOpen size={16} /> {t('ai.tabs.flashcards', 'Kaartjes')}
           </button>
 
           <button
@@ -90,7 +142,19 @@ const AiAssistantView = () => {
       {/* CONTENT AREA */}
       <div className={`flex-1 relative ${activeTab === 'chat' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {activeTab === "chat" && <AiChatView />}
-        {activeTab === "training" && <AiTrainingView />}
+        {activeTab === "flashcards" && (
+          loadingFlashcards ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <Loader2 className="animate-spin text-purple-500" size={40} />
+              <p className="text-xs text-slate-500 font-medium">Flashcards laden...</p>
+            </div>
+          ) : (
+            <FlashcardViewer 
+              data={flashcards} 
+              onClose={() => setActiveTab("chat")} 
+            />
+          )
+        )}
       </div>
     </div>
   );

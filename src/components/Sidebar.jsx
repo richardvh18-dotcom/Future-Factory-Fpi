@@ -20,7 +20,6 @@ import {
   Filter,
   Globe,
   X,
-  Wrench,
   Check,
   Pin,
   PinOff,
@@ -70,7 +69,6 @@ const Sidebar = ({
     { path: "/inventory", label: t('sidebar.nav.common.inventory'), icon: Package },
     { path: "/assistant", label: t('sidebar.nav.common.ai_training'), icon: Bot },
     { path: "/calculator", label: t('sidebar.nav.common.calculator'), icon: Calculator },
-    { path: "/maintenance", label: t('sidebar.nav.common.maintenance'), icon: Wrench },
     { path: "/messages", label: t('sidebar.nav.common.messages'), icon: Mail, badge: unreadCount },
     { path: "/admin", label: t('sidebar.nav.common.admin'), icon: Settings, adminOnly: true },
   ];
@@ -98,7 +96,11 @@ const Sidebar = ({
         } ${
           isExpanded || isPinned ? "md:w-64" : "md:w-16"
         }`}
-        style={{ top: isMobileMenuOpen ? 0 : "4rem", height: isMobileMenuOpen ? "100vh" : "calc(100vh - 4rem)" }}
+        style={{ 
+          top: isMobileMenuOpen ? "4rem" : "4rem", 
+          height: isMobileMenuOpen ? "calc(100vh - 4rem)" : "calc(100vh - 4rem)",
+          WebkitOverflowScrolling: 'touch'
+        }}
         onMouseEnter={() => !isMobileMenuOpen && !isPinned && setIsExpanded(true)}
         onMouseLeave={() => !isMobileMenuOpen && !isPinned && setIsExpanded(false)}
       >
@@ -114,7 +116,7 @@ const Sidebar = ({
             </button>
           </div>
         )}
-      <nav className="flex-1 px-2 pt-4 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden">
+      <nav className="flex-1 px-2 pt-4 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
         {visibleItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (

@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BrainCircuit, FileText, Sparkles, Settings } from "lucide-react";
+import { BrainCircuit, FileText, Sparkles, Settings, BookOpen } from "lucide-react";
 import AiTrainingView from "./AiTrainingView";
 import AiDocumentUploadView from "./AiDocumentUploadView";
 import AiContextManager from "./AiContextManager";
+import FlashcardManager from "./FlashcardManager";
 
 const AiCenterView = () => {
   const { t } = useTranslation();
@@ -34,6 +35,16 @@ const AiCenterView = () => {
             <Sparkles size={16} /> {t('ai.center.tabs.training', 'Training (QA)')}
           </button>
           <button
+            onClick={() => setActiveTab("flashcards")}
+            className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
+              activeTab === "flashcards"
+                ? "bg-white text-purple-600 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            <BookOpen size={16} /> {t('ai.center.tabs.flashcards', 'Flashcards')}
+          </button>
+          <button
             onClick={() => setActiveTab("documents")}
             className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
               activeTab === "documents"
@@ -59,6 +70,7 @@ const AiCenterView = () => {
       {/* CONTENT AREA */}
       <div className="flex-1 overflow-y-auto relative">
         {activeTab === "training" && <AiTrainingView />}
+        {activeTab === "flashcards" && <FlashcardManager />}
         {activeTab === "documents" && <AiDocumentUploadView />}
         {activeTab === "context" && <AiContextManager />}
       </div>

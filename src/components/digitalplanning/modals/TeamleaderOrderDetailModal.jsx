@@ -11,11 +11,16 @@ import {
   Droplets,
   Ruler,
   ArrowRight,
-  History
+  History,
+  Star,
+  Ban
 } from "lucide-react";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../../../config/firebase.js";
+import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db, auth, logActivity } from "../../../config/firebase.js";
+import { PATHS } from "../../../config/dbPaths";
+import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import StatusBadge from "../common/StatusBadge.jsx";
+import CancelOrderModal from "./CancelOrderModal";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -40,7 +45,12 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
   const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showOnlyRejects, setShowOnlyRejects] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const appId = getAppId();
+  const { role } = useAdminAuth();
+
+  // Alleen Admins en Teamleiders mogen prioriteit aanpassen (Planners niet)
+  const canEditPriority = ["admin", "teamleader"].includes(role);
 
   // Bepaal materiaal type voor badges
   const getMaterialInfo = (itemString) => {
@@ -52,7 +62,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
 
   const matInfo = getMaterialInfo(order?.item);
 
-  // NIEUW: Bepaal de processtappen o.b.v. FL in de naam
+  // Bepaal de processtappen o.b.v. FL in de naam
   const processSteps = useMemo(() => {
     const itemStr = (order?.item || "").toUpperCase();
     
@@ -65,7 +75,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
     return ["Wikkelen", "Lossen", "Nabewerking", "Eindinspectie", "Klaar"];
   }, [order?.item]);
 
-  // NIEUW: Bepaal huidige stap voor highlighting
+  // Bepaal huidige stap voor highlighting
   const currentStepIndex = useMemo(() => {
     if (!order) return -1;
     if (order.status === "completed") return 4; // Klaar
@@ -114,6 +124,47 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
     fetchUnits();
   }, [order, appId]);
 
+  const handleSetPriority = async (level) => {
+    if (!order.id) return;
+    // Toggle logic: als huidige priority gelijk is aan gekozen level, zet uit (false)
+    const currentPrio = order.priority === true ? "high" : order.priority;
+    const newPriority = currentPrio === level ? false : level;
+
+    try {
+      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
+      await updateDoc(orderRef, {
+        priority: newPriority,
+        lastUpdated: new Date()
+      });
+    } catch (e) {
+      console.error("Fout bij wijzigen prioriteit:", e);
+    }
+  };
+
+  const handleCancelOrder = async (reason) => {
+    try {
+      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
+      await updateDoc(orderRef, {
+        status: 'cancelled',
+        cancelledAt: serverTimestamp(),
+        cancelledBy: auth.currentUser?.uid,
+        cancellationReason: reason,
+        lastUpdated: serverTimestamp()
+      });
+
+      await logActivity(
+        auth.currentUser?.uid,
+        "ORDER_CANCELLED", 
+        `Order ${order.orderId} geannuleerd. Reden: ${reason}`
+      );
+
+      setShowCancelModal(false);
+      onClose();
+    } catch (error) {
+      console.error("Fout bij annuleren:", error);
+    }
+  };
+
   if (!order) return null;
 
   return (
@@ -134,6 +185,45 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
               )}
             </div>
             <p className="text-sm font-medium text-gray-600">{order.item}</p>
+
+            {/* Priority Buttons - Alleen voor Admin/Teamleader */}
+            {canEditPriority && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button
+                    onClick={() => handleSetPriority("high")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
+                      order.priority === "high" || order.priority === true
+                        ? "bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/20"
+                        : "bg-white text-slate-400 hover:bg-slate-100 border border-slate-200"
+                    }`}
+                  >
+                    <Star size={12} fill={order.priority === "high" || order.priority === true ? "currentColor" : "none"} />
+                    Prio
+                  </button>
+                  <button
+                    onClick={() => handleSetPriority("urgent")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
+                      order.priority === "urgent"
+                        ? "bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+                        : "bg-white text-slate-400 hover:bg-slate-100 border border-slate-200"
+                    }`}
+                  >
+                    <AlertTriangle size={12} fill={order.priority === "urgent" ? "currentColor" : "none"} />
+                    Spoed
+                  </button>
+                  <button
+                    onClick={() => handleSetPriority("immediate")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
+                      order.priority === "immediate"
+                        ? "bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-500/20"
+                        : "bg-white text-slate-400 hover:bg-slate-100 border border-slate-200"
+                    }`}
+                  >
+                    <Zap size={12} fill={order.priority === "immediate" ? "currentColor" : "none"} />
+                    1e Prio
+                  </button>
+                </div>
+            )}
           </div>
           <button 
             onClick={onClose}
@@ -187,7 +277,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                 <div>
                   <p className="text-[10px] text-gray-500 uppercase font-bold">Huidige Machine/Station</p>
                   <p className="text-sm font-black text-gray-900 flex items-center gap-2">
-                    {order.machine || "Onbekend"}
+                    {order.machine?.replace("_INBOX", "") || "Onbekend"}
                     {order.status === 'in_progress' && <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>}
                   </p>
                 </div>
@@ -363,6 +453,15 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
         
         {/* Footer Actions */}
         <div className="bg-gray-50 p-4 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+          {/* Cancel Button - Alleen voor bevoegde rollen */}
+          {['admin', 'teamleader', 'planner'].includes(role) && (
+             <button
+               onClick={() => setShowCancelModal(true)}
+               className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 rounded-lg font-bold text-sm transition-colors mr-auto"
+             >
+               <Ban size={16} /> Order Annuleren
+             </button>
+           )}
           <button 
             onClick={onClose}
             className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-100 transition-colors"
@@ -370,6 +469,13 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
             Sluiten
           </button>
         </div>
+
+        <CancelOrderModal 
+            isOpen={showCancelModal}
+            onClose={() => setShowCancelModal(false)}
+            onConfirm={handleCancelOrder}
+            orderId={order?.orderId}
+        />
       </div>
     </div>
   );

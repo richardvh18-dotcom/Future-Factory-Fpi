@@ -501,7 +501,9 @@ export const nl = {
       print_method: 'Print Methode',
       standard_browser: 'Standaard (Browser)',
       network_ip: 'Netwerk (IP)',
+      usb_direct: 'USB Direct',
       choose_network_printer: 'Kies Netwerk Printer',
+      choose_usb_printer: 'Kies USB Printer',
       select_printer: '-- Selecteer Printer --',
       date_week: 'Datum (Week {{week}})',
       start_sequence: 'Start Volgnummer',
@@ -524,6 +526,7 @@ export const nl = {
       reserved_labels_title: 'Gereserveerde Labels',
       print_labels_btn: 'Print Labels',
       popup_blocked: 'Pop-up geblokkeerd. Sta pop-ups toe om te kunnen printen.',
+      usb_browser_requirement: 'USB Direct vereist WebUSB in een ondersteunde browser op https/localhost.',
       select_printer_error: 'Selecteer eerst een netwerkprinter of vul een IP in.',
       print_error: 'Kon niet printen. Controleer of Zebra Browser Print draait of het IP juist is.\nFout: ',
       reservation_success: 'Succesvol {{count}} labels gereserveerd:\n{{lots}}\n\nDeze nummers zijn 24 uur gereserveerd.',
@@ -645,7 +648,14 @@ export const nl = {
       connection: 'Verbinding',
       networkIp: 'Netwerk (IP)',
       localUsb: 'Lokaal (USB)',
+      protocol: 'Protocol',
+      protocolZPL: 'ZPL',
+      protocolEPL: 'EPL',
+      protocolTSPL: 'TSPL',
+      protocolESCPOS: 'ESC/POS',
+      protocolCUSTOM: 'Aangepast',
       usesBrowserPrintDialog: 'Gebruikt browser print dialoog',
+      usesUsbDirectPrint: 'Gebruikt USB direct print (WebUSB)',
       dpi: 'DPI',
       formatMm: 'Formaat (mm)',
       darkness: 'Darkness',
@@ -666,12 +676,16 @@ export const nl = {
       testCommandSentTo: 'Test opdracht verzonden naar',
       connectionErrorNetwork: 'Kon niet verbinden met printer. Check of je op hetzelfde netwerk zit.\nFout: ',
       localPrintersUseBrowserDialog: 'Lokale/USB printers gebruiken de browser print dialoog in de app.',
+      usbDirectPrintSent: 'USB testopdracht verzonden.',
+      usbDirectPrintError: 'USB direct print mislukt. Fout: ',
+      usbWebUsbRequirement: 'WebUSB vereist: ondersteunde browser op https/localhost.',
       enterValidIpFirst: "Vul eerst een geldig IP-adres in en selecteer type 'Netwerk'.",
       connectionErrorIp: 'Kon niet verbinden met printer. Check IP en netwerk.\nFout: ',
       onlyForNetworkPrinters: 'Alleen beschikbaar voor netwerkprinters met een IP-adres.',
       alignmentTestSentTo: 'Uitlijningstest (Kader) verzonden naar',
       connectionError: 'Kon niet verbinden met printer.\nFout: ',
-      noSpecificStations: 'Geen specifieke stations'
+      noSpecificStations: 'Geen specifieke stations',
+      networkPrintSupportsZplOnly: 'Netwerkprinten ondersteunt momenteel alleen ZPL via /pstprnt. Geselecteerd protocol: {{protocol}}.'
     },
     adminDatabaseView: {
       title: 'Database Viewer',
@@ -927,6 +941,8 @@ export const nl = {
         scheduled_occupancy: "Ingeplande Bezetting",
         account_pending_title: "Account In Behandeling",
         account_pending_message: "Uw accountrechten worden momenteel verwerkt. Probeer het later opnieuw of neem contact op met de beheerder.",
+        loading_station: "Werkstation laden:",
+        loading_data: "Data wordt geladen...",
         todo: "Nog te doen"
       },
       sidebar: {
@@ -976,10 +992,62 @@ export const nl = {
       module: "module",
       modules: "s"
     },
+    reports: {
+      title: "Rapportage Centre",
+      subtitle: "Selecteer een rapportage categorie om te beginnen",
+      back_to_categories: "Terug naar categorieën",
+      back_to_reports: "Terug naar rapporten",
+      generate_report: "Genereer Rapport",
+      loading: "Rapport wordt gegenereerd...",
+      no_data: "Geen data beschikbaar",
+      export_csv: "CSV",
+      export_excel: "Excel",
+      export_pdf: "PDF",
+      reports_available: "rapporten beschikbaar",
+      date_range: {
+        today: "Vandaag",
+        week: "Deze Week",
+        month: "Deze Maand",
+        custom: "Custom Periode"
+      },
+      filters: {
+        all_stations: "Alle Werkstations",
+        all_operators: "Alle Operators",
+        all_products: "Alle Producten",
+        all_statuses: "Alle Statussen"
+      },
+      summary: {
+        total: "Totaal",
+        average_per_day: "Gemiddelde per Dag",
+        stations_active: "Stations Actief",
+        overview: "Overzicht per Werkstation",
+        detailed_overview: "Gedetailleerd Overzicht"
+      },
+      table: {
+        product: "Product",
+        count: "Aantal",
+        status: "Status",
+        completed: "Voltooid",
+        in_progress: "In behandeling"
+      }
+    },
     login: {
       branding_main1: "Future",
       branding_main2: "Factory",
       secure_node: "Secure Node 377EF"
+    },
+    auth: {
+      auto_logout: {
+        title: "Inactiviteit Gedetecteerd",
+        subtitle: "Je sessie verloopt binnenkort",
+        message: "Je wordt over {{time}} minuten automatisch uitgelogd wegens inactiviteit.",
+        action_prompt: "Klik hieronder om ingelogd te blijven",
+        stay_logged_in: "Blijf Ingelogd",
+        auto_logout_info: "Je wordt automatisch uitgelogd na {{timeout}} minuten inactiviteit."
+      },
+      logged_out_title: "Uitgelogd",
+      logged_out_subtitle: "Je sessie is beëindigd",
+      login_again: "Opnieuw Inloggen"
     },
     inventory: {
       title: "Gereedschap & Voorraad",

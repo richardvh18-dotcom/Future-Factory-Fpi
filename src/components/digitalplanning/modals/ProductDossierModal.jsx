@@ -26,6 +26,7 @@ import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import ProductDetailModal from "../../products/ProductDetailModal";
+import ConfirmationModal from "./ConfirmationModal";
 
 /**
  * ProductDossierModal: Toont proces-stappen, kwaliteitsmetingen en order-info.
@@ -50,7 +51,8 @@ const ProductDossierModal = ({
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [historyWithOperators, setHistoryWithOperators] = useState([]);
   const { role } = useAdminAuth();
-  const canEditPriority = ["admin", "planner", "teamleader"].includes(role);
+  const canEditPriority = ["admin", "teamleader"].includes(role);
+  const [showConfirmMove, setShowConfirmMove] = useState(false);
 
   const handleDrawingSync = async () => {
     if (!parentOrder.itemCode) return;
@@ -207,6 +209,44 @@ const ProductDossierModal = ({
     return str.startsWith("40") ? str.substring(2) : str;
   };
 
+  const handleExecuteMove = async () => {
+    if (!targetStation) return;
+    
+    setOverrideLoading(true);
+    await onMoveLot(product.id, targetStation);
+
+    // 1. Update history on the tracked product
+    const productRef = doc(db, ...PATHS.TRACKING, product.id);
+    await updateDoc(productRef, {
+      history: arrayUnion({
+        station: product.currentStation || "Dossier",
+        user: role || "Systeem",
+        action: "Handmatige Verplaatsing",
+        details: `Verplaatst naar station: ${targetStation}`,
+        time: new Date().toISOString(),
+      }),
+    });
+
+    // 2. Update the planning order to reflect the move for terminal views
+    if (parentOrder.id) {
+      const now = new Date();
+      const { week: currentWeek, year: currentYear } = getISOWeekInfo(now);
+      const planningOrderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
+      await updateDoc(planningOrderRef, {
+        machine: targetStation,
+        normMachine: normalizeMachine(targetStation),
+        isMoved: true,
+        weekNumber: currentWeek,
+        weekYear: currentYear,
+        lastUpdated: new Date(),
+      });
+    }
+
+    setOverrideLoading(false);
+    setIsMoving(false);
+    onClose();
+  };
+
   return (
     <>
       <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[250] flex items-center justify-center p-4 lg:p-10 animate-in fade-in">
@@ -312,7 +352,7 @@ const ProductDossierModal = ({
                   {loadingCatalog ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
                 </button>
                 <h4 className="font-black text-xs uppercase text-blue-900 tracking-widest">
-                  Order Informatie (Excel Context)
+                  Order Informatie
                 </h4>
               </div>
               <div>
@@ -609,39 +649,7 @@ const ProductDossierModal = ({
                   <button
                     onClick={async () => {
                       if (!targetStation) return;
-                      setOverrideLoading(true);
-                      await onMoveLot(product.id, targetStation);
-
-                      // 1. Update history on the tracked product
-                      const productRef = doc(db, ...PATHS.TRACKING, product.id);
-                      await updateDoc(productRef, {
-                        history: arrayUnion({
-                          station: product.currentStation || "Dossier",
-                          user: role || "Systeem",
-                          action: "Handmatige Verplaatsing",
-                          details: `Verplaatst naar station: ${targetStation}`,
-                          time: new Date().toISOString(),
-                        }),
-                      });
-
-                      // 2. Update the planning order to reflect the move for terminal views
-                      if (parentOrder.id) {
-                        const now = new Date();
-                        const { week: currentWeek, year: currentYear } = getISOWeekInfo(now);
-                        const planningOrderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
-                        await updateDoc(planningOrderRef, {
-                          machine: targetStation,
-                          normMachine: normalizeMachine(targetStation),
-                          isMoved: true,
-                          weekNumber: currentWeek,
-                          weekYear: currentYear,
-                          lastUpdated: new Date(),
-                        });
-                      }
-
-                      setOverrideLoading(false);
-                      setIsMoving(false);
-                      onClose();
+                      setShowConfirmMove(true);
                     }}
                     disabled={overrideLoading || !targetStation}
                     className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all"
@@ -684,6 +692,15 @@ const ProductDossierModal = ({
           onClose={() => setShowDetailModal(false)}
         />
       )}
+
+      <ConfirmationModal
+        isOpen={showConfirmMove}
+        onClose={() => setShowConfirmMove(false)}
+        onConfirm={handleExecuteMove}
+        title="Product Verplaatsen"
+        message={`Weet je zeker dat je dit product wilt verplaatsen naar ${sortedStations.find(s => s.id === targetStation)?.name || targetStation}?`}
+        confirmText="Ja, Verplaatsen"
+      />
     </>
   );
 };

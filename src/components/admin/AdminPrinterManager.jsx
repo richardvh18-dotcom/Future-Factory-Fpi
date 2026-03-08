@@ -26,6 +26,9 @@ import {
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { isUsbDirectSupported, printRawUsb } from "../../utils/usbPrintService";
+
+const PRINTER_PROTOCOLS = ["zpl", "epl", "tspl", "escpos", "custom"];
 
 const AdminPrinterManager = () => {
   const { t } = useTranslation();
@@ -41,6 +44,7 @@ const AdminPrinterManager = () => {
     name: "",
     ip: "",
     port: "9100",
+    protocol: "zpl",
     dpi: "203",
     width: "100",
     height: "50",
@@ -140,7 +144,7 @@ const AdminPrinterManager = () => {
 
       setIsAdding(false);
       setEditingId(null);
-      setFormData({ name: "", ip: "", port: "9100", dpi: "203", width: "100", height: "50", darkness: "15", linkedStations: [], type: "network", isDefault: false });
+      setFormData({ name: "", ip: "", port: "9100", protocol: "zpl", dpi: "203", width: "100", height: "50", darkness: "15", linkedStations: [], type: "network", isDefault: false });
     } catch (err) {
       console.error("Error saving printer:", err);
       alert(t('adminPrinterManager.saveError') + err.message);
@@ -173,6 +177,7 @@ const AdminPrinterManager = () => {
   };
 
   const handleTestPrint = async (printer) => {
+    const protocol = (printer.protocol || "zpl").toLowerCase();
     const dpi = printer.dpi ? parseInt(printer.dpi) : 203;
     const darkness = printer.darkness ? parseInt(printer.darkness) : 15;
     const scale = dpi / 203;
@@ -195,6 +200,10 @@ const AdminPrinterManager = () => {
 ^XZ`;
 
     if (printer.type === "network") {
+      if (protocol !== "zpl") {
+        alert(t('adminPrinterManager.networkPrintSupportsZplOnly', { protocol: protocol.toUpperCase() }));
+        return;
+      }
       try {
         await fetch(`http://${printer.ip}/pstprnt`, { 
           method: "POST", 
@@ -206,13 +215,23 @@ const AdminPrinterManager = () => {
         alert(t('adminPrinterManager.connectionErrorNetwork') + err.message);
       }
     } else {
-      alert(t('adminPrinterManager.localPrintersUseBrowserDialog'));
+      try {
+        await printRawUsb({ content: zpl, printer });
+        alert(t('adminPrinterManager.usbDirectPrintSent'));
+      } catch (err) {
+        alert(t('adminPrinterManager.usbDirectPrintError') + err.message);
+      }
     }
   };
 
   const handleTestNewPrinter = async () => {
     if (formData.type !== "network" || !formData.ip) {
       alert(t('adminPrinterManager.enterValidIpFirst'));
+      return;
+    }
+
+    if ((formData.protocol || "zpl").toLowerCase() !== "zpl") {
+      alert(t('adminPrinterManager.networkPrintSupportsZplOnly', { protocol: (formData.protocol || "zpl").toUpperCase() }));
       return;
     }
     
@@ -255,6 +274,11 @@ const AdminPrinterManager = () => {
       return;
     }
 
+    if ((data.protocol || "zpl").toLowerCase() !== "zpl") {
+      alert(t('adminPrinterManager.networkPrintSupportsZplOnly', { protocol: (data.protocol || "zpl").toUpperCase() }));
+      return;
+    }
+
     const dpi = data.dpi ? parseInt(data.dpi) : 203;
     const darkness = data.darkness ? parseInt(data.darkness) : 15;
     const widthMm = data.width ? parseInt(data.width) : 100;
@@ -286,6 +310,7 @@ const AdminPrinterManager = () => {
       name: printer.name || "",
       ip: printer.ip || "",
       port: printer.port || "9100",
+      protocol: printer.protocol || "zpl",
       dpi: printer.dpi || "203",
       width: printer.width || "100",
       height: printer.height || "50",
@@ -316,7 +341,7 @@ const AdminPrinterManager = () => {
           <button 
             onClick={() => {
               setEditingId(null);
-              setFormData({ name: "", ip: "", port: "9100", dpi: "203", width: "100", height: "50", darkness: "15", linkedStations: [], type: "network", isDefault: false });
+              setFormData({ name: "", ip: "", port: "9100", protocol: "zpl", dpi: "203", width: "100", height: "50", darkness: "15", linkedStations: [], type: "network", isDefault: false });
               setIsAdding(true);
             }}
             className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold uppercase text-xs tracking-wider flex items-center gap-2 hover:bg-blue-700 transition-all"
@@ -401,11 +426,27 @@ const AdminPrinterManager = () => {
                     />
                   </>
                 ) : (
-                  <div className="flex-1 p-3 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-400 italic flex items-center">
-                    {t('adminPrinterManager.usesBrowserPrintDialog')}
+                  <div className="flex-1 p-3 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-500 italic flex flex-col justify-center">
+                    <span>{t('adminPrinterManager.usesUsbDirectPrint')}</span>
+                    {!isUsbDirectSupported() && (
+                      <span className="text-[10px] text-amber-600 not-italic mt-1">{t('adminPrinterManager.usbWebUsbRequirement')}</span>
+                    )}
                   </div>
                 )}
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('adminPrinterManager.protocol')}</label>
+              <select
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500"
+                value={formData.protocol}
+                onChange={e => setFormData({...formData, protocol: e.target.value})}
+              >
+                {PRINTER_PROTOCOLS.map(protocol => (
+                  <option key={protocol} value={protocol}>{t(`adminPrinterManager.protocol${protocol.toUpperCase()}`)}</option>
+                ))}
+              </select>
             </div>
             
             <div className="grid grid-cols-3 gap-3 md:col-span-2">
@@ -491,6 +532,9 @@ const AdminPrinterManager = () => {
                 <p className="text-xs font-bold text-slate-400 font-mono mt-0.5">
                   {printer.type === 'network' ? `IP: ${printer.ip}:${printer.port || 9100}` : t('adminPrinterManager.localUsb')}
                   {printer.type === 'network' && printer.dpi && <span className="ml-2 opacity-60 text-[10px]">({printer.dpi} DPI)</span>}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                  {t('adminPrinterManager.protocol')}: {((printer.protocol || 'zpl')).toUpperCase()}
                 </p>
                 <p className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-1">
                     {printer.linkedStations && printer.linkedStations.length > 0 

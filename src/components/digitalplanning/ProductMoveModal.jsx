@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { X, ArrowRight, Building2, Cpu } from "lucide-react";
+import ConfirmationModal from "./modals/ConfirmationModal";
 
 const ProductMoveModal = ({ product, onClose, onMove, allowedStations = [], currentDepartment }) => {
   const { t } = useTranslation();
   const [customStation, setCustomStation] = useState("");
+  const [stationToConfirm, setStationToConfirm] = useState(null);
 
   const departments = [
     { id: "FITTINGS", label: "Fittings", inbox: "FITTINGS_INBOX" },
@@ -20,7 +22,13 @@ const ProductMoveModal = ({ product, onClose, onMove, allowedStations = [], curr
 
   const handleStationClick = (stationName) => {
     if (onMove) {
-      onMove(product.lotNumber, stationName);
+      setStationToConfirm(stationName);
+    }
+  };
+
+  const handleConfirmMove = () => {
+    if (stationToConfirm) {
+      onMove(product.lotNumber, stationToConfirm);
       onClose();
     }
   };
@@ -115,6 +123,15 @@ const ProductMoveModal = ({ product, onClose, onMove, allowedStations = [], curr
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={!!stationToConfirm}
+        onClose={() => setStationToConfirm(null)}
+        onConfirm={handleConfirmMove}
+        title="Product Verplaatsen"
+        message={`Weet je zeker dat je dit product wilt verplaatsen naar ${stationToConfirm}?`}
+        confirmText="Ja, Verplaatsen"
+      />
     </div>
   );
 };

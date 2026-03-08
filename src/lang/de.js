@@ -25,6 +25,19 @@ export const de = {
     request_account: "Konto beantragen",
     secure_node: "Sicherer Knoten 377EF",
   },
+  auth: {
+    auto_logout: {
+      title: "Inaktivität erkannt",
+      subtitle: "Ihre Sitzung läuft bald ab",
+      message: "Sie werden in {{time}} Minuten automatisch aufgrund von Inaktivität abgemeldet.",
+      action_prompt: "Klicken Sie unten, um eingeloggt zu bleiben",
+      stay_logged_in: "Eingeloggt bleiben",
+      auto_logout_info: "Sie werden nach {{timeout}} Minuten Inaktivität automatisch abgemeldet."
+    },
+    logged_out_title: "Abgemeldet",
+    logged_out_subtitle: "Ihre Sitzung ist beendet",
+    login_again: "Erneut anmelden"
+  },
   portal: {
     welcome_sub: "Wählen Sie ein Modul um zu starten",
     tiles: {

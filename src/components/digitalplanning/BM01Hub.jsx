@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Download, ScanBarcode } from "lucide-react";
+import { Search, FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Download, ScanBarcode, Keyboard } from "lucide-react";
 import { format, isValid, isSameDay, subDays, addDays, startOfISOWeek, endOfISOWeek, isWithinInterval } from "date-fns";
 import { nl } from "date-fns/locale";
 import OrderDetail from "./OrderDetail";
@@ -28,10 +28,14 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   const [viewMode, setViewMode] = useState("day"); // 'day' or 'week'
   
   const [scanInput, setScanInput] = useState("");
+  const [scannerMode, setScannerMode] = useState(true);
   const scanInputRef = useRef(null);
 
   // Auto-focus logic voor scanner
   useEffect(() => {
+    // Alleen auto-focus gebruiken als Scanner Modus AAN staat
+    if (!scannerMode) return;
+
     const handleClick = (e) => {
         if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
         
@@ -46,7 +50,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
 
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
-  }, [activeTab, showFinishModal, viewingDossier, selectedOrder]);
+  }, [activeTab, showFinishModal, viewingDossier, selectedOrder, scannerMode]);
 
   const handleScan = (e) => {
     if (e.key === 'Enter') {
@@ -65,6 +69,10 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             alert(`Item ${code} niet gevonden in de lijst 'Aan te bieden'.`);
             setScanInput("");
         }
+        // Na scan altijd weer focus op het scanveld
+        setTimeout(() => {
+          scanInputRef.current?.focus();
+        }, 50);
     }
   };
 
@@ -509,12 +517,24 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                 <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full overflow-y-auto custom-scrollbar space-y-3">
                     {/* Scan Indicator & Input */}
                     <div className="shrink-0 space-y-2 mb-4">
-                        {/* Indicator Label */}
-                        <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 rounded-lg border border-purple-100 w-fit">
-                            <div className="w-2 h-2 bg-purple-500 rounded-full pulse-text-bm01"></div>
-                            <span className="text-xs font-black text-purple-600 uppercase tracking-widest">
-                                🔍 {t('bm01.ready_for_inspection_scan', 'Klaar voor inspectie scan')}
-                            </span>
+                        <div className="flex justify-between items-end">
+                            {/* Indicator Label */}
+                            <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 rounded-lg border border-purple-100 w-fit">
+                                <div className="w-2 h-2 bg-purple-500 rounded-full pulse-text-bm01"></div>
+                                <span className="text-xs font-black text-purple-600 uppercase tracking-widest">
+                                    🔍 {t('bm01.ready_for_inspection_scan', 'Klaar voor inspectie scan')}
+                                </span>
+                            </div>
+
+                            {/* Scanner Mode Toggle */}
+                            <button 
+                                onClick={() => setScannerMode(!scannerMode)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-bold text-xs uppercase tracking-widest transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
+                                title={scannerMode ? "Toetsenbord verborgen (Scanner Modus)" : "Normale invoer"}
+                            >
+                                {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
+                                {scannerMode ? "Scanner Modus" : "Toetsenbord"}
+                            </button>
                         </div>
                         {/* Scan Input */}
                         <div className="relative">
@@ -524,10 +544,10 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                                 type="text"
                                 value={scanInput}
                                 onChange={(e) => setScanInput(e.target.value)}
+                                inputMode={scannerMode ? "none" : "text"}
                                 onKeyDown={handleScan}
                                 placeholder="Scan lotnummer voor inspectie..."
                                 className="w-full pl-14 pr-4 py-4 bg-white border-2 border-purple-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
-                                autoFocus
                             />
                         </div>
                     </div>
@@ -585,7 +605,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                         <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500">
                             <ChevronLeft size={20} />
                         </button>
-                        <div className="flex items-center gap-2 px-4 min-w-[200px] justify-center">
+                        <div 
+                            className="flex items-center gap-2 px-4 min-w-[200px] justify-center cursor-pointer hover:bg-slate-50 rounded-lg transition-colors select-none"
+                            onDoubleClick={() => setSelectedDate(new Date())}
+                            title={t('bm01.reset_date_tooltip', 'Dubbelklik om naar vandaag te gaan')}
+                        >
                             <Calendar size={16} className="text-emerald-500" />
                             <span className="font-black text-slate-700 uppercase tracking-wide text-xs">
                                 {viewMode === 'day' 

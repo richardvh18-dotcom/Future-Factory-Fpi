@@ -500,7 +500,9 @@ export const en = {
       print_method: 'Print Method',
       standard_browser: 'Standard (Browser)',
       network_ip: 'Network (IP)',
+      usb_direct: 'USB Direct',
       choose_network_printer: 'Choose Network Printer',
+      choose_usb_printer: 'Choose USB Printer',
       select_printer: '-- Select Printer --',
       date_week: 'Date (Week {{week}})',
       start_sequence: 'Start Sequence',
@@ -523,6 +525,7 @@ export const en = {
       reserved_labels_title: 'Reserved Labels',
       print_labels_btn: 'Print Labels',
       popup_blocked: 'Pop-up blocked. Allow pop-ups to print.',
+      usb_browser_requirement: 'USB Direct requires WebUSB in a supported browser on https/localhost.',
       select_printer_error: 'Select a network printer or enter an IP first.',
       print_error: 'Could not print. Check if Zebra Browser Print is running or if the IP is correct.\nError: ',
       reservation_success: 'Successfully reserved {{count}} labels:\n{{lots}}\n\nThese numbers are reserved for 24 hours.',
@@ -644,7 +647,14 @@ export const en = {
       connection: 'Connection',
       networkIp: 'Network (IP)',
       localUsb: 'Local (USB)',
+      protocol: 'Protocol',
+      protocolZPL: 'ZPL',
+      protocolEPL: 'EPL',
+      protocolTSPL: 'TSPL',
+      protocolESCPOS: 'ESC/POS',
+      protocolCUSTOM: 'Custom',
       usesBrowserPrintDialog: 'Uses browser print dialog',
+      usesUsbDirectPrint: 'Uses USB direct print (WebUSB)',
       dpi: 'DPI',
       formatMm: 'Format (mm)',
       darkness: 'Darkness',
@@ -665,12 +675,16 @@ export const en = {
       testCommandSentTo: 'Test command sent to',
       connectionErrorNetwork: 'Could not connect to printer. Check if you are on the same network.\nError: ',
       localPrintersUseBrowserDialog: 'Local/USB printers use the browser print dialog in the app.',
+      usbDirectPrintSent: 'USB test job sent.',
+      usbDirectPrintError: 'USB direct print failed. Error: ',
+      usbWebUsbRequirement: 'WebUSB requirement: supported browser on https/localhost.',
       enterValidIpFirst: "Enter a valid IP address and select type 'Network' first.",
       connectionErrorIp: 'Could not connect to printer. Check IP and network.\nError: ',
       onlyForNetworkPrinters: 'Only available for network printers with an IP address.',
       alignmentTestSentTo: 'Alignment test (Frame) sent to',
       connectionError: 'Could not connect to printer.\nError: ',
-      noSpecificStations: 'No specific stations'
+      noSpecificStations: 'No specific stations',
+      networkPrintSupportsZplOnly: 'Network printing currently supports only ZPL via /pstprnt. Selected protocol: {{protocol}}.'
     },
     adminDatabaseView: {
       title: 'Database Viewer',
@@ -926,6 +940,8 @@ export const en = {
         scheduled_occupancy: "Scheduled Occupancy",
         account_pending_title: "Account Pending",
         account_pending_message: "Your account permissions are currently being processed. Please try again later or contact the administrator.",
+        loading_station: "Loading workstation:",
+        loading_data: "Loading data...",
         todo: "To Do"
       },
       sidebar: {
@@ -975,10 +991,62 @@ export const en = {
       module: "module",
       modules: "s"
     },
+    reports: {
+      title: "Reporting Centre",
+      subtitle: "Select a reporting category to begin",
+      back_to_categories: "Back to categories",
+      back_to_reports: "Back to reports",
+      generate_report: "Generate Report",
+      loading: "Generating report...",
+      no_data: "No data available",
+      export_csv: "CSV",
+      export_excel: "Excel",
+      export_pdf: "PDF",
+      reports_available: "reports available",
+      date_range: {
+        today: "Today",
+        week: "This Week",
+        month: "This Month",
+        custom: "Custom Period"
+      },
+      filters: {
+        all_stations: "All Workstations",
+        all_operators: "All Operators",
+        all_products: "All Products",
+        all_statuses: "All Statuses"
+      },
+      summary: {
+        total: "Total",
+        average_per_day: "Average per Day",
+        stations_active: "Stations Active",
+        overview: "Overview per Workstation",
+        detailed_overview: "Detailed Overview"
+      },
+      table: {
+        product: "Product",
+        count: "Count",
+        status: "Status",
+        completed: "Completed",
+        in_progress: "In Progress"
+      }
+    },
     login: {
       branding_main1: "Future",
       branding_main2: "Factory",
       secure_node: "Secure Node 377EF"
+    },
+    auth: {
+      auto_logout: {
+        title: "Inactivity Detected",
+        subtitle: "Your session will expire soon",
+        message: "You will be automatically logged out in {{time}} minutes due to inactivity.",
+        action_prompt: "Click below to stay logged in",
+        stay_logged_in: "Stay Logged In",
+        auto_logout_info: "You will be automatically logged out after {{timeout}} minutes of inactivity."
+      },
+      logged_out_title: "Logged Out",
+      logged_out_subtitle: "Your session has ended",
+      login_again: "Login Again"
     },
     inventory: {
       title: "Tools & Inventory",

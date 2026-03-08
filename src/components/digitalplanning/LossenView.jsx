@@ -19,6 +19,7 @@ import {
   Lock as LockIcon,
   Wifi,
   ScanBarcode,
+  Keyboard,
 } from "lucide-react";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
@@ -28,6 +29,7 @@ import { resolveLabelContent, processLabelData, applyLabelLogic } from "../../ut
 import { getISOWeek } from "date-fns";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import StatusBadge from "./common/StatusBadge";
+import { isUsbDirectSupported, printRawUsb } from "../../utils/usbPrintService";
 
 const PIXELS_PER_MM = 3.78;
 const getQRCodeUrl = (data) => `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${encodeURIComponent(data)}`;
@@ -72,6 +74,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printInput, setPrintInput] = useState("");
   const [scanInput, setScanInput] = useState("");
+  const [scannerMode, setScannerMode] = useState(true);
   const scanInputRef = useRef(null);
 
   // Hub / Planning State
@@ -94,6 +97,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       count: 1,
       mode: "standard", // 'standard' (USB/Local) | 'network' (IP)
       printerIp: "",
+      printerId: "",
       showCutLine: true,
   });
 
@@ -108,6 +112,9 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
   // Auto-focus logic voor scanner
   useEffect(() => {
+    // Alleen auto-focus gebruiken als Scanner Modus AAN staat
+    if (!scannerMode) return;
+
     const handleClick = (e) => {
         // Focus niet stelen als er op een interactief element wordt geklikt
         if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
@@ -125,25 +132,29 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
-  }, [activeView, selectedProduct, showPrintModal, showSimplePrintModal, reserveConfig]);
+  }, [activeView, selectedProduct, showPrintModal, showSimplePrintModal, reserveConfig, scannerMode]);
 
   const handleScan = (e) => {
     if (e.key === 'Enter') {
-        const code = scanInput.trim();
-        if (!code) return;
+      const code = scanInput.trim();
+      if (!code) return;
         
-        const found = items.find(i => 
-            (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
-            (i.orderId || "").toLowerCase() === code.toLowerCase()
-        );
+      const found = items.find(i => 
+        (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
+        (i.orderId || "").toLowerCase() === code.toLowerCase()
+      );
         
-        if (found) {
-            handleItemClick(found);
-            setScanInput("");
-        } else {
-            alert(t('lossen.item_not_found', { code }) || `Item ${code} niet gevonden`);
-            setScanInput("");
-        }
+      if (found) {
+        handleItemClick(found);
+        setScanInput("");
+      } else {
+        alert(t('lossen.item_not_found', { code }) || `Item ${code} niet gevonden`);
+        setScanInput("");
+      }
+      // Na scan altijd weer focus op het scanveld
+      setTimeout(() => {
+        scanInputRef.current?.focus();
+      }, 50);
     }
   };
 
@@ -176,9 +187,9 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
         if (targetPrinter) {
             if (targetPrinter.type === 'network') {
-                setSimplePrintConfig(prev => ({ ...prev, mode: 'network', printerIp: targetPrinter.ip }));
+            setSimplePrintConfig(prev => ({ ...prev, mode: 'network', printerIp: targetPrinter.ip, printerId: targetPrinter.id }));
             } else {
-                setSimplePrintConfig(prev => ({ ...prev, mode: 'standard' }));
+            setSimplePrintConfig(prev => ({ ...prev, mode: 'usb', printerIp: '', printerId: targetPrinter.id }));
             }
         }
     });
@@ -493,21 +504,23 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                   if (!snap.empty) {
                       const orderDoc = snap.docs[0];
                       const orderData = orderDoc.data();
+                      
+                      // Gebruik produced teller voor robuustheid (zoals in BM01)
+                      // Dit zorgt ervoor dat de order uit de actieve lijst verdwijnt (produced >= plan)
+                      const currentProduced = (orderData.produced || 0);
+                      const newProduced = currentProduced + 1;
                       const plan = parseInt(orderData.plan || orderData.quantity || 0);
                       
-                      // Tel items die klaar zijn of voorbij dit station zijn
-                      // We gebruiken de 'products' prop als cache indien beschikbaar, anders query
-                      const currentItems = products.length > 0 ? products : (await getDocs(query(collection(db, ...PATHS.TRACKING), where("orderId", "==", selectedProduct.orderId)))).docs.map(d => d.data());
-                      
-                      const finishedCount = currentItems.filter(p => 
-                          p.orderId === selectedProduct.orderId && 
-                          (p.status === 'completed' || p.currentStep === 'Finished' || p.currentStep === 'Eindinspectie' || p.currentStep === 'Te Keuren' || p.currentStep === 'Te Nabewerken')
-                      ).length;
+                      const orderUpdates = {
+                          produced: increment(1),
+                          lastUpdated: serverTimestamp()
+                      };
 
-                      // +1 omdat het huidige item nu ook verwerkt wordt
-                      if (finishedCount + 1 >= plan) {
-                          await updateDoc(orderDoc.ref, { status: 'completed', lastUpdated: serverTimestamp() });
+                      if (newProduced >= plan) {
+                          orderUpdates.status = "completed";
                       }
+                      
+                      await updateDoc(orderDoc.ref, orderUpdates);
                   }
               } catch (e) { console.error("Error updating order status:", e); }
           }
@@ -823,10 +836,16 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       }
 
       // MODE: NETWERK (IP)
-      if (mode === "network") {
+        if (mode === "network") {
           if (!printerIp) {
               alert(t('lossen.select_printer_error'));
               return;
+          }
+
+          const protocol = (selectedPrinter?.protocol || "zpl").toLowerCase();
+          if (protocol !== "zpl") {
+            alert(`Netwerkprinten ondersteunt momenteel alleen ZPL (geselecteerd: ${protocol.toUpperCase()}).`);
+            return;
           }
           try {
               await fetch(`http://${printerIp}/pstprnt`, { method: "POST", body: zpl, mode: "no-cors" });
@@ -835,6 +854,16 @@ const LossenView = ({ stationId, appId, products = [] }) => {
               alert(t('lossen.print_error') + err.message);
           }
       }
+
+            if (mode === "usb") {
+              const usbPrinter = savedPrinters.find(p => p.id === simplePrintConfig.printerId) || savedPrinters.find(p => p.type !== "network");
+              try {
+                await printRawUsb({ content: zpl, printer: usbPrinter || {} });
+                alert(`USB-opdracht verzonden${usbPrinter?.name ? ` naar ${usbPrinter.name}` : ""}`);
+              } catch (err) {
+                alert(`USB direct print mislukt: ${err.message}`);
+              }
+            }
       
       setShowSimplePrintModal(false);
   };
@@ -980,6 +1009,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             onClose={handleCloseModal}
             onConfirm={handlePostProcessingFinish}
             currentStation={stationId}
+            autoFocus={false}
           />
         ) : (
           <ProductReleaseModal
@@ -988,6 +1018,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             onClose={() => setSelectedProduct(null)}
             appId={appId}
             activeOperators={activeOperators}
+            autoFocus={false}
           />
         )
       )}
@@ -1081,6 +1112,12 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                             >
                                 <Wifi size={14} /> {t('lossen.network_ip')}
                             </button>
+                            <button 
+                              onClick={() => setSimplePrintConfig({...simplePrintConfig, mode: "usb"})}
+                              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${simplePrintConfig.mode === "usb" ? "bg-white text-purple-600 shadow-sm" : "text-slate-500"}`}
+                            >
+                              <Printer size={14} /> {t('lossen.usb_direct')}
+                            </button>
                         </div>
                     </div>
 
@@ -1098,6 +1135,27 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                                 <option key={p.id} value={p.ip}>{p.name} ({p.ip})</option>
                             ))}
                         </select>
+                    </div>
+                    )}
+
+                    {simplePrintConfig.mode === "usb" && (
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('lossen.choose_usb_printer')}</label>
+                        <select
+                            value={simplePrintConfig.printerId}
+                            onChange={(e) => setSimplePrintConfig({...simplePrintConfig, printerId: e.target.value})}
+                            className="w-full p-3 bg-white border-2 border-purple-100 rounded-xl font-bold text-slate-800 outline-none focus:border-purple-500"
+                        >
+                            <option value="">{t('lossen.select_printer')}</option>
+                            {savedPrinters.filter(p => p.type !== 'network').map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                        </select>
+                        {!isUsbDirectSupported() && (
+                          <p className="text-[10px] font-bold text-amber-600 mt-2">
+                            {t('lossen.usb_browser_requirement')}
+                          </p>
+                        )}
                     </div>
                     )}
 
@@ -1394,12 +1452,24 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         /* INKOMEND VIEW (Bestaande functionaliteit) */
         <>
           <div className="mb-6 space-y-2">
-            {/* Scan Indicator Label */}
-            <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-lg border border-blue-100 w-fit">
-              <div className="w-2 h-2 bg-blue-500 rounded-full pulse-text"></div>
-              <span className="text-xs font-black text-blue-600 uppercase tracking-widest">
-                🔍 {t('lossen.ready_to_scan', 'Klaar voor scan')}
-              </span>
+            <div className="flex justify-between items-end">
+                {/* Scan Indicator Label */}
+                <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-lg border border-blue-100 w-fit">
+                <div className="w-2 h-2 bg-blue-500 rounded-full pulse-text"></div>
+                <span className="text-xs font-black text-blue-600 uppercase tracking-widest">
+                    🔍 {t('lossen.ready_to_scan', 'Klaar voor scan')}
+                </span>
+                </div>
+
+                {/* Scanner Mode Toggle */}
+                <button 
+                    onClick={() => setScannerMode(!scannerMode)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-bold text-xs uppercase tracking-widest transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
+                    title={scannerMode ? "Toetsenbord verborgen (Scanner Modus)" : "Normale invoer"}
+                >
+                    {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
+                    {scannerMode ? "Scanner Modus" : "Toetsenbord"}
+                </button>
             </div>
             {/* Scan Input Field */}
             <div className="relative">
@@ -1409,10 +1479,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                   type="text"
                   value={scanInput}
                   onChange={(e) => setScanInput(e.target.value)}
+                  inputMode={scannerMode ? "none" : "text"}
                   onKeyDown={handleScan}
                   placeholder="Scan lotnummer of order..."
                   className="w-full pl-14 pr-4 py-4 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
-                  autoFocus
               />
             </div>
           </div>
