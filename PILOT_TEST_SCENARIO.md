@@ -1,22 +1,344 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { useLocation } from "react-router-dom";
-import {
-  PlayCircle,
-  Printer,
-  RefreshCw,
-  QrCode,
-  Layers,
-  X,
-  Keyboard,
-  Activity,
-  FileText,
-  Code,
-  Wifi,
-  AlertTriangle,
-  CheckCircle2,
-  Loader2
-} from "lucide-react";
-import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
+# 🧪 Pilot Test Scenario: Full Digital Flow
+
+**Doel:** Validatie van de volledige digitale productieflow van BH18 tot BM01 zonder papieren bonnen.  
+**Datum:** Maart 2026  
+**Status:** Ready for Execution
+
+---
+
+## 📋 Test Voorwaarden
+
+### Omgeving
+- **Stations:** BH18 (Wikkelen), Lossen, Nabewerking, BM01 (Eindcontrole)
+- **Test Product:** GRE Fitting (bijv. AELB-025-200-EST-BD-12)
+- **Operators:** Minimaal 2 operators (1 voor BH18, 1 voor BM01/Nabewerking)
+- **Devices:** Tablets/Terminals bij elk station, Scanner beschikbaar
+
+### Pre-requisites
+✅ Firebase deployment actief (production)  
+✅ Alle operators hebben geldig account met juiste rol  
+✅ Test orders aangemaakt in planning (status: `planned`)  
+✅ QR-codes geprint of digitaal beschikbaar  
+✅ Printer configuratie getest (label printing)  
+
+---
+
+## 🎯 Fase 1: Order Starten op BH18
+
+### Fase 1a: Normale Start (Positieve Test)
+
+**Actor:** Operator op BH18  
+**Doel:** Start productie van een order en valideer lotnummer generatie
+
+#### Stappen:
+1. **Login** op BH18 terminal met operator credentials
+2. **Navigeer** naar Terminal view
+3. **Selecteer** testorder uit de lijst (status: `planned`)
+4. **Klik** "Start Productie"
+5. **Controleer** in de modal:
+   - Lotnummer is automatisch gegenereerd (formaat: `JJWW-SSS-####`)
+   - Product informatie correct weergegeven
+   - Operator nummer voorgevuld
+6. **Bevestig** productiestart
+7. **Print** label (indien gevraagd)
+
+#### Verwacht Resultaat:
+✅ Order status verandert naar `in_progress`  
+✅ Item verschijnt in `active_production` collectie met uniek lotnummer  
+✅ Historie bevat entry: "Productie gestart op BH18"  
+✅ Label wordt geprint met correcte data  
+✅ Terminal toont order met status "In Productie"
+
+---
+
+### Fase 1b: Validatie Uniekheid (Negatieve Test)
+
+**Actor:** Operator op BH18  
+**Doel:** Testen dat systeem duplicate lotnummers voorkomt
+
+#### Stappen:
+1. **Start** een tweede item van **dezelfde order** (terwijl eerste nog actief is)
+2. **Controleer** dat systeem:
+   - Een nieuw, uniek lotnummer genereert (####-deel moet verschillen)
+   - GEEN foutmelding toont over duplicaten
+
+#### Verwacht Resultaat:
+✅ Tweede item krijgt ander lotnummer (bijv. 2610-418-0002 i.p.v. 0001)  
+✅ Beide items blijven zichtbaar in active_production  
+✅ Terminal toont beide items apart in de lijst
+
+---
+
+## 🎯 Fase 2: Afronden Wikkelen & Doorsturen
+
+**Actor:** Operator op BH18  
+**Doel:** Wikkelproces afronden en item klaarzetten voor Lossen
+
+#### Stappen:
+1. **Selecteer** het actieve item in Terminal
+2. **Klik** "Stop" of "Afronden"
+3. **Controleer** status wijziging
+
+#### Verwacht Resultaat:
+✅ Item status verandert naar `Wacht op Lossen`  
+✅ Historie bevat entry: "Wikkelen afgerond op BH18"  
+✅ Item verdwijnt NIET uit de lijst (blijft zichtbaar tot lossen begint)  
+✅ Planning `produced` teller wordt NIET verhoogd (nog niet volledig klaar)
+
+---
+
+## 🎯 Fase 3: Lossen
+
+**Actor:** Lossen Operator  
+**Doel:** Item lossen en gereed maken voor nabewerking
+
+#### Stappen:
+1. **Login** op Lossen terminal of gebruik mobiele scanner
+2. **Scan** QR-code op het item OF zoek op lotnummer
+3. **Controleer** weergegeven data:
+   - Product naam, Order nummer, Lotnummer
+   - Status: "Wacht op Lossen"
+4. **Klik** "Start Lossen"
+5. **Voer** eventuele gewicht/maten in (optioneel)
+6. **Klik** "Afronden"
+
+#### Verwacht Resultaat:
+✅ Status verandert naar `Te Nabewerken` of `Te Keuren`  
+✅ Historie bevat entry: "Gelost"  
+✅ Item verschijnt in Nabewerking lijst
+
+---
+
+## 🎯 Fase 4: Nabewerking (Optioneel)
+
+**Actor:** Nabewerking Operator  
+**Doel:** Bijwerken/afwerken na lossen
+
+#### Stappen:
+1. **Selecteer** item uit lijst "Te Nabewerken"
+2. **Klik** "Start Nabewerking"
+3. **Voer** werkzaamheden uit
+4. **Klik** "Afronden"
+
+#### Verwacht Resultaat:
+✅ Status verandert naar `Te Keuren`  
+✅ Historie bevat entry: "Nabewerking voltooid"  
+✅ Item verschijnt in BM01 wachtrij
+
+---
+
+## 🎯 Fase 5: Eindcontrole op BM01
+
+**Actor:** Operator op BM01  
+**Doel:** Finale inspectie en archiveren
+
+#### Stappen:
+1. **Login** op BM01 terminal
+2. **Scan** of selecteer item (status: `Te Keuren`)
+3. **Klik** "Start Inspectie"
+4. **Voer** meetwaarden in (optioneel):
+   - Boordiameter, Wanddikte, etc.
+5. **Kies** "Goedkeuren" of "Afkeuren"
+6. **Bevestig** afronden
+
+#### Verwacht Resultaat bij Goedkeuren:
+✅ Status verandert naar `completed`  
+✅ Item wordt verplaatst naar `archived_products` collectie  
+✅ Planning `produced` teller wordt verhoogd (+1)  
+✅ Historie bevat entry: "Eindcontrole akkoord - Gearchiveerd"  
+✅ Order status wordt `completed` als alle items klaar zijn  
+✅ PDF dossier kan gegenereerd worden (Teamleader/Admin)
+
+#### Verwacht Resultaat bij Afkeuren:
+⚠️ Status verandert naar `Tijdelijke afkeur` of `rejected`  
+⚠️ Item blijft zichtbaar in BM01 lijst  
+⚠️ Planning teller blijft ongewijzigd  
+⚠️ Teamleader krijgt notificatie
+
+---
+
+## 🎯 Fase 6: Validatie Productie Dossier
+
+**Actor:** Teamleider of Admin  
+**Doel:** Controleer compleetheid van data en PDF export
+
+#### Stappen:
+1. **Login** als Teamleider
+2. **Navigeer** naar "Teamleider Hub" > "Trace & Track"
+3. **Zoek** lotnummer van het afgeronde item
+4. **Open** detail modal
+5. **Controleer** Historie compleet is:
+   - Start BH18 (met operator & timestamp)
+   - Gereed BH18
+   - Lossen
+   - (Eventueel Nabewerking)
+   - Eindcontrole BM01
+6. **Klik** "Download Dossier PDF"
+7. **Open** PDF en valideer inhoud
+
+#### Verwacht Resultaat:
+✅ Historie toont alle stappen chronologisch  
+✅ Alle operators en timestamps zijn correct  
+✅ PDF bevat:
+   - Productgegevens (naam, specs, tekening)
+   - Ordergegevens (ordernummer, klant, hoeveelheid)
+   - Volledige processflow met tijden
+   - Eventuele meetwaarden
+✅ PDF is branded (Future Factory logo)
+
+---
+
+## 🎯 Fase 7: Multi-Item Order Test
+
+**Actor:** Operator BH18 + BM01  
+**Doel:** Valideer correcte afhandeling van orders met meerdere items
+
+#### Stappen:
+1. **Start** 3 items van dezelfde order op BH18 (elk apart lotnummer)
+2. **Rond** eerste item helemaal af (t/m BM01)
+3. **Controleer** Terminal:
+   - Order blijft zichtbaar (nog 2 items open)
+   - `produced` teller toont "1 / 3"
+4. **Rond** tweede item af
+5. **Controleer** teller: "2 / 3"
+6. **Rond** derde item af
+7. **Controleer** order:
+   - Status wordt `completed`
+   - Order verdwijnt uit Terminal lijst
+   - Teller toont "3 / 3"
+
+#### Verwacht Resultaat:
+✅ Order blijft zichtbaar tot laatste item klaar is  
+✅ Teller update correct na elk item  
+✅ Order verdwijnt pas na volledige afronding  
+✅ Alle 3 items zijn traceerbaar in archief
+
+---
+
+## 🎯 Fase 8: Stress Test (Optioneel)
+
+**Actor:** Meerdere operators  
+**Doel:** Test stabiliteit onder realistische belasting
+
+#### Scenario:
+- **10 orders** tegelijk actief
+- **3 operators** werken parallel op verschillende stations
+- **2 operators** op BH18, **1 op BM01**
+- Mix van producten (verschillende maten/types)
+
+#### Te controleren:
+✅ Geen performance degradatie in UI  
+✅ Geen lotnummer duplicaten  
+✅ Alle items correct getraceerd  
+✅ Notificaties komen binnen zonder vertraging  
+✅ Database writes slagen allemaal (check Firebase console)
+
+---
+
+## 📊 Success Criteria
+
+De pilot is **geslaagd** als:
+
+1. ✅ **100% Traceerbaarheid:** Elk item heeft complete historie van BH18 tot archief
+2. ✅ **0 Data Loss:** Geen items verdwijnen of overschreven worden
+3. ✅ **Unieke Lotnummers:** Geen enkele duplicate gedetecteerd
+4. ✅ **Correcte Tellers:** Planning `produced` tellers exact gelijk aan gearchiveerde items
+5. ✅ **PDF Export:** Alle afgeronde orders kunnen als PDF geëxporteerd worden
+6. ✅ **Operator Feedback:** Operators geven aan dat flow intuïtief is (survey)
+7. ✅ **Performance:** Laadtijden < 2 seconden, geen UI freezes
+
+---
+
+## 🐛 Known Issues & Workarounds
+
+### Issue 1: Item verdwijnt na start tweede item
+**Status:** 🟢 Opgelost (Fase 2 filter fix)  
+**Fix:** Filter in LossenView updated om "Wacht op Lossen" status mee te nemen
+
+### Issue 2: Historie mist laatste stap
+**Status:** 🟢 Opgelost (Fase 3)  
+**Fix:** BM01Hub voegt nu expliciet laatste entry toe vóór archivering
+
+### Issue 3: Teller klopt niet na gedeeltelijke afronding
+**Status:** 🟢 Opgelost (Fase 3)  
+**Fix:** Terminal gebruikt hybride teller (live + database)
+
+---
+
+## 📝 Testrapport Template
+
+```markdown
+## Pilot Test Executie
+
+**Datum:** [DD-MM-YYYY]  
+**Uitgevoerd door:** [Naam]  
+**Stations:** BH18, Lossen, Nabewerking, BM01  
+**Test Orders:** [Ordernummers]
+
+### Resultaten per Fase
+
+#### Fase 1a: Order Starten
+- [ ] PASS / FAIL  
+- Opmerkingen: 
+
+#### Fase 1b: Uniekheid
+- [ ] PASS / FAIL  
+- Opmerkingen:
+
+#### Fase 2: Afronden Wikkelen
+- [ ] PASS / FAIL  
+- Opmerkingen:
+
+#### Fase 3: Lossen
+- [ ] PASS / FAIL  
+- Opmerkingen:
+
+#### Fase 4: Nabewerking
+- [ ] PASS / FAIL  
+- Opmerkingen:
+
+#### Fase 5: BM01 Eindcontrole
+- [ ] PASS / FAIL  
+- Opmerkingen:
+
+#### Fase 6: PDF Export
+- [ ] PASS / FAIL  
+- Opmerkingen:
+
+#### Fase 7: Multi-Item Order
+- [ ] PASS / FAIL  
+- Opmerkingen:
+
+### Geconstateerde Bugs
+1. [Beschrijving bug + severity]
+2. ...
+
+### Operator Feedback
+- **Gemak van gebruik (1-5):** 
+- **Snelheid (1-5):**
+- **Verbetervoorstellen:**
+
+### Conclusie
+[ ] Ready for Production  
+[ ] Needs Fixes (minor)  
+[ ] Needs Fixes (critical)
+```
+
+---
+
+## 🚀 Next Steps After Pilot
+
+Bij succesvolle pilot:
+1. **Rollout Plan:** Uitbreiden naar andere afdelingen (Pipes, Spools)
+2. **Training:** Formele training voor alle operators
+3. **Monitoring:** Dashboard opzetten voor real-time KPI tracking
+4. **Feedback Loop:** Maandelijkse review meetings inplannen
+
+Bij issues:
+1. **Bug Tracking:** Log alle issues in GitHub met prioriteit
+2. **Hotfixes:** Critical bugs binnen 48u oplossen
+3. **Re-Test:** Herhaal scenario na fixes
+4. **Communicatie:** Update stakeholders over planning aanpassing
 
 // Imports voorzien van de .js extensie voor correcte resolutie in de compiler
 import { db, auth, logActivity } from "../../../config/firebase.js"; 
