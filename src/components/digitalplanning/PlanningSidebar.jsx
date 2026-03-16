@@ -48,6 +48,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
   const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMachine, setSelectedMachine] = useState("ALL");
+  const [sortMode, setSortMode] = useState("week_backlog");
   const [showArchived, setShowArchived] = useState(false);
   const [archivedOrders, setArchivedOrders] = useState([]);
   const [loadingArchive, setLoadingArchive] = useState(false);
@@ -103,6 +104,38 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
   }, [sourceData]);
 
   const filteredOrders = useMemo(() => {
+    const getOrderDateMs = (order) => {
+      const candidates = [
+        order?.plannedDate,
+        order?.deliveryDate,
+        order?.dueDate,
+        order?.date,
+        order?.createdAt,
+        order?.updatedAt,
+      ];
+
+      for (const value of candidates) {
+        if (!value) continue;
+        if (typeof value?.toMillis === "function") {
+          const ms = value.toMillis();
+          if (Number.isFinite(ms)) return ms;
+        }
+        if (value instanceof Date) {
+          const ms = value.getTime();
+          if (Number.isFinite(ms)) return ms;
+        }
+        const ms = new Date(value).getTime();
+        if (Number.isFinite(ms)) return ms;
+      }
+
+      return Number.MAX_SAFE_INTEGER;
+    };
+
+    const isInProgress = (order) => {
+      const status = String(order?.status || "").toLowerCase().trim();
+      return ["in_progress", "in progress", "in-behandeling", "in behandeling", "active", "processing"].includes(status);
+    };
+
     let result = sourceData;
 
     // 1. Machine Filter
@@ -137,8 +170,31 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
     });
     }
 
-    // 4. Sorteren: Huidige/Toekomstige weken eerst, daarna Backlog (Oude weken)
+    // 4. Sorteren (standaard): Huidige/Toekomstige weken eerst, daarna Backlog (Oude weken)
     return result.sort((a, b) => {
+      if (sortMode === "in_progress_first") {
+        const inProgressA = isInProgress(a);
+        const inProgressB = isInProgress(b);
+        if (inProgressA && !inProgressB) return -1;
+        if (!inProgressA && inProgressB) return 1;
+
+        const dateA = getOrderDateMs(a);
+        const dateB = getOrderDateMs(b);
+        if (dateA !== dateB) return dateA - dateB;
+
+        return (a.orderId || "").localeCompare(b.orderId || "");
+      }
+
+      if (sortMode === "date_asc" || sortMode === "date_desc") {
+        const dateA = getOrderDateMs(a);
+        const dateB = getOrderDateMs(b);
+        if (dateA !== dateB) {
+          return sortMode === "date_asc" ? dateA - dateB : dateB - dateA;
+        }
+
+        return (a.orderId || "").localeCompare(b.orderId || "");
+      }
+
       const weekA = Number(a.weekNumber || a.week || 999);
       const yearA = Number(a.weekYear || a.year || currentYear);
       const weekB = Number(b.weekNumber || b.week || 999);
@@ -162,7 +218,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
       // Fallback: Order ID
       return (a.orderId || "").localeCompare(b.orderId || "");
     });
-  }, [sourceData, searchTerm, selectedMachine, showArchived, currentWeek, currentYear]);
+  }, [sourceData, searchTerm, selectedMachine, showArchived, currentWeek, currentYear, sortMode]);
 
   // Helper om te bepalen of een order nieuw is (< 24 uur)
   const isOrderNew = (order) => {
@@ -289,6 +345,19 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 {machines.map(m => <option key={m} value={m}>{m === "ALL" ? "Alle Machines" : m}</option>)}
               </select>
             </div>
+            <div className="relative flex-1">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value)}
+                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
+              >
+                <option value="week_backlog">{t("digitalplanning.sidebar.sort_week_backlog", "Week + Backlog")}</option>
+                <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
+                <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
+                <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
+              </select>
+            </div>
             <button 
               onClick={() => setShowArchived(!showArchived)}
               className={`px-3 py-2 rounded-lg border flex items-center gap-2 transition-all ${showArchived ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-400'}`}
@@ -339,6 +408,19 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
               >
                 {machines.map(m => <option key={m} value={m}>{m === "ALL" ? "Alle Machines" : m}</option>)}
+              </select>
+            </div>
+            <div className="relative flex-1">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value)}
+                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
+              >
+                <option value="week_backlog">{t("digitalplanning.sidebar.sort_week_backlog", "Week + Backlog")}</option>
+                <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
+                <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
+                <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
               </select>
             </div>
             <button 

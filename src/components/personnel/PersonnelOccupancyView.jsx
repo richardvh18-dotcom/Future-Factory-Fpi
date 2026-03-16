@@ -405,6 +405,30 @@ const PersonnelOccupancyView = ({
   };
 
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={48} /></div>;
+
+  const getPersonShiftForDate = (person, targetDateStr) => {
+    if (!person) return null;
+
+    let shiftId = person.shiftId || "DAGDIENST";
+
+    if (person.rotationSchedule?.enabled && person.rotationSchedule.shifts?.length > 0) {
+      const targetDate = parse(targetDateStr, "yyyy-MM-dd", new Date());
+      const targetWeek = getISOWeek(targetDate);
+      const startWeekNum = person.rotationSchedule.startWeek || 1;
+      const rotationShifts = person.rotationSchedule.shifts;
+      const weeksSinceStart = targetWeek - startWeekNum;
+      const shiftIndex = ((weeksSinceStart % rotationShifts.length) + rotationShifts.length) % rotationShifts.length;
+      shiftId = rotationShifts[shiftIndex];
+    }
+
+    return shiftId;
+  };
+
+  const getShiftLabelFromDept = (dept, shiftId) => {
+    if (!shiftId) return "?";
+    const shiftObj = (dept?.shifts || []).find(s => s.id === shiftId);
+    return shiftObj?.label || shiftId;
+  };
   
   const getShiftColor = (shiftLabel) => {
     const label = (shiftLabel || "").toUpperCase();
@@ -456,7 +480,7 @@ const PersonnelOccupancyView = ({
                 </div>
 
                 {expandedSections[dept.id] !== false && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 animate-in zoom-in-95 duration-200 text-left">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2 animate-in zoom-in-95 duration-200 text-left">
                         {dept.stations.map(station => {
                             const mId = station.name;
                             const isTL = mId.toLowerCase().includes("teamleader");
@@ -472,7 +496,7 @@ const PersonnelOccupancyView = ({
                             return (
                                 <div
                                   key={station.id}
-                                  className={`p-2 rounded-xl border-2 transition-all duration-500 relative flex flex-col shadow-sm h-80 ${isTL ? (isBusy ? 'bg-slate-900 border-amber-400 ring-4 ring-amber-400/10 shadow-xl' : 'bg-slate-900 border-slate-800 opacity-80 shadow-inner') : (isBusy ? 'bg-white border-blue-500 ring-4 ring-blue-50/50' : 'bg-white border-slate-100 hover:border-blue-200')}`}
+                                  className={`p-1.5 rounded-xl border-2 transition-all duration-500 relative flex flex-col shadow-sm h-64 lg:h-72 ${isTL ? (isBusy ? 'bg-slate-900 border-amber-400 ring-2 ring-amber-400/10 shadow-xl' : 'bg-slate-900 border-slate-800 opacity-80 shadow-inner') : (isBusy ? 'bg-white border-blue-500 ring-2 ring-blue-50/50' : 'bg-white border-slate-100 hover:border-blue-200')}`}
                                   style={{ cursor: editable ? 'pointer' : 'default' }}
                                   onClick={() => {
                                     if (editable) {
@@ -485,16 +509,16 @@ const PersonnelOccupancyView = ({
                                     }
                                   }}
                                 >
-                                    <div className="flex justify-between items-start mb-2 text-left shrink-0">
-                                        <div className="text-left"><span className={`text-[8px] font-black uppercase tracking-widest block mb-0.5 ${isTL ? 'text-amber-500 italic' : 'text-slate-400 opacity-60'}`}>{isTL ? 'Regie' : 'Station ID'}</span><h4 className={`text-sm font-black tracking-tighter italic uppercase truncate leading-none ${isTL ? 'text-white' : 'text-slate-900'}`}>{mId}</h4></div>
+                                    <div className="flex justify-between items-start mb-1.5 text-left shrink-0">
+                                      <div className="text-left"><span className={`text-[7px] font-black uppercase tracking-widest block mb-0.5 ${isTL ? 'text-amber-500 italic' : 'text-slate-400 opacity-60'}`}>{isTL ? 'Regie' : 'Station ID'}</span><h4 className={`text-[12px] font-black tracking-tighter italic uppercase truncate leading-none ${isTL ? 'text-white' : 'text-slate-900'}`}>{mId}</h4></div>
                                         {isTL ? <ShieldCheck size={16} className={isBusy ? 'text-amber-400' : 'text-slate-600'} /> : <Cpu size={16} className={isBusy ? 'text-blue-600' : 'text-slate-200'} />}
                                     </div>
-                                    <div className="space-y-1 mb-2 flex-1 text-left text-left overflow-y-auto pr-1 custom-scrollbar">
+                                    <div className="space-y-1 mb-1.5 flex-1 text-left text-left overflow-y-auto pr-1 custom-scrollbar">
                                         {Object.entries(byShift).map(([shiftKey, operators]) => {
                                           const shiftColors = getShiftColor(shiftKey);
                                           return (
                                             <div key={shiftKey} className="space-y-1">
-                                              <div className="flex items-center gap-2 mb-1">
+                                                <div className="flex items-center gap-1.5 mb-1">
                                                 <div className={`h-1 flex-1 rounded ${shiftColors.badge}`}></div>
                                                 <span className={`text-[8px] font-black uppercase tracking-wider ${shiftColors.text}`}>{shiftKey}</span>
                                                 <div className={`h-1 flex-1 rounded ${shiftColors.badge}`}></div>
@@ -508,10 +532,10 @@ const PersonnelOccupancyView = ({
                                                     setSelectedAssignment({ ...occ });
                                                     setEditAssignmentModalOpen(true);
                                                   }}
-                                                  className={`p-1.5 rounded-lg border flex flex-col gap-0.5 animate-in slide-in-from-right-1 cursor-pointer hover:scale-[1.02] transition-all ${isTL ? 'bg-white/5 border-white/10 text-white' : `${shiftColors.bg} ${shiftColors.border}`} ${occ.isLoan ? 'ring-2 ring-green-400' : `ring-1 ${shiftColors.ring}`}`}>
+                                                  className={`p-1 rounded-lg border flex flex-col gap-0.5 animate-in slide-in-from-right-1 cursor-pointer hover:scale-[1.02] transition-all ${isTL ? 'bg-white/5 border-white/10 text-white' : `${shiftColors.bg} ${shiftColors.border}`} ${occ.isLoan ? 'ring-2 ring-green-400' : `ring-1 ${shiftColors.ring}`}`}>
                                                     <div className="flex items-center justify-between text-left">
                                                         <div className="text-left overflow-hidden text-left flex-1">
-                                                            <h5 className={`text-[10px] font-black uppercase italic truncate mb-0.5 text-left ${isTL ? 'text-amber-400' : shiftColors.text}`}>{occ.operatorName || "Naamloos"}</h5>
+                                                            <h5 className={`text-[9px] font-black uppercase italic truncate mb-0.5 text-left ${isTL ? 'text-amber-400' : shiftColors.text}`}>{occ.operatorName || "Naamloos"}</h5>
                                                             <div className="flex items-center gap-1 opacity-70 text-left flex-wrap">
                                                                 <span className={`text-[6px] font-black px-1 py-0 rounded ${occ.isPloeg ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{occ.shift || (occ.isPloeg ? 'PLOEG' : 'DAG')}</span>
                                                                 <span className={`text-[6px] font-bold uppercase ${isTL ? 'text-slate-400' : 'text-slate-600'}`}>#{occ.operatorNumber || "?"}</span>
@@ -601,31 +625,13 @@ const PersonnelOccupancyView = ({
                   {personnel
                     .filter(p => {
                       if (!assignShift) return true;
-                      
-                      let pShiftId = p.shiftId;
-                      
-                      // Check rotatie voor de geselecteerde datum
-                      if (p.rotationSchedule?.enabled && p.rotationSchedule.shifts?.length > 0) {
-                         const targetDate = parse(dateToUse, "yyyy-MM-dd", new Date());
-                         const targetWeek = getISOWeek(targetDate);
-                         
-                         const startWeekNum = p.rotationSchedule.startWeek || 1;
-                         const rotationShifts = p.rotationSchedule.shifts;
-                         const weeksSinceStart = targetWeek - startWeekNum;
-                         const shiftIndex = ((weeksSinceStart % rotationShifts.length) + rotationShifts.length) % rotationShifts.length;
-                         pShiftId = rotationShifts[shiftIndex];
-                      }
-                      
+                      const pShiftId = getPersonShiftForDate(p, dateToUse);
                       return pShiftId === assignShift;
                     })
                     .sort((a,b) => a.name.localeCompare(b.name))
                     .map(p => {
-                        let displayLabel = p.shiftId;
-                        // Als we filteren op een shift, toon dan die shift naam, anders de default
-                        if (assignShift) {
-                            const shiftObj = (selectedDept.shifts || []).find(s => s.id === assignShift);
-                            if (shiftObj) displayLabel = shiftObj.label;
-                        }
+                        const effectiveShiftId = getPersonShiftForDate(p, dateToUse);
+                        const displayLabel = getShiftLabelFromDept(selectedDept, effectiveShiftId);
                         return (<option key={p.id} value={p.id}>{p.name} ({displayLabel || "?"})</option>);
                     })}
                 </select>
@@ -661,25 +667,7 @@ const PersonnelOccupancyView = ({
                       }
 
                       // Probeer shift te bepalen op basis van persoon
-                      let shiftIdToUse = assignShift;
-
-                      // Als er geen handmatige shift is gekozen, bepaal automatisch
-                      if (!shiftIdToUse) {
-                        if (person.rotationSchedule?.enabled && person.rotationSchedule.shifts?.length > 0) {
-                           // Rotatie logica: bereken shift voor de GESELECTEERDE datum
-                           const targetDate = parse(dateToUse, "yyyy-MM-dd", new Date());
-                           const targetWeek = getISOWeek(targetDate);
-                           
-                           const startWeekNum = person.rotationSchedule.startWeek || 1;
-                           const rotationShifts = person.rotationSchedule.shifts;
-                           const weeksSinceStart = targetWeek - startWeekNum;
-                           const shiftIndex = ((weeksSinceStart % rotationShifts.length) + rotationShifts.length) % rotationShifts.length;
-                           shiftIdToUse = rotationShifts[shiftIndex];
-                        } else {
-                           // Vaste shift
-                           shiftIdToUse = person.shiftId;
-                        }
-                      }
+                       let shiftIdToUse = assignShift || getPersonShiftForDate(person, dateToUse);
 
                       let shift = (selectedDept.shifts || []).find(s => s.id === shiftIdToUse);
                       
