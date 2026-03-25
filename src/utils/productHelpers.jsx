@@ -25,7 +25,7 @@ export const fetchProducts = async () => {
     orderBy("lastUpdated", "desc")
   );
   const snap = await getDocs(q);
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return snap.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 };
 
 export const addProduct = async (productData) => {
@@ -59,7 +59,9 @@ export const verifyProduct = async (
   currentUser,
   currentProductData
 ) => {
-  if (currentProductData.lastModifiedBy === currentUser?.uid) {
+  const isAdmin = String(currentUser?.role || "").toLowerCase() === "admin";
+
+  if (currentProductData.lastModifiedBy === currentUser?.uid && !isAdmin) {
     return {
       success: false,
       message: i18n.t("product.verify_own_change_error", "Vier-ogen principe: Je mag je eigen wijzigingen niet verifiëren."),
@@ -73,6 +75,7 @@ export const verifyProduct = async (
       name: currentUser.displayName || currentUser.name,
       timestamp: serverTimestamp(),
     },
+    selfVerifiedByAdmin: currentProductData.lastModifiedBy === currentUser?.uid && isAdmin,
     active: true,
     lastUpdated: serverTimestamp(),
   });

@@ -56,6 +56,9 @@ const prepareDataForSave = (data) => {
   };
 };
 
+const normalizeCode = (value) => String(value || "").trim().toUpperCase();
+const compactCode = (value) => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+
 // --- CORE LOGICA VOOR DASHBOARD & TOOLS ---
 
 /**
@@ -63,29 +66,77 @@ const prepareDataForSave = (data) => {
  */
 export const lookupProductByManufacturedId = async (unusedAppId, inputCode) => {
   if (!inputCode) return null;
-  const cleanCode = inputCode.trim();
+  const rawCode = String(inputCode).trim();
+  const normalizedCode = normalizeCode(rawCode);
+  const compactNormalizedCode = compactCode(rawCode);
+
+  if (!normalizedCode) return null;
 
   try {
     const recordsRef = collection(db, ...PATHS.CONVERSION_MATRIX);
 
-    // 1. Directe hit op Document ID (Manufactured ID)
-    const docRef = doc(db, ...PATHS.CONVERSION_MATRIX, cleanCode);
-    const snapshot = await getDoc(docRef);
+    const toResult = (snap, matchType) => ({
+      ...snap.data(),
+      matchType,
+      id: snap.id,
+    });
 
-    if (snapshot.exists()) {
-      return { ...snapshot.data(), matchType: "old_code", id: snapshot.id };
+    // 0. Directe hit op mogelijke document IDs (raw / upper / compact)
+    const docIdCandidates = Array.from(
+      new Set([rawCode, normalizedCode, compactNormalizedCode].filter(Boolean))
+    );
+    for (const candidate of docIdCandidates) {
+      const docRef = doc(db, ...PATHS.CONVERSION_MATRIX, candidate);
+      const snapshot = await getDoc(docRef);
+      if (snapshot.exists()) {
+        return toResult(snapshot, "old_code");
+      }
     }
 
-    // 2. Zoek in de collectie op Target Product ID
-    const q = query(recordsRef, where("targetProductId", "==", cleanCode));
-    const querySnap = await getDocs(q);
+    // 1. Exacte match op Manufactured ID veld
+    const qOldExact = query(recordsRef, where("manufacturedId", "==", rawCode));
+    const qOldExactSnap = await getDocs(qOldExact);
+    if (!qOldExactSnap.empty) {
+      return toResult(qOldExactSnap.docs[0], "old_code_field");
+    }
 
-    if (!querySnap.empty) {
-      return {
-        ...querySnap.docs[0].data(),
-        matchType: "new_code",
-        id: querySnap.docs[0].id,
-      };
+    // 2. Exacte match op genormaliseerde Manufactured ID
+    if (normalizedCode !== rawCode) {
+      const qOldNormalized = query(recordsRef, where("manufacturedId", "==", normalizedCode));
+      const qOldNormalizedSnap = await getDocs(qOldNormalized);
+      if (!qOldNormalizedSnap.empty) {
+        return toResult(qOldNormalizedSnap.docs[0], "old_code_field_normalized");
+      }
+    }
+
+    // 3. Exacte match op Target Product ID (raw / upper)
+    const qNewRaw = query(recordsRef, where("targetProductId", "==", rawCode));
+    const qNewRawSnap = await getDocs(qNewRaw);
+    if (!qNewRawSnap.empty) {
+      return toResult(qNewRawSnap.docs[0], "new_code");
+    }
+
+    if (normalizedCode !== rawCode) {
+      const qNewNormalized = query(recordsRef, where("targetProductId", "==", normalizedCode));
+      const qNewNormalizedSnap = await getDocs(qNewNormalized);
+      if (!qNewNormalizedSnap.empty) {
+        return toResult(qNewNormalizedSnap.docs[0], "new_code_normalized");
+      }
+    }
+
+    // 4. Fallback via searchTerms (uppercase codes)
+    const qSearchNormalized = query(recordsRef, where("searchTerms", "array-contains", normalizedCode));
+    const qSearchNormalizedSnap = await getDocs(qSearchNormalized);
+    if (!qSearchNormalizedSnap.empty) {
+      return toResult(qSearchNormalizedSnap.docs[0], "search_term");
+    }
+
+    if (compactNormalizedCode && compactNormalizedCode !== normalizedCode) {
+      const qSearchCompact = query(recordsRef, where("searchTerms", "array-contains", compactNormalizedCode));
+      const qSearchCompactSnap = await getDocs(qSearchCompact);
+      if (!qSearchCompactSnap.empty) {
+        return toResult(qSearchCompactSnap.docs[0], "search_term_compact");
+      }
     }
 
     return null;

@@ -24,7 +24,7 @@ import { VERIFICATION_STATUS } from "../../data/constants";
  * Toont de productcatalogus uit de root: /future-factory/production/products/
  * Bevat gegroepeerde weergave en verificatie-workflow.
  */
-const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
+const AdminProductListView = ({ products = [], onDelete, onEdit, onRefresh, user }) => {
   const { t } = useTranslation();
   const [processingId, setProcessingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -85,15 +85,35 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
     setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
+  const handleEditClick = (event, product) => {
+    event.stopPropagation();
+    if (onEdit) onEdit(product);
+  };
+
+  const handleDeleteClick = (event, productId) => {
+    event.stopPropagation();
+    if (typeof onDelete === "function") {
+      onDelete(productId);
+    }
+  };
+
   const handleVerify = async (product) => {
     if (!user) return;
     setProcessingId(product.id);
     try {
       // De helper 'verifyProduct' schrijft direct naar de nieuwe root
       const result = await verifyProduct(product.id, user, product);
-      if (!result.success) alert(result.message);
+      if (!result.success) {
+        alert(result.message);
+      } else {
+        if (typeof onRefresh === "function") {
+          await onRefresh();
+        }
+        alert("Product succesvol geverifieerd.");
+      }
     } catch (error) {
       console.error("Verificatie fout:", error);
+      alert(`Verificatie mislukt: ${error?.message || "Onbekende fout"}`);
     } finally {
       setProcessingId(null);
     }
@@ -319,9 +339,10 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                             </td>
 
                             <td className="px-8 py-5 text-right">
-                              <div className="flex justify-end items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                              <div className="flex justify-end items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
                                 {canVerify(p) && (
                                   <button
+                                    type="button"
                                     onClick={() => handleVerify(p)}
                                     disabled={processingId === p.id}
                                     className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all active:scale-95 disabled:opacity-50"
@@ -338,14 +359,16 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                                   </button>
                                 )}
                                 <button
-                                  onClick={() => onEdit && onEdit(p)}
+                                  type="button"
+                                  onClick={(event) => handleEditClick(event, p)}
                                   className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
                                   title={t('adminProductListView.edit')}
                                 >
                                   <Edit2 size={18} />
                                 </button>
                                 <button
-                                  onClick={() => onDelete(p.id)}
+                                  type="button"
+                                  onClick={(event) => handleDeleteClick(event, p.id)}
                                   className="p-3 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                                   title={t('adminProductListView.deleteFromRoot')}
                                 >

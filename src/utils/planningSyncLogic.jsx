@@ -35,7 +35,15 @@ export const syncMissingDrawings = async (appId, onProgress) => {
 
     for (let i = 0; i < total; i++) {
       const order = ordersToCheck[i];
-      const planningCode = order.productId || order.manufacturedId;
+      const planningCode = [
+        order.productId,
+        order.manufacturedId,
+        order.itemCode,
+        order.item,
+        order.articleCode,
+      ]
+        .map((v) => String(v || "").trim())
+        .find(Boolean);
 
       if (planningCode) {
         const conversion = await lookupProductByManufacturedId(
@@ -43,8 +51,12 @@ export const syncMissingDrawings = async (appId, onProgress) => {
           planningCode
         );
 
-        if (conversion && conversion.targetProductId) {
-          const newCode = conversion.targetProductId;
+        const resolvedCode = conversion?.targetProductId
+          ? String(conversion.targetProductId).trim()
+          : String(planningCode).trim();
+
+        if (resolvedCode) {
+          const newCode = resolvedCode;
 
           let pdfUrl = null;
           let productDoc = null;
@@ -69,16 +81,19 @@ export const syncMissingDrawings = async (appId, onProgress) => {
             productDoc.sourcePdfs &&
             productDoc.sourcePdfs.length > 0
           ) {
-            pdfUrl = productDoc.sourcePdfs[0].url;
+            const firstPdf = productDoc.sourcePdfs[0];
+            pdfUrl = typeof firstPdf === "string" ? firstPdf : firstPdf?.url || null;
           }
 
           // 2. Update Order (in digital_planning)
           const orderRef = doc(db, ...PATHS.PLANNING, order.id);
 
-          const updateData = {
-            articleCode: newCode,
-            isConverted: true,
-          };
+          const updateData = {};
+
+          if (conversion?.targetProductId) {
+            updateData.articleCode = newCode;
+            updateData.isConverted = true;
+          }
 
           if (pdfUrl) {
             updateData.drawingUrl = pdfUrl;
@@ -88,9 +103,11 @@ export const syncMissingDrawings = async (appId, onProgress) => {
           if (!order.description && conversion.description)
             updateData.description = conversion.description;
 
-          batch.update(orderRef, updateData);
-          batchCount++;
-          stats.updated++;
+          if (Object.keys(updateData).length > 0) {
+            batch.update(orderRef, updateData);
+            batchCount++;
+            stats.updated++;
+          }
         }
       }
 

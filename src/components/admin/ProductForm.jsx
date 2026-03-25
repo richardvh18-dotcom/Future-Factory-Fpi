@@ -46,6 +46,55 @@ const getTypeAbbr = (t) => {
   return map[t] || (t ? t.substring(0, 3) : "");
 };
 
+const normalizeProductType = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const normalized = raw.toLowerCase();
+  const aliasMap = {
+    elbow: "Elbow",
+    elb: "Elbow",
+    tee: "Tee",
+    "t-equal": "T-Equal",
+    "tequal": "T-Equal",
+    "t-unequal": "T-Unequal",
+    "tunequal": "T-Unequal",
+    "y-piece": "Y-Piece",
+    ypiece: "Y-Piece",
+    coupler: "Coupler",
+    cpl: "Coupler",
+    reducer: "Reducer",
+    flange: "Flange",
+    endcap: "EndCap",
+    "end cap": "EndCap",
+    socket: "Socket",
+    nipple: "Nipple",
+    adaptor: "Adaptor",
+    adapter: "Adaptor",
+  };
+
+  return aliasMap[normalized] || raw;
+};
+
+const buildGeneratedProductName = (productData) => {
+  const normalizedType = normalizeProductType(productData?.type);
+  const typeStr = getTypeAbbr(normalizedType);
+  const dnStr = productData?.dn
+    ? (productData?.dn2 ? `${productData.dn}x${productData.dn2}` : productData.dn)
+    : "";
+  const radiusStr = productData?.radius ? `R${String(productData.radius).replace("D", "")}` : "";
+  const angleVal = productData?.angle || productData?.specs?.alpha || productData?.specs?.angle || "";
+  const angleStr = angleVal ? `/${angleVal}` : "";
+  const pnStr = productData?.pn ? `PN${productData.pn}` : "";
+  const connStr = formatConnection(productData?.connection);
+
+  let generatedName = `${typeStr} ${dnStr}${radiusStr}${angleStr}`;
+  if (pnStr) generatedName += ` ${pnStr}`;
+  if (connStr) generatedName += ` ${connStr}`;
+
+  return generatedName.replace(/\s+/g, " ").trim();
+};
+
 const formatConnection = (c) => {
   if (!c) return "";
   const clean = c.replace(/[^a-zA-Z0-9]/g, "");
@@ -71,6 +120,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     generalConfig,
   } = useSettingsData(user);
   const [saving, setSaving] = useState(false);
+  const isAdminUser = String(user?.role || "").toLowerCase() === "admin";
 
   const productTypes = generalConfig?.product_names || ALL_PRODUCT_TYPES;
   const connectionTypes = generalConfig?.connections || CONNECTION_TYPES;
@@ -101,6 +151,9 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     verificationStatus: VERIFICATION_STATUS.PENDING,
     assignedVerifier: "",
   });
+  const [adminOverride4Eyes, setAdminOverride4Eyes] = useState(false);
+  const normalizedFormType = normalizeProductType(formData.type);
+  const generatedProductName = buildGeneratedProductName({ ...formData, type: normalizedFormType });
 
   // LN Search State
   const [lnSearchResults, setLnSearchResults] = useState([]);
@@ -212,27 +265,13 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       return;
     }
 
-    const typeStr = getTypeAbbr(formData.type);
-    const dnStr = formData.dn ? (formData.dn2 ? `${formData.dn}x${formData.dn2}` : formData.dn) : "";
-    const radiusStr = formData.radius ? "R" + formData.radius.replace("D", "") : "";
-    const angleVal = formData.angle || formData.specs?.alpha || formData.specs?.angle || "";
-    const angleStr = angleVal ? `/${angleVal}` : "";
-    const pnStr = formData.pn ? `PN${formData.pn}` : "";
-    const connStr = formatConnection(formData.connection);
-
-    // Constructie: Elb 400R1.5/45 PN20 CBCB
-    let generatedName = `${typeStr} ${dnStr}${radiusStr}${angleStr}`;
-    if (pnStr) generatedName += ` ${pnStr}`;
-    if (connStr) generatedName += ` ${connStr}`;
-
-    generatedName = generatedName.replace(/\s+/g, " ").trim();
-
     setFormData((prev) => ({
       ...prev,
-      name: generatedName,
-      displayId: prev.displayId && prev.displayId !== "" ? prev.displayId : generatedName,
+      type: normalizedFormType,
+      name: generatedProductName,
+      displayId: prev.displayId && prev.displayId !== "" ? prev.displayId : generatedProductName,
     }));
-  }, [formData.type, formData.dn, formData.dn2, formData.pn, formData.angle, formData.radius, formData.specs, formData.connection]);
+  }, [normalizedFormType, generatedProductName, initialData]);
 
   // 3. Matrix Validatie: Beschikbare PN's ophalen o.b.v. Verbinding
   const availablePNs = useMemo(() => {
@@ -290,7 +329,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   // 5. Auto-fetch Specs uit Matrix/Database
   useEffect(() => {
     const fetchSpecs = async () => {
-      if (!formData.type || !formData.dn || !formData.pn || !formData.connection) return;
+      if (!normalizedFormType || !formData.dn || !formData.pn || !formData.connection) return;
 
       const connKey = formData.connection.split("/")[0].toUpperCase();
       const pnStr = `PN${formData.pn}`;
@@ -303,7 +342,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       const bellId = `${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
       
       // Generieke Fitting ID: TYPE_[ANGLE_]CONN_PN_ID
-      let fittingId = `${formData.type.toUpperCase()}`;
+      let fittingId = `${normalizedFormType.toUpperCase()}`;
       if (formData.angle) {
         fittingId += `_${formData.angle}`;
       }
@@ -342,7 +381,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         // 3. Haal Socket maten op (Stream 3)
         // Generiek patroon voor alle fittings: TYPE_SOCKET_CONN_PN_ID
         if (PATHS.SOCKET_SPECS) {
-          const socketId = `${formData.type.toUpperCase()}_SOCKET_${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
+          const socketId = `${normalizedFormType.toUpperCase()}_SOCKET_${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
           const socketDocRef = doc(db, ...PATHS.SOCKET_SPECS, socketId);
           const socketSnap = await getDoc(socketDocRef);
           if (socketSnap.exists()) {
@@ -352,7 +391,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         }
 
         // 4. Haal Flens maten op (Stream 4 - Flens)
-        const isFlange = formData.type.toLowerCase().includes("flange") || formData.connection.toLowerCase().includes("flange");
+        const isFlange = normalizedFormType.toLowerCase().includes("flange") || formData.connection.toLowerCase().includes("flange");
         if (isFlange && PATHS.BORE_DIMENSIONS) {
           const q = query(
             collection(db, ...PATHS.BORE_DIMENSIONS), 
@@ -378,7 +417,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       }
     };
     fetchSpecs();
-  }, [formData.type, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode]);
+  }, [normalizedFormType, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode]);
 
   // 5b. LN Code Search Effect (Live)
   useEffect(() => {
@@ -428,7 +467,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   // 5c. Auto-link Infor-LN Code based on configuration
   useEffect(() => {
     const autoLink = async () => {
-      if (!formData.type || !formData.dn || !formData.pn) return;
+      if (!normalizedFormType || !formData.dn || !formData.pn) return;
 
       try {
         // Query Conversion Matrix by DN and PN
@@ -456,7 +495,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         const candidates = snapshot.docs.map(d => d.data());
         
         // Client-side filtering
-        const formType = (formData.type || "").toLowerCase();
+        const formType = normalizedFormType.toLowerCase();
         const formEnds = (formData.connection || "").toLowerCase();
         const formSerie = (formData.extraCode || "").toLowerCase();
         const formAngle = formData.angle;
@@ -536,21 +575,26 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
     const timer = setTimeout(autoLink, 800);
     return () => clearTimeout(timer);
-  }, [formData.type, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode, formData.radius]);
+  }, [normalizedFormType, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode, formData.radius]);
 
   // 6. Opslaan naar Root
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.dn || !formData.pn) {
+    if (!normalizedFormType || !generatedProductName || !formData.dn || !formData.pn) {
       alert(t('productForm.fill_required'));
       return;
     }
 
     setSaving(true);
     try {
+      const useAdminOverride = isAdminUser && adminOverride4Eyes;
+      const resolvedProductType = normalizedFormType;
+      const resolvedProductName = buildGeneratedProductName({ ...formData, type: resolvedProductType });
+      const resolvedDisplayId = formData.displayId && formData.displayId !== "" ? formData.displayId : resolvedProductName;
+
       const productId =
         initialData?.id ||
-        `${formData.type}_ID${formData.dn}_${Date.now()}`.replace(
+        `${resolvedProductType}_ID${formData.dn}_${Date.now()}`.replace(
           /[^a-zA-Z0-9]/g,
           "_"
         );
@@ -558,18 +602,18 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
       // Bepaal opslagpad en metadata voor bibliotheek structuur
       const getStorageInfo = () => {
-        const typeFolder = (formData.type || "Other").replace(/\s+/g, "_");
+        const typeFolder = (resolvedProductType || "Other").replace(/\s+/g, "_");
         const angleSuffix = formData.angle ? `_${formData.angle}` : "";
         const connFolder = (formData.connection || "None").replace(/\//g, "-");
         
         // Label voor hergebruik (metadata)
-        const label = `${getTypeAbbr(formData.type)} ${formData.angle || ""} ${formatConnection(formData.connection)}`.trim();
+        const label = `${getTypeAbbr(resolvedProductType)} ${formData.angle || ""} ${formatConnection(formData.connection)}`.trim();
 
         return {
             basePath: `product_library/${typeFolder}${angleSuffix}/${connFolder}`,
             metadata: {
                 customMetadata: {
-                    productType: formData.type,
+                    productType: resolvedProductType,
                     connection: formData.connection,
                     angle: formData.angle || "",
                     label: label,
@@ -605,12 +649,19 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       }
 
       // Bepaal verificatie status (Altijd PENDING voor 4-ogen principe)
-      // Ook admins moeten nu verifiëren (of geverifieerd worden)
-      const finalStatus = VERIFICATION_STATUS.PENDING;
+      // Tijdelijke admin override kan status direct op VERIFIED zetten.
+      const finalStatus = useAdminOverride
+        ? VERIFICATION_STATUS.VERIFIED
+        : VERIFICATION_STATUS.PENDING;
 
       // Filter out spec fields and temporary file objects before saving
       // We want to store ONLY identification and system links, specs should be live fetched.
-      const cleanFormData = { ...formData };
+      const cleanFormData = {
+        ...formData,
+        type: resolvedProductType,
+        name: resolvedProductName,
+        displayId: resolvedDisplayId,
+      };
       delete cleanFormData.specs;
       delete cleanFormData.bellSpecs;
       delete cleanFormData.fittingSpecs;
@@ -637,8 +688,24 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
           lastUpdated: serverTimestamp(),
           lastModifiedBy: user?.uid || "system",
           verificationStatus: initialData
-            ? VERIFICATION_STATUS.PENDING
+            ? finalStatus
             : finalStatus,
+          verifiedBy: useAdminOverride
+            ? {
+                uid: user?.uid || "system",
+                name: user?.displayName || user?.name || user?.email || "Admin",
+                timestamp: serverTimestamp(),
+              }
+            : deleteField(),
+          fourEyesOverride: useAdminOverride,
+          fourEyesOverrideBy: useAdminOverride
+            ? {
+                uid: user?.uid || "system",
+                name: user?.displayName || user?.name || user?.email || "Admin",
+                timestamp: serverTimestamp(),
+                reason: "Tijdelijke admin override voor catalogusvalidatie",
+              }
+            : deleteField(),
           active: true,
         },
         { merge: true }
@@ -650,8 +717,8 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         if (verifier && verifier.email) {
            await addDoc(collection(db, ...PATHS.MESSAGES), {
             to: verifier.email,
-            subject: t('productForm.verification_request') + formData.name,
-            content: t('productForm.new_product_verification', { name: formData.name }),
+            subject: t('productForm.verification_request') + resolvedProductName,
+            content: t('productForm.new_product_verification', { name: resolvedProductName }),
             type: "validation_alert",
             priority: "urgent",
             read: false,
@@ -815,7 +882,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 </div>
 
                 {/* Conditional Fields for Elbow */}
-                {formData.type?.toLowerCase().includes("elbow") && (
+                {normalizedFormType.toLowerCase().includes("elbow") && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-400 uppercase ml-2">{t('productForm.degrees_angle')}</label>
@@ -980,7 +1047,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                   <input
                     readOnly
                     className="w-full p-4 bg-white/5 border border-white/10 rounded-xl font-black text-lg text-white italic tracking-tighter outline-none"
-                    value={formData.name}
+                    value={generatedProductName}
                   />
                 </div>
                 <div className="space-y-1.5 text-left relative">
@@ -1175,6 +1242,20 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                     {t('productForm.verifier_note')}
                   </p>
               </div>
+
+              {isAdminUser && (
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={adminOverride4Eyes}
+                    onChange={(e) => setAdminOverride4Eyes(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <span className="text-[11px] font-bold text-amber-800 leading-relaxed">
+                    Tijdelijke Admin Override (4-ogen): direct als geverifieerd opslaan voor test van catalogus/tekeningen.
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* Informatieve Voetnoot */}

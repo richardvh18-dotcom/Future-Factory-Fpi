@@ -11,8 +11,6 @@ import {
 import AdminProductListView from "./AdminProductListView";
 import ProductForm from "./ProductForm";
 import {
-  addProduct,
-  updateProduct,
   deleteProduct,
 } from "../../utils/productHelpers";
 import { useProductsData } from "../../hooks/useProductsData";
@@ -66,15 +64,9 @@ const AdminProductManager = ({ user }) => {
     }
   };
 
-  const handleSave = async (productData) => {
+  const handleSave = async () => {
     setActionLoading(true);
     try {
-      if (selectedProduct && selectedProduct.id) {
-        await updateProduct(selectedProduct.id, productData);
-      } else {
-        await addProduct(productData);
-      }
-
       handleCancel();
       if (refresh) await refresh();
     } catch (error) {
@@ -144,6 +136,7 @@ const AdminProductManager = ({ user }) => {
               products={products}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onRefresh={refresh}
               user={user}
             />
           )}

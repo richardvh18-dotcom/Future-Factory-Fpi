@@ -164,6 +164,52 @@ const TerminalPlanningView = ({
   const [missingItems, setMissingItems] = React.useState([]);
   const [showMissingModal, setShowMissingModal] = React.useState(false);
 
+  const handleSyncDrawings = async () => {
+    if (isSyncing) return;
+
+    setIsSyncing(true);
+    setSyncProgress(0);
+    setMissingItems([]);
+    setShowMissingModal(false);
+
+    try {
+      const results = await manualSyncDrawings((current, total, partialResults) => {
+        const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+        setSyncProgress(pct);
+
+        if (Array.isArray(partialResults)) {
+          const partialMissing = partialResults
+            .filter((r) => r && r.found === false)
+            .map((r) => r.code)
+            .filter(Boolean);
+          setMissingItems(partialMissing);
+        }
+      });
+
+      const foundCount = (results || []).filter((r) => r?.found).length;
+      const notFoundCodes = (results || [])
+        .filter((r) => r && r.found === false)
+        .map((r) => r.code)
+        .filter(Boolean);
+
+      setMissingItems(notFoundCodes);
+
+      if (notFoundCodes.length > 0) {
+        setShowMissingModal(true);
+      }
+
+      alert(
+        `Sync gereed. Matches: ${foundCount}. Niet gevonden: ${notFoundCodes.length}.`
+      );
+    } catch (error) {
+      console.error("Sync tekeningen mislukt:", error);
+      alert(`Sync mislukt: ${error?.message || "Onbekende fout"}`);
+    } finally {
+      setIsSyncing(false);
+      setSyncProgress(0);
+    }
+  };
+
   // Scroll selected item into view
   useEffect(() => {
     if (selectedOrderId && itemRefs.current[selectedOrderId]) {
@@ -246,11 +292,18 @@ const TerminalPlanningView = ({
             )}
 
             <button
-              onClick={() => setIsSyncing(true)}
+              onClick={handleSyncDrawings}
+              disabled={isSyncing}
               className="p-3 rounded-2xl border border-slate-100 bg-white text-slate-400 hover:text-blue-600 transition-all"
+              title={isSyncing ? `Sync bezig... ${syncProgress}%` : "Sync tekeningen"}
             >
               <RefreshCw size={18} className={isSyncing ? "animate-spin" : ""} />
             </button>
+            {isSyncing && (
+              <span className="px-2 py-1 text-[10px] font-black rounded-lg bg-blue-50 text-blue-700 border border-blue-100">
+                {syncProgress}%
+              </span>
+            )}
           </div>
         </div>
 
@@ -515,6 +568,39 @@ const TerminalPlanningView = ({
           </div>
         )}
       </div>
+
+      {showMissingModal && (
+        <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-black text-slate-900 uppercase">Niet Gekoppelde Codes</h3>
+              <button
+                type="button"
+                onClick={() => setShowMissingModal(false)}
+                className="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 font-bold text-xs uppercase"
+              >
+                Sluiten
+              </button>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Deze codes zijn tijdens de sync nog niet gevonden in catalogus/conversiematrix.
+            </p>
+            <div className="max-h-72 overflow-y-auto border border-slate-100 rounded-xl p-3 bg-slate-50">
+              {missingItems.length === 0 ? (
+                <p className="text-sm text-slate-500 italic">Alles gekoppeld.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {missingItems.slice(0, 200).map((code, idx) => (
+                    <li key={`${code}-${idx}`} className="text-xs font-mono text-slate-700">
+                      {code}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
