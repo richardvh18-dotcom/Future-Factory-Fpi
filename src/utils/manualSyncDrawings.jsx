@@ -3,6 +3,47 @@ import { db } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import i18n from "../i18n";
 
+const normalizeCode = (value) => String(value || "").trim().toUpperCase();
+const compactCode = (value) => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+
+const isLikelyCodeValue = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  if (raw.length < 6) return false;
+  if (/\s/.test(raw)) return false;
+
+  const normalized = normalizeCode(raw);
+  const hasLetter = /[A-Z]/.test(normalized);
+  const hasDigit = /\d/.test(normalized);
+  return hasLetter && hasDigit;
+};
+
+const buildLookupKeys = (value) => {
+  const raw = String(value || "").trim();
+  const normalized = normalizeCode(raw);
+  const compact = compactCode(raw);
+
+  const keys = new Set([normalized, compact].filter(Boolean));
+
+  if (normalized.includes("_")) {
+    const tokens = normalized
+      .split("_")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    tokens.forEach((token) => {
+      keys.add(token);
+      const compactToken = compactCode(token);
+      if (compactToken) keys.add(compactToken);
+    });
+
+    const lastToken = tokens[tokens.length - 1];
+    if (lastToken) keys.add(lastToken);
+  }
+
+  return Array.from(keys);
+};
+
 /**
  * Zoekt naar overeenkomsten tussen Planning items en Product Catalogus
  * en slaat deze op in de Conversion Matrix zodat ze direct vindbaar zijn.
@@ -46,7 +87,7 @@ export const manualSyncDrawings = async (onProgress) => {
       ];
 
       candidates.forEach(({ field, value }) => {
-        if (value) {
+        if (value && isLikelyCodeValue(value)) {
           const codeStr = String(value).trim();
           if (codeStr) {
             uniqueItems.add(codeStr);
@@ -86,16 +127,11 @@ export const manualSyncDrawings = async (onProgress) => {
       // Helper om te indexeren met normalisatie (fuzzy match support)
       const addToIndex = (key) => {
           if(!key) return;
-          const normalized = String(key).trim().toUpperCase();
-          if(normalized) {
-            productsByCode.set(normalized, productData);
-            // Ook 'stripped' versie indexeren (alleen letters/cijfers) voor fuzzy match
-            // Bijv: "ABC-123" wordt "ABC123"
-            const stripped = normalized.replace(/[^A-Z0-9]/g, "");
-            if (stripped && stripped !== normalized && !productsByCode.has(stripped)) {
-                productsByCode.set(stripped, productData);
+          buildLookupKeys(key).forEach((lookupKey) => {
+            if (lookupKey) {
+              productsByCode.set(lookupKey, productData);
             }
-          }
+          });
       };
 
       // 1. Naam (laagste prioriteit)
@@ -119,10 +155,30 @@ export const manualSyncDrawings = async (onProgress) => {
     conversionsSnap.docs.forEach(doc => {
         const c = doc.data();
         if (c.targetProductId) {
-            const target = String(c.targetProductId).trim().toUpperCase();
-            // Indexeer op manufacturedId (Old Code) en Document ID
-            if (c.manufacturedId) conversionsByOldCode.set(String(c.manufacturedId).trim().toUpperCase(), target);
-            conversionsByOldCode.set(doc.id.trim().toUpperCase(), target);
+            const target = normalizeCode(c.targetProductId);
+            const targetCompact = compactCode(c.targetProductId);
+            const targetKeys = [target, targetCompact].filter(Boolean);
+
+            const indexSource = (source) => {
+              buildLookupKeys(source).forEach((sourceKey) => {
+                if (sourceKey && targetKeys.length > 0) {
+                  if (!conversionsByOldCode.has(sourceKey)) {
+                    conversionsByOldCode.set(sourceKey, new Set());
+                  }
+                  const targetSet = conversionsByOldCode.get(sourceKey);
+                  targetKeys.forEach((targetKey) => {
+                    if (targetKey) targetSet.add(targetKey);
+                  });
+                }
+              });
+            };
+
+            // Indexeer op manufacturedId (Old Code), Document ID en zoektermen
+            if (c.manufacturedId) indexSource(c.manufacturedId);
+            indexSource(doc.id);
+            if (Array.isArray(c.searchTerms)) {
+              c.searchTerms.forEach(indexSource);
+            }
         }
     });
     console.log(i18n.t("manualsync.conversion_count", "Conversie matrix geladen: {count} regels.", { count: conversionsByOldCode.size }));
@@ -135,24 +191,36 @@ export const manualSyncDrawings = async (onProgress) => {
     for (const itemCode of uniqueItems) {
       current++;
 
-      const cleanCode = String(itemCode).trim().toUpperCase();
-      let match = productsByCode.get(cleanCode);
-      let usedConversion = false;
+      const cleanCode = normalizeCode(itemCode);
+      const lookupKeys = buildLookupKeys(itemCode);
 
-      // Fallback: Probeer stripped versie als exacte match faalt
-      if (!match) {
-         const stripped = cleanCode.replace(/[^A-Z0-9]/g, "");
-         if (stripped !== cleanCode) {
-             match = productsByCode.get(stripped);
-         }
-      }
+      const findProductByKeys = (keys) => {
+        for (const key of keys) {
+          const hit = productsByCode.get(key);
+          if (hit) return hit;
+        }
+        return null;
+      };
+
+      let match = findProductByKeys(lookupKeys);
+      let usedConversion = false;
 
       // Fallback 2: Probeer via Conversie Matrix (Old Code -> New Code -> Product)
       if (!match) {
-          const targetCode = conversionsByOldCode.get(cleanCode);
-          if (targetCode) {
-              match = productsByCode.get(targetCode);
-              if (match) usedConversion = true;
+          for (const sourceKey of lookupKeys) {
+            const targetCodes = Array.from(conversionsByOldCode.get(sourceKey) || []);
+            if (targetCodes.length > 0) {
+              for (const targetCode of targetCodes) {
+                match = findProductByKeys(buildLookupKeys(targetCode));
+                if (match) {
+                  usedConversion = true;
+                  break;
+                }
+              }
+              if (match) {
+                break;
+              }
+            }
           }
       }
 

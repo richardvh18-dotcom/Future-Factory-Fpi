@@ -286,6 +286,19 @@ Praktische keuzehulp:
 
 ## Korte Historie
 
+### 25 maart 2026 — sessie 13 (vervolg)
+- Sync issue nog open: handmatige tekeningsync meldt nog steeds 0 matches in praktijktest.
+- Reeds aangebrachte fixes in `manualSyncDrawings.jsx`:
+    - robuustere normalisatie (`normalized`, `compact`, tokenized keys)
+    - filtering van niet-code waardes (zoals productomschrijvingen met spaties)
+    - conversie-fallback uitgebreid naar meerdere targetcodes per broncode
+- Specifieke case bevestigd door gebruiker:
+    - broncode `EL9AESS08R03E0BCCBB0`
+    - conversiematrix bevat o.a. `ELMO90ES00WMST080000320CB0` en `ELMO90CS00WMST080000320CB0`
+    - catalogus bevat `articleCode = ELMO90CS00WMST080000320CB0` met gekoppelde tekening
+- Ondanks bovenstaande fixset wordt in UI nog geen match getoond; debugging wordt in volgende sessie hervat.
+- Gebruiker stopt hier tijdelijk en pakt sync-analyse later weer op.
+
 ### 25 maart 2026 — sessie 12
 - Vite devserver gestart op poort 3000 voor vervolgvalidatie
 - Bereikbaarheid bevestigd via:
