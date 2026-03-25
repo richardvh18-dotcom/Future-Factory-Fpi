@@ -68,8 +68,7 @@ const getPreviewTextLayout = (element, content, labelWidthMm, printerDpi = 203) 
       elementHeightDots,
       Math.round(fontHeight * 0.85)
     );
-    x = x - verticalCompensation + mmToDots(1);
-    y += mmToDots(2);
+    x = x - verticalCompensation + mmToDots(5);
   }
 
   x = Math.max(printableMinX, Math.min(x, printableMaxX));
@@ -94,6 +93,8 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi 
       {label.elements?.map((el, index) => {
         const resolved = resolveLabelContent(el, data);
         const displayContent = resolved.content;
+        const rotation = ((Number(el.rotation) || 0) % 360 + 360) % 360;
+        const isVerticalRotation = rotation === 90 || rotation === 270;
         const previewTextLayout = el.type === "text"
           ? getPreviewTextLayout(el, displayContent, label.width, printerDpi)
           : null;
@@ -108,13 +109,29 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi 
             ? `${el.height * PIXELS_PER_MM * zoom}px`
             : "auto",
           color: "black",
-          transform: `rotate(${el.rotation || 0}deg)`,
+          transform: `rotate(${rotation}deg)`,
           transformOrigin: "top left",
           overflow: "hidden",
           textAlign: "left",
         };
 
-        if (el.type === "text")
+        if (el.type === "text") {
+          const fontSizePx = Math.max(1, dotsToPx(previewTextLayout.fontHeight));
+          const lineHeightMultiplier = 1.12;
+          const lineHeightPx = fontSizePx * lineHeightMultiplier;
+          const configuredMaxLines = Math.max(1, Number(el.maxLines) || 1);
+          const minTextHeightPx = Math.ceil(lineHeightPx * configuredMaxLines);
+          const baseHeightPx = el.height ? (el.height * PIXELS_PER_MM * zoom) : null;
+          const resolvedHeightPx = baseHeightPx
+            ? Math.max(baseHeightPx, minTextHeightPx)
+            : minTextHeightPx;
+
+          const isLargeLabel = (Number(label.height) || 0) >= 50;
+          const minVerticalMm = isLargeLabel ? 55 : 30;
+          // Zorg ervoor minWidth niet groter is dan werkelijke object-breedte
+          const constrainedMinVerticalMm = Math.min(minVerticalMm, Number(el.width) || minVerticalMm);
+          const minVerticalPx = constrainedMinVerticalMm * PIXELS_PER_MM * zoom;
+
           return (
             <div
               key={index}
@@ -122,22 +139,32 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi 
                 ...baseStyle,
                 left: `${dotsToPx(previewTextLayout.x)}px`,
                 top: `${dotsToPx(previewTextLayout.y)}px`,
-                width: previewTextLayout.widthDots
-                  ? `${dotsToPx(previewTextLayout.widthDots)}px`
-                  : baseStyle.width,
-                fontSize: `${Math.max(1, dotsToPx(previewTextLayout.fontHeight))}px`,
-                lineHeight: "1",
+                width: isVerticalRotation
+                  ? `${Math.max(el.height ? el.height * PIXELS_PER_MM * zoom : 1, 1)}px`
+                  : (previewTextLayout.widthDots
+                      ? `${dotsToPx(previewTextLayout.widthDots)}px`
+                      : baseStyle.width),
+                height: isVerticalRotation
+                  ? `${Math.max(el.width ? el.width * PIXELS_PER_MM * zoom : 1, 1)}px`
+                  : `${resolvedHeightPx}px`,
+                // Bij 90°/270° rotatie: pre-rotatie width = visuele hoogte, pre-rotatie height = visuele breedte
+                minWidth: isVerticalRotation ? `${minVerticalPx}px` : undefined,
+                fontSize: `${fontSizePx}px`,
+                lineHeight: `${lineHeightMultiplier}`,
                 fontWeight: el.isBold ? "900" : "normal",
                 fontFamily: el.fontFamily || PRINTER_PREVIEW_FONT_STACK,
                 textAlign: el.align || "left",
                 whiteSpace: "pre-wrap",
-                overflowWrap: "anywhere",
-                wordBreak: "normal",
+                overflowWrap: "break-word",
+                wordBreak: isVerticalRotation ? "break-all" : "normal",
+                boxSizing: "border-box",
+                paddingBottom: isVerticalRotation ? 0 : "1px",
               }}
             >
               {displayContent}
             </div>
           );
+        }
 
         if (el.type === "line")
           return (
@@ -182,7 +209,7 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi 
                     <img 
                         src={getBarcodeUrl(displayContent)} 
                         alt="code" 
-                        style={{ width: "80%", height: "80%", objectFit: "fill" }} 
+                        style={{ width: "80%", height: "80%", objectFit: "contain" }} 
                     />
                 ) : (
                   <InternalQrImage value={displayContent} size={160} alt="code" className="w-[80%] h-[80%] object-contain" />

@@ -18,22 +18,22 @@ import {
   doc,
   serverTimestamp,
   getDocs,
+  query,
+  where,
+  documentId,
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import {
-  subWeeks,
   format,
-  isValid,
-  parseISO,
   differenceInDays,
 } from "date-fns";
 
 const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [fileData, setFileData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [importing, setImporting] = useState(false);
-  const [existingIds, setExistingIds] = useState(new Set());
   const [importMode, setImportMode] = useState("new_only");
   const [importTarget, setImportTarget] = useState("planning");
   const [selectedSheet, setSelectedSheet] = useState("All");
@@ -42,48 +42,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const location = useLocation();
 
   useEffect(() => {
-    const fetchExisting = async () => {
-      if (!isOpen) return;
-      try {
-        const targetPath =
-          importTarget === "temp_labels" ? PATHS.TEMP_PLANNING : PATHS.PLANNING;
-        const snap = await getDocs(collection(db, ...targetPath));
-        const ids = new Set(snap.docs.map((d) => d.id));
-        setExistingIds(ids);
-      } catch (err) {
-        console.error("Fout bij ophalen bestaande orders:", err);
-      }
-    };
-    fetchExisting();
-  }, [isOpen, importTarget]);
-
-  const normalizeMachine = (val) => {
-    if (!val) return "-";
-    let str = String(val).toUpperCase().trim();
-
-    // Auto-correctie voor bekende typo's in importbestanden
-    if (str === "BM18") str = "BH18";
-
-    return str.startsWith("40") ? str.substring(2) : str;
-  };
-
-  // Helper om datum te parsen en 2 weken terug te rekenen
-  const processDates = (rawDate) => {
-    if (!rawDate) return { delivery: null, planned: null };
-
-    const parsedDate = rawDate instanceof Date ? rawDate : new Date(rawDate);
-    const dateObj = isValid(parsedDate) ? parsedDate : parseISO(rawDate);
-
-    if (!isValid(dateObj)) return { delivery: null, planned: null };
-
-    // Bereken deadline: Leverdatum minus 2 weken
-    const plannedDate = subWeeks(dateObj, 2);
-
-    return {
-      delivery: dateObj,
-      planned: plannedDate,
-    };
-  };
+    if (!isOpen) {
+      setLoadingMessage("");
+    }
+  }, [isOpen]);
 
   // Helper voor de kleurcodering op basis van de leverdatum t.o.v. vandaag
   const getDateStatusStyles = (deliveryDate) => {
@@ -104,133 +66,86 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return "text-slate-900 font-bold";
   };
 
+  const mapExistingFlags = async (rows, target) => {
+    if (!rows.length) return rows;
+
+    const targetPath = target === "temp_labels" ? PATHS.TEMP_PLANNING : PATHS.PLANNING;
+    const ids = Array.from(new Set(rows.map((r) => r.id).filter(Boolean)));
+    const found = new Set();
+    const chunkSize = 30;
+
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const slice = ids.slice(i, i + chunkSize);
+      const existingSnap = await getDocs(
+        query(collection(db, ...targetPath), where(documentId(), "in", slice))
+      );
+      existingSnap.docs.forEach((d) => found.add(d.id));
+    }
+
+    return rows.map((item) => ({ ...item, isExisting: found.has(item.id) }));
+  };
+
+  const parseWorkbookInWorker = async (arrayBuffer) => {
+    const worker = new globalThis.Worker(
+      new URL("../../../workers/planningImportWorker.js", import.meta.url),
+      { type: "module" }
+    );
+
+    try {
+      const parsedRows = await new Promise((resolve, reject) => {
+        worker.onmessage = (event) => {
+          const { type, payload, error } = event.data || {};
+          if (type === "success") {
+            resolve(payload || []);
+          } else if (type === "error") {
+            reject(new Error(error || "Onbekende parse fout"));
+          }
+        };
+        worker.onerror = (err) => reject(err);
+        worker.postMessage({ arrayBuffer }, [arrayBuffer]);
+      });
+
+      return parsedRows.map((row) => ({
+        ...row,
+        deliveryDate: row.deliveryDate ? new Date(row.deliveryDate) : null,
+        plannedDate: row.plannedDate ? new Date(row.plannedDate) : null,
+      }));
+    } finally {
+      worker.terminate();
+    }
+  };
+
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setLoading(true);
-    const reader = new FileReader();
+    setLoadingMessage("Bestand verwerken op achtergrond...");
 
-    reader.onload = async (evt) => {
-      try {
-        const XLSX = await import("xlsx");
-        const bstr = evt.target.result;
-        const wb = XLSX.read(bstr, { type: "binary", cellDates: true });
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const parsedRows = await parseWorkbookInWorker(arrayBuffer);
 
-        let allData = [];
-        let sheetsFound = 0;
-
-        wb.SheetNames.forEach((sheetName) => {
-          const ws = wb.Sheets[sheetName];
-          const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-
-          const headerIndex = rawRows.findIndex((row) => {
-            const rowStr = row.map((c) => String(c).toLowerCase().trim());
-            return rowStr.includes("machine") && rowStr.includes("order");
-          });
-
-          if (headerIndex !== -1) {
-            sheetsFound++;
-            const headers = rawRows[headerIndex].map((h) => String(h).trim());
-            const dataRows = rawRows.slice(headerIndex + 1);
-
-            const getIdx = (name) =>
-              headers.findIndex((h) => h.toLowerCase() === name.toLowerCase());
-
-            const idxOrder = getIdx("order");
-            const idxMachine = getIdx("machine");
-            const idxItemCode = getIdx("manufactured item");
-            const idxDatum = getIdx("datum");
-            const idxPlan = getIdx("plan");
-            const idxWeek = getIdx("week");
-            const idxItemDesc = getIdx("item desc");
-            const idxCode = getIdx("code");
-            const idxPoText =
-              getIdx("po text") !== -1 ? getIdx("po text") : getIdx("po-text");
-            const idxProject = getIdx("project");
-            const idxProjectDesc = getIdx("project desc");
-            const idxDrawing = getIdx("drawing");
-
-            const sheetData = dataRows
-              .filter((row) => row[idxOrder] && row[idxMachine])
-              .map((row) => {
-                const orderId = String(row[idxOrder]).trim();
-                const manufacturedItem = String(row[idxItemCode] || "").trim();
-                const docId = `${orderId}_${manufacturedItem}`.replace(
-                  /[^a-zA-Z0-9]/g,
-                  "_"
-                );
-
-                const rawDateVal = row[idxDatum];
-                const { delivery, planned } = processDates(rawDateVal);
-
-                const rawPlan = row[idxPlan];
-                let quantity =
-                  typeof rawPlan === "string"
-                    ? parseFloat(rawPlan.replace(",", "."))
-                    : parseFloat(rawPlan);
-                if (isNaN(quantity)) quantity = 1;
-
-                const machine = normalizeMachine(row[idxMachine]);
-
-                const PIPE_MACHINES = ["BA05", "BA07", "BA08", "BA09"];
-                if (PIPE_MACHINES.includes(machine)) {
-                  quantity = quantity / 10;
-                }
-
-                return {
-                  id: docId,
-                  orderId,
-                  machine,
-                  deliveryDate: delivery,
-                  plannedDate: planned,
-                  weekNumber: parseInt(row[idxWeek]) || null,
-                  itemCode: manufacturedItem,
-                  item: row[idxItemDesc] || "",
-                  extraCode: row[idxCode] || "",
-                  plan: quantity,
-                  notes: row[idxPoText] || "",
-                  project: row[idxProject] || "",
-                  projectDesc: row[idxProjectDesc] || "",
-                  drawing: row[idxDrawing] || "",
-                  status: "pending",
-                  isExisting: existingIds.has(docId),
-                  sourceSheet: sheetName,
-                };
-              });
-
-            allData = [...allData, ...sheetData];
-          }
-        });
-
-        if (sheetsFound === 0) {
-          alert(
-            "Geen geldige sheets gevonden. Zorg dat de kolommen 'Machine' en 'order' aanwezig zijn in ten minste één tabblad."
-          );
-          return;
-        }
-
-        const uniqueData = [];
-        const seenIds = new Set();
-
-        allData.forEach((item) => {
-          if (!seenIds.has(item.id)) {
-            seenIds.add(item.id);
-            uniqueData.push(item);
-          }
-        });
-
-        setFileData(uniqueData);
-        setMachineFilter("All");
-      } catch (err) {
-        console.error(err);
-        alert("Fout bij het verwerken van het bestand.");
-      } finally {
-        setLoading(false);
+      if (!parsedRows.length) {
+        alert(
+          "Geen geldige sheets gevonden. Zorg dat de kolommen 'Machine' en 'order' aanwezig zijn in ten minste één tabblad."
+        );
+        return;
       }
-    };
 
-    reader.readAsBinaryString(file);
+      setLoadingMessage("Bestaande orders controleren...");
+      const withExistingFlags = await mapExistingFlags(parsedRows, importTarget);
+
+      setFileData(withExistingFlags);
+      setMachineFilter("All");
+      setSelectedSheet("All");
+    } catch (err) {
+      console.error(err);
+      alert("Fout bij het verwerken van het bestand.");
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
   };
 
   const uniqueSheets = useMemo(() => {
@@ -365,10 +280,15 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                 accept=".csv, .xlsx, .xls"
               />
               {loading ? (
-                <Loader2
-                  size={64}
-                  className="mx-auto text-blue-500 animate-spin mb-6"
-                />
+                <div className="flex flex-col items-center gap-3 mb-6">
+                  <Loader2
+                    size={64}
+                    className="mx-auto text-blue-500 animate-spin"
+                  />
+                  <p className="text-xs font-bold text-blue-700 uppercase tracking-wider">
+                    {loadingMessage || "Bezig met verwerken..."}
+                  </p>
+                </div>
               ) : (
                 <Upload
                   size={64}

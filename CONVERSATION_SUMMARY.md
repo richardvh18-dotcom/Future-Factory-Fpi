@@ -1,6 +1,6 @@
 # Pilot Handover Summary
 
-**Laatst bijgewerkt:** 25 maart 2026 (sessie 12)
+**Laatst bijgewerkt:** 25 maart 2026 (sessie 13)
 **Branch:** `FpiFF-Pilot-Ready`  
 **Doel:** compacte overdracht voor hervatten van pilotwerk richting 30 maart
 
@@ -44,6 +44,11 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
     - Fittings lotstationfilter aangepast naar BH-stations
     - `Print 'OK' QR (A4)` hersteld met lokale QR-generatie
     - QR-rendering app-breed geïnternaliseerd (geen externe `api.qrserver.com`)
+    - `LabelVisualPreview.jsx` verder getuned voor verticale tekst/objecten:
+        - verticale X-compensatie bijgesteld voor betere links/rechts-uitlijning in preview
+        - minimale verticale objecthoogte per labelformaat toegevoegd (`55mm` groot, `30mm` klein), begrensd door objectmaat
+        - barcode preview `objectFit` aangepast naar `contain`
+        - wrap/clipping-logica voor verticale tekst aangescherpt, maar live hardware-validatie van lange verticale tekstregelafbreking is nog nodig
     - ZPL cut-logica fundamenteel hersteld (23 maart sessie 6, zie 3a)
 - **Nog nodig:** live validatie orderlabel print vanuit Print Station
 

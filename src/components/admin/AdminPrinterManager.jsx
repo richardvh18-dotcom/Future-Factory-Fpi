@@ -216,19 +216,22 @@ const LotPrintModal = ({ onClose, stations, printers, onPrint }) => {
   const [config, setConfig] = useState({
     station: stations[0] || "",
     weekOffset: 0, // -1 = vorige week, 0 = huidige week, 1 = volgende week
-    startSeq: 1,
-    count: 1,
+    startSeq: "1",
+    count: "1",
     mode: 'sequential', // 'sequential' | 'identical'
     printerId: printers.find(p => p.isDefault)?.id || printers[0]?.id || ""
   });
+
+  const parsedStartSeq = Math.max(1, Math.min(9999, parseInt(config.startSeq, 10) || 1));
+  const parsedCount = Math.max(1, Math.min(100, parseInt(config.count, 10) || 1));
 
   const previewDate = new Date();
   previewDate.setDate(previewDate.getDate() + (Number(config.weekOffset) * 7));
   const iso = getIsoWeekAndYear(previewDate);
   const machineCode = getMachineCode(config.station);
   const baseLot = `40${iso.year.slice(-2)}${iso.week}${machineCode}40`;
-  const previewLots = Array.from({ length: Math.min(5, Math.max(1, config.count)) }, (_, i) => {
-    const seqNum = config.mode === 'sequential' ? config.startSeq + i : config.startSeq;
+  const previewLots = Array.from({ length: Math.min(5, Math.max(1, parsedCount)) }, (_, i) => {
+    const seqNum = config.mode === 'sequential' ? parsedStartSeq + i : parsedStartSeq;
     return `${baseLot}${String(seqNum).padStart(4, '0')}`;
   });
 
@@ -278,7 +281,8 @@ const LotPrintModal = ({ onClose, stations, printers, onPrint }) => {
                 max="9999"
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"
                 value={config.startSeq}
-                onChange={e => setConfig({...config, startSeq: parseInt(e.target.value) || 1})}
+                onChange={e => setConfig({...config, startSeq: e.target.value})}
+                onBlur={() => setConfig(prev => ({ ...prev, startSeq: String(parsedStartSeq) }))}
               />
             </div>
             <div>
@@ -288,7 +292,8 @@ const LotPrintModal = ({ onClose, stations, printers, onPrint }) => {
                 min="1"
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"
                 value={config.count}
-                onChange={e => setConfig({...config, count: parseInt(e.target.value) || 1})}
+                onChange={e => setConfig({...config, count: e.target.value})}
+                onBlur={() => setConfig(prev => ({ ...prev, count: String(parsedCount) }))}
               />
             </div>
           </div>
@@ -329,14 +334,18 @@ const LotPrintModal = ({ onClose, stations, printers, onPrint }) => {
                   </p>
                 </div>
               ))}
-              {config.count > 5 && (
-                <p className="text-[11px] font-bold text-slate-500 text-center">+{config.count - 5} extra labels worden geprint</p>
+              {parsedCount > 5 && (
+                <p className="text-[11px] font-bold text-slate-500 text-center">+{parsedCount - 5} extra labels worden geprint</p>
               )}
             </div>
           </div>
 
           <button 
-            onClick={() => onPrint(config)}
+            onClick={() => onPrint({
+              ...config,
+              startSeq: parsedStartSeq,
+              count: parsedCount,
+            })}
             className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg"
           >
             <Printer size={20} /> Start Printopdracht
@@ -352,11 +361,71 @@ const TempLabelModal = ({ onClose, printers, onPrint }) => {
   const { t } = useTranslation();
   const [orderStr, setOrderStr] = useState("");
   const [results, setResults] = useState([]);
+  const [initialList, setInitialList] = useState([]);
+  const [loadingInitialList, setLoadingInitialList] = useState(true);
   const [loading, setLoading] = useState(false);
   const [printerId, setPrinterId] = useState(printers.find(p => p.isDefault)?.id || printers[0]?.id || "");
 
+  const normalizeText = (value) => String(value || "").toLowerCase().trim();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadInitialList = async () => {
+      setLoadingInitialList(true);
+      try {
+        const [tempSnap, planSnap] = await Promise.all([
+          getDocs(query(collection(db, ...PATHS.TEMP_PLANNING), limit(120))),
+          getDocs(query(collection(db, ...PATHS.PLANNING), limit(120))),
+        ]);
+
+        if (!isMounted) return;
+
+        const rows = [];
+        const pushRows = (snap) => {
+          snap.docs.forEach((d) => {
+            const data = d.data() || {};
+            rows.push({
+              id: d.id,
+              ...data,
+              orderDisplay: data.orderId || data.Order || data.Productieorder || data.order || d.id,
+              productDisplay: data.item || data.itemCode || data.Item || data.Artikel || data.description || data.Description || data.Omschrijving || "-",
+            });
+          });
+        };
+
+        pushRows(tempSnap);
+        pushRows(planSnap);
+
+        const dedup = [];
+        const seen = new Set();
+        rows.forEach((r) => {
+          if (seen.has(r.id)) return;
+          seen.add(r.id);
+          dedup.push(r);
+        });
+
+        dedup.sort((a, b) => String(a.orderDisplay).localeCompare(String(b.orderDisplay), undefined, { numeric: true }));
+        setInitialList(dedup);
+      } catch (err) {
+        console.error("Fout bij laden order labels lijst:", err);
+      } finally {
+        if (isMounted) setLoadingInitialList(false);
+      }
+    };
+
+    loadInitialList();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const handleSearch = async () => {
-    if (!orderStr) return;
+    if (!orderStr.trim()) {
+      setResults([]);
+      return;
+    }
     setLoading(true);
     setResults([]);
     try {
@@ -408,7 +477,13 @@ const TempLabelModal = ({ onClose, printers, onPrint }) => {
         getDocs(query(colRef, where("Order", "in", uniqueOptions))),
         getDocs(query(colRef, where("Productieorder", "in", uniqueOptions))),
         getDocs(query(colRef, where("order", "in", uniqueOptions))),
-        getDocs(query(planRef, where("orderId", "in", uniqueOptions)))
+        getDocs(query(planRef, where("orderId", "in", uniqueOptions))),
+        getDocs(query(colRef, where("itemCode", "in", uniqueOptions))),
+        getDocs(query(colRef, where("Item", "in", uniqueOptions))),
+        getDocs(query(colRef, where("Artikel", "in", uniqueOptions))),
+        getDocs(query(planRef, where("itemCode", "in", uniqueOptions))),
+        getDocs(query(planRef, where("Item", "in", uniqueOptions))),
+        getDocs(query(planRef, where("Artikel", "in", uniqueOptions)))
       ];
       const exactSnaps = await Promise.all(exactQueries.map(p => p.catch(() => null)));
       exactSnaps.forEach(addDocs);
@@ -427,15 +502,30 @@ const TempLabelModal = ({ onClose, printers, onPrint }) => {
             startsWithQueries.push(getDocs(query(colRef, where(documentId(), ">=", opt), where(documentId(), "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("orderId", ">=", opt), where("orderId", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("Order", ">=", opt), where("Order", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(colRef, where("item", ">=", opt), where("item", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(colRef, where("description", ">=", opt), where("description", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(planRef, where(documentId(), ">=", opt), where(documentId(), "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(planRef, where("orderId", ">=", opt), where("orderId", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(planRef, where("item", ">=", opt), where("item", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(planRef, where("description", ">=", opt), where("description", "<=", opt + "\uf8ff"), limit(10))));
         });
 
         const startSnaps = await Promise.all(startsWithQueries.map(p => p.catch(() => null)));
         startSnaps.forEach(addDocs);
       }
 
-      setResults(Array.from(foundDocs.values()));
+      const queryText = normalizeText(orderStr);
+      const clientMatches = initialList.filter((item) => {
+        const orderText = normalizeText(item.orderId || item.Order || item.Productieorder || item.order || item.id);
+        const productText = normalizeText(item.item || item.itemCode || item.Item || item.Artikel || item.description || item.Description || item.Omschrijving);
+        return orderText.includes(queryText) || productText.includes(queryText);
+      });
+
+      const merged = new Map();
+      Array.from(foundDocs.values()).forEach((item) => merged.set(item.id, item));
+      clientMatches.forEach((item) => merged.set(item.id, item));
+
+      setResults(Array.from(merged.values()));
     } catch (e) {
       console.error("Zoekfout temp labels:", e);
     } finally {
@@ -467,33 +557,45 @@ const TempLabelModal = ({ onClose, printers, onPrint }) => {
           </button>
         </div>
 
-        {results.length > 0 && (
-          <div className="space-y-4 mb-6 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
-            {results.map((item, idx) => (
-              <div key={idx} className="p-5 bg-amber-50/50 border border-amber-100 rounded-2xl flex justify-between items-center">
-                <div>
-                  <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-1">Gevonden Data</p>
-                  <p className="text-lg font-black text-slate-800">{item.orderId || item.Order || item.Productieorder || item.id || orderStr}</p>
-                  <p className="text-sm font-bold text-slate-500 mt-1">{item.itemCode || item.Item || item.Artikel || item.item || "Geen artikelcode"}</p>
-                  <p className="text-xs text-slate-400 mt-1 italic">{item.description || item.Description || item.Omschrijving || ""}</p>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <select 
-                    className="p-2 bg-white border border-slate-200 rounded-lg font-bold text-xs"
-                    value={printerId}
-                    onChange={(e) => setPrinterId(e.target.value)}
-                  >
-                    {printers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <button onClick={() => onPrint(item, printerId)} className="px-6 py-3 bg-amber-500 text-white rounded-xl font-black uppercase text-xs hover:bg-amber-600 transition-all flex items-center gap-2 shadow-lg">
-                    <Printer size={16} /> Print Etiket
-                  </button>
-                </div>
-              </div>
-            ))}
+        <div className="mb-4">
+          <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Printer</label>
+          <select 
+            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"
+            value={printerId}
+            onChange={(e) => setPrinterId(e.target.value)}
+          >
+            {printers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+
+        {(results.length > 0 || (!orderStr.trim() && initialList.length > 0)) && (
+          <div className="space-y-2 mb-2 max-h-[48vh] overflow-y-auto custom-scrollbar pr-2">
+            {(orderStr.trim() ? results : initialList).map((item, idx) => {
+              const orderDisplay = item.orderId || item.Order || item.Productieorder || item.order || item.id || "-";
+              const productDisplay = item.item || item.itemCode || item.Item || item.Artikel || item.description || item.Description || item.Omschrijving || "-";
+
+              return (
+                <button
+                  key={`${item.id || orderDisplay}-${idx}`}
+                  onClick={() => onPrint(item, printerId)}
+                  className="w-full p-4 bg-white border border-slate-200 hover:border-amber-300 hover:bg-amber-50/30 rounded-2xl transition-all text-left flex items-center justify-between gap-4"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-black text-slate-800 truncate">{orderDisplay}</p>
+                    <p className="text-xs font-bold text-slate-500 truncate">{productDisplay}</p>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 shrink-0">Print</span>
+                </button>
+              );
+            })}
           </div>
         )}
-        {results.length === 0 && orderStr && !loading && (
+
+        {loadingInitialList && !orderStr.trim() && (
+          <p className="text-center py-8 text-slate-400 font-bold italic">Lijst laden...</p>
+        )}
+
+        {results.length === 0 && orderStr.trim() && !loading && (
           <p className="text-center py-8 text-slate-400 font-bold italic">Geen order gevonden in tijdelijke import.</p>
         )}
       </div>

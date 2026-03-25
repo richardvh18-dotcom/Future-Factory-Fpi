@@ -20,6 +20,17 @@ import { processLabelData, resolveLabelContent, applyLabelLogic, getQRCodeUrl, g
 import { getISOWeekInfo, getStationMachineCode } from '../../utils/lotLogic';
 import AutoScaledLabelPreview from './AutoScaledLabelPreview';
 
+const stationNameFromValue = (stationValue) => {
+  if (!stationValue) return '';
+  if (typeof stationValue === 'string') return stationValue.trim();
+  if (typeof stationValue === 'object') {
+    return String(
+      stationValue.name || stationValue.station || stationValue.id || stationValue.code || ''
+    ).trim();
+  }
+  return String(stationValue).trim();
+};
+
 const PIXELS_PER_MM = 3.78;
 const PREVIEW_ROLL_WIDTH_MM = 90;
 
@@ -48,9 +59,11 @@ const printRawUsb = async (device, content) => {
   if (!device) throw new Error("Geen printer verbonden");
   if (!device.opened) await device.open();
   if (device.configuration === null) await device.selectConfiguration(1);
-  try { await device.claimInterface(0); } catch(e) { /* ignore */ }
+  try { await device.claimInterface(0); } catch {
+    void 0;
+  }
   
-  const encoder = new TextEncoder();
+  const encoder = new globalThis.TextEncoder();
   const data = encoder.encode(content);
   const interface0 = device.configuration.interfaces[0];
   const endpoint = interface0.alternate.endpoints.find(e => e.direction === 'out');
@@ -70,6 +83,8 @@ const normalizeQueuePrintPayload = (content, quantity) => {
 
 // --- Helper voor Tijdelijke Labels ---
 const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, onToggle, printerDpi = 203 }) => {
+  const itemDisplay = item.item || item.description || item.Description || item.Omschrijving || item.itemCode || item.Item || item.Artikel || "";
+
   const topOptions = useMemo(() => {
     const normalizedProduct = {
       itemCode: item.itemCode || item.Item || item.Artikel || item.item || '',
@@ -120,20 +135,12 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, 
         onClick={onToggle}
       >
         <div className="flex-1">
-          <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-            <CheckCircle size={12} /> Gevonden Data
-          </p>
           <p className="text-xl font-black text-slate-800 tracking-tight leading-none mb-1">
             {item.orderId || item.Order || item.Productieorder || item.id || "ONBEKEND"}
           </p>
-          {(item.itemCode || item.item || item.Item || item.Artikel) && (
-            <p className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-0.5 mt-2">
-              {item.itemCode || item.item || item.Item || item.Artikel}
-            </p>
-          )}
-          {(item.description || item.Description || item.Omschrijving) && (
-            <p className="text-[10px] text-slate-400 italic font-medium line-clamp-2">
-              {item.description || item.Description || item.Omschrijving}
+          {itemDisplay && (
+            <p className="text-sm font-bold text-slate-600 tracking-wider mb-0.5 mt-2">
+              {itemDisplay}
             </p>
           )}
         </div>
@@ -194,19 +201,80 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
   const { t } = useTranslation();
   const [orderStr, setOrderStr] = useState("");
   const [results, setResults] = useState([]);
+  const [initialList, setInitialList] = useState([]);
+  const [loadingInitialList, setLoadingInitialList] = useState(true);
   const [loading, setLoading] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState(null);
 
+  const normalizeText = (value) => String(value || "").toLowerCase().trim();
+
   useEffect(() => {
-    if (results.length === 1) {
-        setExpandedItemId(results[0].id || 0);
+    let isMounted = true;
+
+    const loadInitialList = async () => {
+      setLoadingInitialList(true);
+      try {
+        const [tempSnap, planSnap] = await Promise.all([
+          getDocs(query(collection(db, ...PATHS.TEMP_PLANNING), limit(120))),
+          getDocs(query(collection(db, ...PATHS.PLANNING), limit(120))),
+        ]);
+
+        if (!isMounted) return;
+
+        const rows = [];
+        const pushRows = (snap) => {
+          snap.docs.forEach((d) => rows.push({ id: d.id, ...d.data() }));
+        };
+
+        pushRows(tempSnap);
+        pushRows(planSnap);
+
+        const dedup = [];
+        const seen = new Set();
+        rows.forEach((r) => {
+          if (seen.has(r.id)) return;
+          seen.add(r.id);
+          dedup.push(r);
+        });
+
+        dedup.sort((a, b) =>
+          String(a.orderId || a.Order || a.Productieorder || a.id).localeCompare(
+            String(b.orderId || b.Order || b.Productieorder || b.id),
+            undefined,
+            { numeric: true }
+          )
+        );
+
+        setInitialList(dedup);
+      } catch (err) {
+        console.error("Fout bij laden order labels lijst:", err);
+      } finally {
+        if (isMounted) setLoadingInitialList(false);
+      }
+    };
+
+    loadInitialList();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const displayItems = orderStr.trim() ? results : initialList;
+
+  useEffect(() => {
+    if (displayItems.length === 1) {
+        setExpandedItemId(displayItems[0].id || 0);
     } else {
         setExpandedItemId(null);
     }
-  }, [results]);
+  }, [displayItems]);
 
   const handleSearch = async () => {
-    if (!orderStr) return;
+    if (!orderStr.trim()) {
+      setResults([]);
+      return;
+    }
     setLoading(true);
     setResults([]);
     setExpandedItemId(null);
@@ -256,7 +324,9 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
               if (planDocSnap.exists()) {
                   foundDocs.set(planDocSnap.id, { id: planDocSnap.id, ...planDocSnap.data() });
               }
-          } catch(e) {}
+              } catch {
+                continue;
+              }
       }
 
       // 2. Parallelle exacte zoekopdrachten
@@ -265,10 +335,16 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
         getDocs(query(colRef, where("Order", "in", uniqueOptions))),
         getDocs(query(colRef, where("Productieorder", "in", uniqueOptions))),
         getDocs(query(colRef, where("order", "in", uniqueOptions))),
+        getDocs(query(colRef, where("itemCode", "in", uniqueOptions))),
+        getDocs(query(colRef, where("Item", "in", uniqueOptions))),
+        getDocs(query(colRef, where("Artikel", "in", uniqueOptions))),
         getDocs(query(planRef, where("orderId", "in", uniqueOptions))),
         getDocs(query(planRef, where("Order", "in", uniqueOptions))),
         getDocs(query(planRef, where("Productieorder", "in", uniqueOptions))),
-        getDocs(query(planRef, where("order", "in", uniqueOptions)))
+        getDocs(query(planRef, where("order", "in", uniqueOptions))),
+        getDocs(query(planRef, where("itemCode", "in", uniqueOptions))),
+        getDocs(query(planRef, where("Item", "in", uniqueOptions))),
+        getDocs(query(planRef, where("Artikel", "in", uniqueOptions)))
       ];
       const exactSnaps = await Promise.all(exactQueries.map(p => p.catch(() => null)));
       exactSnaps.forEach(addDocs);
@@ -288,18 +364,32 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
             startsWithQueries.push(getDocs(query(colRef, where(documentId(), ">=", opt), where(documentId(), "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("orderId", ">=", opt), where("orderId", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("Order", ">=", opt), where("Order", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(colRef, where("item", ">=", opt), where("item", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(colRef, where("description", ">=", opt), where("description", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(planRef, where(documentId(), ">=", opt), where(documentId(), "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(planRef, where("orderId", ">=", opt), where("orderId", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("Order", ">=", opt), where("Order", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("Productieorder", ">=", opt), where("Productieorder", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("order", ">=", opt), where("order", "<=", opt + "\uf8ff"), limit(10))));
+          startsWithQueries.push(getDocs(query(planRef, where("item", ">=", opt), where("item", "<=", opt + "\uf8ff"), limit(10))));
+          startsWithQueries.push(getDocs(query(planRef, where("description", ">=", opt), where("description", "<=", opt + "\uf8ff"), limit(10))));
         });
 
         const startSnaps = await Promise.all(startsWithQueries.map(p => p.catch(() => null)));
         startSnaps.forEach(addDocs);
       }
       
-      setResults(Array.from(foundDocs.values()));
+      const queryText = normalizeText(orderStr);
+      const clientMatches = initialList.filter((item) => {
+        const orderText = normalizeText(item.orderId || item.Order || item.Productieorder || item.order || item.id);
+        const productText = normalizeText(item.item || item.itemCode || item.Item || item.Artikel || item.description || item.Description || item.Omschrijving);
+        return orderText.includes(queryText) || productText.includes(queryText);
+      });
+
+      const merged = new Map();
+      Array.from(foundDocs.values()).forEach((item) => merged.set(item.id, item));
+      clientMatches.forEach((item) => merged.set(item.id, item));
+      setResults(Array.from(merged.values()));
     } catch (e) {
       console.error("Zoekfout temp labels:", e);
     } finally {
@@ -340,16 +430,16 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" size={18} />
               <input 
                 type="text" 
-                placeholder={t('printer.searchOrderPlaceholder', 'TYP ORDERNUMMER (BIJV. N20000)')}
+                placeholder={t('printer.searchOrderPlaceholder', 'ZOEK OP ORDER OF PRODUCT')}
                 className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase outline-none focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all text-sm text-slate-900 placeholder:text-slate-400"
                 value={orderStr}
-                onChange={(e) => setOrderStr(e.target.value.toUpperCase())}
+                onChange={(e) => setOrderStr(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               />
             </div>
             <button 
               onClick={handleSearch} 
-              disabled={loading || !orderStr.trim()} 
+              disabled={loading} 
               className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-emerald-600 transition-all flex items-center justify-center gap-2 shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? <Loader2 className="animate-spin" size={18} /> : "Zoeken"}
@@ -358,9 +448,9 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
 
           {/* Results Area */}
           <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 pb-2">
-            {results.length > 0 && (
+            {displayItems.length > 0 && (
               <div className="space-y-3">
-                {results.map((item, idx) => (
+                {displayItems.map((item, idx) => (
                   <TempLabelItem 
                     key={idx} 
                     item={item} 
@@ -375,13 +465,20 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
               </div>
             )}
             
-            {results.length === 0 && orderStr && !loading && (
+            {loadingInitialList && !orderStr.trim() && (
+              <div className="py-12 border-2 border-dashed border-slate-200 rounded-[30px] flex flex-col items-center justify-center text-center bg-slate-50/50">
+                <Loader2 className="animate-spin text-slate-400 mb-3" size={24} />
+                <p className="text-xs text-slate-400 font-medium">Lijst laden...</p>
+              </div>
+            )}
+
+            {results.length === 0 && orderStr.trim() && !loading && (
               <div className="py-12 border-2 border-dashed border-slate-200 rounded-[30px] flex flex-col items-center justify-center text-center bg-slate-50/50">
                 <div className="p-4 bg-slate-100 text-slate-400 rounded-full mb-3">
                   <Search size={24} />
                 </div>
                 <p className="text-sm font-black text-slate-600 uppercase tracking-widest">Niets Gevonden</p>
-                <p className="text-xs text-slate-400 font-medium mt-1">Geen order gevonden in tijdelijke import voor "{orderStr}".</p>
+                <p className="text-xs text-slate-400 font-medium mt-1">Geen order of product gevonden voor "{orderStr}".</p>
               </div>
             )}
           </div>
@@ -392,18 +489,31 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
 };
 
 // --- Modal: Lotnummers Printen ---
-const LotPrintModal = ({ onClose, stationGroups, onPrintBatch, printer }) => {
-  const [station, setStation] = useState(stationGroups[0] || "");
+const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => {
+  const [departmentKey, setDepartmentKey] = useState(departmentGroups[0]?.key || "");
+  const [station, setStation] = useState(departmentGroups[0]?.stations?.[0] || "");
   const [weekOffset, setWeekOffset] = useState(0); // -1,0,1
-  const [count, setCount] = useState(1);
-  const [startNum, setStartNum] = useState(1);
+  const [count, setCount] = useState("1");
+  const [startNum, setStartNum] = useState("1");
   const [loading, setLoading] = useState(false);
 
+  const currentDepartment = useMemo(
+    () => departmentGroups.find((d) => d.key === departmentKey) || departmentGroups[0] || null,
+    [departmentGroups, departmentKey]
+  );
+  const availableStations = currentDepartment?.stations || [];
+  const parsedStartNum = Math.max(1, parseInt(startNum, 10) || 1);
+  const parsedCount = Math.max(1, Math.min(100, parseInt(count, 10) || 1));
+
   useEffect(() => {
-    if (stationGroups.length > 0 && !stationGroups.includes(station)) {
-      setStation(stationGroups[0]);
+    if (departmentGroups.length > 0 && !departmentGroups.some((d) => d.key === departmentKey)) {
+      setDepartmentKey(departmentGroups[0].key);
+      return;
     }
-  }, [stationGroups, station]);
+    if (availableStations.length > 0 && !availableStations.includes(station)) {
+      setStation(availableStations[0]);
+    }
+  }, [departmentGroups, departmentKey, availableStations, station]);
 
   const handleGenerate = async (e) => {
     e.preventDefault();
@@ -422,8 +532,8 @@ const LotPrintModal = ({ onClose, stationGroups, onPrintBatch, printer }) => {
       const baseLot = `40${yy}${ww}${machineCode}40`;
 
       const lots = [];
-      for (let i = 0; i < count; i++) {
-        const currentNum = String(startNum + i).padStart(4, '0');
+      for (let i = 0; i < parsedCount; i++) {
+        const currentNum = String(parsedStartNum + i).padStart(4, '0');
         lots.push(`${baseLot}${currentNum}`);
       }
 
@@ -440,8 +550,7 @@ const LotPrintModal = ({ onClose, stationGroups, onPrintBatch, printer }) => {
       });
 
       await onPrintBatch(zplBatch, lots.length);
-      alert(`${count} lotnummer(s) direct geprint via USB!`);
-      onClose();
+      alert(`${parsedCount} lotnummer(s) direct geprint via USB!`);
     } catch(err) {
       console.error(err);
       alert("Fout bij genereren: " + err.message);
@@ -457,8 +566,8 @@ const LotPrintModal = ({ onClose, stationGroups, onPrintBatch, printer }) => {
   const previewWW = String(previewWeek).padStart(2, '0');
   const previewMachineCode = getStationMachineCode(station);
   const previewBaseLot = `40${previewYY}${previewWW}${previewMachineCode}40`;
-  const previewLots = Array.from({ length: Math.min(5, Math.max(1, count)) }, (_, i) => {
-    const seq = startNum + i;
+  const previewLots = Array.from({ length: Math.min(5, Math.max(1, parsedCount)) }, (_, i) => {
+    const seq = parsedStartNum + i;
     return `${previewBaseLot}${String(seq).padStart(4, '0')}`;
   });
 
@@ -474,10 +583,22 @@ const LotPrintModal = ({ onClose, stationGroups, onPrintBatch, printer }) => {
         
         <form onSubmit={handleGenerate} className="space-y-4">
           <div>
+            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Afdeling</label>
+            <select
+              value={departmentKey}
+              onChange={e => setDepartmentKey(e.target.value)}
+              className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50"
+              disabled={departmentGroups.length === 0}
+            >
+              {departmentGroups.length === 0 && <option value="">Geen afdelingen gevonden</option>}
+              {departmentGroups.map(group => <option key={group.key} value={group.key}>{group.label}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Station / Machine</label>
-            <select value={station} onChange={e => setStation(e.target.value)} className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50" disabled={stationGroups.length === 0}>
-              {stationGroups.length === 0 && <option value="">Geen stations gevonden</option>}
-              {stationGroups.map(s => <option key={s} value={s}>{s}</option>)}
+            <select value={station} onChange={e => setStation(e.target.value)} className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50" disabled={availableStations.length === 0}>
+              {availableStations.length === 0 && <option value="">Geen stations gevonden</option>}
+              {availableStations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
@@ -492,11 +613,29 @@ const LotPrintModal = ({ onClose, stationGroups, onPrintBatch, printer }) => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Start Volgnummer</label>
-              <input type="number" min="1" max="9999" value={startNum} onChange={e => setStartNum(parseInt(e.target.value, 10) || 1)} className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50" />
+              <input
+                type="number"
+                min="1"
+                max="9999"
+                inputMode="numeric"
+                value={startNum}
+                onChange={(e) => setStartNum(e.target.value)}
+                onBlur={() => setStartNum(String(parsedStartNum))}
+                className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50"
+              />
             </div>
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Aantal Labels</label>
-              <input type="number" min="1" max="100" value={count} onChange={e => setCount(parseInt(e.target.value, 10) || 1)} className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50" />
+              <input
+                type="number"
+                min="1"
+                max="100"
+                inputMode="numeric"
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+                onBlur={() => setCount(String(parsedCount))}
+                className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50"
+              />
             </div>
           </div>
           <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 flex flex-col items-center mt-2">
@@ -514,8 +653,8 @@ const LotPrintModal = ({ onClose, stationGroups, onPrintBatch, printer }) => {
                   </p>
                 </div>
               ))}
-              {count > 5 && (
-                <p className="text-[11px] font-bold text-slate-500 text-center">+{count - 5} extra labels worden geprint</p>
+              {parsedCount > 5 && (
+                <p className="text-[11px] font-bold text-slate-500 text-center">+{parsedCount - 5} extra labels worden geprint</p>
               )}
             </div>
           </div>
@@ -557,6 +696,7 @@ const PrintQueueAdminView = () => {
   const [previewJob, setPreviewJob] = useState(null);
   const [previewSize, setPreviewSize] = useState("3.54x5.91");
   const [previewSizeLabel, setPreviewSizeLabel] = useState("90x150 mm");
+  const [factoryConfig, setFactoryConfig] = useState(null);
 
   useEffect(() => {
     if (previewJob?.metadata?.width && previewJob?.metadata?.height) {
@@ -625,6 +765,16 @@ const PrintQueueAdminView = () => {
       unsubscribeJobs();
       unsubTemplates();
       unsubLogic();
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubFactory = onSnapshot(doc(db, ...PATHS.FACTORY_CONFIG), (snap) => {
+      setFactoryConfig(snap.exists() ? snap.data() : null);
+    });
+
+    return () => {
+      unsubFactory();
     };
   }, []);
 
@@ -700,9 +850,32 @@ const PrintQueueAdminView = () => {
     const stations = Array.isArray(activeQueuePrinter.queueStations)
       ? activeQueuePrinter.queueStations
       : (activeQueuePrinter.linkedStations || []);
-    return Array.from(new Set(stations.map((s) => String(s || '').trim()).filter(Boolean)))
+    return Array.from(new Set(stations.map(stationNameFromValue).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [activeQueuePrinter]);
+
+  const departmentGroups = useMemo(() => {
+    const departments = Array.isArray(factoryConfig?.departments) ? factoryConfig.departments : [];
+    const fromConfig = departments
+      .map((dept, idx) => {
+        const stations = Array.from(new Set((dept?.stations || [])
+          .map(stationNameFromValue)
+          .filter(Boolean)))
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        if (stations.length === 0) return null;
+
+        const key = String(dept?.slug || dept?.id || `dept-${idx}`);
+        const label = String(dept?.name || dept?.slug || dept?.id || `Afdeling ${idx + 1}`);
+        return { key, label, stations };
+      })
+      .filter(Boolean);
+
+    if (fromConfig.length > 0) return fromConfig;
+
+    return stationGroups.length > 0
+      ? [{ key: 'all-stations', label: 'Alle stations', stations: stationGroups }]
+      : [];
+  }, [factoryConfig, stationGroups]);
 
   const printerDpi = useMemo(() => {
     const parsed = parseInt(activeQueuePrinter?.dpi, 10);
@@ -1278,7 +1451,7 @@ const PrintQueueAdminView = () => {
       )}
 
       {showLotModal && (
-        <LotPrintModal onClose={() => setShowLotModal(false)} stationGroups={stationGroups} onPrintBatch={handleDirectLotPrintBatch} printer={activeQueuePrinter} />
+        <LotPrintModal onClose={() => setShowLotModal(false)} departmentGroups={departmentGroups} onPrintBatch={handleDirectLotPrintBatch} printer={activeQueuePrinter} />
       )}
     </div>
   );
