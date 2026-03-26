@@ -20,12 +20,14 @@ import {
   DatabaseZap,
   ArrowRightLeft,
   Loader2,
+  Box,
 } from "lucide-react";
 import {
   parseCSV,
   lookupProductByManufacturedId,
   fetchConversions,
 } from "../../utils/conversionLogic";
+import { manualSyncDrawings } from "../../utils/manualSyncDrawings";
 import { doc, setDoc, deleteDoc, serverTimestamp, collection, query, where, limit, getDocs, writeBatch } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -62,6 +64,16 @@ export default function ConversionManager() {
   const [lastDoc, setLastDoc] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const PAGE_SIZE = 50;
+
+  // Sync State
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
+  const [syncResults, setSyncResults] = useState(null);
+
+  // Sync Search State
+  const [syncSearchTerm, setSyncSearchTerm] = useState("");
+  const [syncSearchLoading, setSyncSearchLoading] = useState(false);
+  const [syncSearchResults, setSyncSearchResults] = useState(null);
 
   // Helper: Valideer en zet data
   const validateAndSetData = (data) => {
@@ -457,6 +469,109 @@ export default function ConversionManager() {
     );
   }, [conversions, searchTerm]);
 
+  const handleSyncSearch = async () => {
+    const q = syncSearchTerm.trim();
+    if (!q || q.length < 3) return;
+    setSyncSearchLoading(true);
+    setSyncSearchResults(null);
+    try {
+      const qUpper = q.toUpperCase();
+      const qLower = q.toLowerCase();
+      const results = { conversions: [], planning: [], products: [], chain: null };
+
+      // 1. Conversie Matrix - zoek op manufacturedId en targetProductId
+      const convRef = collection(db, ...PATHS.CONVERSION_MATRIX);
+      const convSnap = await getDocs(convRef);
+      convSnap.docs.forEach((d) => {
+        const c = d.data();
+        const mid = (c.manufacturedId || "").toUpperCase();
+        const tid = (c.targetProductId || "").toUpperCase();
+        const desc = (c.description || "").toLowerCase();
+        if (mid.includes(qUpper) || tid.includes(qUpper) || desc.includes(qLower) || d.id.toUpperCase().includes(qUpper)) {
+          results.conversions.push({ id: d.id, ...c });
+        }
+      });
+
+      // 2. Planning - zoek op itemCode, item, productId, doc id
+      const planRef = collection(db, ...PATHS.PLANNING);
+      const planSnap = await getDocs(planRef);
+      planSnap.docs.forEach((d) => {
+        const p = d.data();
+        const fields = [d.id, p.itemCode, p.item, p.productId, p.manufacturedId, p.articleCode, p.drawing].filter(Boolean);
+        if (fields.some((f) => String(f).toUpperCase().includes(qUpper))) {
+          results.planning.push({ id: d.id, ...p });
+        }
+      });
+
+      // 3. Products - zoek op articleCode, name, id
+      const prodRef = collection(db, ...PATHS.PRODUCTS);
+      const prodSnap = await getDocs(prodRef);
+      const allProducts = prodSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      allProducts.forEach((p) => {
+        const fields = [p.id, p.articleCode, p.name, p.manufacturedId, p.erpCode, p.productCode].filter(Boolean);
+        if (fields.some((f) => String(f).toUpperCase().includes(qUpper))) {
+          results.products.push(p);
+        }
+      });
+
+      // 4. Chain Trace: auto-follow conversie target → zoek product (incl. materiaalvarianten CST↔EST)
+      if (results.conversions.length > 0 && results.products.length === 0) {
+        const targetCodes = [...new Set(results.conversions.map((c) => c.targetProductId).filter(Boolean))];
+        // Genereer ook materiaalvarianten (CST↔EST positie 6)
+        const allTargetCodes = [...targetCodes];
+        targetCodes.forEach((tc) => {
+          const u = tc.toUpperCase();
+          if (u.length >= 8) {
+            if (u[6] === "C") allTargetCodes.push(u.slice(0, 6) + "E" + u.slice(7));
+            else if (u[6] === "E") allTargetCodes.push(u.slice(0, 6) + "C" + u.slice(7));
+          }
+        });
+        const uniqueTargets = [...new Set(allTargetCodes.map((c) => c.toUpperCase()))];
+        const followProducts = [];
+        for (const tcUpper of uniqueTargets) {
+          allProducts.forEach((p) => {
+            const fields = [p.id, p.articleCode, p.name, p.manufacturedId, p.erpCode, p.productCode].filter(Boolean);
+            if (fields.some((f) => String(f).toUpperCase().includes(tcUpper))) {
+              if (!followProducts.some((fp) => fp.id === p.id)) followProducts.push(p);
+            }
+          });
+        }
+        results.chain = {
+          sourceCode: q,
+          targetCodes,
+          variantCodes: allTargetCodes.filter((c) => !targetCodes.map((t) => t.toUpperCase()).includes(c.toUpperCase())),
+          targetProducts: followProducts,
+        };
+      }
+
+      setSyncSearchResults(results);
+    } catch (err) {
+      console.error("Search error:", err);
+      setSyncSearchResults({ conversions: [], planning: [], products: [], error: err.message });
+    } finally {
+      setSyncSearchLoading(false);
+    }
+  };
+
+  const handleDrawingSync = async () => {
+    setIsSyncing(true);
+    setSyncResults(null);
+    setSyncProgress({ current: 0, total: 0 });
+    try {
+      const results = await manualSyncDrawings((current, total, partialResults) => {
+        setSyncProgress({ current, total });
+      });
+      setSyncResults(results);
+      await logActivity(auth.currentUser?.uid, "DRAWING_SYNC", `Tekeningen sync: ${results.filter(r => r.found).length}/${results.length} matches`);
+    } catch (err) {
+      console.error("Sync error:", err);
+      setSyncResults([{ code: "ERROR", found: false, error: err.message }]);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col p-6 animate-in fade-in duration-500 text-left">
       {/* HEADER UNIT */}
@@ -504,12 +619,305 @@ export default function ConversionManager() {
           >
             <Database size={14} /> Database
           </button>
+          <button
+            onClick={() => setActiveTab("sync")}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === "sync"
+                ? "bg-white text-purple-600 shadow-sm border border-slate-200"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            <RefreshCw size={14} /> Tekeningen Sync
+          </button>
         </div>
       </div>
 
       {/* CONTENT AREA */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === "upload" ? (
+        {activeTab === "sync" ? (
+          <div className="bg-white rounded-[45px] p-10 shadow-sm border border-slate-200 space-y-8 max-w-4xl mx-auto overflow-y-auto custom-scrollbar" style={{ maxHeight: 'calc(100vh - 300px)' }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
+                <RefreshCw size={16} className="text-purple-500" /> Tekeningen Sync
+              </h3>
+              <button
+                onClick={handleDrawingSync}
+                disabled={isSyncing}
+                className="flex items-center gap-3 px-8 py-4 bg-purple-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg hover:bg-purple-700 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isSyncing ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={18} />
+                )}
+                {isSyncing ? "Bezig..." : "Start Sync"}
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-500">
+              Koppelt planning orders aan producten uit de catalogus via de conversie matrix.
+              Orders zonder tekening worden automatisch bijgewerkt.
+            </p>
+
+            {/* Cross-collection search */}
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Zoeken in alle collecties</h4>
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={syncSearchTerm}
+                    onChange={(e) => setSyncSearchTerm(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSyncSearch()}
+                    placeholder="Zoek op code, artikelnr, naam... (min 3 tekens)"
+                    className="w-full pl-11 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-300 focus:border-purple-400 outline-none"
+                  />
+                </div>
+                <button
+                  onClick={handleSyncSearch}
+                  disabled={syncSearchLoading || syncSearchTerm.trim().length < 3}
+                  className="px-6 py-3 bg-slate-800 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-700 transition-all disabled:opacity-40"
+                >
+                  {syncSearchLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                </button>
+              </div>
+
+              {/* Search Results */}
+              {syncSearchResults && (
+                <div className="space-y-4 animate-in fade-in">
+                  {syncSearchResults.error && (
+                    <div className="bg-red-50 text-red-600 text-xs font-bold p-3 rounded-xl border border-red-100">
+                      <AlertTriangle size={12} className="inline mr-1" /> {syncSearchResults.error}
+                    </div>
+                  )}
+
+                  {/* Conversie Matrix resultaten */}
+                  <details open={syncSearchResults.conversions.length > 0} className="group">
+                    <summary className="flex items-center gap-2 cursor-pointer text-xs font-black uppercase tracking-widest text-teal-600 py-2">
+                      <ArrowRightLeft size={14} />
+                      Conversie Matrix
+                      <span className="ml-auto bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full text-[10px]">
+                        {syncSearchResults.conversions.length}
+                      </span>
+                    </summary>
+                    {syncSearchResults.conversions.length > 0 ? (
+                      <div className="border border-teal-100 rounded-xl overflow-hidden mt-2">
+                        <div className="grid grid-cols-[1fr_1fr_1fr] gap-2 px-4 py-2 bg-teal-50 text-[8px] font-black uppercase text-teal-400 tracking-widest">
+                          <span>Source (Old Code)</span>
+                          <span>Target (New Code)</span>
+                          <span>Omschrijving</span>
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto custom-scrollbar divide-y divide-teal-50">
+                          {syncSearchResults.conversions.slice(0, 50).map((c, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_1fr_1fr] gap-2 px-4 py-2 text-xs">
+                              <span className="font-mono text-slate-700 truncate" title={c.manufacturedId}>{c.manufacturedId || c.id}</span>
+                              <span className="font-mono text-teal-700 truncate" title={c.targetProductId}>{c.targetProductId || "-"}</span>
+                              <span className="text-slate-500 truncate" title={c.description}>{c.description || "-"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic mt-1">Geen resultaten in conversie matrix</p>
+                    )}
+                  </details>
+
+                  {/* Planning resultaten */}
+                  <details open={syncSearchResults.planning.length > 0} className="group">
+                    <summary className="flex items-center gap-2 cursor-pointer text-xs font-black uppercase tracking-widest text-blue-600 py-2">
+                      <FileText size={14} />
+                      Planning Orders
+                      <span className="ml-auto bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">
+                        {syncSearchResults.planning.length}
+                      </span>
+                    </summary>
+                    {syncSearchResults.planning.length > 0 ? (
+                      <div className="border border-blue-100 rounded-xl overflow-hidden mt-2">
+                        <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 px-4 py-2 bg-blue-50 text-[8px] font-black uppercase text-blue-400 tracking-widest">
+                          <span>Doc ID</span>
+                          <span>Item Code</span>
+                          <span>Omschrijving</span>
+                          <span>Tekening</span>
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto custom-scrollbar divide-y divide-blue-50">
+                          {syncSearchResults.planning.slice(0, 50).map((p, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 px-4 py-2 text-xs">
+                              <span className="font-mono text-slate-700 truncate" title={p.id}>{p.id}</span>
+                              <span className="font-mono text-blue-700 truncate" title={p.itemCode}>{p.itemCode || "-"}</span>
+                              <span className="text-slate-500 truncate" title={p.item}>{p.item || "-"}</span>
+                              <span className={`truncate ${p.drawing && p.drawing !== "-" ? "text-emerald-600 font-bold" : "text-slate-300"}`} title={p.drawing}>
+                                {p.drawing && p.drawing !== "-" ? p.drawing : "—"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic mt-1">Geen resultaten in planning</p>
+                    )}
+                  </details>
+
+                  {/* Products resultaten */}
+                  <details open={syncSearchResults.products.length > 0} className="group">
+                    <summary className="flex items-center gap-2 cursor-pointer text-xs font-black uppercase tracking-widest text-purple-600 py-2">
+                      <Box size={14} />
+                      Product Catalogus
+                      <span className="ml-auto bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-[10px]">
+                        {syncSearchResults.products.length}
+                      </span>
+                    </summary>
+                    {syncSearchResults.products.length > 0 ? (
+                      <div className="border border-purple-100 rounded-xl overflow-hidden mt-2">
+                        <div className="grid grid-cols-[1fr_1fr_1fr] gap-2 px-4 py-2 bg-purple-50 text-[8px] font-black uppercase text-purple-400 tracking-widest">
+                          <span>Doc ID</span>
+                          <span>Article Code</span>
+                          <span>Naam</span>
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto custom-scrollbar divide-y divide-purple-50">
+                          {syncSearchResults.products.slice(0, 50).map((p, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_1fr_1fr] gap-2 px-4 py-2 text-xs">
+                              <span className="font-mono text-slate-700 truncate" title={p.id}>{p.id}</span>
+                              <span className="font-mono text-purple-700 truncate" title={p.articleCode}>{p.articleCode || "-"}</span>
+                              <span className="text-slate-500 truncate" title={p.name}>{p.name || "-"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic mt-1">Geen resultaten in product catalogus</p>
+                    )}
+                  </details>
+
+                  {/* Chain Trace — auto-follow conversion target */}
+                  {syncSearchResults.chain && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3 animate-in fade-in">
+                      <h4 className="text-xs font-black uppercase text-amber-700 tracking-widest flex items-center gap-2">
+                        <Zap size={14} /> Keten Analyse
+                      </h4>
+                      <div className="text-xs text-amber-800 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{syncSearchResults.chain.sourceCode}</span>
+                          <ChevronRight size={14} className="text-amber-400" />
+                          {syncSearchResults.chain.targetCodes.map((tc, i) => (
+                            <span key={i} className="font-mono bg-teal-100 text-teal-700 px-2 py-1 rounded font-bold">{tc}</span>
+                          ))}
+                          {syncSearchResults.chain.variantCodes?.length > 0 && (
+                            <>
+                              <span className="text-[9px] text-amber-500 font-bold uppercase">+ materiaalvariant</span>
+                              {syncSearchResults.chain.variantCodes.map((vc, i) => (
+                                <span key={i} className="font-mono bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold border border-amber-300">{vc}</span>
+                              ))}
+                            </>
+                          )}
+                          <ChevronRight size={14} className="text-amber-400" />
+                          {syncSearchResults.chain.targetProducts.length > 0 ? (
+                            syncSearchResults.chain.targetProducts.map((p, i) => (
+                              <span key={i} className="font-mono bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-bold">
+                                {p.name || p.id}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="bg-red-100 text-red-600 px-2 py-1 rounded font-bold">
+                              ✖ Geen product gevonden voor target code!
+                            </span>
+                          )}
+                        </div>
+                        {syncSearchResults.chain.targetProducts.length === 0 && (
+                          <p className="text-[11px] text-red-600 mt-2">
+                            De conversie matrix verwijst naar <strong className="font-mono">{syncSearchResults.chain.targetCodes.join(", ")}</strong> maar
+                            er bestaat geen product in de catalogus met die articleCode. Controleer of de target code klopt of voeg het product toe.
+                          </p>
+                        )}
+                        {syncSearchResults.chain.targetProducts.length > 0 && (
+                          <p className="text-[11px] text-emerald-700 mt-2 flex items-center gap-1">
+                            <CheckCircle2 size={12} /> Keten compleet{syncSearchResults.chain.variantCodes?.length > 0 ? " (via materiaalvariant CST↔EST)" : ""} — dit product kan gekoppeld worden via de sync.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Progress */}
+            {isSyncing && syncProgress.total > 0 && (
+              <div className="space-y-3">
+                <div className="flex justify-between text-xs font-bold text-slate-500">
+                  <span>Voortgang</span>
+                  <span>{syncProgress.current} / {syncProgress.total}</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                  <div
+                    className="bg-purple-500 h-3 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.round((syncProgress.current / syncProgress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Results */}
+            {syncResults && (
+              <div className="space-y-6">
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-emerald-50 rounded-2xl p-5 text-center border border-emerald-100">
+                    <p className="text-3xl font-black text-emerald-600">{syncResults.filter(r => r.found).length}</p>
+                    <p className="text-[9px] font-bold uppercase text-emerald-500 tracking-widest mt-1">Gekoppeld</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-2xl p-5 text-center border border-orange-100">
+                    <p className="text-3xl font-black text-orange-600">{syncResults.filter(r => !r.found && !r.error).length}</p>
+                    <p className="text-[9px] font-bold uppercase text-orange-500 tracking-widest mt-1">Geen match</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-2xl p-5 text-center border border-slate-200">
+                    <p className="text-3xl font-black text-slate-600">{syncResults.length}</p>
+                    <p className="text-[9px] font-bold uppercase text-slate-500 tracking-widest mt-1">Totaal</p>
+                  </div>
+                </div>
+
+                {/* Detail list */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-3 px-5 py-3 bg-slate-50 text-[9px] font-black uppercase text-slate-400 tracking-widest">
+                    <span>Planning Code</span>
+                    <span>Conversie Target</span>
+                    <span>Product</span>
+                    <span>Status</span>
+                  </div>
+                  <div className="max-h-[400px] overflow-y-auto custom-scrollbar divide-y divide-slate-100">
+                    {syncResults.map((r, i) => (
+                      <div key={i} className={`grid grid-cols-[1fr_1fr_1fr_auto] gap-3 px-5 py-3 text-xs ${
+                        r.found ? "bg-emerald-50/30" : ""
+                      }`}>
+                        <span className="font-mono text-slate-700 truncate" title={r.code}>{r.code}</span>
+                        <span className={`font-mono truncate ${r.conversionTarget && !r.found ? "text-orange-600" : "text-slate-300"}`} title={r.conversionTarget || ""}>
+                          {r.conversionTarget || (r.viaConversion ? "✓" : "—")}
+                        </span>
+                        <span className="text-slate-500 truncate" title={r.product || "-"}>{r.product || "-"}</span>
+                        <span>{r.found ? (
+                          <span className="flex items-center gap-1 text-emerald-600 font-bold">
+                            <CheckCircle2 size={12} />
+                            {r.viaConversion ? "Via Matrix" : "Direct"}
+                          </span>
+                        ) : r.error ? (
+                          <span className="flex items-center gap-1 text-red-500 font-bold">
+                            <AlertTriangle size={12} /> Fout
+                          </span>
+                        ) : r.conversionTarget ? (
+                          <span className="flex items-center gap-1 text-orange-500 font-bold whitespace-nowrap">
+                            <AlertTriangle size={12} /> Target ≠ Product
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : activeTab === "upload" ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-y-auto custom-scrollbar pb-20">
             {/* 1. UPLOADER */}
             <div className="bg-white rounded-[45px] p-10 shadow-sm border border-slate-200 space-y-8 flex flex-col">

@@ -18,6 +18,18 @@ const isLikelyCodeValue = (value) => {
   return hasLetter && hasDigit;
 };
 
+/**
+ * Genereer materiaalvarianten: CST (C) ↔ EST (E) op positie 6.
+ * Tekeningen maken geen onderscheid tussen materiaaltype.
+ */
+const materialVariants = (code) => {
+  if (!code || code.length < 8) return [];
+  const c = code.toUpperCase();
+  if (c[6] === "C") return [c.slice(0, 6) + "E" + c.slice(7)];
+  if (c[6] === "E") return [c.slice(0, 6) + "C" + c.slice(7)];
+  return [];
+};
+
 const buildLookupKeys = (value) => {
   const raw = String(value || "").trim();
   const normalized = normalizeCode(raw);
@@ -39,6 +51,11 @@ const buildLookupKeys = (value) => {
 
     const lastToken = tokens[tokens.length - 1];
     if (lastToken) keys.add(lastToken);
+  }
+
+  // Materiaalvarianten (CST↔EST)
+  for (const k of [...keys]) {
+    materialVariants(k).forEach((v) => keys.add(v));
   }
 
   return Array.from(keys);
@@ -284,8 +301,18 @@ export const manualSyncDrawings = async (onProgress) => {
             code: itemCode, 
             found: false, 
             removed: removedCount > 0,
-            sourceFields: Array.from(codeSources.get(itemCode) || [])
+            sourceFields: Array.from(codeSources.get(itemCode) || []),
+            conversionTarget: null
         });
+
+        // Voeg conversie target toe als die er is (voor debugging in UI)
+        for (const sourceKey of lookupKeys) {
+          const targetCodes = Array.from(conversionsByOldCode.get(sourceKey) || []);
+          if (targetCodes.length > 0) {
+            results[results.length - 1].conversionTarget = targetCodes[0];
+            break;
+          }
+        }
       }
 
       // Update progress UI

@@ -70,9 +70,23 @@ const getLongestPreviewLineLength = (value) => {
   return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
 };
 
-const getPreviewTextStyle = (element, content, zoom) => {
+const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
+  const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+  const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
   const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
-  const blockWidthPx = (element.width || 0) * PIXELS_PER_MM * zoom;
+
+  // Voor verticale tekst geen agressieve auto-fit: houd leesbare, normale grootte.
+  if (isVerticalRotation) {
+    return {
+      fontSize: `${baseFontPx}px`,
+      lineHeight: "1.05",
+    };
+  }
+
+  const effectiveWidthMm = isVerticalRotation
+    ? (element.height || element.width || 0)
+    : (element.width || 0);
+  const blockWidthPx = effectiveWidthMm * PIXELS_PER_MM * zoom;
   const maxLines = Math.max(1, Number(element.maxLines) || 1);
   const blockHeightPx = element.height
     ? element.height * PIXELS_PER_MM * zoom
@@ -1139,7 +1153,9 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
                     {el.type === "text" && (() => {
                       const { content } = resolveLabelContent(el, previewData);
                       const hasContent = content !== null && content !== undefined && String(content).trim() !== "";
-                      const previewTextStyle = getPreviewTextStyle(el, content, zoom);
+                      const normalizedRotation = ((Number(el.rotation) || 0) % 360 + 360) % 360;
+                      const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
+                      const previewTextStyle = getPreviewTextStyle(el, content, zoom, normalizedRotation);
                       return (
                         <div
                           className="leading-tight"
@@ -1147,17 +1163,21 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
                             ...previewTextStyle,
                             fontWeight: el.isBold ? "900" : "normal",
                             fontFamily: el.fontFamily,
-                            width: `${el.width * PIXELS_PER_MM * zoom}px`,
-                            height: el.height
-                              ? `${el.height * PIXELS_PER_MM * zoom}px`
-                              : "auto",
+                            width: isVerticalRotation
+                              ? `${(el.height || el.width || 1) * PIXELS_PER_MM * zoom}px`
+                              : `${el.width * PIXELS_PER_MM * zoom}px`,
+                            height: isVerticalRotation
+                              ? `${(el.width || el.height || 1) * PIXELS_PER_MM * zoom}px`
+                              : (el.height
+                                ? `${el.height * PIXELS_PER_MM * zoom}px`
+                                : "auto"),
                             backgroundColor: el.isInverse ? "black" : "transparent",
                             color: hasContent ? (el.isInverse ? "white" : "black") : "#cbd5e1",
                             textAlign: el.align || "left",
                             overflow: "hidden",
-                            whiteSpace: "pre-wrap",
-                            overflowWrap: "anywhere",
-                            wordBreak: "normal",
+                            whiteSpace: isVerticalRotation ? "nowrap" : "pre-wrap",
+                            overflowWrap: isVerticalRotation ? "normal" : "anywhere",
+                            wordBreak: isVerticalRotation ? "keep-all" : "normal",
                           }}
                         >
                           {hasContent ? content : t('adminLabelDesigner.noData')}

@@ -16,6 +16,8 @@ import {
   Ban,
   Copy,
   Save,
+  PauseCircle,
+  PlayCircle,
 } from "lucide-react";
 import ProductMoveModal from "./ProductMoveModal";
 import ProductJourneyModal from "./modals/ProductJourneyModal";
@@ -26,7 +28,7 @@ import ConfirmationModal from "./modals/ConfirmationModal";
 import { FileImage } from "lucide-react";
 import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
-import { doc, updateDoc, serverTimestamp, collection, addDoc } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, collection, addDoc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useNotifications } from "../../contexts/NotificationContext";
@@ -58,6 +60,7 @@ const OrderDetail = React.memo(({
   const [drawingLoading, setDrawingLoading] = useState(false);
   const [showOrderMoveModal, setShowOrderMoveModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [holdLoading, setHoldLoading] = useState(false);
   const [moveConfirmData, setMoveConfirmData] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [planDraft, setPlanDraft] = useState("");
@@ -209,6 +212,30 @@ const OrderDetail = React.memo(({
     }
   };
 
+  const handleToggleHold = async () => {
+    setHoldLoading(true);
+    try {
+      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
+      const isOnHold = order.status === 'on_hold';
+      await updateDoc(orderRef, {
+        status: isOnHold ? (order.previousStatus || 'waiting') : 'on_hold',
+        ...(isOnHold ? {} : { previousStatus: order.status || 'waiting' }),
+        lastUpdated: serverTimestamp(),
+      });
+      await logActivity(
+        user?.uid || auth.currentUser?.uid,
+        isOnHold ? "ORDER_RESUMED" : "ORDER_ON_HOLD",
+        `Order ${order.orderId} ${isOnHold ? 'hervat' : 'on hold gezet'}`
+      );
+      showSuccess(isOnHold ? "Order hervat" : "Order on hold gezet");
+    } catch (err) {
+      console.error("Fout bij on hold:", err);
+      showError("Kon order status niet wijzigen");
+    } finally {
+      setHoldLoading(false);
+    }
+  };
+
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     showSuccess("Ordernummer gekopieerd");
@@ -311,7 +338,7 @@ const OrderDetail = React.memo(({
       </div>
 
       {/* Details Grid */}
-      <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-4 border-b border-slate-100 shrink-0">
+      <div className="p-6 grid grid-cols-2 md:grid-cols-5 gap-4 border-b border-slate-100 shrink-0">
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.planning")}</span>
           <span className="font-bold text-slate-700">{formatExcelDate(order.deliveryDate)}</span>
@@ -342,6 +369,73 @@ const OrderDetail = React.memo(({
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.status")}</span>
           <StatusBadge status={order.status} />
         </div>
+        <button
+          onClick={async () => {
+            setDrawingLoading(true);
+            try {
+              const drawingId = order.drawing;
+              if (drawingId && drawingId !== "-" && drawingId !== "") {
+                const directRef = doc(db, ...PATHS.PRODUCTS, drawingId);
+                const directSnap = await getDoc(directRef);
+                if (directSnap.exists()) {
+                  setViewingDrawing({ id: directSnap.id, ...directSnap.data() });
+                  return;
+                }
+                const productsRef = collection(db, ...PATHS.PRODUCTS);
+                const q1 = query(productsRef, where("articleCode", "==", drawingId));
+                const snap1 = await getDocs(q1);
+                if (!snap1.empty) {
+                  setViewingDrawing({ id: snap1.docs[0].id, ...snap1.docs[0].data() });
+                  return;
+                }
+                const upper = drawingId.toUpperCase();
+                let variantCode = null;
+                if (upper.length >= 8) {
+                  if (upper[6] === "C") variantCode = upper.slice(0, 6) + "E" + upper.slice(7);
+                  else if (upper[6] === "E") variantCode = upper.slice(0, 6) + "C" + upper.slice(7);
+                }
+                if (variantCode) {
+                  const vq = query(productsRef, where("articleCode", "==", variantCode));
+                  const vSnap = await getDocs(vq);
+                  if (!vSnap.empty) {
+                    setViewingDrawing({ id: vSnap.docs[0].id, ...vSnap.docs[0].data() });
+                    return;
+                  }
+                }
+              }
+              const drawing = await findDrawingForProduct(order.orderId || "");
+              if (drawing) setViewingDrawing(drawing);
+              else showError("Geen tekening gevonden voor deze order");
+            } catch (err) {
+              console.error("Fout bij laden tekening:", err);
+              showError("Kon tekening niet laden");
+            } finally {
+              setDrawingLoading(false);
+            }
+          }}
+          disabled={drawingLoading}
+          className={`p-4 rounded-2xl border transition-all text-left ${
+            order.drawing && order.drawing !== "-" && order.drawing !== ""
+              ? "bg-blue-50 border-blue-200 hover:bg-blue-100"
+              : "bg-slate-50 border-slate-100 hover:bg-slate-100"
+          }`}
+        >
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Tekening</span>
+          <div className="flex items-center gap-2">
+            <FileImage size={18} className={
+              order.drawing && order.drawing !== "-" && order.drawing !== ""
+                ? "text-blue-500"
+                : "text-slate-300"
+            } />
+            <span className={`font-bold text-xs ${
+              order.drawing && order.drawing !== "-" && order.drawing !== ""
+                ? "text-blue-600"
+                : "text-slate-400"
+            }`}>
+              {drawingLoading ? "Laden..." : order.drawing && order.drawing !== "-" && order.drawing !== "" ? "Gekoppeld" : "Zoeken"}
+            </span>
+          </div>
+        </button>
       </div>
 
       <div className="p-6 border-b border-slate-100 bg-amber-50/40">
@@ -408,12 +502,59 @@ const OrderDetail = React.memo(({
                   onClick={async (e) => {
                     e.stopPropagation();
                     setDrawingLoading(true);
-                    const drawing = await findDrawingForProduct(p.itemCode || p.item || "");
-                    setDrawingLoading(false);
-                    if (drawing) setViewingDrawing(drawing);
-                    else alert(t("digitalplanning.order_detail.no_drawing"));
+                    try {
+                      // 1. Gebruik het drawing veld (product ID) als dat er is
+                      const drawingId = order.drawing;
+                      if (drawingId && drawingId !== "-" && drawingId !== "") {
+                        const directRef = doc(db, ...PATHS.PRODUCTS, drawingId);
+                        const directSnap = await getDoc(directRef);
+                        if (directSnap.exists()) {
+                          setViewingDrawing({ id: directSnap.id, ...directSnap.data() });
+                          setDrawingLoading(false);
+                          return;
+                        }
+                        // Fallback: articleCode match
+                        const productsRef = collection(db, ...PATHS.PRODUCTS);
+                        const q1 = query(productsRef, where("articleCode", "==", drawingId));
+                        const snap1 = await getDocs(q1);
+                        if (!snap1.empty) {
+                          setViewingDrawing({ id: snap1.docs[0].id, ...snap1.docs[0].data() });
+                          setDrawingLoading(false);
+                          return;
+                        }
+                        // Materiaalvariant fallback (CST↔EST positie 6)
+                        const upper = drawingId.toUpperCase();
+                        let variantCode = null;
+                        if (upper.length >= 8) {
+                          if (upper[6] === "C") variantCode = upper.slice(0, 6) + "E" + upper.slice(7);
+                          else if (upper[6] === "E") variantCode = upper.slice(0, 6) + "C" + upper.slice(7);
+                        }
+                        if (variantCode) {
+                          const vq = query(productsRef, where("articleCode", "==", variantCode));
+                          const vSnap = await getDocs(vq);
+                          if (!vSnap.empty) {
+                            setViewingDrawing({ id: vSnap.docs[0].id, ...vSnap.docs[0].data() });
+                            setDrawingLoading(false);
+                            return;
+                          }
+                        }
+                      }
+                      // 2. Legacy fallback via findDrawingForProduct
+                      const drawing = await findDrawingForProduct(p.itemCode || p.item || "");
+                      if (drawing) setViewingDrawing(drawing);
+                      else alert(t("digitalplanning.order_detail.no_drawing"));
+                    } catch (err) {
+                      console.error("Fout bij laden tekening:", err);
+                      alert(t("digitalplanning.order_detail.no_drawing"));
+                    } finally {
+                      setDrawingLoading(false);
+                    }
                   }}
-                  className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
+                  className={`p-2 rounded-xl transition-all ${
+                    order.drawing && order.drawing !== "-" && order.drawing !== ""
+                      ? "text-blue-500 bg-blue-50 hover:bg-blue-100"
+                      : "text-slate-300 hover:text-blue-500 hover:bg-blue-50"
+                  }`}
                   title={t("digitalplanning.order_detail.view_drawing")}
                   disabled={drawingLoading}
                 >
@@ -524,6 +665,29 @@ const OrderDetail = React.memo(({
                <RotateCcw size={16} />
                {t("digitalplanning.order_detail.retrieve", `Terughalen van ${order.delegatedTo || 'Afdeling'}`)}
              </button>
+           )}
+
+           {/* On Hold / Hervatten Button */}
+           {['admin', 'teamleader', 'planner'].includes(role) && (
+             order.status === 'on_hold' ? (
+               <button
+                 onClick={handleToggleHold}
+                 disabled={holdLoading}
+                 className="flex items-center gap-2 px-4 py-3 bg-emerald-600 text-white hover:bg-emerald-700 shadow-md rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 disabled:opacity-50"
+               >
+                 <PlayCircle size={16} />
+                 {holdLoading ? "..." : "Hervatten"}
+               </button>
+             ) : (
+               <button
+                 onClick={handleToggleHold}
+                 disabled={holdLoading}
+                 className="flex items-center gap-2 px-4 py-3 bg-orange-50 text-orange-600 hover:bg-orange-100 border border-orange-100 rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 disabled:opacity-50"
+               >
+                 <PauseCircle size={16} />
+                 {holdLoading ? "..." : "On Hold"}
+               </button>
+             )
            )}
 
            {/* Cancel Button - Alleen voor bevoegde rollen */}

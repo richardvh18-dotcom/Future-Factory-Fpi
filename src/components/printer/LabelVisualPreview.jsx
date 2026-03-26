@@ -3,6 +3,7 @@ import { resolveLabelContent, getBarcodeUrl } from '../../utils/labelHelpers';
 import InternalQrImage from '../../utils/InternalQrImage';
 
 const PIXELS_PER_MM = 3.78;
+const CSS_PIXELS_PER_POINT = 96 / 72;
 const PRINTER_PREVIEW_FONT_STACK = '"Lucida Console", "Courier New", monospace';
 
 const getLongestPreviewLineLength = (value) => {
@@ -10,77 +11,53 @@ const getLongestPreviewLineLength = (value) => {
   return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
 };
 
-const getRotationCode = (rotation = 0) => {
-  const rotationMap = { 0: 'N', 90: 'R', 180: 'I', 270: 'B' };
-  return rotationMap[rotation] || 'N';
-};
+/**
+ * Berekent tekststijl exact gelijk aan AdminLabelDesigner.getPreviewTextStyle
+ * zodat preview en designer identiek renderen.
+ */
+const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
+  const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+  const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
+  const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
 
-const getPreviewTextLayout = (element, content, labelWidthMm, printerDpi = 203) => {
-  const dotsPerMm = (Number(printerDpi) > 0 ? Number(printerDpi) : 203) / 25.4;
-  const mmToDots = (mm) => Math.round(Number(mm || 0) * dotsPerMm);
-
-  const requestedHeight = mmToDots((element.fontSize || 12) / 2.8);
-  const hasExplicitWidth = Number.isFinite(Number(element.fontWidth));
-  const explicitWidth = hasExplicitWidth ? mmToDots((element.fontWidth || 12) / 2.8) : 0;
-  const naturalWidth = explicitWidth || Math.max(1, Math.round(requestedHeight * 0.48));
-
-  const rot = getRotationCode(element.rotation || 0);
-  const wrapWidthMm = (rot === 'R' || rot === 'B')
-    ? (Number(element.height) || Number(element.width) || 0)
-    : Number(element.width);
-
-  let widthDots = null;
-  let fontHeight = requestedHeight;
-  let fontWidth = hasExplicitWidth ? naturalWidth : 0;
-
-  if (wrapWidthMm) {
-    const rawWidthDots = mmToDots(wrapWidthMm);
-    const innerWidthDots = Math.max(1, rawWidthDots - mmToDots(0.8));
+  if (isVerticalRotation) {
+    // Bij verticale rotatie is el.height het loopvlak voor tekst (de "breedte" na rotatie)
+    const runLengthMm = element.height || element.width || 0;
+    const runLengthPx = runLengthMm * PIXELS_PER_MM * zoom;
     const maxLines = Math.max(1, Number(element.maxLines) || 1);
-    const lineBudgetMm = (rot === 'R' || rot === 'B')
-      ? (Number(element.width) || Number(element.height) || 0)
-      : (Number(element.height) || 0);
-    const heightLimitDots = lineBudgetMm
-      ? Math.max(1, Math.floor(mmToDots(lineBudgetMm) / maxLines))
-      : requestedHeight;
-    const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
-    const maxCharWidth = Math.max(1, Math.floor((innerWidthDots * 0.98) / longestLineLength));
-    const fittedWidth = Math.min(naturalWidth, maxCharWidth);
-    const fittedHeight = Math.max(1, Math.min(heightLimitDots, requestedHeight));
+    // el.width wordt na rotatie de "hoogte" — het budget voor meerdere regels
+    const lineBudgetMm = element.width || element.height || 0;
+    const lineBudgetPx = lineBudgetMm * PIXELS_PER_MM * zoom;
 
-    widthDots = innerWidthDots;
-    fontHeight = fittedHeight;
-    fontWidth = hasExplicitWidth ? fittedWidth : 0;
+    if (runLengthPx > 0) {
+      const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
+      const widthLimitedFontPx = (runLengthPx * 0.92) / (longestLineLength * 0.52);
+      const heightLimitedFontPx = lineBudgetPx ? (lineBudgetPx * 0.9) / maxLines : baseFontPx;
+      const fittedFontPx = Math.max(1, Math.min(baseFontPx, widthLimitedFontPx, heightLimitedFontPx));
+      return { fontSize: fittedFontPx, lineHeight: "1.05" };
+    }
+    return { fontSize: baseFontPx, lineHeight: "1.05" };
   }
 
-  const baseX = mmToDots(element.x);
-  const baseY = mmToDots(element.y);
-  const elementHeightDots = element.height ? mmToDots(element.height) : 0;
-  const printableMinX = mmToDots(1);
-  const printableMaxX = mmToDots(labelWidthMm) - mmToDots(1);
+  const effectiveWidthMm = element.width || 0;
+  const blockWidthPx = effectiveWidthMm * PIXELS_PER_MM * zoom;
+  const maxLines = Math.max(1, Number(element.maxLines) || 1);
+  const blockHeightPx = element.height ? element.height * PIXELS_PER_MM * zoom : null;
 
-  let x = baseX;
-  let y = baseY;
-
-  if (rot === 'R' || rot === 'B') {
-    const verticalCompensation = Math.max(
-      mmToDots(2),
-      elementHeightDots,
-      Math.round(fontHeight * 0.85)
-    );
-    x = x - verticalCompensation + mmToDots(5);
+  if (!blockWidthPx) {
+    return { fontSize: baseFontPx, lineHeight: "1.05" };
   }
 
-  x = Math.max(printableMinX, Math.min(x, printableMaxX));
+  const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
+  const widthLimitedFontPx = (blockWidthPx * 0.92) / (longestLineLength * 0.52);
+  const heightLimitedFontPx = blockHeightPx ? (blockHeightPx * 0.9) / maxLines : baseFontPx;
+  const fittedFontPx = Math.max(1, Math.min(baseFontPx, widthLimitedFontPx, heightLimitedFontPx));
 
-  return { x, y, widthDots, fontHeight, fontWidth, dotsPerMm };
+  return { fontSize: fittedFontPx, lineHeight: "1.05" };
 };
 
 const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi = 203 }) => {
   if (!label) return <div className={`w-48 h-32 bg-slate-200 flex items-center justify-center text-xs text-slate-400 italic ${className}`}>Geen template</div>;
-
-  const dotsPerMm = (Number(printerDpi) > 0 ? Number(printerDpi) : 203) / 25.4;
-  const dotsToPx = (dots) => (dots / dotsPerMm) * PIXELS_PER_MM * zoom;
 
   return (
     <div
@@ -95,9 +72,6 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi 
         const displayContent = resolved.content;
         const rotation = ((Number(el.rotation) || 0) % 360 + 360) % 360;
         const isVerticalRotation = rotation === 90 || rotation === 270;
-        const previewTextLayout = el.type === "text"
-          ? getPreviewTextLayout(el, displayContent, label.width, printerDpi)
-          : null;
         const baseStyle = {
           position: "absolute",
           left: `${el.x * PIXELS_PER_MM * zoom}px`,
@@ -116,49 +90,30 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi 
         };
 
         if (el.type === "text") {
-          const fontSizePx = Math.max(1, dotsToPx(previewTextLayout.fontHeight));
-          const lineHeightMultiplier = 1.12;
-          const lineHeightPx = fontSizePx * lineHeightMultiplier;
-          const configuredMaxLines = Math.max(1, Number(el.maxLines) || 1);
-          const minTextHeightPx = Math.ceil(lineHeightPx * configuredMaxLines);
-          const baseHeightPx = el.height ? (el.height * PIXELS_PER_MM * zoom) : null;
-          const resolvedHeightPx = baseHeightPx
-            ? Math.max(baseHeightPx, minTextHeightPx)
-            : minTextHeightPx;
-
-          const isLargeLabel = (Number(label.height) || 0) >= 50;
-          const minVerticalMm = isLargeLabel ? 55 : 30;
-          // Zorg ervoor minWidth niet groter is dan werkelijke object-breedte
-          const constrainedMinVerticalMm = Math.min(minVerticalMm, Number(el.width) || minVerticalMm);
-          const minVerticalPx = constrainedMinVerticalMm * PIXELS_PER_MM * zoom;
+          const textStyle = getPreviewTextStyle(el, displayContent, zoom, rotation);
 
           return (
             <div
               key={index}
               style={{
                 ...baseStyle,
-                left: `${dotsToPx(previewTextLayout.x)}px`,
-                top: `${dotsToPx(previewTextLayout.y)}px`,
                 width: isVerticalRotation
-                  ? `${Math.max(el.height ? el.height * PIXELS_PER_MM * zoom : 1, 1)}px`
-                  : (previewTextLayout.widthDots
-                      ? `${dotsToPx(previewTextLayout.widthDots)}px`
-                      : baseStyle.width),
+                  ? `${(el.height || el.width || 1) * PIXELS_PER_MM * zoom}px`
+                  : `${el.width * PIXELS_PER_MM * zoom}px`,
                 height: isVerticalRotation
-                  ? `${Math.max(el.width ? el.width * PIXELS_PER_MM * zoom : 1, 1)}px`
-                  : `${resolvedHeightPx}px`,
-                // Bij 90°/270° rotatie: pre-rotatie width = visuele hoogte, pre-rotatie height = visuele breedte
-                minWidth: isVerticalRotation ? `${minVerticalPx}px` : undefined,
-                fontSize: `${fontSizePx}px`,
-                lineHeight: `${lineHeightMultiplier}`,
+                  ? `${(el.width || el.height || 1) * PIXELS_PER_MM * zoom}px`
+                  : (el.height
+                    ? `${el.height * PIXELS_PER_MM * zoom}px`
+                    : "auto"),
+                fontSize: `${textStyle.fontSize}px`,
+                lineHeight: textStyle.lineHeight,
                 fontWeight: el.isBold ? "900" : "normal",
                 fontFamily: el.fontFamily || PRINTER_PREVIEW_FONT_STACK,
                 textAlign: el.align || "left",
                 whiteSpace: "pre-wrap",
-                overflowWrap: "break-word",
-                wordBreak: isVerticalRotation ? "break-all" : "normal",
+                overflowWrap: "anywhere",
+                wordBreak: "normal",
                 boxSizing: "border-box",
-                paddingBottom: isVerticalRotation ? 0 : "1px",
               }}
             >
               {displayContent}

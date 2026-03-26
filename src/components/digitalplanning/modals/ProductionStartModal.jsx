@@ -763,18 +763,20 @@ const ProductionStartModal = ({
     setLotNumber(value);
     setLotError("");
 
-    if (value.trim().length >= 4) {
+    if (value.trim().length === 15) {
       setIsCheckingLot(true);
       let exists = existingProducts?.some(p => p.lotNumber === value.trim() || p.activeLot === value.trim());
       if (exists) {
-        setLotError(t('productionStart.lot_in_production', "Dit lotnummer is op dit moment al in productie!"));
+        setLotError("Dit lotnummer is op dit moment al in productie!");
       } else {
         const existsInDb = await checkLotNumberExists(value.trim());
         if (existsInDb) {
-          setLotError(t('productionStart.lot_used', "Dit lotnummer is al gebruikt!"));
+          setLotError("Dit lotnummer is al gebruikt!");
         }
       }
       setIsCheckingLot(false);
+    } else if (value.trim().length > 15) {
+      setLotError("Lotnummer mag maximaal 15 tekens zijn.");
     }
   };
 
@@ -784,9 +786,9 @@ const ProductionStartModal = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 md:p-4 backdrop-blur-md animate-in fade-in">
-      <div className="bg-white w-full max-w-6xl h-full md:h-[85vh] rounded-[40px] shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/10">
+      <div className={`bg-white w-full max-w-6xl h-full md:h-[85vh] rounded-[40px] shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/10 transition-all duration-300`}>
         {/* LINKS: CONFIGURATIE */}
-        <div className="w-full md:w-1/3 p-4 border-r border-slate-100 flex flex-col bg-slate-50/50 overflow-y-auto custom-scrollbar">
+        <div className={`w-full md:w-1/3 p-4 border-r border-slate-100 flex flex-col bg-slate-50/50 overflow-y-auto custom-scrollbar`}>
           <div className="flex justify-between items-start mb-4">
             <div className="text-left">
               <h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">
@@ -993,7 +995,7 @@ const ProductionStartModal = ({
                       className={`w-full p-3 bg-white border-2 rounded-2xl font-mono text-xl font-black uppercase outline-none shadow-sm text-center placeholder:text-slate-300 ${
                         lotError 
                           ? "border-red-500 focus:border-red-600 text-red-600" 
-                          : !lotError && manualLotInput.length >= 4
+                          : !lotError && manualLotInput.trim().length === 15
                           ? "border-emerald-500 focus:border-emerald-600 text-slate-800"
                           : "border-slate-100 focus:border-blue-600 text-slate-800"
                       } ${!orderValidated ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -1004,7 +1006,7 @@ const ProductionStartModal = ({
                         <Loader2 className="animate-spin text-blue-500" size={20} />
                       ) : lotError ? (
                         <AlertTriangle className="text-red-500" size={20} />
-                      ) : manualLotInput.length >= 4 ? (
+                      ) : manualLotInput.trim().length === 15 ? (
                         <CheckCircle2 className="text-emerald-500" size={20} />
                       ) : null}
                     </div>
@@ -1061,31 +1063,40 @@ const ProductionStartModal = ({
             </button>
             <button
               onClick={async () => {
-                if (!selectedLabel) {
+                if (mode === "auto" && !selectedLabel) {
                   alert("Selecteer eerst een label formaat.");
                   return;
                 }
                 setIsStarting(true);
                 try {
-                  // Genereer printdata met DPI van doelprinter
-                  const targetPrinter = await resolveTargetPrinterAsync();
-                  const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
-                  const totalToProduce = Math.max(1, parseInt(stringCount, 10) || 1);
-                  const labelsToPrint = Math.max(1, parseInt(labelCount, 10) || 1);
+                  let targetPrinter = null;
                   let effectiveLotNumber = mode === "auto" ? lotNumber : manualLotInput;
+                  let printData = null;
                   let counterClaimed = false;
+                  const totalToProduce = mode === "auto" ? Math.max(1, parseInt(stringCount, 10) || 1) : 1;
+                  const labelsToPrint = Math.max(1, parseInt(labelCount, 10) || 1);
 
                   if (mode === "auto") {
+                    targetPrinter = await resolveTargetPrinterAsync();
+                    const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
                     effectiveLotNumber = await claimAutoLotRange(totalToProduce);
                     counterClaimed = true;
                     setLotNumber(effectiveLotNumber);
-                  }
 
-                  const printPreviewData = {
-                    ...previewData,
-                    lotNumber: effectiveLotNumber,
-                  };
-                  const printData = await generatePrintData(selectedLabel, printPreviewData, dpiForPrint);
+                    const printPreviewData = {
+                      ...previewData,
+                      lotNumber: effectiveLotNumber,
+                    };
+                    printData = await generatePrintData(selectedLabel, printPreviewData, dpiForPrint);
+                  } else if (selectedLabel) {
+                    targetPrinter = await resolveTargetPrinterAsync();
+                    const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
+                    const printPreviewData = {
+                      ...previewData,
+                      lotNumber: effectiveLotNumber,
+                    };
+                    printData = await generatePrintData(selectedLabel, printPreviewData, dpiForPrint);
+                  }
 
                   if (!counterClaimed) {
                     await updateCounterOnStart(effectiveLotNumber, totalToProduce);
@@ -1096,21 +1107,17 @@ const ProductionStartModal = ({
                     order,
                     effectiveLotNumber,
                     totalToProduce,
-                    manualOrderInput,
+                    mode === "manual" ? manualOrderInput : order.orderId,
                     operatorInput,
                     selectedOperatorName,
                     printData,
-                    selectedLabelId
+                    mode === "auto" ? selectedLabelId : null
                   );
                   
                   // --- Queue/print na succesvol starten ---
                   const quantity = labelsToPrint;
 
-                  if (mode === "auto" && printConfig.mode === "lighthouse_driver" && quantity > 0) {
-                    setShowLighthousePreview(true);
-                  }
-
-                  if (printConfig.mode === "queue" && quantity > 0) {
+                  if (printConfig.mode === "queue" && quantity > 0 && selectedLabel && printData) {
                     try {
                       if (targetPrinter) {
                         const queueJobId = await queuePrintJob(
@@ -1150,11 +1157,11 @@ const ProductionStartModal = ({
               }}
               disabled={
                 isStarting ||
-                (mode === "manual" && (!orderValidated || !manualLotInput || !!lotError || !!orderError)) ||
+                (mode === "manual" && (!orderValidated || manualLotInput.trim().length !== 15 || !!lotError || !!orderError || isCheckingLot)) ||
                 (mode === "auto" && (!lotNumber || isCheckingLot || !!lotError)) // lotError can be empty string which is falsy
               }
               className={`flex-[2] py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.15em] shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 ${
-                mode === "manual" && orderValidated && manualLotInput && !lotError && !orderError && !isCheckingLot
+                mode === "manual" && orderValidated && manualLotInput.trim().length === 15 && !lotError && !orderError && !isCheckingLot
                   ? "bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-600/50 animate-pulse"
                   : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
               }`}
@@ -1204,22 +1211,8 @@ const ProductionStartModal = ({
               </span>
             </div>
 
-            <div className="flex gap-2">
-                {mode !== "auto" && (
-                <>
-                <button
-                onClick={handlePrint}
-                disabled={!selectedLabel}
-                className="flex-1 py-4 text-white rounded-xl font-black uppercase text-sm tracking-[0.2em] shadow-2xl hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-30 bg-purple-600 shadow-purple-900/40"
-                >
-                <Database size={22} />
-                Verstuur naar Wachtrij
-                </button>
-                </>
-                )}
-            </div>
             <p className="text-[8px] text-slate-500 text-center font-bold uppercase tracking-tighter opacity-50">
-              Selecteer aantal bij print prompt
+              Label wordt automatisch geprint bij starten
             </p>
           </div>
         </div>

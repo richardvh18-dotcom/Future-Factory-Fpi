@@ -17,6 +17,7 @@ import {
   Factory,
   Clock,
   Briefcase,
+  PauseCircle,
 } from "lucide-react";
 import { findDrawingForProduct } from "../../../utils/findDrawingForProduct";
 import { manualSyncDrawings } from "../../../utils/manualSyncDrawings";
@@ -328,13 +329,15 @@ const TerminalPlanningView = ({
               const priorityBadge = getPriorityBadgeStyles(order);
               const priorityLevel = getPriorityLevel(order);
               const priorityCardClass =
-                priorityLevel === "immediate"
-                  ? "border-rose-400 bg-rose-50/40 hover:border-rose-500"
-                  : priorityLevel === "urgent"
-                    ? "border-orange-400 bg-orange-50/40 hover:border-orange-500"
-                    : priorityLevel === "high"
-                      ? "border-amber-400 bg-amber-50/40 hover:border-amber-500"
-                      : "border-slate-100 bg-white hover:border-slate-200";
+                order.status === 'on_hold'
+                  ? "border-orange-300 bg-orange-50/60 opacity-70"
+                  : priorityLevel === "immediate"
+                    ? "border-rose-400 bg-rose-50/40 hover:border-rose-500"
+                    : priorityLevel === "urgent"
+                      ? "border-orange-400 bg-orange-50/40 hover:border-orange-500"
+                      : priorityLevel === "high"
+                        ? "border-amber-400 bg-amber-50/40 hover:border-amber-500"
+                        : "border-slate-100 bg-white hover:border-slate-200";
 
               return (
                 <div
@@ -350,11 +353,18 @@ const TerminalPlanningView = ({
                   <div className="flex items-center gap-4 flex-1 overflow-hidden">
                     {/* WIK/Drawing Button */}
                     <div
-                      className={`p-3 rounded-2xl shrink-0 ${
+                      onClick={(e) => {
+                        if (drawingLinked && onViewDrawing) {
+                          e.stopPropagation();
+                          onViewDrawing(order.drawing);
+                        }
+                      }}
+                      className={`p-3 rounded-2xl shrink-0 transition-all ${
                         drawingLinked
-                          ? "bg-blue-100 text-blue-600"
+                          ? "bg-blue-100 text-blue-600 cursor-pointer hover:bg-blue-200 active:scale-95"
                           : "bg-slate-50 text-slate-300"
                       }`}
+                      title={drawingLinked ? "Bekijk technische tekening" : ""}
                     >
                       <FileImage size={24} />
                     </div>
@@ -537,16 +547,36 @@ const TerminalPlanningView = ({
 
               {/* Action Area */}
               <div className="flex flex-col gap-4 border-t pt-8">
-                <button
-                  onClick={() => onStartProduction(true)}
-                  className="w-full py-6 bg-blue-600 text-white rounded-[1.5rem] font-black uppercase text-lg shadow-xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-1 active:translate-y-0 transition-all flex items-center justify-center gap-4"
-                >
-                  <PlayCircle size={28} /> Start Productie
-                </button>
+                {selectedOrder.status === 'on_hold' ? (
+                  <div className="w-full py-6 bg-orange-100 text-orange-700 rounded-[1.5rem] font-black uppercase text-lg flex items-center justify-center gap-4 border-2 border-orange-200">
+                    <PauseCircle size={28} /> Order On Hold
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => onStartProduction(true)}
+                    className="w-full py-6 bg-blue-600 text-white rounded-[1.5rem] font-black uppercase text-lg shadow-xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-1 active:translate-y-0 transition-all flex items-center justify-center gap-4"
+                  >
+                    <PlayCircle size={28} /> Start Productie
+                  </button>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
-                  <button className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
-                    <FileText size={16} /> Technische Tekening
+                  <button
+                    onClick={() => {
+                      if (onViewDrawing) {
+                        onViewDrawing(selectedOrder.drawing);
+                      }
+                    }}
+                    className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center gap-2 ${
+                      selectedOrder.drawing && selectedOrder.drawing !== "-" && selectedOrder.drawing !== ""
+                        ? "bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    <FileImage size={16} /> Technische Tekening
+                    {selectedOrder.drawing && selectedOrder.drawing !== "-" && selectedOrder.drawing !== "" && (
+                      <span className="ml-1 w-2 h-2 bg-blue-500 rounded-full" />
+                    )}
                   </button>
                   <button className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
                     <AlertCircle size={16} /> Kwaliteitseisen

@@ -44,27 +44,49 @@ const firstIndex = (headers, candidates) => {
 };
 
 const parseWorkbook = (arrayBuffer) => {
-  const workbook = XLSX.read(arrayBuffer, {
-    type: "array",
-    cellDates: true,
-    dense: true,
-  });
+  // Stap 1: haal alleen sheetnamen op — geen sheetdata geladen in geheugen
+  const wbMeta = XLSX.read(arrayBuffer, { type: "array", bookSheets: true });
+  const sheetNames = wbMeta.SheetNames;
 
   let allData = [];
   let sheetsFound = 0;
 
-  workbook.SheetNames.forEach((sheetName) => {
-    const ws = workbook.Sheets[sheetName];
-    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  // Alleen deze drie planningsheets worden verwerkt; alle andere worden genegeerd.
+  const ALLOWED_SHEETS = ["Fabrieksplanning", "Mazakplanning", "40BM01"];
+  const isAllowed = (name) =>
+    ALLOWED_SHEETS.some((a) => name.trim().toLowerCase() === a.toLowerCase());
 
-    const headerIndex = rawRows.findIndex((row) => {
+  for (const sheetName of sheetNames) {
+    if (!isAllowed(sheetName)) continue;
+
+    // Stap 2: scan alleen de eerste 15 rijen per sheet om de headerrij te vinden.
+    const wbScan = XLSX.read(arrayBuffer, {
+      type: "array",
+      sheets: sheetName,
+      sheetRows: 15,
+    });
+    const wsScan = wbScan.Sheets[sheetName];
+    if (!wsScan) continue;
+
+    const scanRows = XLSX.utils.sheet_to_json(wsScan, { header: 1, defval: "" });
+    const headerIndex = scanRows.findIndex((row) => {
       const rowStr = row.map((c) => normalizeHeader(c));
       return rowStr.includes("machine") && rowStr.includes("order");
     });
 
-    if (headerIndex === -1) return;
+    if (headerIndex === -1) continue; // Geen planningheader → sheet overslaan
 
+    // Stap 3: volledige inlezing voor alleen deze relevante sheet
     sheetsFound++;
+    const wbFull = XLSX.read(arrayBuffer, {
+      type: "array",
+      cellDates: true,
+      dense: true,
+      sheets: sheetName,
+    });
+    const ws = wbFull.Sheets[sheetName];
+    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
     const headers = rawRows[headerIndex].map((h) => String(h || "").trim());
     const dataRows = rawRows.slice(headerIndex + 1);
 
@@ -125,7 +147,7 @@ const parseWorkbook = (arrayBuffer) => {
       });
 
     allData = allData.concat(sheetData);
-  });
+  }
 
   if (sheetsFound === 0) return [];
 

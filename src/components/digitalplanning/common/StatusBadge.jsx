@@ -88,9 +88,9 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
         icon: <Zap size={12} />,
       };
     }
-    if (cleanStatus === "paused") {
+    if (cleanStatus === "paused" || cleanStatus === "on_hold") {
       return {
-        label: t('status.paused', 'Gepauzeerd'),
+        label: cleanStatus === "on_hold" ? t('status.on_hold', 'On Hold') : t('status.paused', 'Gepauzeerd'),
         style: "bg-orange-100 text-orange-800 border-orange-200",
         icon: <PauseCircle size={12} />,
       };

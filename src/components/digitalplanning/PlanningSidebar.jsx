@@ -389,6 +389,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
     const isDelegated = !!order.delegatedTo;
     const isDelegatedStatus = order.status === 'delegated' || order.status === 'DELEGATED';
     const isCancelled = order.status === 'cancelled';
+    const isOnHold = order.status === 'on_hold';
     const rawPriority = order?.priority;
     const normalizedPriority =
       rawPriority === true
@@ -422,7 +423,9 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 ? "bg-blue-50 border-blue-500 shadow-md shadow-blue-100"
                 : isCancelled
                   ? "bg-slate-50 border-slate-100 opacity-60 grayscale"
-                  : "bg-white border-slate-50 hover:border-slate-200 hover:bg-slate-50"
+                  : isOnHold
+                    ? "bg-orange-50/50 border-orange-200 opacity-80"
+                    : "bg-white border-slate-50 hover:border-slate-200 hover:bg-slate-50"
             }
           `}
         >

@@ -13,6 +13,7 @@ import {
   serverTimestamp,
   setDoc,
   getDoc,
+  getDocs,
   query,
   where,
   arrayUnion,
@@ -542,13 +543,37 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         setViewingProduct(productId);
         return;
       }
+      // 1. Direct op document ID
       const docRef = doc(db, ...PATHS.PRODUCTS, productId);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         setViewingProduct({ id: snap.id, ...snap.data() });
-      } else {
-        alert(t("digitalplanning.terminal.product_not_found"));
+        return;
       }
+      // 2. Zoek op articleCode
+      const productsRef = collection(db, ...PATHS.PRODUCTS);
+      const q = query(productsRef, where("articleCode", "==", productId));
+      const qSnap = await getDocs(q);
+      if (!qSnap.empty) {
+        setViewingProduct({ id: qSnap.docs[0].id, ...qSnap.docs[0].data() });
+        return;
+      }
+      // 3. Materiaalvariant fallback: CST(C) ↔ EST(E) op positie 6
+      const upper = String(productId).toUpperCase();
+      let variantCode = null;
+      if (upper.length >= 8) {
+        if (upper[6] === "C") variantCode = upper.slice(0, 6) + "E" + upper.slice(7);
+        else if (upper[6] === "E") variantCode = upper.slice(0, 6) + "C" + upper.slice(7);
+      }
+      if (variantCode) {
+        const vq = query(productsRef, where("articleCode", "==", variantCode));
+        const vSnap = await getDocs(vq);
+        if (!vSnap.empty) {
+          setViewingProduct({ id: vSnap.docs[0].id, ...vSnap.docs[0].data() });
+          return;
+        }
+      }
+      alert(t("digitalplanning.terminal.product_not_found"));
     } catch (err) {
       console.error("Fout bij laden product:", err);
     }

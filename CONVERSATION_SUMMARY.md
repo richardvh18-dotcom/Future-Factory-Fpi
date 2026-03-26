@@ -1,6 +1,6 @@
 # Pilot Handover Summary
 
-**Laatst bijgewerkt:** 25 maart 2026 (sessie 13)
+**Laatst bijgewerkt:** 26 maart 2026 (sessie 19)
 **Branch:** `FpiFF-Pilot-Ready`  
 **Doel:** compacte overdracht voor hervatten van pilotwerk richting 30 maart
 
@@ -12,6 +12,7 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
 2. Terminal/Workstation zichtbaarheid van geimporteerde orders moet end-to-end getest blijven.
 3. ZM400 kalibratie werkend — lotnummer-batch en queue-label snijgedrag live bevestigd; orderlabel-flow vanuit Print Station nog live te valideren.
 4. Algemene pilot validatie op de vloer moet nog gebeuren met operators.
+5. Verticale tekst op orderlabels (onder QR-codes) is nog niet definitief goed: overlap is opgelost, maar exacte positionering/schaal in preview vs fysieke print is nog in finetune.
 
 ## Kritieke Open Punten
 
@@ -51,6 +52,24 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
         - wrap/clipping-logica voor verticale tekst aangescherpt, maar live hardware-validatie van lange verticale tekstregelafbreking is nog nodig
     - ZPL cut-logica fundamenteel hersteld (23 maart sessie 6, zie 3a)
 - **Nog nodig:** live validatie orderlabel print vanuit Print Station
+
+### 3d. Verticale Tekst Tuning (lopende issue, sessie 14)
+- **Status:** Code gereed (preview en ZPL gesynchroniseerd), wacht op live hardware validatie
+- **Wat bevestigd is:**
+    - overlap van verticale tekst was aanwezig en is grotendeels weg na verwijderen van onstabiele combinaties
+    - `^FB` bij geroteerde tekst (`^A0R`/`^A0B`) geeft op ZM400 onvoorspelbare output en blijft daarom uit voor verticale tekst
+- **Wat geprobeerd is in code:**
+    - meerdere auto-offset en centreringvarianten in `zplHelper.js` getest
+    - Verticale tuning blok toegevoegd in `zplHelper.js` en `LabelVisualPreview.jsx` (`VERTICAL_X_OFFSET_MM = 2.0`, `VERTICAL_Y_OFFSET_MM = 1.0`, `VERTICAL_SCALE = 0.85`)
+    - Preview schaling (`DESIGNER_MATCH_SCALE = 0.76`) toegepast zodat `LabelVisualPreview` exact overeenkomt met de 1:1 weergave in `AdminLabelDesigner`.
+- **Huidige situatie:**
+    - Preview op het scherm is nu perfect in verhouding en de verticale tekst is visueel geresized.
+    - ZPL-output neemt dezelfde 15% krimp en pixel-offsets mee.
+    - Moet nu fysiek geprint worden op de ZM400 om te bevestigen of deze standaardcorrectie 100% klopt.
+- **Bestanden met recente wijzigingen:**
+    - `src/utils/zplHelper.js`
+    - `src/components/printer/LabelVisualPreview.jsx`
+    - `src/components/admin/AdminLabelDesigner.jsx`
 
 ### 3a. Zebra ZM400 WebUSB Vervolgpunten
 - [x] WebUSB printflow in `PrintStationView.jsx` robuuster gemaakt met dynamische OUT endpoint-detectie
@@ -175,6 +194,38 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
 - 35+ dode `lossen.*` vertalingssleutels verwijderd uit `nl.js` en `en.js`
 - Resterende actieve sleutels behouden: `no_incoming_items`, `wait_for_unload`, `waiting_receipt`, `lot_number`, `received`, `manufactured_item`, `origin`, `from`, `process_release`, `ready_to_scan`, `item_not_found`
 
+### Matrix Hub & Efficiency (26 maart 2026)
+- Volledige refactor van de `AdminMatrixManager` naar een robuuste modulaire opzet (10+ subcomponenten).
+- Boorpatronen en tolerantiebeheer direct gekoppeld aan de root databasepaden.
+- Ontwerp en documentatie toegevoegd voor een nieuw Efficiency Tracking systeem (`EFFICIENCY_TRACKING.md`).
+
+### ProductionStartModal & ZPL Fixes (26 maart 2026 — sessie 19)
+- **Audit label/printingsysteem** uitgevoerd; vier kritieke problemen gevonden en opgelost:
+
+#### ProductionStartModal.jsx
+- **Manual mode (barcode scan) nu volledig werkend:**
+  - Label preview (rechter paneel) is nu altijd zichtbaar in beide modes (was verborgen in manual mode)
+  - Label template selectie beschikbaar in beide modes (was alleen in auto mode)
+  - `labelsToPrint` niet meer hardcoded op `0` in manual mode — labels worden nu ook geprint bij manueel starten
+  - ZPL wordt gegenereerd en naar de wachtrij gestuurd in manual mode (als er een label geselecteerd is)
+- **Dead code verwijderd:**
+  - `setShowLighthousePreview(true)` — aanroep op niet-bestaande state setter → crash risico weg
+  - `"Verstuur naar Wachtrij"` knop die nooit renderde (stond in `mode === "auto"` container met `mode !== "auto"` guard) → verwijderd
+  - Help tekst bijgewerkt: `"Label wordt automatisch geprint bij starten"`
+
+#### zplHelper.js — Cut logica gerepareerd
+- **`^MMC` (Cut Mode) staat nu in de header** van het ZPL format (direct na `^XA^CI28`), niet meer aan het einde
+- **`^GS`** (ongeldig ZPL commando) verwijderd
+- **Mid-batch labels** krijgen nu `^MMT` (geen cut) i.p.v. `^MMC` — consistent met hoe `generateLotBatchZPL` het al correct deed
+- **Laatste label van batch:** `^MMC + ^PQ1,0,1,Y` = print en knip correct
+
+### Tekeningen Sync & Koppeling (26 maart 2026 — sessie 18)
+- Drawing sync engine volledig herschreven met correcte DB-paden en materiaalvariant matching (CST↔EST)
+- Tekeningen nu opvraagbaar vanuit alle views: Terminal orderlijst, Terminal detail, Product Dossier, TeamleaderHub per-product, TeamleaderHub order-overzicht
+- Tekeningen Sync tab in ConversionManager: batch sync, cross-collection search, keten analyse met broken chain detectie
+- Definitieve Afkeur formulier met reden-checklist in ProductDossierModal
+- On Hold/Resume toggle voor orders met visuele feedback in alle relevante views
+
 ## Belangrijkste Relevante Bestanden
 
 ### AI
@@ -192,7 +243,16 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
 ### Planning Import / Terminal
 - `src/components/digitalplanning/modals/PlanningImportModal.jsx`
 - `src/components/digitalplanning/terminal/TerminalPlanningView.jsx`
+- `src/components/digitalplanning/Terminal.jsx`
 - `src/components/digitalplanning/WorkstationHub.jsx`
+- `src/components/digitalplanning/OrderDetail.jsx`
+- `src/components/digitalplanning/modals/ProductDossierModal.jsx`
+
+### Tekeningen & Sync
+- `src/utils/drawingLinker.jsx`
+- `src/utils/manualSyncDrawings.jsx`
+- `src/utils/findDrawingForProduct.jsx`
+- `src/components/admin/ConversionManager.jsx`
 
 ### Printing
 - `src/components/printer/PrintQueueAdminView.jsx`
@@ -203,6 +263,12 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
 - `src/utils/zplHelper.js`
 - `src/utils/labelHelpers.jsx`
 - `src/services/printService.js`
+
+### Matrix Beheer & Kwaliteit
+- `src/components/admin/matrixmanager/AdminMatrixManager.jsx` (en subviews)
+- `src/components/admin/ProductionTimeStandardsManager.jsx` (gepland)
+- `src/components/digitalplanning/EfficiencyDashboard.jsx` (gepland)
+- `EFFICIENCY_TRACKING.md`
 
 ## Open Pilot Validatie
 
@@ -286,6 +352,87 @@ Praktische keuzehulp:
 
 ## Korte Historie
 
+### 26 maart 2026 — sessie 18 (Tekeningen Sync & Toegang Vanuit Alle Views)
+
+#### Tekeningen Koppeling — Volledige App-brede Integratie
+- **Drawing Sync Engine (`drawingLinker.jsx`)**: Volledig herschreven. Gebruikt nu correcte `PATHS.PRODUCTS` en `PATHS.CONVERSION_MATRIX` i.p.v. oude `artifacts/{appId}/...` paden. Bevat `materialVariants()` functie die CST↔EST swapped op positie 6. `findDrawingForOrder()` doet 3-stap: product match → conversie matrix → beide met materiaalvariant fallback.
+- **Batch Sync (`manualSyncDrawings.jsx`)**: Materiaalvarianten toegevoegd in `buildLookupKeys`. Ongematchte resultaten bevatten nu `conversionTarget` voor debugging.
+- **ConversionManager.jsx**: Derde tab "Tekeningen Sync" toegevoegd met:
+  - Start Sync knop + progress bar + samenvatting (Gekoppeld/Geen match/Totaal)
+  - Cross-collection zoekfunctie over Conversie Matrix, Planning Orders en Product Catalogus
+  - "Keten Analyse" (chain trace) die automatisch conversion targets volgt naar producten
+  - Broken chain detectie (oranje "Target ≠ Product" status)
+  - Materiaalvariant auto-follow met "+ materiaalvariant" badge
+- **Definitieve Afkeur**: Rejection knop + formulier met reden-checklist en opmerkingen in ProductDossierModal (z-index z-[300])
+
+#### Tekening Zichtbaar Vanuit Alle Views
+Alle views hebben nu een werkende tekening-knop met 3-stap lookup:
+1. `order.drawing` als product-ID → `getDoc` by ID
+2. Fallback: `articleCode` query
+3. Fallback: materiaalvariant (CST↔EST positie 6)
+4. Legacy fallback: `findDrawingForProduct()`
+
+| View | Component | Details |
+|---|---|---|
+| Workstation Terminal — orderlijst | `TerminalPlanningView.jsx` | Drawing icon blauw als gekoppeld, clickable → `onViewDrawing` |
+| Workstation Terminal — detail panel | `TerminalPlanningView.jsx` | "Technische Tekening" knop gekoppeld aan `onViewDrawing`, blauw + bolletje als gekoppeld |
+| Workstation Terminal — handler | `Terminal.jsx` | `handleViewDrawing` met 3-stap + materiaalvariant fallback → ProductDetailModal |
+| Product Dossier Modal | `ProductDossierModal.jsx` | "Tekening" veld + `handleOpenDetail` met 3-stap fallback |
+| TeamleaderHub — Volledige Lijst per product | `OrderDetail.jsx` | FileImage knop per product met 3-stap lookup, blauw als gekoppeld |
+| TeamleaderHub — Volledige Lijst order overzicht | `OrderDetail.jsx` | 5e tile "Tekening" in details grid, toont "Gekoppeld"/"Zoeken" status |
+
+#### Overige Wijzigingen
+- **On Hold/Resume**: Toggle in OrderDetail, StatusBadge (`on_hold` oranje/PauseCircle), PlanningSidebar (oranje achtergrond), TerminalPlanningView (oranje dimmed, disabled start)
+- **TeamleaderHub Sync**: Paarse sync-knop in header + mobile menu met toast notificaties
+- **Nabewerken**: Station naam gecorrigeerd van "Nabewerking" naar "Nabewerken" in workstationLogic.jsx
+
+#### Materiaalvariant Logica (CST↔EST)
+- Positie 6 (index 6) in FPi GRE productcodes: `C` = CST (Conductive Standard Type), `E` = EST (Epoxy Standard Type)
+- Tekeningen zijn materiaalonafhankelijk → beide varianten delen dezelfde tekening
+- `materialVariants()` functie in `drawingLinker.jsx` en `manualSyncDrawings.jsx`
+- Wordt toegepast in alle lookup-stappen (sync, handmatige sync, chain trace, terminal, dossier, orderdetail)
+
+#### Gewijzigde Bestanden
+- `src/utils/drawingLinker.jsx` — herschreven + materialVariants
+- `src/utils/manualSyncDrawings.jsx` — materialVariants + conversionTarget
+- `src/components/admin/ConversionManager.jsx` — Sync tab + search + chain trace
+- `src/components/digitalplanning/modals/ProductDossierModal.jsx` — rejection form + handleOpenDetail
+- `src/components/digitalplanning/terminal/TerminalPlanningView.jsx` — clickable icon + Technische Tekening knop
+- `src/components/digitalplanning/Terminal.jsx` — handleViewDrawing + variant fallback
+- `src/components/digitalplanning/OrderDetail.jsx` — tekening tile + per-product drawing knop + on hold
+- `src/components/digitalplanning/TeamleaderHub.jsx` — sync button
+- `src/components/digitalplanning/common/StatusBadge.jsx` — on_hold status
+- `src/components/digitalplanning/PlanningSidebar.jsx` — on_hold styling
+- `src/utils/workstationLogic.jsx` — Nabewerken naamfix
+
+### 26 maart 2026 — sessie 17 (Matrix Manager & Efficiency Tracking)
+- **Matrix Hub Refactor**: De `AdminMatrixManager` en alle subcomponenten (`MatrixRangesView`, `AdminDrillingView`, `MatrixView`, `BlueprintsView`, `LibraryView`, etc.) zijn volledig herzien en gestyled volgens de nieuwe MES richtlijnen.
+- **Root Path Syncing**: Data opslag voor boorpatronen en dimensies is gestandaardiseerd naar de centrale root configuraties.
+- **Efficiency Tracking**: Nieuwe architectuur (`EFFICIENCY_TRACKING.md`) opgesteld voor real-time prestatiemeting op de werkvloer.
+- **Volgende stap**: Componenten implementeren voor het Efficiency systeem.
+
+### 25 maart 2026 — sessie 16 (ZPL uitlijning & preview sync)
+- Verticale tekst (`^A0R`/`^A0B`) tuning blokken toegevoegd aan `zplHelper.js` en `LabelVisualPreview.jsx` om exact met elkaar in de pas te lopen.
+- Standaardcorrectie voor verticale tekst ingesteld:
+  - 15% kleiner lettertype (`VERTICAL_SCALE = 0.85`)
+  - Offset: 2mm naar rechts, 1mm naar onder.
+- Fix toegevoegd in `LabelVisualPreview.jsx` (`DESIGNER_MATCH_SCALE = 0.76`) waardoor de dot-to-pixel conversie visueel exact overeenkomt met de 1:1 weergave in de Label Architect. De tekst is nu niet meer 35% te groot op het scherm.
+- Volgende stap: live hardware test op ZM400.
+
+### 25 maart 2026 — sessie 15 (planning import fix)
+- Foutmelding `Fout bij het verwerken van het bestand.` opgelost bij importeren van `fittingen 25-03-2026 MET 40BM01 2.0AAA.xlsx`
+- **Oorzaak:** het bestand bevat twee enorme helper-sheets (`data PPOP` 13.501 rijen, `hulp input` 13.506 rijen) die de browser-worker lieten crashen door geheugenoverbelasting bij één globale `XLSX.read` call
+- **Fix in `src/workers/planningImportWorker.js`:**
+    - Stap 1: alleen sheetnamen ophalen (`bookSheets: true` — geen data in geheugen)
+    - Stap 2: per sheet alleen de eerste 15 rijen scannen om headerrij te detecteren
+    - Stap 3: sheets zonder `Machine` + `order` header worden volledig overgeslagen
+    - Stap 4: whitelist toegevoegd — alleen `Fabrieksplanning`, `Mazakplanning` en `40BM01` worden verwerkt; alle andere sheets worden genegeerd
+    - Resultaat: 476 orders geladen uit 3 planning-sheets, grote helper-sheets nooit ingelezen
+- **`.xlsm` ondersteuning toegevoegd:**
+    - `accept=` attribuut in `PlanningImportModal.jsx` uitgebreid met `.xlsm`
+    - XLSX-library leest `.xlsm` intern identiek aan `.xlsx` (VBA-pakket wordt genegeerd)
+- Vite devserver gestart op poort 3000 (`http://localhost:3000/`, `http://10.0.10.16:3000/`)
+
 ### 25 maart 2026 — sessie 13 (vervolg)
 - Sync issue nog open: handmatige tekeningsync meldt nog steeds 0 matches in praktijktest.
 - Reeds aangebrachte fixes in `manualSyncDrawings.jsx`:
@@ -298,6 +445,18 @@ Praktische keuzehulp:
     - catalogus bevat `articleCode = ELMO90CS00WMST080000320CB0` met gekoppelde tekening
 - Ondanks bovenstaande fixset wordt in UI nog geen match getoond; debugging wordt in volgende sessie hervat.
 - Gebruiker stopt hier tijdelijk en pakt sync-analyse later weer op.
+
+### 25 maart 2026 — sessie 14 (printing vervolg)
+- Focus verlegd naar verticale tekst op orderlabels (fysieke print + preview vergelijking met foto's)
+- Reeks patches uitgevoerd op ZPL/preview:
+    - overlapreductie en rotatiecompatibiliteit
+    - uitschakelen `^FB` voor geroteerde tekst in ZPL
+    - meerdere rotatie-offset/centreringsvarianten getest en deels teruggedraaid
+    - Label Manager preview rendering voor verticale tekst aangepast (wrap/fit)
+- Tussenresultaat:
+    - overlapprobleem duidelijk verbeterd t.o.v. begin
+    - maar exacte uitlijning/schaal van verticale tekst nog niet volledig goed
+- Sessie op verzoek gepauzeerd met expliciete tussenstand in dit document
 
 ### 25 maart 2026 — sessie 12
 - Vite devserver gestart op poort 3000 voor vervolgvalidatie
