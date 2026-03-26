@@ -277,7 +277,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                 ref={fileInputRef}
                 onChange={handleFileChange}
                 className="hidden"
-                accept=".csv, .xlsx, .xls"
+                accept=".csv, .xlsx, .xls, .xlsm"
               />
               {loading ? (
                 <div className="flex flex-col items-center gap-3 mb-6">

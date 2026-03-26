@@ -12,6 +12,7 @@ import {
   BrainCircuit,
   Menu,
   X,
+  RefreshCw,
 } from "lucide-react";
 import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, limit } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -27,6 +28,8 @@ import PlanningImportModal from "./modals/PlanningImportModal";
 import { getStepForStation } from "../../utils/workstationLogic";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
+import { useNotifications } from "../../contexts/NotificationContext";
+import { runBatchDrawingSync } from "../../utils/drawingLinker";
 import TeamleaderDashboard from "../teamleader/TeamleaderDashboard";
 import TeamleaderGanttView from "../teamleader/TeamleaderGanttView";
 import TeamleaderEfficiencyView from "../teamleader/TeamleaderEfficiencyView";
@@ -78,6 +81,8 @@ const TeamleaderHub = React.memo(({
   const [departmentFilter, setDepartmentFilter] = useState("ALL"); // Nieuw filter
   const [showAiPrediction, setShowAiPrediction] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSyncingDrawings, setIsSyncingDrawings] = useState(false);
+  const { showSuccess, showInfo, showWarning } = useNotifications();
 
   // Modals state
   const [activeKpi, setActiveKpi] = useState(null);
@@ -905,6 +910,23 @@ const TeamleaderHub = React.memo(({
     setActiveKpi(kpiId);
   };
 
+  const handleDrawingSync = async () => {
+    setIsSyncingDrawings(true);
+    try {
+      const count = await runBatchDrawingSync();
+      if (count > 0) {
+        showSuccess(`${count} order(s) gekoppeld aan tekeningen`);
+      } else {
+        showInfo("Geen nieuwe tekeningen gevonden om te koppelen");
+      }
+    } catch (err) {
+      console.error("Drawing sync error:", err);
+      showWarning("Fout bij synchroniseren tekeningen");
+    } finally {
+      setIsSyncingDrawings(false);
+    }
+  };
+
   const handleExport = () => {
     if (dataStore.length === 0) {
       alert("Geen data om te exporteren.");
@@ -1237,6 +1259,7 @@ const TeamleaderHub = React.memo(({
             <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title={t('teamleader.export_csv', 'Exporteer CSV')}><Download size={20} /></button>
             <button onClick={() => setShowAddOrderModal(true)} className="px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><Plus size={16} /> <span className="hidden sm:inline">{t('teamleader.new_order', 'Nieuwe Order')}</span></button>
             <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">{t('teamleader.import', 'Import')}</span></button>
+            <button onClick={handleDrawingSync} disabled={isSyncingDrawings} className="p-2 bg-white border border-slate-200 text-purple-600 rounded-xl shadow-sm hover:bg-purple-50 transition-all disabled:opacity-50" title="Sync Tekeningen"><RefreshCw size={20} className={isSyncingDrawings ? 'animate-spin' : ''} /></button>
           </div>
 
           {/* Mobile Menu Button */}
@@ -1269,6 +1292,7 @@ const TeamleaderHub = React.memo(({
                 <button onClick={() => { setShowImportModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-blue-600 hover:bg-blue-50 flex items-center gap-2"><FileSpreadsheet size={16} /> {t('teamleader.import', 'Import')}</button>
                 <button onClick={() => { handlePlannerExcelExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"><Table size={16} /> {t('teamleader.export_planner_excel', 'Exporteer Planner Excel')}</button>
                 <button onClick={() => { handleExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-slate-600 hover:bg-slate-50 flex items-center gap-2"><Download size={16} /> {t('teamleader.export_csv', 'Exporteer CSV')}</button>
+                <button onClick={() => { handleDrawingSync(); setIsMobileMenuOpen(false); }} disabled={isSyncingDrawings} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-purple-600 hover:bg-purple-50 flex items-center gap-2 disabled:opacity-50"><RefreshCw size={16} className={isSyncingDrawings ? 'animate-spin' : ''} /> Sync Tekeningen</button>
               </div>
             )}
           </div>

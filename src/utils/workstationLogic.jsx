@@ -36,7 +36,7 @@ export const WORKSTATIONS = [
   { id: "BH08", name: "BH08", category: "pipes" },
   { id: "BH09", name: "BH09", category: "pipes" },
   { id: "Mazak", name: "Mazak", category: "post-processing" },
-  { id: "Nabewerking", name: "stations.postProcessing", category: "post-processing" },
+  { id: "Nabewerking", name: "Nabewerken", category: "post-processing" },
   { id: "BM01", name: "BM01", category: "inspection" },
   { id: "Station BM01", name: "stations.bm01", category: "inspection" },
 ];

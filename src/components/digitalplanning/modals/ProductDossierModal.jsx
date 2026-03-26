@@ -20,11 +20,11 @@ import {
   Printer,
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
-import { WORKSTATIONS } from "../../../utils/workstationLogic";
+import { WORKSTATIONS, REJECTION_REASONS } from "../../../utils/workstationLogic";
 import { format } from "date-fns";
 import { getISOWeekInfo } from "../../../utils/hubHelpers";
 import { findDrawingForOrder, syncOrderDrawing } from "../../../utils/drawingLinker.jsx";
-import { collection, query, where, getDocs, doc, updateDoc, arrayUnion, limit } from "firebase/firestore";
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, arrayUnion, limit, serverTimestamp } from "firebase/firestore";
 import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
@@ -64,13 +64,40 @@ const ProductDossierModal = ({
   const { role } = useAdminAuth();
   const canEditPriority = ["admin", "teamleader"].includes(role);
   const [showConfirmMove, setShowConfirmMove] = useState(false);
+  const [showConfirmReject, setShowConfirmReject] = useState(false);
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [rejectReasons, setRejectReasons] = useState([]);
+  const [rejectNote, setRejectNote] = useState("");
+
+  const isTijdelijkeAfkeur = product?.inspection?.status === "Tijdelijke afkeur";
+
+  const REJECTION_REASON_LABELS = {
+    "rejection.notConformDrawing": "Niet conform tekening",
+    "rejection.wrongDiameter": "Verkeerde diameter",
+    "rejection.surfaceDamage": "Oppervlakteschade",
+    "rejection.crack": "Scheur",
+    "rejection.materialShortage": "Materiaaltekort",
+    "rejection.wrongSpec": "Verkeerde specificatie",
+    "rejection.dimensionDeviation": "Maatafwijking",
+    "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
+    "rejection.other": "Overig",
+  };
+
+  const toggleRejectReason = (reason) => {
+    setRejectReasons((prev) =>
+      prev.includes(reason) ? prev.filter((r) => r !== reason) : [...prev, reason]
+    );
+  };
 
   const handleDrawingSync = async () => {
-    if (!parentOrder.itemCode) return;
+    const hasCode = parentOrder.itemCode || parentOrder.item || parentOrder.productId || parentOrder.manufacturedId || parentOrder.articleCode;
+    if (!hasCode) return;
     setIsSyncing(true);
     const drawing = await findDrawingForOrder(parentOrder);
     if (drawing) {
       await syncOrderDrawing(parentOrder.id, drawing);
+    } else {
+      console.warn("[Dossier Sync] Geen tekening gevonden voor order:", parentOrder.id, { itemCode: parentOrder.itemCode, item: parentOrder.item, productId: parentOrder.productId });
     }
     setIsSyncing(false);
   };
@@ -233,18 +260,45 @@ const ProductDossierModal = ({
     
     setLoadingCatalog(true);
     try {
-      const appId = window.__app_id || "fittings-app-v1";
-      const productsRef = collection(db, "artifacts", appId, "public", "data", "products");
+      const productsRef = collection(db, ...PATHS.PRODUCTS);
+      const drawingId = parentOrder.drawing;
       
-      // Zoek op tekening nummer
-      const q = query(productsRef, where("drawing", "==", parentOrder.drawing));
-      const snap = await getDocs(q);
+      // Eerst probeer direct op document ID (manualSyncDrawings slaat product ID op)
+      const directRef = doc(db, ...PATHS.PRODUCTS, drawingId);
+      const directSnap = await getDoc(directRef);
       
-      if (!snap.empty) {
-        setCatalogProduct({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      if (directSnap.exists()) {
+        setCatalogProduct({ id: directSnap.id, ...directSnap.data() });
         setShowDetailModal(true);
       } else {
-        alert("Geen product gevonden in catalogus met deze tekening.");
+        // Fallback: zoek op articleCode
+        const q = query(productsRef, where("articleCode", "==", drawingId));
+        const snap = await getDocs(q);
+        
+        if (!snap.empty) {
+          setCatalogProduct({ id: snap.docs[0].id, ...snap.docs[0].data() });
+          setShowDetailModal(true);
+        } else {
+          // Materiaalvariant fallback: CST(C) ↔ EST(E) op positie 6
+          const upper = drawingId.toUpperCase();
+          let variantCode = null;
+          if (upper.length >= 8) {
+            if (upper[6] === "C") variantCode = upper.slice(0, 6) + "E" + upper.slice(7);
+            else if (upper[6] === "E") variantCode = upper.slice(0, 6) + "C" + upper.slice(7);
+          }
+          if (variantCode) {
+            const vq = query(productsRef, where("articleCode", "==", variantCode));
+            const vSnap = await getDocs(vq);
+            if (!vSnap.empty) {
+              setCatalogProduct({ id: vSnap.docs[0].id, ...vSnap.docs[0].data() });
+              setShowDetailModal(true);
+            } else {
+              alert("Geen product gevonden in catalogus met deze tekening.");
+            }
+          } else {
+            alert("Geen product gevonden in catalogus met deze tekening.");
+          }
+        }
       }
     } catch (e) {
       console.error("Fout bij openen product detail:", e);
@@ -330,6 +384,53 @@ const ProductDossierModal = ({
     if (!val) return "-";
     const str = String(val).toUpperCase();
     return str.startsWith("40") ? str.substring(2) : str;
+  };
+
+  const handleDefinitiveRejection = async () => {
+    if (!product?.id || rejectReasons.length === 0) return;
+    setRejectLoading(true);
+    const reasonLabels = rejectReasons.map(r => REJECTION_REASON_LABELS[r] || r).join(", ");
+    try {
+      const productRef = doc(db, ...PATHS.TRACKING, product.id);
+      await updateDoc(productRef, {
+        status: "rejected",
+        currentStep: "REJECTED",
+        currentStation: "AFKEUR",
+        inspection: {
+          status: "Afkeur",
+          reasons: rejectReasons,
+          note: rejectNote || "",
+          timestamp: new Date().toISOString(),
+        },
+        updatedAt: serverTimestamp(),
+        history: arrayUnion({
+          action: "Definitieve Afkeur",
+          timestamp: new Date().toISOString(),
+          user: role || "Systeem",
+          station: product.currentStation || "Dossier",
+          details: `Omgezet van Tijdelijke Afkeur naar Definitieve Afkeur. Reden: ${reasonLabels}${rejectNote ? `. Opmerking: ${rejectNote}` : ""}`,
+        }),
+      });
+
+      // Update order teller bij definitieve afkeur
+      if (parentOrder?.id) {
+        const orderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
+        const originStation = product.originMachine || product.currentStation;
+        const stationField = `started_${(originStation || "").replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const currentStarted = parentOrder[stationField] || 0;
+        if (currentStarted > 0) {
+          await updateDoc(orderRef, { [stationField]: currentStarted - 1 });
+        }
+      }
+    } catch (err) {
+      console.error("Fout bij definitieve afkeur:", err);
+    } finally {
+      setRejectLoading(false);
+      setShowConfirmReject(false);
+      setRejectReasons([]);
+      setRejectNote("");
+      onClose();
+    }
   };
 
   const handleExecuteMove = async () => {
@@ -907,6 +1008,15 @@ const ProductDossierModal = ({
                 </div>
               ) : (
                 <>
+                  {isTijdelijkeAfkeur && (
+                    <button
+                      onClick={() => setShowConfirmReject(true)}
+                      disabled={rejectLoading}
+                      className="px-6 py-4 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg"
+                    >
+                      <X size={16} /> {rejectLoading ? "..." : "Definitieve Afkeur"}
+                    </button>
+                  )}
                   {onMoveLot && (
                     <button
                       onClick={() => setIsMoving(true)}
@@ -943,6 +1053,103 @@ const ProductDossierModal = ({
         message={`Weet je zeker dat je dit product wilt verplaatsen naar ${sortedStations.find(s => s.id === targetStation)?.name || targetStation}?`}
         confirmText="Ja, Verplaatsen"
       />
+
+      {showConfirmReject && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col border border-slate-200 max-h-[90vh]">
+            <div className="bg-red-50 px-6 py-4 border-b border-red-100 flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-red-800 uppercase tracking-tight">
+                  Definitieve Afkeur
+                </h3>
+                <p className="text-xs text-red-500 font-mono font-bold">
+                  {product?.lotNumber}
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowConfirmReject(false); setRejectReasons([]); setRejectNote(""); }}
+                className="p-2 hover:bg-red-100 rounded-full"
+              >
+                <X size={20} className="text-red-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
+              <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                <h4 className="font-bold text-red-900 text-xs uppercase mb-3 flex items-center gap-2">
+                  <AlertTriangle size={14} /> Reden van afkeur
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {REJECTION_REASONS.map((reason) => (
+                    <div
+                      key={reason}
+                      onClick={() => toggleRejectReason(reason)}
+                      className={`p-2 rounded-lg border cursor-pointer text-xs font-medium transition-all flex items-center gap-2 ${
+                        rejectReasons.includes(reason)
+                          ? "bg-white border-red-500 text-red-700 shadow-sm"
+                          : "bg-white/50 border-transparent text-slate-500 hover:bg-white"
+                      }`}
+                    >
+                      <div
+                        className={`w-3 h-3 rounded-full border flex items-center justify-center shrink-0 ${
+                          rejectReasons.includes(reason)
+                            ? "bg-red-500 border-red-500"
+                            : "border-slate-300"
+                        }`}
+                      >
+                        {rejectReasons.includes(reason) && (
+                          <span className="text-white text-[8px] font-bold">&#10003;</span>
+                        )}
+                      </div>
+                      {REJECTION_REASON_LABELS[reason] || reason}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 mb-2">
+                  Opmerking (optioneel)
+                </label>
+                <textarea
+                  value={rejectNote}
+                  onChange={(e) => setRejectNote(e.target.value)}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none"
+                  placeholder="Bijv. kras op flensvlak, niet herstelbaar..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-xs font-bold text-amber-800">
+                  &#9888; Let op: Dit kan niet ongedaan worden gemaakt. Het product wordt definitief afgekeurd.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3 shrink-0">
+              <button
+                onClick={() => { setShowConfirmReject(false); setRejectReasons([]); setRejectNote(""); }}
+                className="px-4 py-2 rounded-lg text-slate-500 font-bold hover:bg-slate-200 text-sm"
+              >
+                Annuleren
+              </button>
+              <button
+                onClick={handleDefinitiveRejection}
+                disabled={rejectLoading || rejectReasons.length === 0}
+                className="px-6 py-2 rounded-lg font-bold text-white text-sm shadow-md flex items-center gap-2 transition-all bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {rejectLoading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <X size={16} />
+                )}
+                Definitief Afkeuren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

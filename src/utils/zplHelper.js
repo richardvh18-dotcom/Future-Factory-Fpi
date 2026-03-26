@@ -1,3 +1,5 @@
+// Debugmodus: zet op true om ZPL-output te loggen
+const DEBUG_ZPL = false;
 /**
  * ZPL Helper voor Future Factory Labels
  * Geavanceerde ZPL Rendering Engine (NiceLabel-style).
@@ -21,7 +23,7 @@ const getLongestLineLength = (value) => {
 };
 
 const getTextMetrics = (el, content, rot = 'N') => {
-    const requestedHeight = mmToDots((el.fontSize || 12) / 2.8);
+    const requestedHeight = mmToDots((el.fontSize || 10) / 2.8);
     const hasExplicitWidth = Number.isFinite(Number(el.fontWidth));
     const explicitWidth = hasExplicitWidth
         ? mmToDots((el.fontWidth || 12) / 2.8)
@@ -64,6 +66,7 @@ const getTextMetrics = (el, content, rot = 'N') => {
         widthDots: innerWidthDots,
     };
 };
+
 
 /**
  * Vervangt placeholders zoals {itemCode} met echte data
@@ -110,6 +113,8 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
     zpl += `^PW${mmToDots(width)}`; // Print Width
     zpl += `^MD${darkness}`;    // Media Darkness (0-30)
     zpl += `^PR${printSpeed}`;  // Print Rate
+    // Cut Mode: ^MMC = Cut na elke label, ^MMT = Tear-off (geen cut)
+    zpl += isLastOfBatch ? "^MMC" : "^MMT";
 
     // 2. Dynamische Lengte (^LL)
     let labelHeightDots = mmToDots(height);
@@ -147,39 +152,29 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
 
         // TYPE: TEXT
         if (el.type === 'text') {
-            const { fontHeight, fontWidth, widthDots } = getTextMetrics(el, content, rot);
-            const elementHeightDots = el.height ? mmToDots(el.height) : 0;
+            let { fontHeight, fontWidth, widthDots } = getTextMetrics(el, content, rot);
             const printableMinX = mmToDots(1);
             const printableMaxX = mmToDots(width) - mmToDots(1);
-            const rotatedOffsetX = mmToDots(1);
-            const rotatedOffsetY = mmToDots(2);
+            const printableMinY = mmToDots(1);
+            const printableMaxY = mmToDots(height) - mmToDots(1);
 
             let x = baseX;
             let y = baseY;
 
-            // ZPL roteert tekst anders dan de visuele editor; corrigeer verticale tekst
-            // zodat deze niet naar rechts buiten de labelmarge verschuift.
-            if (rot === 'R' || rot === 'B') {
-                const verticalCompensation = Math.max(
-                    mmToDots(2),
-                    elementHeightDots,
-                    Math.round(fontHeight * 0.85)
-                );
-                x = x - verticalCompensation + rotatedOffsetX;
-                y += rotatedOffsetY;
-            }
-
             x = Math.max(printableMinX, Math.min(x, printableMaxX));
-            
+            y = Math.max(printableMinY, Math.min(y, printableMaxY));
+
             // Font selectie (0 is scalable standard)
             zpl += `^FO${x},${y}`;
             zpl += `^A0${rot},${fontHeight},${fontWidth}`;
             
-            // Field Block voor wrapping en alignment
+            // Field Block voor tekst wrapping en uitlijning.
+            // Bij geroteerde tekst gebruiken we het beschikbare loopvlak (height) als wrap-breedte.
             if (widthDots) {
                 const alignMap = { 'left': 'L', 'center': 'C', 'right': 'R', 'justify': 'J' };
                 const align = alignMap[el.align] || 'L';
-                zpl += `^FB${widthDots},${el.maxLines || 1},0,${align},0`;
+                const maxLines = (rot === 'R' || rot === 'B') ? Math.max(2, el.maxLines || 2) : (el.maxLines || 1);
+                zpl += `^FB${widthDots},${maxLines},0,${align},0`;
             }
 
             // Inverted text (wit op zwart)
@@ -237,18 +232,19 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
         }
     });
 
-    // 5. Smart Cutter Logica (^GS)
+    // 5. Print Quantity & Cut trigger
     if (isLastOfBatch) {
-        zpl += "^MMC"; // Cut Mode
-        zpl += "^GS";  // Group Separator (Batch Cut)
-        zpl += "^PQ1,0,1,Y"; // Print Quantity & Override Pause
+        zpl += "^PQ1,0,1,Y"; // Print 1 + Cut
     } else {
-        // Houd modus consistent tijdens batch om onverwachte media-beweging te vermijden.
-        zpl += "^MMC";
-        zpl += "^PQ1,0,1,N";
+        zpl += "^PQ1,0,1,N"; // Print 1 + No Cut
     }
 
     zpl += "^XZ"; // Einde Format
+    if (DEBUG_ZPL) {
+        // Log de ZPL-output voor debugdoeleinden
+         
+        console.log('--- ZPL OUTPUT ---\n' + zpl + '\n--- END ZPL ---');
+    }
     return zpl;
 };
 
