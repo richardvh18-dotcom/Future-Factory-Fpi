@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Database, RefreshCw, Trash2, Layers, Table, SearchCode, Fingerprint, Activity, Terminal, FileText, Loader2, Folder, File, ArrowUp, Bot, Send, X, MessageSquare } from "lucide-react";
-import { db, storage } from "../../config/firebase";
+import { db, storage, auth, logActivity } from "../../config/firebase";
 import {
   collection,
   getDocs,
@@ -223,6 +223,11 @@ const AdminDatabaseView = () => {
     try {
       const docRef = doc(db, ...activePath.split("/"), docId);
       await deleteDoc(docRef);
+      await logActivity(
+        auth.currentUser?.uid,
+        "DATABASE_DOC_DELETE",
+        `Document verwijderd via AdminDatabaseView: ${activePath}/${docId}`
+      );
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
     } catch (error) {
       alert(t('common.deleteFailed') + ': ' + error.message);

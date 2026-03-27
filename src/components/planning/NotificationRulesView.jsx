@@ -9,7 +9,7 @@ import {
   Plus
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
 /**
@@ -204,6 +204,12 @@ const NotificationRulesView = () => {
       createdAt: serverTimestamp(),
       read: false
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_CREATE",
+      `Automatische notificatie aangemaakt via regel ${notification.ruleName || notification.ruleId || "onbekend"}`
+    );
   };
 
   // Add new rule
@@ -217,6 +223,12 @@ const NotificationRulesView = () => {
       ...newRule,
       createdAt: serverTimestamp()
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_RULE_CREATE",
+      `Notificatieregel aangemaakt: ${newRule.name} (${newRule.trigger})`
+    );
 
     setNewRule({
       name: "",
@@ -232,6 +244,11 @@ const NotificationRulesView = () => {
   const deleteRule = async (ruleId) => {
     if (confirm("Weet je zeker dat je deze regel wilt verwijderen?")) {
       await deleteDoc(doc(db, ...PATHS.NOTIFICATION_RULES, ruleId));
+      await logActivity(
+        auth.currentUser?.uid,
+        "NOTIFICATION_RULE_DELETE",
+        `Notificatieregel verwijderd: ${ruleId}`
+      );
     }
   };
 
@@ -240,6 +257,12 @@ const NotificationRulesView = () => {
     await updateDoc(doc(db, ...PATHS.NOTIFICATION_RULES, ruleId), {
       enabled: !currentState
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_RULE_TOGGLE",
+      `Notificatieregel ${ruleId} ${!currentState ? "ingeschakeld" : "uitgeschakeld"}`
+    );
   };
 
   // Mark notification as read
@@ -247,6 +270,12 @@ const NotificationRulesView = () => {
     await updateDoc(doc(db, ...PATHS.NOTIFICATION_LOGS, notifId), {
       read: true
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_READ",
+      `Notificatie gemarkeerd als gelezen: ${notifId}`
+    );
   };
 
   const getTriggerLabel = (trigger) => {

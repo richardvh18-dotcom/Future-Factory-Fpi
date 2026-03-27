@@ -1,4 +1,4 @@
-import { db } from "../config/firebase";
+import { db, auth, logActivity } from "../config/firebase";
 import {
   doc,
   getDoc,
@@ -221,16 +221,19 @@ export const createConversion = async (unusedAppId, data) => {
   const docId = String(data.manufacturedId).trim();
   const docRef = doc(db, ...PATHS.CONVERSION_MATRIX, docId);
   await setDoc(docRef, prepareDataForSave(data));
+  await logActivity(auth.currentUser?.uid, "CONVERSION_CREATE", `Conversie aangemaakt: ${docId}`);
 };
 
 export const updateConversion = async (unusedAppId, id, data) => {
   const docRef = doc(db, ...PATHS.CONVERSION_MATRIX, id);
   await updateDoc(docRef, prepareDataForSave(data));
+  await logActivity(auth.currentUser?.uid, "CONVERSION_UPDATE", `Conversie bijgewerkt: ${id}`);
 };
 
 export const deleteConversion = async (unusedAppId, id) => {
   const docRef = doc(db, ...PATHS.CONVERSION_MATRIX, id);
   await deleteDoc(docRef);
+  await logActivity(auth.currentUser?.uid, "CONVERSION_DELETE", `Conversie verwijderd: ${id}`);
 };
 
 // --- BATCH UPLOAD & PARSING ---
@@ -277,6 +280,12 @@ export const uploadConversionBatch = async (items, unusedAppId, onProgress) => {
     processed += chunk.length;
     if (onProgress) onProgress(Math.round((processed / total) * 100));
   }
+
+  await logActivity(
+    auth.currentUser?.uid,
+    "CONVERSION_BATCH_UPLOAD",
+    `Conversie batch-upload voltooid: ${total} records verwerkt`
+  );
 };
 
 /**
@@ -317,6 +326,11 @@ export const uploadNewItemsOnly = async (items, unusedAppId, onProgress) => {
     }
     if (onProgress) onProgress(Math.round(((i + 1) / total) * 100));
   }
+  await logActivity(
+    auth.currentUser?.uid,
+    "CONVERSION_NEWITEMS_UPLOAD",
+    `Nieuwe conversie-items upload: toegevoegd ${added}, overgeslagen ${skipped}`
+  );
   return { added, skipped };
 };
 

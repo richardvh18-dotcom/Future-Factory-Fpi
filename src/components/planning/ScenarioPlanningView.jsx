@@ -6,7 +6,7 @@ import {
   Copy,
 } from "lucide-react";
 import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { addDays } from "date-fns";
 
@@ -171,6 +171,12 @@ const ScenarioPlanningView = () => {
       createdBy: "current_user"
     });
 
+    await logActivity(
+      auth.currentUser?.uid,
+      "SCENARIO_CREATE",
+      `Scenario aangemaakt: ${newScenario.name}`
+    );
+
     setNewScenario({
       name: "",
       description: "",
@@ -183,6 +189,11 @@ const ScenarioPlanningView = () => {
   const deleteScenario = async (scenarioId) => {
     if (confirm("Weet je zeker dat je dit scenario wilt verwijderen?")) {
       await deleteDoc(doc(db, ...PATHS.SCENARIOS, scenarioId));
+      await logActivity(
+        auth.currentUser?.uid,
+        "SCENARIO_DELETE",
+        `Scenario verwijderd: ${scenarioId}`
+      );
       if (activeScenario?.id === scenarioId) {
         setActiveScenario(null);
       }
@@ -198,6 +209,12 @@ const ScenarioPlanningView = () => {
       createdAt: serverTimestamp(),
       createdBy: "current_user"
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "SCENARIO_CLONE",
+      `Scenario gekloond: ${scenario.name}`
+    );
   };
 
   // Add change to new scenario

@@ -8,7 +8,7 @@
  */
 
 import { collection, query, getDocs, addDoc, setDoc, getDoc, doc, limit, serverTimestamp } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, logActivity } from '../config/firebase';
 import { PATHS } from '../config/dbPaths';
 import i18n from '../i18n';
 
@@ -824,6 +824,11 @@ class AIService {
         useCount: 0,
         active: true,
       });
+      await logActivity(
+        userId || 'system',
+        'AI_MEMORY_SAVE',
+        `AI memory opgeslagen: ${topic || 'zonder onderwerp'}`
+      );
       console.log('💾 AI Geheugen opgeslagen:', topic);
     } catch (error) {
       console.error('Error saving AI memory:', error);
@@ -878,6 +883,11 @@ class AIService {
         lastUpdated: serverTimestamp(),
         userId,
       });
+      await logActivity(
+        userId,
+        'AI_CONVERSATION_SAVE',
+        `AI conversatie opgeslagen (${toSave.length} berichten)`
+      );
     } catch (error) {
       console.error('Error saving conversation:', error);
     }

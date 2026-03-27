@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Loader2, Cpu, Layers, Clock,
   ChevronUp, ShieldCheck, X,
@@ -6,7 +6,7 @@ import {
   Save
 } from "lucide-react";
 import { format, getISOWeek, parse, addDays } from "date-fns";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { 
   collection, onSnapshot, doc, setDoc, addDoc,
   deleteDoc, query, orderBy, serverTimestamp, updateDoc 
@@ -26,6 +26,13 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
     departmentId: "",
     linkedUserId: "",
     shiftId: "DAGDIENST",
+    temporaryShiftOverride: {
+      enabled: false,
+      shiftId: "",
+      startDate: "",
+      endDate: "",
+      note: "",
+    },
     role: "operator",
     isActive: true,
     loan: {
@@ -42,6 +49,13 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
     if (initialData) {
       setFormData({
         ...initialData,
+        temporaryShiftOverride: {
+          enabled: initialData.temporaryShiftOverride?.enabled || false,
+          shiftId: initialData.temporaryShiftOverride?.shiftId || "",
+          startDate: initialData.temporaryShiftOverride?.startDate || "",
+          endDate: initialData.temporaryShiftOverride?.endDate || "",
+          note: initialData.temporaryShiftOverride?.note || "",
+        },
         loan: initialData.loan || {
           active: false,
           departmentId: "",
@@ -58,6 +72,13 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
         departmentId: departments[0]?.id || "",
         linkedUserId: "",
         shiftId: "DAGDIENST",
+        temporaryShiftOverride: {
+          enabled: false,
+          shiftId: "",
+          startDate: "",
+          endDate: "",
+          note: "",
+        },
         role: "operator",
         isActive: true,
         loan: {
@@ -77,6 +98,13 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
   const loanShifts = loanDept?.shifts || [];
   const currentDept = departments.find(d => d.id === formData.departmentId);
   const availableShifts = currentDept?.shifts || [{ id: "DAGDIENST", label: "Dagdienst" }];
+  const temporaryOverride = formData.temporaryShiftOverride || {
+    enabled: false,
+    shiftId: "",
+    startDate: "",
+    endDate: "",
+    note: "",
+  };
 
   if (!isOpen) return null;
 
@@ -184,6 +212,104 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                   </select>
                 </div>
               </div>
+
+              <div className="p-4 rounded-2xl border-2 border-blue-100 bg-blue-50/50 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-blue-800 uppercase tracking-widest">Tijdelijke Dienst Override</span>
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded text-blue-600"
+                    checked={temporaryOverride.enabled}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setFormData({
+                        ...formData,
+                        temporaryShiftOverride: {
+                          ...temporaryOverride,
+                          enabled: checked,
+                          startDate: checked ? (temporaryOverride.startDate || format(new Date(), "yyyy-MM-dd")) : "",
+                          endDate: checked ? (temporaryOverride.endDate || temporaryOverride.startDate || format(new Date(), "yyyy-MM-dd")) : "",
+                        }
+                      });
+                    }}
+                  />
+                </div>
+
+                {temporaryOverride.enabled && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Van</label>
+                        <input
+                          type="date"
+                          className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
+                          value={temporaryOverride.startDate}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            temporaryShiftOverride: {
+                              ...temporaryOverride,
+                              startDate: e.target.value,
+                              endDate: temporaryOverride.endDate || e.target.value,
+                            }
+                          })}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Tot</label>
+                        <input
+                          type="date"
+                          className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
+                          value={temporaryOverride.endDate}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            temporaryShiftOverride: {
+                              ...temporaryOverride,
+                              endDate: e.target.value,
+                            }
+                          })}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Tijdelijke Dienst</label>
+                      <select
+                        className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
+                        value={temporaryOverride.shiftId}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          temporaryShiftOverride: {
+                            ...temporaryOverride,
+                            shiftId: e.target.value,
+                          }
+                        })}
+                      >
+                        <option value="">Selecteer...</option>
+                        {availableShifts.map((s) => (
+                          <option key={s.id} value={s.id}>{s.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Notitie (optioneel)</label>
+                      <input
+                        type="text"
+                        className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
+                        value={temporaryOverride.note || ""}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          temporaryShiftOverride: {
+                            ...temporaryOverride,
+                            note: e.target.value,
+                          }
+                        })}
+                        placeholder="Bijv. week 14 tijdelijk dagdienst"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
             </>
           )}
 
@@ -290,6 +416,24 @@ const PersonnelOccupancyView = ({
   const [localOccupancy, setLocalOccupancy] = useState([]);
   const [localStructure, setLocalStructure] = useState({ departments: [] });
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(Date.now());
+
+  // Live uren teller — elke 60 seconden hertekenen
+  useEffect(() => {
+    const interval = setInterval(() => setTick(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Berekent live uren op basis van startTime, valt terug op hoursWorked
+  const getDisplayHours = (occ) => {
+    if (occ.startTime) {
+      const startMs = occ.startTime.toMillis ? occ.startTime.toMillis() : Number(occ.startTime);
+      if (startMs > 0) {
+        return ((tick - startMs) / 3_600_000); // milliseconden → uren
+      }
+    }
+    return occ.hoursWorked ?? 0;
+  };
   
   const [expandedSections, setExpandedSections] = useState({});
 
@@ -311,12 +455,23 @@ const PersonnelOccupancyView = ({
   // Edit Assignment State
   const [editAssignmentModalOpen, setEditAssignmentModalOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
+  const [closedHoursModalOpen, setClosedHoursModalOpen] = useState(false);
+  const [closedHoursDraft, setClosedHoursDraft] = useState({});
 
   // Use props if available, otherwise local state (fallback)
   const structure = propStructure || localStructure;
   const occupancy = propOccupancy || localOccupancy;
   const personnel = propPersonnel || localPersonnel;
   const dateToUse = selectedDateStr || format(new Date(), "yyyy-MM-dd");
+  const closedAssignmentsForDate = useMemo(() => {
+    return occupancy
+      .filter((o) => o.date === dateToUse && (o.isActive === false || !!o.checkedOutAt))
+      .sort((a, b) => {
+        const aName = String(a.operatorName || a.operatorNumber || "");
+        const bName = String(b.operatorName || b.operatorNumber || "");
+        return aName.localeCompare(bName);
+      });
+  }, [occupancy, dateToUse]);
 
   // 1. DATA SYNC
   useEffect(() => {
@@ -385,16 +540,51 @@ const PersonnelOccupancyView = ({
   // 3. CRUD HANDLERS
   const handleSavePerson = async (data) => {
     try {
+      const rawOverride = data?.temporaryShiftOverride || {};
+      const normalizedOverride = {
+        enabled: !!rawOverride.enabled,
+        shiftId: String(rawOverride.shiftId || ""),
+        startDate: String(rawOverride.startDate || ""),
+        endDate: String(rawOverride.endDate || ""),
+        note: String(rawOverride.note || ""),
+      };
+      const withNormalizedData = {
+        ...data,
+        temporaryShiftOverride:
+          normalizedOverride.enabled && normalizedOverride.shiftId && normalizedOverride.startDate
+            ? {
+                ...normalizedOverride,
+                endDate: normalizedOverride.endDate || normalizedOverride.startDate,
+              }
+            : {
+                enabled: false,
+                shiftId: "",
+                startDate: "",
+                endDate: "",
+                note: "",
+              },
+      };
+
       if (editingPerson) {
         await updateDoc(doc(db, ...PATHS.PERSONNEL, editingPerson.id), {
-          ...data,
+          ...withNormalizedData,
           updatedAt: serverTimestamp()
         });
+        await logActivity(
+          auth.currentUser?.uid || "system",
+          "PERSONNEL_UPDATE",
+          `Personeel bijgewerkt: ${data?.name || editingPerson.id}`
+        );
       } else {
         await addDoc(collection(db, ...PATHS.PERSONNEL), {
-          ...data,
+          ...withNormalizedData,
           createdAt: serverTimestamp()
         });
+        await logActivity(
+          auth.currentUser?.uid || "system",
+          "PERSONNEL_CREATE",
+          `Personeel toegevoegd: ${data?.name || data?.employeeNumber || "onbekend"}`
+        );
       }
       setAddEditModalOpen(false);
       setEditingPerson(null);
@@ -404,12 +594,35 @@ const PersonnelOccupancyView = ({
     }
   };
 
+  const handleDeleteOccupancy = async (occ) => {
+    try {
+      await deleteDoc(doc(db, ...PATHS.OCCUPANCY, occ.id));
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        "OCCUPANCY_DELETE",
+        `Bezetting verwijderd: ${occ.operatorName || occ.operatorNumber} op ${occ.machineId}`
+      );
+    } catch (err) {
+      console.error("Verwijderen bezetting mislukt:", err);
+      alert("Kon bezetting niet verwijderen");
+    }
+  };
+
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={48} /></div>;
 
   const getPersonShiftForDate = (person, targetDateStr) => {
     if (!person) return null;
 
     let shiftId = person.shiftId || "DAGDIENST";
+
+    const override = person.temporaryShiftOverride;
+    if (override?.enabled && override?.shiftId && override?.startDate) {
+      const rangeStart = String(override.startDate);
+      const rangeEnd = String(override.endDate || override.startDate);
+      if (targetDateStr >= rangeStart && targetDateStr <= rangeEnd) {
+        return override.shiftId;
+      }
+    }
 
     if (person.rotationSchedule?.enabled && person.rotationSchedule.shifts?.length > 0) {
       const targetDate = parse(targetDateStr, "yyyy-MM-dd", new Date());
@@ -441,6 +654,24 @@ const PersonnelOccupancyView = ({
 
   return (
     <div className="space-y-4 text-left animate-in fade-in duration-500 w-full pb-4 px-1 h-full overflow-y-auto custom-scrollbar">
+          {editable && (
+            <div className="flex justify-end pr-2">
+              <button
+                onClick={() => {
+                  const initialDraft = {};
+                  closedAssignmentsForDate.forEach((entry) => {
+                    initialDraft[entry.id] = entry.hoursWorked ?? 0;
+                  });
+                  setClosedHoursDraft(initialDraft);
+                  setClosedHoursModalOpen(true);
+                }}
+                className="px-3 py-2 bg-white border border-slate-200 text-slate-600 hover:text-blue-700 hover:border-blue-300 rounded-xl transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider shadow-sm"
+              >
+                <Clock size={14} /> Achteraf Uren Corrigeren
+              </button>
+            </div>
+          )}
+
           {/* OCCUPANCY GRID */}
           {displaySections.map(dept => (
             <section key={dept.id} className="space-y-4 text-left">
@@ -552,12 +783,12 @@ const PersonnelOccupancyView = ({
                                                           {editable && !occ.isLoan && (
                                                             <button onClick={(e) => { e.stopPropagation(); setSelectedPersonForLoan(occ); setSelectedDepartmentForLoan(dept); setLoanModalOpen(true); }} className="p-0.5 text-blue-400 hover:text-blue-600 transition-colors" title="Uitlenen aan andere afdeling"><ArrowRight size={10} /></button>
                                                           )}
-                                                          <button onClick={(e) => { e.stopPropagation(); deleteDoc(doc(db, ...PATHS.OCCUPANCY, occ.id)); }} className="p-0.5 text-slate-400 hover:text-rose-500 transition-colors"><X size={10} /></button>
+                                                          <button onClick={(e) => { e.stopPropagation(); handleDeleteOccupancy(occ); }} className="p-0.5 text-slate-400 hover:text-rose-500 transition-colors"><X size={10} /></button>
                                                         </div>
                                                     </div>
                                                     <div className={`pt-1 border-t flex items-center justify-between ${isTL ? 'border-white/5' : 'border-slate-300/60'}`}>
                                                       <div className="flex items-center gap-1"><Clock size={8} className={shiftColors.text} /><span className={`text-[6px] font-black uppercase tracking-tighter ${isTL ? 'text-slate-500' : 'text-slate-500'}`}>Inzet:</span></div>
-                                                      <span className={`text-[10px] sm:text-[11px] font-black ${isTL ? 'text-white' : shiftColors.text}`}>{occ.hoursWorked?.toFixed(1) || 0}u</span>
+                                                      <span className={`text-[10px] sm:text-[11px] font-black ${isTL ? 'text-white' : shiftColors.text}`}>{getDisplayHours(occ).toFixed(1)}u</span>
                                                     </div>
                                                 </div>
                                               ))}
@@ -705,10 +936,16 @@ const PersonnelOccupancyView = ({
                         operatorName: person.name,
                         date: dateToUse,
                         hoursWorked: parseFloat(assignHours) || 0,
+                        startTime: serverTimestamp(),
                         isPloeg: isPloeg,
                         shift: shift ? shift.label : "DAGDIENST",
                         isLoan: false,
                       }, { merge: true });
+                        await logActivity(
+                          auth.currentUser?.uid || "system",
+                          "OCCUPANCY_ASSIGN",
+                          `Bezetting toegevoegd: ${person.name} op ${selectedStation.name || selectedStation.id} (${dateToUse})`
+                        );
                         
                         // Reset selectie voor volgende toevoeging (modal blijft open)
                         setSelectedPersonId("");
@@ -787,6 +1024,11 @@ const PersonnelOccupancyView = ({
                     await updateDoc(doc(db, ...PATHS.OCCUPANCY, selectedAssignment.id), {
                       hoursWorked: parseFloat(selectedAssignment.hoursWorked) || 0
                     });
+                    await logActivity(
+                      auth.currentUser?.uid || "system",
+                      "OCCUPANCY_UPDATE_HOURS",
+                      `Uren aangepast: ${selectedAssignment.operatorName || selectedAssignment.operatorNumber} op ${selectedAssignment.machineId} -> ${selectedAssignment.hoursWorked}`
+                    );
                     setEditAssignmentModalOpen(false);
                   } catch (err) {
                     console.error("Update failed", err);
@@ -797,6 +1039,90 @@ const PersonnelOccupancyView = ({
               >
                 <Save size={18} /> Opslaan
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {closedHoursModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-[30px] p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto shadow-2xl border border-white/20">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-black text-slate-900 uppercase italic">Achteraf Uren Corrigeren</h3>
+              <button
+                onClick={() => setClosedHoursModalOpen(false)}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 font-bold mb-4">
+              Datum: {dateToUse} - uitgecheckte registraties: {closedAssignmentsForDate.length}
+            </p>
+
+            <div className="space-y-3">
+              {closedAssignmentsForDate.length === 0 && (
+                <div className="p-4 rounded-xl border border-dashed border-slate-300 text-sm text-slate-500 font-bold">
+                  Geen uitgecheckte registraties voor deze datum.
+                </div>
+              )}
+
+              {closedAssignmentsForDate.map((entry) => (
+                <div key={entry.id} className="p-3 rounded-2xl border border-slate-200 bg-slate-50/40">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_130px] gap-3 items-end">
+                    <div>
+                      <p className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                        {entry.operatorName || entry.operatorNumber}
+                      </p>
+                      <p className="text-[11px] text-slate-500 font-bold mt-1">
+                        {entry.machineId || "Onbekend station"} - {entry.shift || "Onbekende dienst"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Gewerkte Uren</label>
+                      <input
+                        type="number"
+                        step="0.25"
+                        className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500"
+                        value={closedHoursDraft[entry.id] ?? entry.hoursWorked ?? 0}
+                        onChange={(e) => {
+                          setClosedHoursDraft((prev) => ({
+                            ...prev,
+                            [entry.id]: e.target.value,
+                          }));
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      onClick={async () => {
+                        try {
+                          const manualHours = parseFloat(closedHoursDraft[entry.id]);
+                          await updateDoc(doc(db, ...PATHS.OCCUPANCY, entry.id), {
+                            hoursWorked: Number.isFinite(manualHours) ? manualHours : 0,
+                            manualHoursOverride: true,
+                            manualHoursOverrideAt: serverTimestamp(),
+                            updatedAt: serverTimestamp(),
+                          });
+                          await logActivity(
+                            auth.currentUser?.uid || "system",
+                            "OCCUPANCY_UPDATE_HOURS_MANUAL",
+                            `Achteraf uren aangepast: ${entry.operatorName || entry.operatorNumber} op ${entry.machineId} -> ${manualHours}`
+                          );
+                        } catch (err) {
+                          console.error("Achteraf uren opslaan mislukt", err);
+                          alert("Kon uren niet opslaan");
+                        }
+                      }}
+                      className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Save size={14} /> Opslaan
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

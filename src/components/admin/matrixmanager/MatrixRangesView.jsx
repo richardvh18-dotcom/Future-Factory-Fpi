@@ -12,7 +12,7 @@ import {
   Link2,
   Ruler,
 } from "lucide-react";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import {
   collection,
   doc,
@@ -427,6 +427,12 @@ const MatrixRangesView = () => {
           lastUpdated: serverTimestamp(),
         },
         { merge: true }
+      );
+
+      await logActivity(
+        auth.currentUser?.uid,
+        "MATRIX_TOLERANCE_SAVE",
+        `Tolerantie manager opgeslagen (${(config.toleranceItems || []).length} items)`
       );
 
       setStatus({ type: "success", msg: "Tolerantie Manager succesvol gepubliceerd." });

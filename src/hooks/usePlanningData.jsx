@@ -20,8 +20,30 @@ export const usePlanningData = () => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        const normalizeStatus = (status) => String(status || "").toLowerCase().trim();
+        const isRunningStatus = (status) => {
+          const s = normalizeStatus(status);
+          return [
+            "in_progress",
+            "in production",
+            "active",
+            "post_processing",
+            "to_unload",
+            "unloading",
+            "to_inspect",
+            "held_qc",
+            "on_hold",
+            "delegated",
+          ].includes(s);
+        };
+
         const orderList = snapshot.docs.map((doc) => {
           const data = doc.data();
+          const hidden = Boolean(data.planningHidden);
+          const keepVisible = !hidden || isRunningStatus(data.status);
+
+          if (!keepVisible) return null;
+
           return {
             id: doc.id,
             ...data,
@@ -29,7 +51,7 @@ export const usePlanningData = () => {
               ? data.deliveryDate.toDate()
               : new Date(data.deliveryDate),
           };
-        });
+        }).filter(Boolean);
 
         setOrders(orderList);
         setLoading(false);

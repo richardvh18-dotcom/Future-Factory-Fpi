@@ -666,13 +666,23 @@ const ProductionStartModal = ({
   };
 
   useEffect(() => {
-    if (containerRef.current && selectedLabel) {
-      const containerW = containerRef.current.clientWidth - 60;
-      const containerH = containerRef.current.clientHeight - 180;
+    const el = containerRef.current;
+    if (!el || !selectedLabel) return;
+
+    const recalc = () => {
+      const containerW = el.clientWidth - 60;
+      const containerH = el.clientHeight - 180;
       const labelW = selectedLabel.width * PIXELS_PER_MM;
       const labelH = selectedLabel.height * PIXELS_PER_MM;
-      setPreviewZoom(Math.min(4, containerW / labelW, containerH / labelH));
-    }
+      if (labelW > 0 && labelH > 0) {
+        setPreviewZoom(Math.min(4, containerW / labelW, containerH / labelH));
+      }
+    };
+
+    recalc();
+    const ro = new ResizeObserver(recalc);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [selectedLabel, isOpen]);
 
   // Helper voor standaard browser print (PDF)
@@ -1173,7 +1183,7 @@ const ProductionStartModal = ({
         </div>
 
         {/* RECHTS: DESIGN PREVIEW & PRINT ACTIE */}
-        <div
+        {mode !== "manual" && <div
           ref={containerRef}
           className="flex-1 bg-slate-900 p-6 flex flex-col items-center justify-between relative overflow-hidden text-left"
         >
@@ -1215,7 +1225,7 @@ const ProductionStartModal = ({
               Label wordt automatisch geprint bij starten
             </p>
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );

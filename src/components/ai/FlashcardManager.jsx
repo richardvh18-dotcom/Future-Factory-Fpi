@@ -29,7 +29,7 @@ import {
   orderBy,
   getDocs,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { aiService } from "../../services/aiService";
 
@@ -110,6 +110,12 @@ const FlashcardManager = () => {
         createdAt: serverTimestamp(),
         active: true,
       });
+
+      await logActivity(
+        auth.currentUser?.uid,
+        "FLASHCARD_CREATE",
+        `Flashcard aangemaakt (${newCard.category}/${newCard.difficulty})`
+      );
       
       setNewCard({ front: "", back: "", category: "products", difficulty: "medium" });
     } catch (error) {
@@ -127,6 +133,11 @@ const FlashcardManager = () => {
         ...updates,
         updatedAt: serverTimestamp(),
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "FLASHCARD_UPDATE",
+        `Flashcard bijgewerkt: ${id}`
+      );
       setEditingCard(null);
     } catch (error) {
       console.error("Error updating card:", error);
@@ -138,8 +149,135 @@ const FlashcardManager = () => {
     
     try {
       await deleteDoc(doc(db, "future-factory", "settings", "flashcards", id));
+      await logActivity(
+        auth.currentUser?.uid,
+        "FLASHCARD_DELETE",
+        `Flashcard verwijderd: ${id}`
+      );
     } catch (error) {
       console.error("Error deleting card:", error);
+    }
+  };
+
+  const handleGenerateSuggestions = async () => {
+    setGenerating(true);
+    setSuggestions([]);
+    setShowSuggestions(true);
+
+    try {
+      // 1. Haal PDF documenten op
+      const documents = await aiService.getAiDocuments(10);
+
+      // 2. Haal planning data op
+      const planningData = await aiService.getProductionOrders(10);
+
+      // 3. Haal geverifieerde AI knowledge op
+      const knowledgeRef = collection(db, "future-factory", "settings", "ai_knowledge_base");
+      const knowledgeSnap = await getDocs(query(knowledgeRef, orderBy("timestamp", "desc")));
+      const knowledgeItems = knowledgeSnap.docs
+        .filter(doc => doc.data().verified)
+        .slice(0, 10)
+        .map(doc => ({
+          question: doc.data().question || doc.data().userInput,
+          answer: doc.data().correctedAnswer || doc.data().answer,
+        }));
+
+      // 4. Bouw context voor AI
+      let contextText = "Genereer 5 educatieve flashcards voor training op basis van de volgende informatie:\n\n";
+
+      if (documents.length > 0) {
+        contextText += "=== PDF DOCUMENTEN ===\n";
+        documents.forEach((doc, idx) => {
+          contextText += `Document ${idx + 1}: ${doc.fileName}\n`;
+          if (doc.analysis?.summary) contextText += `Samenvatting: ${doc.analysis.summary}\n`;
+          if (doc.analysis?.keyFacts) contextText += `Kernpunten: ${doc.analysis.keyFacts.join("; ")}\n`;
+          if (doc.analysis?.processes) contextText += `Processen: ${doc.analysis.processes.join("; ")}\n`;
+          contextText += "\n";
+        });
+      }
+
+      if (planningData.length > 0) {
+        contextText += "\n=== PLANNING & PRODUCTIE ===\n";
+        planningData.slice(0, 5).forEach((order, idx) => {
+          contextText += `Order ${idx + 1}: ${order.orderId || order.name}\n`;
+          if (order.name) contextText += `Product: ${order.name}\n`;
+          if (order.status) contextText += `Status: ${order.status}\n`;
+          if (order.workstation) contextText += `Werkstation: ${order.workstation}\n`;
+          contextText += "\n";
+        });
+      }
+
+      if (knowledgeItems.length > 0) {
+        contextText += "\n=== GEVERIFIEERDE KENNIS ===\n";
+        knowledgeItems.forEach((item, idx) => {
+          contextText += `Q${idx + 1}: ${item.question}\n`;
+          contextText += `A${idx + 1}: ${item.answer}\n\n`;
+        });
+      }
+
+      contextText += `\nMAKE 5 FLASHCARDS met vraag en antwoord. Retourneer ALLEEN valid JSON zonder markdown:
+{
+  "flashcards": [
+    {
+      "front": "Vraag hier",
+      "back": "Antwoord hier",
+      "category": "products|procedures|safety|machines|terminology",
+      "difficulty": "easy|medium|hard"
+    }
+  ]
+}`;
+
+      // 5. Vraag AI om flashcards te genereren
+      const systemPrompt = "Je bent een educatieve training expert. Genereer relevante flashcards voor productie medewerkers.";
+      const response = await aiService.chat([
+        { role: "user", content: contextText }
+      ], systemPrompt);
+
+      // 6. Parse response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0]);
+        if (data.flashcards && Array.isArray(data.flashcards)) {
+          setSuggestions(data.flashcards);
+        } else {
+          throw new Error("Ongeldige flashcard data");
+        }
+      } else {
+        throw new Error("Geen JSON gevonden in response");
+      }
+
+    } catch (error) {
+      console.error("Error generating suggestions:", error);
+      alert("Kon geen suggesties genereren: " + error.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleAcceptSuggestion = async (suggestion) => {
+    try {
+      const flashcardsRef = collection(db, "future-factory", "settings", "flashcards");
+      await addDoc(flashcardsRef, {
+        front: { text: suggestion.front, language: "nl-NL" },
+        back: { text: suggestion.back, language: "nl-NL" },
+        category: suggestion.category || "general",
+        difficulty: suggestion.difficulty || "medium",
+        createdAt: serverTimestamp(),
+        active: true,
+        aiGenerated: true,
+      });
+
+      await logActivity(
+        auth.currentUser?.uid,
+        "FLASHCARD_CREATE",
+        `AI-suggestie opgeslagen als flashcard (${suggestion.category || "general"})`
+      );
+
+      // Verwijder uit suggesties
+      setSuggestions(prev => prev.filter(s => s !== suggestion));
+    } catch (error) {
+      console.error("Error accepting suggestion:", error);
+      alert("Kon kaart niet opslaan.");
     }
   };
 
@@ -506,121 +644,5 @@ const FlashcardManager = () => {
     </div>
   );
 };
-
-  const handleGenerateSuggestions = async () => {
-    setGenerating(true);
-    setSuggestions([]);
-    setShowSuggestions(true);
-    
-    try {
-      // 1. Haal PDF documenten op
-      const documents = await aiService.getAiDocuments(10);
-      
-      // 2. Haal planning data op
-      const planningData = await aiService.getProductionOrders(10);
-      
-      // 3. Haal geverifieerde AI knowledge op
-      const knowledgeRef = collection(db, "future-factory", "settings", "ai_knowledge_base");
-      const knowledgeSnap = await getDocs(query(knowledgeRef, orderBy("timestamp", "desc")));
-      const knowledgeItems = knowledgeSnap.docs
-        .filter(doc => doc.data().verified)
-        .slice(0, 10)
-        .map(doc => ({
-          question: doc.data().question || doc.data().userInput,
-          answer: doc.data().correctedAnswer || doc.data().answer,
-        }));
-      
-      // 4. Bouw context voor AI
-      let contextText = "Genereer 5 educatieve flashcards voor training op basis van de volgende informatie:\n\n";
-      
-      if (documents.length > 0) {
-        contextText += "=== PDF DOCUMENTEN ===\n";
-        documents.forEach((doc, idx) => {
-          contextText += `Document ${idx + 1}: ${doc.fileName}\n`;
-          if (doc.analysis?.summary) contextText += `Samenvatting: ${doc.analysis.summary}\n`;
-          if (doc.analysis?.keyFacts) contextText += `Kernpunten: ${doc.analysis.keyFacts.join("; ")}\n`;
-          if (doc.analysis?.processes) contextText += `Processen: ${doc.analysis.processes.join("; ")}\n`;
-          contextText += "\n";
-        });
-      }
-      
-      if (planningData.length > 0) {
-        contextText += "\n=== PLANNING & PRODUCTIE ===\n";
-        planningData.slice(0, 5).forEach((order, idx) => {
-          contextText += `Order ${idx + 1}: ${order.orderId || order.name}\n`;
-          if (order.name) contextText += `Product: ${order.name}\n`;
-          if (order.status) contextText += `Status: ${order.status}\n`;
-          if (order.workstation) contextText += `Werkstation: ${order.workstation}\n`;
-          contextText += "\n";
-        });
-      }
-      
-      if (knowledgeItems.length > 0) {
-        contextText += "\n=== GEVERIFIEERDE KENNIS ===\n";
-        knowledgeItems.forEach((item, idx) => {
-          contextText += `Q${idx + 1}: ${item.question}\n`;
-          contextText += `A${idx + 1}: ${item.answer}\n\n`;
-        });
-      }
-      
-      contextText += `\nMAKE 5 FLASHCARDS met vraag en antwoord. Retourneer ALLEEN valid JSON zonder markdown:
-{
-  "flashcards": [
-    {
-      "front": "Vraag hier",
-      "back": "Antwoord hier",
-      "category": "products|procedures|safety|machines|terminology",
-      "difficulty": "easy|medium|hard"
-    }
-  ]
-}`;
-
-      // 5. Vraag AI om flashcards te genereren
-      const systemPrompt = "Je bent een educatieve training expert. Genereer relevante flashcards voor productie medewerkers.";
-      const response = await aiService.chat([
-        { role: "user", content: contextText }
-      ], systemPrompt);
-      
-      // 6. Parse response
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const data = JSON.parse(jsonMatch[0]);
-        if (data.flashcards && Array.isArray(data.flashcards)) {
-          setSuggestions(data.flashcards);
-        } else {
-          throw new Error("Ongeldige flashcard data");
-        }
-      } else {
-        throw new Error("Geen JSON gevonden in response");
-      }
-      
-    } catch (error) {
-      console.error("Error generating suggestions:", error);
-      alert("Kon geen suggesties genereren: " + error.message);
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleAcceptSuggestion = async (suggestion) => {
-    try {
-      const flashcardsRef = collection(db, "future-factory", "settings", "flashcards");
-      await addDoc(flashcardsRef, {
-        front: { text: suggestion.front, language: "nl-NL" },
-        back: { text: suggestion.back, language: "nl-NL" },
-        category: suggestion.category || "general",
-        difficulty: suggestion.difficulty || "medium",
-        createdAt: serverTimestamp(),
-        active: true,
-        aiGenerated: true,
-      });
-      
-      // Verwijder uit suggesties
-      setSuggestions(prev => prev.filter(s => s !== suggestion));
-    } catch (error) {
-      console.error("Error accepting suggestion:", error);
-      alert("Kon kaart niet opslaan.");
-    }
-  };
 
 export default FlashcardManager;

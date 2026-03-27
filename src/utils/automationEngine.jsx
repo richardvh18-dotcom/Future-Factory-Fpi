@@ -8,7 +8,7 @@ import {
   doc, 
   serverTimestamp 
 } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { db, logActivity } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import i18n from "../i18n";
 
@@ -350,6 +350,12 @@ export const executeSendNotification = async (params, triggerData) => {
     data: triggerData.data
   });
 
+  await logActivity(
+    "system",
+    "AUTOMATION_NOTIFICATION_LOG",
+    `Automation notificatie aangemaakt (${severity || triggerData.severity || "info"})`
+  );
+
   // 2. Schrijf naar het centrale berichtensysteem (Inbox)
   await addDoc(collection(db, ...PATHS.MESSAGES), {
     to: "admin", // Zichtbaar voor alle admins
@@ -364,6 +370,12 @@ export const executeSendNotification = async (params, triggerData) => {
     type: "automation_alert",
     priority: severity === "critical" || severity === "alert" ? "urgent" : "normal"
   });
+
+  await logActivity(
+    "system",
+    "AUTOMATION_MESSAGE_CREATE",
+    "Automation inboxbericht aangemaakt"
+  );
   
   return { success: true, message: i18n.t("automation.notification_sent", "Notificatie verzonden") };
 };
@@ -399,6 +411,12 @@ export const executeCreateLog = async (params, triggerData) => {
     priority: "normal",
     data: triggerData.data
   });
+
+  await logActivity(
+    "system",
+    "AUTOMATION_EVENT_LOG",
+    "Automation event als bericht gelogd"
+  );
   
   return { success: true, message: i18n.t("automation.log_created", "Log entry aangemaakt") };
 };
@@ -451,6 +469,11 @@ export const executeAutoLearningUpdate = async (params, triggerData) => {
             deviation: std.deviation
           }
         });
+        await logActivity(
+          "system",
+          "AUTOMATION_STANDARD_UPDATE",
+          `Auto-learning standaard bijgewerkt: ${std.itemCode} op ${std.machine} (${currentStandard} -> ${newStandard})`
+        );
         updated++;
       }
     }
@@ -491,6 +514,11 @@ export const executeInspectionReminder = async (params, triggerData) => {
       priority: "urgent",
       relatedLot: product.lotNumber
     });
+    await logActivity(
+      "system",
+      "AUTOMATION_INSPECTION_REMINDER",
+      `Inspectie-reminder verzonden voor lot ${product.lotNumber} op ${product.station}`
+    );
     
     // Mark reminder as sent in product (would need product doc ID)
     reminded++;
@@ -631,6 +659,12 @@ export const executeRuleWithLogging = async (rule) => {
       actionResult: result.actionResult || null,
       executedAt: serverTimestamp()
     });
+
+    await logActivity(
+      "system",
+      "AUTOMATION_EXECUTION_LOG",
+      `Rule uitvoering gelogd: ${rule.name} (${result.triggered ? "success" : "no_trigger"})`
+    );
     
     // Update rule execution count
     if (result.triggered) {
@@ -639,6 +673,11 @@ export const executeRuleWithLogging = async (rule) => {
         executionCount: (rule.executionCount || 0) + 1,
         lastExecuted: serverTimestamp()
       });
+      await logActivity(
+        "system",
+        "AUTOMATION_RULE_COUNTER_UPDATE",
+        `Execution teller bijgewerkt voor rule ${rule.id}`
+      );
     }
     
     return result;
@@ -655,6 +694,12 @@ export const executeRuleWithLogging = async (rule) => {
       message: error.message,
       executedAt: serverTimestamp()
     });
+
+    await logActivity(
+      "system",
+      "AUTOMATION_EXECUTION_ERROR",
+      `Rule fout gelogd: ${rule.name} - ${error.message}`
+    );
     
     return {
       triggered: false,

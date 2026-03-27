@@ -24,7 +24,7 @@ import {
   query,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 
 /**
@@ -227,6 +227,12 @@ const DimensionsView = ({ libraryData, blueprints, productRange }) => {
         { merge: true }
       );
 
+      await logActivity(
+        auth.currentUser?.uid,
+        "DIMENSION_SAVE",
+        `Maatvoering opgeslagen: ${editingDim.id} (${pathKey})`
+      );
+
       setEditingDim(null);
     } catch (e) {
       alert("Fout bij opslaan: " + e.message);
@@ -240,6 +246,11 @@ const DimensionsView = ({ libraryData, blueprints, productRange }) => {
     try {
       const pathKey = getPathKey();
       await deleteDoc(doc(db, ...PATHS[pathKey], id));
+      await logActivity(
+        auth.currentUser?.uid,
+        "DIMENSION_DELETE",
+        `Maatvoering verwijderd: ${id} (${pathKey})`
+      );
     } catch (e) {
       alert(e.message);
     }

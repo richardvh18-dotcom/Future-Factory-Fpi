@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, ArrowRight, Users, Building2, Clock } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { format, parse } from "date-fns";
 
@@ -92,6 +92,12 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
         originalShift: person.shift, // Bewaar originele shift voor referentie
         timestamp: new Date().toISOString()
       });
+
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        "PERSONNEL_LOAN",
+        `Personeel uitgeleend: ${person?.operatorName || person?.operatorNumber} van ${currentDepartment?.id || "onbekend"} naar ${targetDepartment} (${targetStation}, ${selectedShiftData.label})`
+      );
 
       onClose();
     } catch (error) {

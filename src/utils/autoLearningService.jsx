@@ -5,7 +5,7 @@
  */
 
 import { collection, query, where, getDocs, doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { db, logActivity } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import { calculateDuration } from "./efficiencyCalculator";
 import i18n from "../i18n";
@@ -157,6 +157,12 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
               }
             },
             { merge: true }
+          );
+
+          await logActivity(
+            "system",
+            "AUTO_LEARNING_UPDATE",
+            `Standaardtijd bijgewerkt: ${standard.itemCode}/${standard.machine} ${currentStandard}m -> ${roundedNew}m`
           );
 
           results.updated++;

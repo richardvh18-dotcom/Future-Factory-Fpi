@@ -35,20 +35,21 @@ import {
   getDoc,
   or,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, storage, logActivity } from "../../config/firebase";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { format } from "date-fns";
 import { nl } from "date-fns/locale";
-import { storage } from "../../config/firebase";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useTranslation } from "react-i18next";
 
 /**
  * AdminMessagesView V6.0 - Master Communication Hub
  * Beheert de inbox en verzending via de root: /future-factory/production/messages/
  */
 const AdminMessagesView = ({ user: propUser }) => {
+  const { t } = useTranslation();
   const { user: authUser, isAdmin } = useAdminAuth();
   const { showSuccess, showError } = useNotifications();
   const user = propUser || authUser;
@@ -162,14 +163,20 @@ const AdminMessagesView = ({ user: propUser }) => {
     const unreadMessages = thread.messages.filter(m => !m.read && m.senderId !== liveUser?.uid);
     if (unreadMessages.length === 0) return;
 
-    unreadMessages.forEach(async (msg) => {
-      try {
-        const docRef = doc(db, ...PATHS.MESSAGES, msg.id);
-        await updateDoc(docRef, { read: true });
-      } catch (err) {
-        console.error(err);
-      }
-    });
+    try {
+      await Promise.all(
+        unreadMessages.map((msg) =>
+          updateDoc(doc(db, ...PATHS.MESSAGES, msg.id), { read: true })
+        )
+      );
+      await logActivity(
+        liveUser?.uid || "system",
+        "MESSAGE_MARK_READ",
+        `Berichten als gelezen gemarkeerd in thread ${thread.id}: ${unreadMessages.length}`
+      );
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleArchive = async (thread) => {
@@ -178,31 +185,37 @@ const AdminMessagesView = ({ user: propUser }) => {
       await Promise.all(thread.messages.map(msg => 
         updateDoc(doc(db, ...PATHS.MESSAGES, msg.id), { archived: targetStatus })
       ));
+      await logActivity(
+        liveUser?.uid || "system",
+        targetStatus ? "MESSAGE_ARCHIVE" : "MESSAGE_UNARCHIVE",
+        `Conversatie ${thread.id} ${targetStatus ? "gearchiveerd" : "hersteld"}`
+      );
       
       if (selectedThread?.id === thread.id) setSelectedThread(null);
-      showSuccess(targetStatus ? "Conversatie gearchiveerd" : "Conversatie hersteld");
+      showSuccess(targetStatus ? t('adminMessagesView.conversationArchived') : t('adminMessagesView.conversationRestored'));
     } catch (err) {
       console.error(err);
-      showError("Actie mislukt: " + err.message);
+      showError(t('adminMessagesView.actionFailed') + err.message);
     }
   };
 
   const handleDelete = async (thread) => {
-    if (
-      !window.confirm(
-        "Deze hele conversatie definitief verwijderen?"
-      )
-    )
+    if (!window.confirm(t('adminMessagesView.deleteConversationConfirm')))
       return;
     try {
       await Promise.all(thread.messages.map(msg => 
         deleteDoc(doc(db, ...PATHS.MESSAGES, msg.id))
       ));
+      await logActivity(
+        liveUser?.uid || "system",
+        "MESSAGE_DELETE_THREAD",
+        `Conversatie verwijderd: ${thread.id}, berichten: ${thread.messages.length}`
+      );
       if (selectedThread?.id === thread.id) setSelectedThread(null);
-      showSuccess("Conversatie verwijderd");
+      showSuccess(t('adminMessagesView.conversationDeleted'));
     } catch (err) {
       console.error(err);
-      showError("Verwijderen mislukt: " + err.message);
+      showError(t('adminMessagesView.deleteFailed') + err.message);
     }
   };
 
@@ -210,9 +223,9 @@ const AdminMessagesView = ({ user: propUser }) => {
     if (!thread) return;
     
     const lines = [];
-    lines.push(`Onderwerp: ${thread.subject}`);
-    lines.push(`Laatste update: ${format(thread.timestamp, "dd-MM-yyyy HH:mm")}`);
-    lines.push(`Deelnemers: ${Array.from(thread.participants).join(", ")}`);
+    lines.push(`${t('adminMessagesView.subject')}: ${thread.subject}`);
+    lines.push(`${t('adminMessagesView.lastUpdate')}: ${format(thread.timestamp, "dd-MM-yyyy HH:mm")}`);
+    lines.push(`${t('adminMessagesView.participants')}: ${Array.from(thread.participants).join(", ")}`);
     lines.push("-".repeat(50));
     lines.push("");
     
@@ -225,12 +238,12 @@ const AdminMessagesView = ({ user: propUser }) => {
     sortedMessages.forEach(msg => {
       const time = msg.timestamp?.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp);
       const timeStr = format(time, "dd-MM-yyyy HH:mm");
-      const sender = msg.senderName || msg.from || "Onbekend";
+      const sender = msg.senderName || msg.from || t('common.unknown');
       
       lines.push(`[${timeStr}] ${sender}:`);
       lines.push(msg.content);
       if (msg.attachmentUrl) {
-          lines.push(`[Bijlage: ${msg.attachmentMeta?.name || "Bestand"}]`);
+          lines.push(`[${t('adminMessagesView.attachment')}: ${msg.attachmentMeta?.name || t('adminMessagesView.file')}]`);
       }
       lines.push("");
     });
@@ -256,7 +269,7 @@ const AdminMessagesView = ({ user: propUser }) => {
       if (filterType === "crash" && m.type !== "SYSTEM_ERROR") return;
       
       // Normalize subject (remove RE:, FW:, etc.)
-      const subject = (m.subject || "(Geen onderwerp)").replace(/^(RE:|FW:|FWD:)\s*/i, "").trim();
+      const subject = (m.subject || t('adminMessagesView.noSubject')).replace(/^(RE:|FW:|FWD:)\s*/i, "").trim();
       const key = subject.toLowerCase();
 
       if (!groups[key]) {
@@ -296,7 +309,7 @@ const AdminMessagesView = ({ user: propUser }) => {
       <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-4">
         <Loader2 className="animate-spin text-blue-600" size={40} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Syncing Hub...
+          {t('adminMessagesView.syncingHub')}
         </p>
       </div>
     );
@@ -305,14 +318,14 @@ const AdminMessagesView = ({ user: propUser }) => {
     return (
       <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-4 p-8 text-center">
         <AlertTriangle className="text-red-500" size={48} />
-        <h3 className="text-lg font-black text-slate-700 uppercase tracking-widest">Fout bij laden</h3>
+        <h3 className="text-lg font-black text-slate-700 uppercase tracking-widest">{t('common.errorLoading')}</h3>
         <p className="text-xs text-slate-500 font-mono bg-white p-4 rounded-xl border border-slate-200 shadow-sm max-w-lg">
           {error}
         </p>
         {error.includes("index") && (
           <div className="bg-blue-50 text-blue-700 p-4 rounded-xl text-xs font-bold max-w-md border border-blue-100">
-            <p className="uppercase tracking-widest mb-1">⚠️ Database Index Vereist</p>
-            Open de browser console (F12) en klik op de gegenereerde link om de index aan te maken.
+            <p className="uppercase tracking-widest mb-1">{t('adminMessagesView.databaseIndexRequired')}</p>
+            {t('adminMessagesView.databaseIndexHelp')}
           </div>
         )}
       </div>
@@ -331,7 +344,7 @@ const AdminMessagesView = ({ user: propUser }) => {
         <div className="p-6 border-b border-slate-100 bg-white sticky top-0 z-10 space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">
-              Messages
+              {t('common.messages')}
             </h2>
             <button
               onClick={() => {
@@ -355,7 +368,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                     : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
                 }`}
               >
-                <MessageSquare size={12} /> Alles
+                <MessageSquare size={12} /> {t('common.all')}
               </button>
               <button
                 onClick={() => setFilterType('crash')}
@@ -365,7 +378,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                     : 'bg-white text-red-400 border-red-100 hover:bg-red-50'
                 }`}
               >
-                <AlertTriangle size={12} /> Crashes
+                <AlertTriangle size={12} /> {t('adminMessagesView.crashes')}
               </button>
             </div>
           )}
@@ -382,7 +395,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                   : "text-slate-500"
               }`}
             >
-              <Inbox size={14} /> Inbox
+              <Inbox size={14} /> {t('adminMessagesView.inbox')}
             </button>
             <button
               onClick={() => {
@@ -395,7 +408,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                   : "text-slate-500"
               }`}
             >
-              <Archive size={14} /> Archief
+              <Archive size={14} /> {t('adminMessagesView.archive')}
             </button>
           </div>
         </div>
@@ -406,7 +419,7 @@ const AdminMessagesView = ({ user: propUser }) => {
             <div className="p-12 text-center flex flex-col items-center text-slate-300 opacity-40">
               <Mail size={48} strokeWidth={1} className="mb-4" />
               <p className="text-[10px] font-black uppercase tracking-widest italic">
-                Geen berichten
+                {t('adminMessagesView.noMessages')}
               </p>
             </div>
           ) : (
@@ -414,7 +427,7 @@ const AdminMessagesView = ({ user: propUser }) => {
               const lastMsg = thread.lastMessage;
               const isFromMe = lastMsg.senderId === liveUser?.uid;
               const isUnread = thread.hasUnread;
-              const participants = Array.from(thread.participants).join(", ") || (isFromMe ? `Aan: ${lastMsg.toName || lastMsg.to}` : "Onbekend");
+              const participants = Array.from(thread.participants).join(", ") || (isFromMe ? `${t('adminMessagesView.to')}: ${lastMsg.toName || lastMsg.to}` : t('common.unknown'));
 
               return (
                 <div
@@ -491,16 +504,16 @@ const AdminMessagesView = ({ user: propUser }) => {
                 <div className="flex-1 text-left">
                   <div className="flex items-center gap-3 mb-2">
                     <span className="bg-slate-900 text-blue-400 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest italic border border-white/5 shadow-lg">
-                      Conversatie
+                      {t('adminMessagesView.conversation')}
                     </span>
                     {selectedThread.lastMessage.priority === "urgent" && (
                       <span className="bg-rose-100 text-rose-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase animate-pulse border border-rose-200">
-                        Spoed
+                        {t('adminMessagesView.urgent')}
                       </span>
                     )}
                     {selectedThread.lastMessage.type === "SYSTEM_ERROR" && (
                       <span className="bg-red-600 text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-red-700 shadow-sm">
-                        Systeem Crash
+                        {t('adminMessagesView.systemCrash')}
                       </span>
                     )}
                   </div>
@@ -512,21 +525,21 @@ const AdminMessagesView = ({ user: propUser }) => {
                   <button
                     onClick={() => handleSaveConversation(selectedThread)}
                     className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
-                    title="Opslaan als tekstbestand"
+                    title={t('adminMessagesView.saveAsTextFile')}
                   >
                     <Download size={20} />
                   </button>
                   <button
                     onClick={() => handleArchive(selectedThread)}
                     className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
-                    title="Archiveren"
+                    title={t('adminMessagesView.archiveAction')}
                   >
                     <Archive size={20} />
                   </button>
                   <button
                     onClick={() => handleDelete(selectedThread)}
                     className="p-3 bg-slate-50 text-slate-400 hover:text-rose-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
-                    title="Verwijderen"
+                    title={t('common.delete')}
                   >
                     <Trash2 size={20} />
                   </button>
@@ -540,10 +553,10 @@ const AdminMessagesView = ({ user: propUser }) => {
                   </div>
                   <div className="text-left">
                     <span className="font-black text-slate-800 block text-sm uppercase italic leading-none mb-1">
-                      {Array.from(selectedThread.participants).join(", ") || "Diverse"}
+                      {Array.from(selectedThread.participants).join(", ") || t('adminMessagesView.multiple')}
                     </span>
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      {selectedThread.messages.length} berichten
+                      {t('adminMessagesView.messagesCount', { count: selectedThread.messages.length })}
                     </span>
                   </div>
                 </div>
@@ -555,7 +568,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                     })}
                   </div>
                   <span className="text-[10px] font-bold text-slate-300 font-mono">
-                    Laatste update: {format(selectedThread.timestamp, "HH:mm")}
+                    {t('adminMessagesView.lastUpdate')}: {format(selectedThread.timestamp, "HH:mm")}
                   </span>
                 </div>
               </div>
@@ -575,7 +588,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                       }`}>
                         <div className="flex justify-between items-center mb-2 gap-4">
                           <span className={`text-[10px] font-black uppercase tracking-widest ${isMe ? 'text-blue-200' : 'text-slate-400'}`}>
-                            {isMe ? 'Ik' : (msg.senderName || msg.from)}
+                            {isMe ? t('adminMessagesView.me') : (msg.senderName || msg.from)}
                           </span>
                           <span className={`text-[9px] font-mono ${isMe ? 'text-blue-200' : 'text-slate-300'}`}>
                             {format(msg.timestamp, "dd MMM HH:mm")}
@@ -589,7 +602,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                             </pre>
                             {(msg.data || msg.errorDetails || msg.stack) && (
                               <div className="bg-red-50 border border-red-100 p-3 rounded-xl">
-                                <p className="text-[9px] font-black text-red-700 uppercase tracking-widest mb-2">Technische Details & Stacktrace</p>
+                                <p className="text-[9px] font-black text-red-700 uppercase tracking-widest mb-2">{t('adminMessagesView.technicalDetails')}</p>
                                 <pre className="text-[9px] font-mono text-red-600 whitespace-pre-wrap overflow-x-auto">
                                   {typeof (msg.data || msg.errorDetails || msg.stack) === 'object' ? JSON.stringify(msg.data || msg.errorDetails || msg.stack, null, 2) : (msg.data || msg.errorDetails || msg.stack)}
                                 </pre>
@@ -605,7 +618,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                         {msg.attachmentUrl && (
                           <div className="mt-3 pt-3 border-t border-white/10">
                             <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-2 text-xs font-bold underline ${isMe ? 'text-white' : 'text-blue-600'}`}>
-                              📎 Bijlage openen
+                              {t('adminMessagesView.openAttachment')}
                             </a>
                           </div>
                         )}
@@ -621,17 +634,17 @@ const AdminMessagesView = ({ user: propUser }) => {
                     </div>
                     <div className="text-left flex-1">
                       <h4 className="font-black text-emerald-900 text-sm uppercase italic tracking-tighter">
-                        Validatie Verzoek
+                        {t('adminMessagesView.validationRequest')}
                       </h4>
                       <p className="text-xs text-emerald-700/80 font-bold mt-1">
-                        Dit bericht betreft een goedkeuringsproces.
+                        {t('adminMessagesView.validationRequestHelp')}
                       </p>
                     </div>
                     <button
                       onClick={() => window.location.href = "/admin/products"}
                       className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center gap-2 shrink-0"
                     >
-                      Naar Catalogus <ChevronRight size={14} />
+                      {t('adminMessagesView.toCatalog')} <ChevronRight size={14} />
                     </button>
                   </div>
                 )}
@@ -643,7 +656,7 @@ const AdminMessagesView = ({ user: propUser }) => {
               <div className="flex items-center gap-3">
                 <ShieldCheck size={18} className="text-emerald-500" />
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                  End-to-End Secure Hub Sync
+                  {t('adminMessagesView.secureHubSync')}
                 </span>
               </div>
               <button
@@ -654,7 +667,7 @@ const AdminMessagesView = ({ user: propUser }) => {
                 }}
                 className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all flex items-center gap-3 active:scale-95"
               >
-                <Reply size={18} /> Beantwoorden
+                <Reply size={18} /> {t('adminMessagesView.reply')}
               </button>
             </div>
           </>
@@ -664,10 +677,10 @@ const AdminMessagesView = ({ user: propUser }) => {
               <Mail size={100} strokeWidth={1} className="text-slate-200" />
             </div>
             <h3 className="text-2xl font-black text-slate-400 uppercase italic tracking-tighter mb-2">
-              Communicatie Hub
+              {t('adminMessagesView.communicationHub')}
             </h3>
             <p className="text-xs font-bold uppercase tracking-widest max-w-xs leading-relaxed text-slate-400">
-              Selecteer een conversatie uit de lijst om de geschiedenis te bekijken.
+              {t('adminMessagesView.selectConversationHint')}
             </p>
           </div>
         )}
@@ -686,11 +699,12 @@ const AdminMessagesView = ({ user: propUser }) => {
  * Wordt binnen hetzelfde bestand gedefinieerd voor stabiliteit.
  */
 const ComposeModal = ({ onClose, user, replyTo }) => {
+  const { t } = useTranslation();
   const { showSuccess, showError } = useNotifications();
   const [formData, setFormData] = useState({
     to: replyTo?.from || "admin",
     subject: replyTo ? (replyTo.subject.startsWith("RE:") ? replyTo.subject : `RE: ${replyTo.subject}`) : "",
-    content: `\n\nMet vriendelijke groet,\n${user?.name || user?.displayName || user?.email || "Gebruiker"}`,
+    content: `\n\n${t('adminMessagesView.kindRegards')}\n${user?.name || user?.displayName || user?.email || t('common.employee')}`,
     priority: "normal",
   });
   const [sending, setSending] = useState(false);
@@ -725,18 +739,18 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
   useEffect(() => {
     if (customSignature) {
       setFormData(prev => {
-        const defaultSig = `\n\nMet vriendelijke groet,\n${user?.name || user?.displayName || user?.email || "Gebruiker"}`;
+        const defaultSig = `\n\n${t('adminMessagesView.kindRegards')}\n${user?.name || user?.displayName || user?.email || t('adminMessagesView.userFallback')}`;
         if (!prev.content || prev.content.trim() === defaultSig.trim() || prev.content.trim() === "") {
           return { ...prev, content: `\n\n${customSignature}` };
         }
         return prev;
       });
     }
-  }, [customSignature, user]);
+  }, [customSignature, user, t]);
 
   const handleInsertQuote = () => {
     if (!replyTo) return;
-    const quote = `\n\n> Op ${new Date(replyTo.timestamp).toLocaleString('nl-NL')} schreef ${replyTo.senderName || "Gebruiker"}:\n> ${(replyTo.content || "").replace(/\n/g, "\n> ")}`;
+    const quote = `\n\n> ${t('adminMessagesView.onDate')} ${new Date(replyTo.timestamp).toLocaleString()} ${t('adminMessagesView.wrote')} ${replyTo.senderName || t('common.employee')}:\n> ${(replyTo.content || "").replace(/\n/g, "\n> ")}`;
     setFormData(prev => ({ ...prev, content: prev.content + quote }));
   };
 
@@ -772,10 +786,15 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
         attachmentUrl: attachmentUrl || null,
         attachmentMeta: attachmentMeta || null,
       });
-      showSuccess("Bericht succesvol verzonden!");
+      await logActivity(
+        user?.uid || "system",
+        "MESSAGE_SEND",
+        `Bericht verzonden aan ${formData.to} met onderwerp '${formData.subject}'`
+      );
+      showSuccess(t('adminMessagesView.messageSent'));
       onClose();
     } catch (err) {
-      showError("Verzenden mislukt: " + err.message);
+      showError(t('adminMessagesView.sendFailed') + err.message);
     } finally {
       setSending(false);
     }
@@ -798,10 +817,10 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
         <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
           <div className="text-left">
             <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-              Nieuw <span className="text-blue-600">Bericht</span>
+              {t('common.new')} <span className="text-blue-600">{t('common.messages')}</span>
             </h3>
             <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">
-              Interne Communicatie
+              {t('adminMessagesView.internalCommunication')}
             </p>
           </div>
           <button
@@ -819,7 +838,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                Ontvanger
+                {t('adminMessagesView.recipient')}
               </label>
               <select
                 className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 text-sm appearance-none cursor-pointer"
@@ -828,7 +847,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
                   setFormData({ ...formData, to: e.target.value })
                 }
               >
-                <option value="admin">Administrators (Groep)</option>
+                <option value="admin">{t('adminMessagesView.adminGroup')}</option>
                 {userList
                   .filter((u) => u.email !== user?.email)
                   .map((u) => (
@@ -840,7 +859,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                Prioriteit
+                {t('adminMessagesView.priority')}
               </label>
               <select
                 className={`w-full p-4 border-2 rounded-2xl font-black outline-none transition-all text-sm appearance-none cursor-pointer ${
@@ -853,20 +872,20 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
                   setFormData({ ...formData, priority: e.target.value })
                 }
               >
-                <option value="normal">Normaal</option>
-                <option value="urgent">Directe Actie (Spoed)</option>
+                <option value="normal">{t('adminMessagesView.priorityNormal')}</option>
+                <option value="urgent">{t('adminMessagesView.priorityUrgentAction')}</option>
               </select>
             </div>
           </div>
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-              Onderwerp
+              {t('adminMessagesView.subject')}
             </label>
             <input
               required
               className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 focus:bg-white transition-all text-sm"
-              placeholder="Waar gaat het over?"
+              placeholder={t('adminMessagesView.subjectPlaceholder')}
               value={formData.subject}
               onChange={(e) =>
                 setFormData({ ...formData, subject: e.target.value })
@@ -877,7 +896,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
           <div className="space-y-1.5">
             <div className="flex justify-between items-center">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                Inhoud
+                {t('adminMessagesView.content')}
               </label>
               {replyTo && (
                 <button
@@ -885,7 +904,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
                   onClick={handleInsertQuote}
                   className="text-[10px] font-bold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
                 >
-                  <Quote size={12} /> Citeer vorig bericht
+                  <Quote size={12} /> {t('adminMessagesView.quotePreviousMessage')}
                 </button>
               )}
             </div>
@@ -893,7 +912,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
               required
               rows={5}
               className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-[30px] font-medium outline-none focus:border-blue-500 focus:bg-white transition-all text-sm shadow-inner resize-none italic"
-              placeholder="Typ hier je bericht voor collega's of admins..."
+              placeholder={t('adminMessagesView.contentPlaceholder')}
               value={formData.content}
               onChange={(e) =>
                 setFormData({ ...formData, content: e.target.value })
@@ -903,7 +922,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-              Bijlage (foto of bestand)
+              {t('adminMessagesView.attachmentLabel')}
             </label>
             <input
               type="file"
@@ -912,15 +931,15 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
               onChange={e => setAttachment(e.target.files[0])}
             />
             {attachmentPreview && (
-              <img src={attachmentPreview} alt="Preview" className="mt-2 max-h-40 rounded-xl border border-slate-200 shadow" />
+              <img src={attachmentPreview} alt={t('adminMessagesView.preview')} className="mt-2 max-h-40 rounded-xl border border-slate-200 shadow" />
             )}
             {attachment && !attachmentPreview && (
-              <div className="mt-2 text-xs text-slate-500">Bestand geselecteerd: {attachment.name}</div>
+              <div className="mt-2 text-xs text-slate-500">{t('adminMessagesView.fileSelected')}: {attachment.name}</div>
             )}
             {sending && attachment && (
               <div className="mt-3">
                 <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase mb-1">
-                  <span>Uploaden...</span>
+                  <span>{t('adminMessagesView.uploading')}</span>
                   <span>{Math.round(uploadProgress)}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
@@ -935,7 +954,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
 
           <div className="flex justify-end mt-1">
             <a href="/profile" className="text-[9px] font-bold text-slate-400 hover:text-blue-600 flex items-center gap-1.5 transition-colors">
-              <Edit3 size={10} /> Handtekening wijzigen in Mijn Dossier
+              <Edit3 size={10} /> {t('adminMessagesView.editSignatureInProfile')}
             </a>
           </div>
 
@@ -945,7 +964,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
               onClick={onClose}
               className="px-8 py-4 rounded-2xl font-black text-slate-400 hover:text-slate-600 transition-all text-[10px] uppercase tracking-widest"
             >
-              Annuleren
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
@@ -957,7 +976,7 @@ const ComposeModal = ({ onClose, user, replyTo }) => {
               ) : (
                 <Send size={16} />
               )}{" "}
-              Versturen naar Hub
+              {t('adminMessagesView.sendToHub')}
             </button>
           </div>
         </form>

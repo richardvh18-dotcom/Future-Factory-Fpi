@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useMessages } from "../hooks/useMessages";
 import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { db, auth, logActivity } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import {
   LayoutGrid,
@@ -81,6 +81,11 @@ const Sidebar = ({
       try {
         const userRef = doc(db, ...PATHS.USERS, user.uid);
         await updateDoc(userRef, { language: lang });
+        await logActivity(
+          auth.currentUser?.uid,
+          "LANGUAGE_UPDATE",
+          `Taalvoorkeur aangepast via sidebar: ${lang}`
+        );
       } catch (error) {
         console.error("Kon taalvoorkeur niet opslaan:", error);
       }

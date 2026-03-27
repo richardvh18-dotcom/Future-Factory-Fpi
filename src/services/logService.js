@@ -1,21 +1,20 @@
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../config/firebase";
+import { auth, logActivity as logActivityCore } from "../config/firebase";
 
-// Het pad dat je aangaf
-const LOG_COLLECTION = ['future-factory', 'logs', 'activity_logs'];
-
-export const logActivity = async (action, module, details = {}, level = 'info') => {
+// Backward-compatible wrapper rond de centrale logger in firebase.jsx
+export const logActivity = async (action, module, details = {}, level = "info") => {
   try {
-    await addDoc(collection(db, ...LOG_COLLECTION), {
-      action,
+    const meta = {
       module,
+      level,
       details,
-      level, // 'info', 'warning', 'error', 'success'
-      userId: auth.currentUser?.uid || 'system',
-      userEmail: auth.currentUser?.email || 'anonymous',
-      timestamp: serverTimestamp(),
-      userAgent: window.navigator.userAgent
-    });
+      userAgent: typeof window !== "undefined" ? window.navigator.userAgent : "server",
+    };
+
+    await logActivityCore(
+      auth.currentUser?.uid || "system",
+      action,
+      JSON.stringify(meta)
+    );
   } catch (error) {
     console.error("Log error:", error);
   }

@@ -2,7 +2,7 @@ import React from 'react';
 import { withTranslation } from 'react-i18next';
 import { AlertTriangle, RefreshCw, Send, CheckCircle2, Loader2 } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../config/firebase';
+import { db, auth, logActivity } from '../config/firebase';
 import { PATHS } from '../config/dbPaths';
 
 class ErrorBoundary extends React.Component {
@@ -58,6 +58,12 @@ class ErrorBoundary extends React.Component {
         senderName: 'System Crash Reporter', // Aangepast: vaste senderName
         data: errorData // Aangepast: data veld toegevoegd met technische details
       });
+
+      await logActivity(
+        auth.currentUser?.uid || 'system',
+        'ERROR_REPORT_SEND',
+        `Crashrapport verstuurd: ${errorData.message.substring(0, 80)}`
+      );
 
       this.setState({ reportStatus: 'success' });
 

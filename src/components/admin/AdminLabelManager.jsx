@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import { useTranslation } from 'react-i18next';
 import { BoxSelect, PenTool, Settings, LayoutGrid, Edit2, Search, Trash2 } from "lucide-react";
 import { collection, onSnapshot, deleteDoc, doc } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import AdminLabelDesigner from "./AdminLabelDesigner";
 import AdminLabelLogic from "./AdminLabelLogic";
@@ -20,6 +20,7 @@ const LABEL_FOLDER_OPTIONS = [
 
 const AdminLabelManager = ({ onNavigate }) => {
   const { t } = useTranslation();
+  const genericFolderLabel = t('common.generic', 'Generiek');
   const [activeTab, setActiveTab] = useState("designer");
   const [savedLabels, setSavedLabels] = useState([]);
   const [templateSearch, setTemplateSearch] = useState("");
@@ -48,7 +49,7 @@ const AdminLabelManager = ({ onNavigate }) => {
     if (hasWavi) return "Wavistrong";
     if (hasFiber) return "Fibermar";
     if (hasCode) return "Code";
-    return "Generiek";
+    return genericFolderLabel;
   };
 
   const groupedTemplates = useMemo(() => {
@@ -77,13 +78,13 @@ const AdminLabelManager = ({ onNavigate }) => {
       if (pa !== -1 && pb !== -1) return pa - pb;
       if (pa !== -1) return -1;
       if (pb !== -1) return 1;
-      if (a === "Generiek") return 1;
-      if (b === "Generiek") return -1;
+      if (a === genericFolderLabel) return 1;
+      if (b === genericFolderLabel) return -1;
       return a.localeCompare(b);
     });
 
     return { groups, keys };
-  }, [savedLabels, templateSearch]);
+  }, [savedLabels, templateSearch, genericFolderLabel]);
 
   useEffect(() => {
     setCollapsedGroups((prev) => {
@@ -118,6 +119,11 @@ const AdminLabelManager = ({ onNavigate }) => {
     setDeletingTemplateId(label.id);
     try {
       await deleteDoc(doc(db, ...PATHS.LABEL_TEMPLATES, label.id));
+      await logActivity(
+        auth.currentUser?.uid,
+        "LABEL_TEMPLATE_DELETE",
+        `Label template verwijderd: ${label.name || label.id}`
+      );
       if (designerOpenLabelId === label.id) {
         setDesignerOpenLabelId(null);
       }
@@ -172,7 +178,7 @@ const AdminLabelManager = ({ onNavigate }) => {
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            <LayoutGrid size={14} /> <span className="hidden sm:inline">Label Templates</span>
+            <LayoutGrid size={14} /> <span className="hidden sm:inline">{t('common.labelTemplates', 'Label Templates')}</span>
           </button>
         </div>
         </div>
@@ -193,8 +199,8 @@ const AdminLabelManager = ({ onNavigate }) => {
             <div className="max-w-7xl mx-auto">
               <div className="mb-6 flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight">Label Templates</h2>
-                  <p className="text-sm font-medium text-slate-500">Groot overzicht per vaste map. Klik op het pennetje om direct in Designer te openen.</p>
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight">{t('common.labelTemplates', 'Label Templates')}</h2>
+                  <p className="text-sm font-medium text-slate-500">{t('common.templatesOverview', 'Groot overzicht per vaste map. Klik op het pennetje om direct in Designer te openen.')}</p>
                 </div>
                 <div className="relative w-full md:w-80 lg:w-96">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -202,7 +208,7 @@ const AdminLabelManager = ({ onNavigate }) => {
                     type="text"
                     value={templateSearch}
                     onChange={(e) => setTemplateSearch(e.target.value)}
-                    placeholder="Zoek op naam, tag of map..."
+                    placeholder={t('common.searchTemplatePlaceholder', 'Zoek op naam, tag of map...')}
                     className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -217,7 +223,7 @@ const AdminLabelManager = ({ onNavigate }) => {
                       className="w-full text-left text-xs font-black text-slate-600 uppercase tracking-widest mb-3 flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-3 hover:bg-slate-50"
                     >
                       <span>{group}</span>
-                      <span className="text-[10px] text-slate-400">{collapsedGroups[group] ? "Openen" : "Sluiten"}</span>
+                      <span className="text-[10px] text-slate-400">{collapsedGroups[group] ? t('common.open', 'Openen') : t('common.close', 'Sluiten')}</span>
                     </button>
                     {!collapsedGroups[group] && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -237,7 +243,7 @@ const AdminLabelManager = ({ onNavigate }) => {
                                 <button
                                   onClick={() => openInDesigner(label.id)}
                                   className="p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100"
-                                  title="Open in Designer"
+                                  title={t('common.openInDesigner', 'Open in Designer')}
                                 >
                                   <Edit2 size={14} />
                                 </button>
@@ -272,7 +278,7 @@ const AdminLabelManager = ({ onNavigate }) => {
               </div>
 
               {groupedTemplates.keys.length === 0 && (
-                <div className="text-center py-16 text-slate-500 font-semibold">Geen label templates gevonden.</div>
+                <div className="text-center py-16 text-slate-500 font-semibold">{t('common.noLabelTemplates', 'Geen label templates gevonden.')}</div>
               )}
             </div>
           </div>

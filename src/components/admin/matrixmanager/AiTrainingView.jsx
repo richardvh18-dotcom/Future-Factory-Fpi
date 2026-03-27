@@ -20,7 +20,7 @@ import {
   deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { db, appId } from "../../../config/firebase";
+import { db, appId, auth, logActivity } from "../../../config/firebase";
 
 /**
  * AiTrainingView: Module voor kwaliteitsborging van AI antwoorden.
@@ -71,6 +71,11 @@ const AiTrainingView = () => {
         correctedAnswer: correctedText || null,
         verifiedAt: serverTimestamp(),
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "AI_TRAINING_VERIFY",
+        `AI kennisitem geverifieerd: ${id}${correctedText ? " (met correctie)" : ""}`
+      );
       setEditingId(null);
       setCorrection("");
     } catch (e) {
@@ -84,6 +89,11 @@ const AiTrainingView = () => {
     try {
       await deleteDoc(
         doc(db, "artifacts", appId, "public", "data", "ai_knowledge_base", id)
+      );
+      await logActivity(
+        auth.currentUser?.uid,
+        "AI_TRAINING_DELETE",
+        `AI kennisitem verwijderd: ${id}`
       );
     } catch (e) {
       console.error("Fout bij verwijderen:", e);

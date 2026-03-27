@@ -131,7 +131,7 @@ export const useAutoLogout = (timeoutMinutes = 30, warningMinutes = 5, enabled =
       });
       clearAllTimers();
     };
-  }, [enabled, showWarning]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, showWarning]);
 
   return {
     showWarning,

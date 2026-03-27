@@ -99,6 +99,22 @@ const getTodayString = () => {
   return `${year}-${month}-${day}`;
 };
 
+const getYesterdayString = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const isDateWithinInclusiveRange = (dateStr, startDateStr, endDateStr) => {
+  if (!dateStr || !startDateStr) return false;
+  const from = String(startDateStr);
+  const to = String(endDateStr || startDateStr);
+  return dateStr >= from && dateStr <= to;
+};
+
 const normalizePlanningStatus = (status) => String(status || "").trim().toLowerCase();
 
 const isInactivePlanningStatus = (status) => {
@@ -106,27 +122,71 @@ const isInactivePlanningStatus = (status) => {
   return ["completed", "cancelled", "shipped", "rejected", "finished", "deleted"].includes(normalized);
 };
 
-const getCurrentShiftKey = (date = new Date()) => {
-  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+/**
+ * Dienst configuratie.
+ * checkoutMinute = minuut van de dag waarop de dienst eindigt (voor auto-uitlog).
+ * breakMinutes   = te verrekenen pauzetijd voor efficiency/uren (alleen voor DAGDIENST).
+ */
+const SHIFT_CONFIG = {
+  VROEG: { label: "VROEGE DIENST", checkoutMinute: 14 * 60, breakMinutes: 0 },
+  DAG:   { label: "DAGDIENST",     checkoutMinute: 16 * 60, breakMinutes: 45 },
+  LAAT:  { label: "LATE DIENST",   checkoutMinute: 22 * 60, breakMinutes: 0 },
+  NACHT: { label: "NACHTDIENST",   checkoutMinute: 6 * 60,  breakMinutes: 0 },
+};
 
-  if (currentMinutes >= 5 * 60 + 30 && currentMinutes < 14 * 60) return "VROEG";
-  if (currentMinutes >= 14 * 60 && currentMinutes < 22 * 60 + 30) return "LAAT";
+/**
+ * Bepaal de dienstsleutel op basis van het huidige tijdstip.
+ * Grenzen zijn gekozen op het midden tussen twee dienststartijden:
+ *   VROEG  06:00 → check-in venster 05:00–07:14
+ *   DAG    07:15 → check-in venster 07:15–13:44
+ *   LAAT   13:50 → check-in venster 13:45–21:30
+ *   NACHT  22:00 → rest
+ */
+const getCurrentShiftKey = (date = new Date()) => {
+  const m = date.getHours() * 60 + date.getMinutes();
+  if (m >= 5 * 60      && m < 7 * 60 + 15)  return "VROEG";
+  if (m >= 7 * 60 + 15 && m < 13 * 60 + 45) return "DAG";
+  if (m >= 13 * 60 + 45 && m < 21 * 60 + 30) return "LAAT";
   return "NACHT";
 };
 
 const getCurrentShiftLabel = (date = new Date()) => {
   const key = getCurrentShiftKey(date);
-  if (key === "VROEG") return "VROEGE DIENST";
-  if (key === "LAAT") return "LATE DIENST";
-  return "NACHTDIENST";
+  return SHIFT_CONFIG[key]?.label ?? "NACHTDIENST";
 };
 
 const shiftMatchesBucket = (shiftLabel, bucket) => {
   const label = String(shiftLabel || "").toUpperCase();
   if (bucket === "VROEG") return label.includes("VROEGE") || label.includes("OCHTEND") || label.includes("MORNING") || label.includes("EARLY");
-  if (bucket === "LAAT") return label.includes("LATE") || label.includes("AVOND") || label.includes("EVENING");
+  if (bucket === "DAG")   return label.includes("DAGDIENST") || label === "DAG" || label.includes("DAGPLOEG") || label.includes("DAY SHIFT");
+  if (bucket === "LAAT")  return label.includes("LATE") || label.includes("AVOND") || label.includes("EVENING");
   if (bucket === "NACHT") return label.includes("NACHT") || label.includes("NIGHT");
   return false;
+};
+
+/**
+ * Bepaal de dienstsleutel voor een persoon.
+ * Leest eerst person.shiftId uit het personeelsbestand (bijv. "DAGDIENST", "VROEGE DIENST"),
+ * en valt terug op kloktijd-detectie als het veld ontbreekt of niet herkend wordt.
+ */
+const resolveShiftKeyFromPerson = (person) => {
+  const todayStr = getTodayString();
+  const override = person?.temporaryShiftOverride;
+  const overrideShiftId =
+    override?.enabled && isDateWithinInclusiveRange(todayStr, override?.startDate, override?.endDate)
+      ? String(override?.shiftId || "")
+      : "";
+
+  const raw = String(overrideShiftId || person?.shiftId || "").toUpperCase().trim();
+  if (!raw) return getCurrentShiftKey();
+  // Directe match op sleutel (bijv. "DAG", "VROEG", "LAAT", "NACHT")
+  if (raw in SHIFT_CONFIG) return raw;
+  // Match via label-logica
+  for (const key of Object.keys(SHIFT_CONFIG)) {
+    if (shiftMatchesBucket(raw, key)) return key;
+  }
+  // Fallback: kloktijd
+  return getCurrentShiftKey();
 };
 
 const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
@@ -542,7 +602,6 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         
         // FILTER: Alleen tonen als de shift momenteel actief is
         return isShiftActive(occ.shift);
-        return isShiftActive(occ.shift);
       })
       .map(occ => {
         const operator = personnel.find(p => p.id === occ.operatorNumber || p.employeeNumber === occ.operatorNumber);
@@ -577,41 +636,66 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     let targetBucket = null;
 
-    if (currentMinutes === 13 * 60 + 59) targetBucket = "VROEG";
-    if (currentMinutes === 21 * 60 + 59) targetBucket = "LAAT";
+    // Trigger op de exacte eindminuut én 1 minuut eerder (heartbeat = 30s, mag niet gemist worden).
+    // VROEGE DIENST eindigt 14:00  → trigger op 13:59 of 14:00
+    // DAGDIENST      eindigt 16:00  → trigger op 15:59 of 16:00
+    // LATE DIENST    eindigt 22:00  → trigger op 21:59 of 22:00
+    // NACHTDIENST    eindigt 06:00  → trigger op 05:59 of 06:00 (zoekt entries van gisteren)
+    if (currentMinutes === 13 * 60 + 59 || currentMinutes === 14 * 60) targetBucket = "VROEG";
+    if (currentMinutes === 15 * 60 + 59 || currentMinutes === 16 * 60) targetBucket = "DAG";
+    if (currentMinutes === 21 * 60 + 59 || currentMinutes === 22 * 60) targetBucket = "LAAT";
+    if (currentMinutes === 5  * 60 + 59 || currentMinutes === 6  * 60) targetBucket = "NACHT";
     if (!targetBucket) return;
 
-    const minuteKey = `${getTodayString()}_${now.getHours()}_${now.getMinutes()}_${selectedStation}_${targetBucket}`;
+    // Deduplicatie: gebruik uur+minuut+bucket (zonder station) zodat één instantie
+    // alle operators sluit, ongeacht op welke machine ze nu werken.
+    const minuteKey = `${getTodayString()}_${now.getHours()}_${now.getMinutes()}_${targetBucket}`;
     if (lastAutoCheckoutMinuteRef.current === minuteKey) return;
     lastAutoCheckoutMinuteRef.current = minuteKey;
 
     const runAutoCheckout = async () => {
       try {
         const todayStr = getTodayString();
-        const stationNorm = normalizeMachine(selectedStation);
+        // NACHT-dienst startte gisteren (~22:00) en eindigt vandaag (~06:00).
+        // Haal entries op via de datum van incheck (gisteren voor NACHT, vandaag voor de rest).
+        const queryDate = targetBucket === "NACHT" ? getYesterdayString() : todayStr;
+
         const occSnap = await getDocs(
-          query(collection(db, ...PATHS.OCCUPANCY), where("date", "==", todayStr), limit(300))
+          query(collection(db, ...PATHS.OCCUPANCY), where("date", "==", queryDate), limit(500))
         );
 
+        // Sluit ALLE actieve operators van deze dienst, ongeacht machine.
+        // Zo worden ook operators meegenomen die tussentijds van machine wisselden.
         const toCheckout = occSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((entry) => {
-            const sameStation = normalizeMachine(entry.machineId || entry.station) === stationNorm;
             const isActive = entry.isActive !== false && !entry.checkedOutAt;
-            return sameStation && isActive && shiftMatchesBucket(entry.shift, targetBucket);
+            return isActive && shiftMatchesBucket(entry.shift, targetBucket);
           });
+
+        // Pauze-aftrek: alleen DAGDIENST heeft 45 min expliciete pauze die van de
+        // productieve uren afgaat. VROEG en LAAT zijn 8 uur incl. pauze (geen aftrek).
+        const breakHours = (SHIFT_CONFIG[targetBucket]?.breakMinutes ?? 0) / 60;
 
         await Promise.all(
           toCheckout.map(async (entry) => {
             const previousHours = Number(entry.hoursWorked || 0);
             const checkedInDate = toDateSafe(entry.checkedInAt);
-            const elapsedHours = checkedInDate ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000) : 0;
-            const finalHours = Number((previousHours + elapsedHours).toFixed(2));
+            const elapsedHours = checkedInDate
+              ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000)
+              : 0;
+            const grossHours = Number((previousHours + elapsedHours).toFixed(2));
+            // Netto productieve uren (pauze eraf voor dagdienst)
+            const finalHours = Math.max(0, Number((grossHours - breakHours).toFixed(2)));
 
             await updateDoc(doc(db, ...PATHS.OCCUPANCY, entry.id), {
               hoursWorked: finalHours,
+              hoursWorkedGross: grossHours,
+              ...(breakHours > 0 ? { breakDeductedHours: breakHours } : {}),
               checkedOutAt: serverTimestamp(),
               isActive: false,
+              autoCheckout: true,
+              autoCheckoutShift: targetBucket,
               updatedAt: serverTimestamp(),
             });
           })
@@ -620,7 +704,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         if (toCheckout.length > 0) {
           setCheckedInOperator(null);
           setDismissedPromptShift(null);
-          showInfo(`Automatisch uitgecheckt (${targetBucket === "VROEG" ? "vroege dienst" : "late dienst"}).`);
+          const shiftName = SHIFT_CONFIG[targetBucket]?.label ?? targetBucket;
+          showInfo(
+            `${toCheckout.length} operator(s) automatisch uitgecheckt (einde ${shiftName}).`
+          );
         }
       } catch (err) {
         console.error("Auto shift checkout fout:", err);
@@ -702,6 +789,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         })
       );
 
+      // Bepaal dienst o.b.v. personeelsbestand (person.shiftId), kloktijd als fallback.
+      const personShiftKey = resolveShiftKeyFromPerson(person);
+      const personShiftLabel = SHIFT_CONFIG[personShiftKey]?.label ?? getCurrentShiftLabel();
+
       const machineNorm = (normalizeMachine(selectedStation) || selectedStation || "").replace(/[^a-zA-Z0-9]/g, "_");
       const occId = `${todayStr}_${machineNorm}_${operatorNumber}_${Date.now()}`;
 
@@ -713,7 +804,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         date: todayStr,
         hoursWorked: 0,
         isPloeg: false,
-        shift: getCurrentShiftLabel(),
+        shift: personShiftLabel,
+        shiftKey: personShiftKey,
         isLoan: false,
         checkedInAt: serverTimestamp(),
         checkedOutAt: null,
@@ -721,6 +813,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         source: "workstation_checkin",
         updatedAt: serverTimestamp(),
       }, { merge: true });
+
+      await logActivity(
+        currentUser?.uid || "system",
+        "OPERATOR_CHECKIN",
+        `Operator check-in: ${operatorNumber} op ${selectedStation}; eerdere actieve inschrijvingen gesloten: ${activeEntries.length}`
+      );
 
       if (person.id) {
         await updateDoc(doc(db, ...PATHS.PERSONNEL, person.id), {
@@ -1093,9 +1191,19 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           currentLotNumber
         );
 
-        const currentStartedCount = rawProducts.filter(
-          (p) => p.orderId === order.orderId
+        const stationField = `started_${selectedStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const persistedStartedCount = Number(order[stationField] || 0);
+        const activeStartedCount = rawProducts.filter(
+          (p) =>
+            p.orderId === order.orderId &&
+            p.originMachine === selectedStation &&
+            p.status !== "rejected" &&
+            p.currentStep !== "REJECTED"
         ).length;
+        const currentStartedCount = Math.max(
+          persistedStartedCount,
+          activeStartedCount
+        );
         const plannedAmount = Number(order.plan || 0);
         const isOverflow = currentStartedCount + i + 1 > plannedAmount;
 
@@ -1160,17 +1268,57 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       }
 
       if (overflowItems.length > 0) {
-        await addDoc(
-          collection(db, ...PATHS.MESSAGES),
-          {
-            title: "⚠ Overproductie Melding",
-            message: `Op ${selectedStation} zijn ${overflowItems.length} extra producten gemaakt.`,
-            type: "warning",
-            status: "unread",
-            createdAt: serverTimestamp(),
-            source: "WorkstationHub",
-          }
-        );
+        const plannerRecipientsSnap = await getDocs(
+          query(collection(db, ...PATHS.USERS), where("role", "in", ["planner", "admin"]))
+        ).catch(() => null);
+
+        const plannerRecipients = plannerRecipientsSnap
+          ? Array.from(
+              new Set(
+                plannerRecipientsSnap.docs
+                  .map((userDoc) => String(userDoc.data()?.email || "").trim().toLowerCase())
+                  .filter(Boolean)
+              )
+            )
+          : [];
+
+        const messagePayload = {
+          from: "SYSTEM",
+          senderId: currentUser?.uid || "system-auto",
+          subject: `Overproductie op ${selectedStation}`,
+          content: `${overflowItems.length} extra producten zijn aangemaakt vanuit order ${order.orderId}. Koppel deze aan een nieuw LN-ordernummer zodra beschikbaar. Lotnummers: ${overflowItems.join(", ")}`,
+          timestamp: serverTimestamp(),
+          read: false,
+          archived: false,
+          priority: "high",
+          type: "warning",
+          source: "WorkstationHub",
+          metadata: {
+            kind: "overproduction",
+            originalOrderId: order.orderId,
+            originStation: selectedStation,
+            lotNumbers: overflowItems,
+            count: overflowItems.length,
+          },
+        };
+
+        if (plannerRecipients.length > 0) {
+          await Promise.all(
+            plannerRecipients.map((email) =>
+              addDoc(collection(db, ...PATHS.MESSAGES), {
+                ...messagePayload,
+                to: email,
+              })
+            )
+          );
+        } else {
+          await addDoc(collection(db, ...PATHS.MESSAGES), {
+            ...messagePayload,
+            to: "admin",
+            targetGroup: "admins",
+          });
+        }
+
         alert(
           `Let op: Er zijn ${overflowItems.length} producten meer gemaakt dan gepland.`
         );
@@ -1190,6 +1338,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           }
         );
       }
+      await logActivity(
+        currentUser?.uid || "system",
+        "ORDER_RELEASE",
+        `Workstation start: order ${order.orderId}, station ${selectedStation}, lot start ${customLotNumber}, count ${stringCount}, overflow ${overflowItems.length}`
+      );
       setShowStartModal(false);
     } catch (error) {
       console.error(error);
@@ -1214,6 +1367,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         updatedAt: serverTimestamp(),
         note: `Handmatig verplaatst naar ${newStation} door ${currentUser?.email || 'Operator'}`
       });
+      await logActivity(
+        currentUser?.uid || "system",
+        "LOT_MANUAL_MOVE",
+        `Workstation move: lot ${lotNumber} -> ${newStation}`
+      );
       showSuccess(`Product ${lotNumber} verplaatst naar ${newStation}`);
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
@@ -1231,6 +1389,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         status: isPaused ? "In Production" : "PAUSED",
         updatedAt: serverTimestamp(),
       });
+      await logActivity(
+        currentUser?.uid || "system",
+        isPaused ? "PRODUCTION_RESUME" : "PRODUCTION_PAUSE",
+        `Workstation ${isPaused ? "resume" : "pause"}: lot ${product.lotNumber || product.id} op ${selectedStation}`
+      );
       
       if (isPaused) showSuccess("Productie hervat");
       else showInfo("Productie gepauzeerd");
@@ -1249,6 +1412,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           linkedProductImage: product.imageUrl,
           lastUpdated: new Date(),
         }
+      );
+      await logActivity(
+        currentUser?.uid || "system",
+        "ORDER_LINK_PRODUCT",
+        `Order gelinkt: planning ${docId} -> product ${product?.id}`
       );
       showSuccess("Product succesvol gekoppeld!");
       setShowLinkModal(false);
@@ -1330,6 +1498,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
           await setDoc(archiveRef, finalData);
           await deleteDoc(productRef);
+          await logActivity(
+            currentUser?.uid || "system",
+            "POST_PROCESS_COMPLETE",
+            `Afgerond en gearchiveerd: lot ${itemToFinish?.lotNumber || itemToFinish?.id}, station BM01`
+          );
 
           // Update Planning Order
           if (itemToFinish.orderId && itemToFinish.orderId !== "NOG_TE_BEPALEN") {
@@ -1417,6 +1590,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         }
       }
       await updateDoc(productRef, updates);
+      await logActivity(
+        currentUser?.uid || "system",
+        status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
+        `Post-processing: lot ${itemToFinish?.lotNumber || itemToFinish?.id}, station ${selectedStation}, status ${status}`
+      );
       setFinishModalOpen(false);
       setItemToFinish(null);
     } catch (error) {
@@ -1523,6 +1701,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       }
 
       await updateDoc(productRef, updates);
+      await logActivity(
+        currentUser?.uid || "system",
+        "PRODUCT_TO_LOSSEN",
+        `Doorgestuurd naar lossen: lot ${product.lotNumber || product.id}, route ${lossenRoute}, station ${selectedStation}`
+      );
       if (lossenRoute === "TAB") {
         setActiveTab("lossen");
       }
@@ -1554,6 +1737,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           };
 
           await updateDoc(productRef, updates);
+          await logActivity(
+            currentUser?.uid || "system",
+            "QUALITY_REPAIR_COMPLETE",
+            `Reparatie afgerond: lot ${itemToRepair?.lotNumber || itemToRepair?.id}, BH31 -> BM01`
+          );
           showSuccess(`Product ${itemToRepair.lotNumber} gerepareerd en doorgestuurd naar BM01`);
           setShowRepairModal(false);
           setItemToRepair(null);
@@ -2106,6 +2294,28 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                 Later
               </button>
             </div>
+
+            {/* Huidige dienst + auto-uitlog tijd */}
+            {(() => {
+              const shiftCfg = SHIFT_CONFIG[currentShiftKey];
+              const endH = shiftCfg ? Math.floor(shiftCfg.checkoutMinute / 60) : null;
+              const endM = shiftCfg ? shiftCfg.checkoutMinute % 60 : null;
+              const endLabel = endH !== null
+                ? `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`
+                : null;
+              return shiftCfg ? (
+                <div className="mb-4 px-3 py-2 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Huidige dienst</p>
+                    <p className="text-sm font-black text-blue-800">{shiftCfg.label}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Auto-uitlog om</p>
+                    <p className="text-sm font-black text-blue-800">{endLabel}</p>
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             <p className="text-sm text-slate-600 mb-4">
               Scan badge/QR of vul personeelsnummer in om de shift op deze machine te starten. Je kunt meerdere operators achter elkaar aanmelden.

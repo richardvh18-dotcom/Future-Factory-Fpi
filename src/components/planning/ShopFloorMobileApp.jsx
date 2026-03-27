@@ -22,7 +22,7 @@ import {
   ArrowRightLeft
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { format } from "date-fns";
@@ -320,6 +320,12 @@ const ShopFloorMobileApp = () => {
         updatedAt: serverTimestamp(),
         note: `Handmatig verplaatst naar ${newStation} door ${user?.email || 'Mobile User'}`
       });
+
+      await logActivity(
+        user?.uid,
+        "MOBILE_LOT_MOVE",
+        `Lot ${lotNumber} handmatig verplaatst naar ${newStation}`
+      );
       
       setProductToMove(null);
       alert(`Product ${lotNumber} verplaatst naar ${newStation}`);
@@ -360,6 +366,12 @@ const ShopFloorMobileApp = () => {
       resolvedAt: serverTimestamp(),
       resolvedBy: user?.uid
     });
+
+    await logActivity(
+      user?.uid,
+      "DOWNTIME_RESOLVE",
+      `Downtime melding opgelost via mobile app: ${downtimeId}`
+    );
   };
 
   // Resolve defect
@@ -369,6 +381,12 @@ const ShopFloorMobileApp = () => {
       resolvedAt: serverTimestamp(),
       resolvedBy: user?.uid
     });
+
+    await logActivity(
+      user?.uid,
+      "DEFECT_RESOLVE",
+      `Defect melding opgelost via mobile app: ${defectId}`
+    );
   };
 
   const handleScan = (rawCode) => {
@@ -461,6 +479,12 @@ const ShopFloorMobileApp = () => {
           status: "active",
           type: "unplanned"
         });
+
+        await logActivity(
+          user?.uid,
+          "DOWNTIME_CREATE",
+          `Downtime gemeld via scanner op ${commonData.machine} voor order ${commonData.orderId || "onbekend"}`
+        );
       } else {
         await addDoc(collection(db, ...PATHS.DEFECTS), {
           ...commonData,
@@ -470,6 +494,12 @@ const ShopFloorMobileApp = () => {
           status: "open",
           lotNumber: scanResult.data.lotNumber || null,
         });
+
+        await logActivity(
+          user?.uid,
+          "DEFECT_CREATE",
+          `Defect gemeld via scanner op ${commonData.machine} voor lot ${scanResult.data.lotNumber || "onbekend"}`
+        );
       }
 
       // Stuur notificatie naar teamleider (Alert)
@@ -490,6 +520,12 @@ const ShopFloorMobileApp = () => {
         source: "ShopFloorMobile",
         targetGroup: "TEAMLEADERS"
       });
+
+      await logActivity(
+        user?.uid,
+        "MESSAGE_SEND",
+        `Teamleader-alert verzonden vanuit mobile app (${issueType}) voor machine ${commonData.machine}`
+      );
       
       setShowIssueModal(false);
       setIssueDescription("");

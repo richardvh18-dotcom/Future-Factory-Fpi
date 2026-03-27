@@ -54,10 +54,15 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
     }
 
     // 2. PRODUCTIE STATUSSEN (MES)
-    if (cleanStatus === "finished" || cleanStatus === "voltooid") {
+    if (
+      cleanStatus === "finished" ||
+      cleanStatus === "voltooid" ||
+      cleanStatus === "completed" ||
+      cleanStatus === "gereed"
+    ) {
       return {
         label: t('status.finished', 'Gereed'),
-        style: "bg-blue-50 text-blue-700 border-blue-200",
+        style: "bg-emerald-50 text-emerald-700 border-emerald-200",
         icon: <CheckCircle2 size={12} />,
       };
     }
@@ -67,7 +72,7 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
       cleanStatus === "bezig"
     ) {
       return {
-        label: t('status.active', 'Bezig'),
+        label: t('status.in_production', 'In Productie'),
         style: "bg-blue-600 text-white border-blue-500 shadow-sm animate-pulse",
         icon: <Zap size={12} fill="currentColor" />,
       };
@@ -102,10 +107,10 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
         icon: <AlertTriangle size={12} />,
       };
     }
-    if (cleanStatus === "to_unload") {
+    if (cleanStatus === "to_unload" || cleanStatus === "te lossen" || cleanStatus === "wacht op lossen") {
       return {
         label: t('status.to_unload', 'Te Lossen'),
-        style: "bg-yellow-100 text-yellow-800 border-yellow-200",
+        style: "bg-amber-100 text-amber-800 border-amber-300",
         icon: <ArrowRight size={12} />,
       };
     }
@@ -116,17 +121,28 @@ const StatusBadge = React.memo(({ status, showIcon = true }) => {
         icon: <Zap size={12} />,
       };
     }
-    if (cleanStatus === "post_processing") {
+    if (
+      cleanStatus === "post_processing" ||
+      cleanStatus === "nabewerking" ||
+      cleanStatus === "te nabewerken" ||
+      cleanStatus === "te nabewerking" ||
+      cleanStatus === "wacht op nabewerking"
+    ) {
       return {
         label: t('status.post_processing', 'Nabewerking'),
-        style: "bg-indigo-100 text-indigo-800 border-indigo-200",
+        style: "bg-violet-100 text-violet-800 border-violet-300",
         icon: <Clock size={12} />,
       };
     }
-    if (cleanStatus === "to_inspect") {
+    if (
+      cleanStatus === "to_inspect" ||
+      cleanStatus === "te keuren" ||
+      cleanStatus === "eindinspectie" ||
+      cleanStatus === "te inspecteren"
+    ) {
       return {
         label: t('status.to_inspect', 'Te Keuren'),
-        style: "bg-pink-100 text-pink-800 border-pink-200",
+        style: "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300",
         icon: <ShieldCheck size={12} />,
       };
     }

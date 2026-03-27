@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import {
   Loader2,
   ArrowLeft,
@@ -13,15 +14,18 @@ import {
   Menu,
   X,
   RefreshCw,
+  Link2,
+  Layers,
+  Factory,
 } from "lucide-react";
-import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, limit } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, limit, increment } from "firebase/firestore";
+import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek } from "date-fns";
 import { PATHS } from "../../config/dbPaths";
 import * as XLSX from "xlsx";
 
 // Helpers & Modals
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine, PIPE_MACHINES } from "../../utils/hubHelpers";
 import StationDetailModal from "./modals/StationDetailModal";
 import TraceModal from "./modals/TraceModal";
 import PlanningImportModal from "./modals/PlanningImportModal";
@@ -54,6 +58,7 @@ const TeamleaderHub = React.memo(({
 }) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
+  const navigate = useNavigate();
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const currentWeek = getISOWeek(new Date());
@@ -91,6 +96,20 @@ const TeamleaderHub = React.memo(({
   const [showImportModal, setShowImportModal] = useState(false);
   const [viewingDossier, setViewingDossier] = useState(null);
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
+  const [selectedOverproductionGroup, setSelectedOverproductionGroup] = useState(null);
+  const [overproductionTargetOrderId, setOverproductionTargetOrderId] = useState("");
+  const [overproductionManualStation, setOverproductionManualStation] = useState("");
+  const [assigningOverproduction, setAssigningOverproduction] = useState(false);
+
+  const handleOpenExtendedPersonnel = () => {
+    navigate("/admin", {
+      state: {
+        openScreen: "personnel",
+        personnelDate: todayStr,
+        personnelTab: "assignment",
+      },
+    });
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -362,6 +381,188 @@ const TeamleaderHub = React.memo(({
     return selectedOrderId;
   }, [selectedSidebarEntry, selectedOrderId]);
 
+  const canManageOverproduction = fixedScope === "all" && ["planner", "admin", "teamleader"].includes(user?.role);
+
+  const overproductionGroups = useMemo(() => {
+    const unresolved = rawProducts.filter((product) => {
+      if (!product?.isOverproduction) return false;
+      return String(product.orderId || "").trim().toUpperCase() === "NOG_TE_BEPALEN";
+    });
+
+    const grouped = new Map();
+    unresolved.forEach((product) => {
+      const originalOrderId = String(product.originalOrderId || "ONBEKEND").trim();
+      const originMachine = String(product.originMachine || product.currentStation || "ONBEKEND").trim();
+      const item = String(product.item || "").trim();
+      const key = `${originalOrderId}__${originMachine}__${item}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          originalOrderId,
+          originMachine,
+          item,
+          products: [],
+          lotNumbers: [],
+          count: 0,
+          createdAtMs: 0,
+        });
+      }
+
+      const entry = grouped.get(key);
+      entry.products.push(product);
+      entry.lotNumbers.push(String(product.lotNumber || product.id || "").trim());
+      entry.count += 1;
+
+      const createdAtMs = product.createdAt?.toMillis
+        ? product.createdAt.toMillis()
+        : new Date(product.createdAt || product.updatedAt || 0).getTime();
+      entry.createdAtMs = Math.max(entry.createdAtMs || 0, Number.isFinite(createdAtMs) ? createdAtMs : 0);
+    });
+
+    return Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        lotNumbers: Array.from(new Set(group.lotNumbers.filter(Boolean))),
+      }))
+      .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+  }, [rawProducts]);
+
+  const resolveOverproductionRoute = (targetOrder, group, manualStation = "") => {
+    const itemText = `${targetOrder?.item || ""} ${group?.item || ""}`.toUpperCase();
+    const machineNorm = normalizeMachine(targetOrder?.machine || group?.originMachine || "");
+
+    if (itemText.includes("FL")) {
+      return { station: "Mazak", mode: "auto", label: "Mazak" };
+    }
+
+    if (PIPE_MACHINES.includes(machineNorm) || itemText.includes("PIPE") || itemText.includes("BUIS")) {
+      const chosenStation = String(manualStation || "").trim();
+      return { station: chosenStation || null, mode: "manual", label: chosenStation || "Handmatig kiezen" };
+    }
+
+    return { station: "Nabewerking", mode: "auto", label: "Nabewerking" };
+  };
+
+  const overproductionTargetCandidates = useMemo(() => {
+    const input = String(overproductionTargetOrderId || "").trim().toLowerCase();
+    const group = selectedOverproductionGroup;
+    const sameItem = String(group?.item || "").trim().toLowerCase();
+
+    return rawOrders
+      .filter((order) => !["completed", "cancelled", "rejected", "shipped"].includes(String(order?.status || "").toLowerCase()))
+      .filter((order) => {
+        if (input) {
+          return String(order.orderId || "").toLowerCase().includes(input);
+        }
+        if (!sameItem) return true;
+        return String(order.item || "").trim().toLowerCase() === sameItem;
+      })
+      .sort((a, b) => String(a.orderId || "").localeCompare(String(b.orderId || "")))
+      .slice(0, 12);
+  }, [rawOrders, overproductionTargetOrderId, selectedOverproductionGroup]);
+
+  const handleOpenOverproductionGroup = (group) => {
+    setSelectedOverproductionGroup(group);
+    setOverproductionTargetOrderId("");
+    setOverproductionManualStation("");
+  };
+
+  const handleAssignOverproduction = async () => {
+    if (!selectedOverproductionGroup) return;
+
+    const targetOrderId = String(overproductionTargetOrderId || "").trim();
+    if (!targetOrderId) {
+      showWarning("Vul eerst een nieuw ordernummer in.");
+      return;
+    }
+
+    const targetOrder = rawOrders.find((order) => String(order.orderId || "").trim().toUpperCase() === targetOrderId.toUpperCase());
+    if (!targetOrder?.id) {
+      showWarning(`Order ${targetOrderId} is nog niet zichtbaar in planning. Importeer of sync eerst de LN-order.`);
+      return;
+    }
+
+    const route = resolveOverproductionRoute(targetOrder, selectedOverproductionGroup, overproductionManualStation);
+    if (!route.station) {
+      showWarning("Kies eerst het doelstation voor deze pipe-overproductie.");
+      return;
+    }
+
+    setAssigningOverproduction(true);
+    try {
+      const batch = writeBatch(db);
+      const routeState = getStepForStation(route.station);
+      const nowIso = new Date().toISOString();
+
+      selectedOverproductionGroup.products.forEach((product) => {
+        batch.update(doc(db, ...PATHS.TRACKING, product.id), {
+          orderId: targetOrder.orderId,
+          currentStation: route.station,
+          currentStep: routeState.currentStep || "Nabewerking",
+          status: routeState.status || "Te Nabewerken",
+          updatedAt: serverTimestamp(),
+          overproductionResolvedAt: serverTimestamp(),
+          overproductionResolvedBy: user?.email || "planner",
+          overproductionAssignedOrderId: targetOrder.orderId,
+          overproductionRoutingStation: route.station,
+          note: `Overproductie gekoppeld aan order ${targetOrder.orderId} en doorgestuurd naar ${route.station}`,
+          "timestamps.overproduction_assigned": serverTimestamp(),
+          "timestamps.routing_override": nowIso,
+        });
+      });
+
+      batch.update(doc(db, ...PATHS.PLANNING, targetOrder.id), {
+        machine: route.station,
+        status: routeState.status || "Te Nabewerken",
+        lastUpdated: serverTimestamp(),
+        overproductionLinkedCount: increment(selectedOverproductionGroup.count),
+        overproductionLastLinkedAt: serverTimestamp(),
+        overproductionSourceOrderId: selectedOverproductionGroup.originalOrderId,
+      });
+
+      const originalOrder = rawOrders.find((order) => String(order.orderId || "").trim() === selectedOverproductionGroup.originalOrderId);
+      if (originalOrder?.id) {
+        const startedField = `started_${String(selectedOverproductionGroup.originMachine || "").replace(/[^a-zA-Z0-9]/g, "_")}`;
+        const currentStarted = Number(originalOrder[startedField] || 0);
+        batch.update(doc(db, ...PATHS.PLANNING, originalOrder.id), {
+          [startedField]: Math.max(0, currentStarted - selectedOverproductionGroup.count),
+          lastUpdated: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+
+      await addDoc(collection(db, ...PATHS.MESSAGES), {
+        to: user?.email?.toLowerCase() || "admin",
+        from: "SYSTEM",
+        senderId: "system-auto",
+        subject: `Overproductie gekoppeld: ${targetOrder.orderId}`,
+        content: `${selectedOverproductionGroup.count} extra producten uit ${selectedOverproductionGroup.originalOrderId} zijn gekoppeld aan ${targetOrder.orderId} en doorgestuurd naar ${route.station}.`,
+        timestamp: serverTimestamp(),
+        read: false,
+        archived: false,
+        priority: "normal",
+        type: "system",
+      });
+
+      await logActivity(
+        user?.uid || "system",
+        "OVERPRODUCTION_ASSIGN",
+        `Overproductie gekoppeld: ${selectedOverproductionGroup.count} stuks van ${selectedOverproductionGroup.originalOrderId} -> ${targetOrder.orderId}, station ${route.station}`
+      );
+
+      showSuccess(`Overproductie gekoppeld aan ${targetOrder.orderId} en doorgestuurd naar ${route.station}.`);
+      setSelectedOverproductionGroup(null);
+      setOverproductionTargetOrderId("");
+      setOverproductionManualStation("");
+    } catch (err) {
+      console.error("Fout bij koppelen overproductie:", err);
+      showWarning(`Koppelen mislukt: ${err.message}`);
+    } finally {
+      setAssigningOverproduction(false);
+    }
+  };
+
   const handleSidebarSelect = async (entry) => {
     if (!entry) {
       setSelectedOrderId(null);
@@ -372,6 +573,15 @@ const TeamleaderHub = React.memo(({
     const entryOrderId = String(entry.orderId || entry.id || "").trim();
     if (!entryOrderId) return;
     setSelectedSidebarEntry(entry);
+
+    if (entry.isRejectEntry) {
+      if (entry.orderId) {
+        setSelectedOrderId(entry.orderId);
+      } else {
+        setSelectedOrderId(null);
+      }
+      return;
+    }
 
     // History-items uit de sidebar zijn samenvattingen; haal het echte archiefitem op voor volledige history.
     if (entry.isArchivedOrder) {
@@ -1089,6 +1299,11 @@ const TeamleaderHub = React.memo(({
         batch.set(newRef, { ...old, id: newId, date: currentDayStr, updatedAt: serverTimestamp() }, { merge: true });
       });
       await batch.commit();
+      await logActivity(
+        user?.uid || "system",
+        "OCCUPANCY_COPY_YESTERDAY",
+        `Bezetting gekopieerd van gisteren: afdeling ${targetDeptId}, aantal ${yesterdayData.length}`
+      );
     } catch (err) {
       console.error("Fout bij kopiëren:", err);
       alert("Fout bij kopiëren: " + err.message);
@@ -1117,6 +1332,11 @@ const TeamleaderHub = React.memo(({
         batch.delete(ref);
       });
       await batch.commit();
+      await logActivity(
+        user?.uid || "system",
+        "OCCUPANCY_CLEAR_TODAY",
+        `Bezetting gewist voor vandaag: afdeling ${targetDeptId}, aantal ${todayData.length}`
+      );
     } catch (err) {
       console.error("Fout bij wissen:", err);
       alert("Fout bij wissen: " + err.message);
@@ -1141,6 +1361,11 @@ const TeamleaderHub = React.memo(({
         updatedAt: serverTimestamp(),
         note: `Handmatig verplaatst naar ${newStation} door ${user?.email || 'Teamleader'}`
       });
+      await logActivity(
+        user?.uid || "system",
+        "LOT_MANUAL_MOVE",
+        `Teamleader verplaatsing: lot ${lotNumber} -> ${newStation}`
+      );
       alert(`Product ${lotNumber} verplaatst naar ${newStation}`);
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
@@ -1166,6 +1391,11 @@ const TeamleaderHub = React.memo(({
         week: getISOWeek(new Date()),
         year: new Date().getFullYear(),
       });
+      await logActivity(
+        user?.uid || "system",
+        "ORDER_CREATE_MANUAL",
+        `Teamleader order aangemaakt: ${newOrderData.orderId}, machine ${newOrderData.machine}, plan ${newOrderData.plan}`
+      );
       setShowAddOrderModal(false);
       setNewOrderData({ orderId: "", item: "", machine: "", plan: "" });
     } catch (error) {
@@ -1239,7 +1469,14 @@ const TeamleaderHub = React.memo(({
           {/* Desktop Navigation */}
           <div className="hidden lg:flex bg-slate-100 p-1 rounded-2xl overflow-x-auto max-w-full no-scrollbar w-full lg:w-auto justify-start lg:justify-center">
             <button onClick={() => setActiveTab("dashboard")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "dashboard" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_dashboard', 'Dashboard')}</button>
-            <button onClick={() => setActiveTab("planning")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_full_list', 'Volledige Lijst')}</button>
+            <button onClick={() => setActiveTab("planning")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap flex items-center gap-2 ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+              <span>{t('teamleader.tab_full_list', 'Volledige Lijst')}</span>
+              {canManageOverproduction && overproductionGroups.length > 0 && (
+                <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm animate-pulse">
+                  {overproductionGroups.length}
+                </span>
+              )}
+            </button>
             <button onClick={() => setActiveTab("bezetting")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "bezetting" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_personnel', 'Personeel')}</button>
             <button onClick={() => setActiveTab("efficiency")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "efficiency" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_efficiency', 'Efficiëntie')}</button>
             <button onClick={() => setActiveTab("gantt")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "gantt" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
@@ -1275,7 +1512,14 @@ const TeamleaderHub = React.memo(({
               <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 p-2 flex flex-col gap-1 z-50 animate-in slide-in-from-top-2">
                 <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">Navigatie</div>
                 <button onClick={() => { setActiveTab("dashboard"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "dashboard" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_dashboard', 'Dashboard')}</button>
-                <button onClick={() => { setActiveTab("planning"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "planning" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_full_list', 'Volledige Lijst')}</button>
+                <button onClick={() => { setActiveTab("planning"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full flex items-center justify-between ${activeTab === "planning" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>
+                  <span>{t('teamleader.tab_full_list', 'Volledige Lijst')}</span>
+                  {canManageOverproduction && overproductionGroups.length > 0 && (
+                    <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm">
+                      {overproductionGroups.length}
+                    </span>
+                  )}
+                </button>
                 <button onClick={() => { setActiveTab("bezetting"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "bezetting" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_personnel', 'Personeel')}</button>
                 <button onClick={() => { setActiveTab("efficiency"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "efficiency" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_efficiency', 'Efficiëntie')}</button>
                 <button onClick={() => { setActiveTab("gantt"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "gantt" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
@@ -1304,7 +1548,24 @@ const TeamleaderHub = React.memo(({
           {activeTab === "dashboard" ? (
             <TeamleaderDashboard metrics={metrics} onKpiClick={handleKpiClick} onStationSelect={setSelectedStationDetail} />
           ) : activeTab === "bezetting" ? (
-            <PersonnelOccupancyView scope={departmentFilter !== "ALL" ? departmentFilter.toLowerCase() : fixedScope} onCopyYesterday={handleCopyYesterday} isCopying={isCopying} onClearToday={handleClearToday} isClearing={isClearing} />
+            <div className="space-y-3">
+              <div className="flex items-center justify-end">
+                <button
+                  onClick={handleOpenExtendedPersonnel}
+                  className="px-4 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all flex items-center gap-2 shadow-sm"
+                  title="Open uitgebreide Personeel & Bezetting in Admin Hub"
+                >
+                  <Link2 size={14} /> Uitgebreide Personeel Module
+                </button>
+              </div>
+              <PersonnelOccupancyView
+                scope={departmentFilter !== "ALL" ? departmentFilter.toLowerCase() : fixedScope}
+                onCopyYesterday={handleCopyYesterday}
+                isCopying={isCopying}
+                onClearToday={handleClearToday}
+                isClearing={isClearing}
+              />
+            </div>
           ) : activeTab === "efficiency" ? (
             showAiPrediction ? (
               <AiPredictionView onClose={() => setShowAiPrediction(false)} />
@@ -1316,7 +1577,64 @@ const TeamleaderHub = React.memo(({
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
               <div className={`shrink-0 flex flex-col min-h-0 transition-all duration-300 ${selectedDetailEntry ? 'hidden lg:flex w-[38rem]' : 'w-full lg:w-[38rem]'}`}>
-                <PlanningSidebar orders={dataStore} selectedOrderId={selectedSidebarEntryId} onSelect={handleSidebarSelect} />
+                {canManageOverproduction && (
+                  <div className="mb-4 shrink-0 rounded-[32px] border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-600 flex items-center gap-2">
+                          <AlertTriangle size={14} /> Overproductie
+                        </p>
+                        <h3 className="text-lg font-black text-slate-900 italic mt-2">Openstaande extra producten</h3>
+                        <p className="text-xs font-bold text-slate-500 mt-1">Koppel extras aan een nieuw LN-ordernummer en stuur ze direct door naar de juiste vervolgstap.</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-2xl bg-white border border-amber-200 text-amber-700 text-sm font-black min-w-[3rem] text-center">
+                        {overproductionGroups.length}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-3 max-h-[18rem] overflow-y-auto custom-scrollbar pr-1">
+                      {overproductionGroups.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-amber-200 bg-white/70 px-4 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest text-center">
+                          Geen openstaande overproductie
+                        </div>
+                      ) : (
+                        overproductionGroups.map((group) => {
+                          const sampleRoute = resolveOverproductionRoute({ machine: group.originMachine, item: group.item }, group, "");
+                          return (
+                            <button
+                              key={group.key}
+                              onClick={() => handleOpenOverproductionGroup(group)}
+                              className="w-full rounded-2xl border border-amber-100 bg-white px-4 py-3 text-left hover:border-amber-300 hover:bg-amber-50/40 transition-all"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-black text-slate-900">{group.originalOrderId}</span>
+                                    <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest">{group.count} extra</span>
+                                  </div>
+                                  <p className="text-xs font-bold text-slate-600 mt-1 truncate">{group.item || "Onbekend product"}</p>
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-2">Bron: {group.originMachine || "-"} · Route: {sampleRoute.station || "Handmatig"}</p>
+                                </div>
+                                <div className="flex items-center gap-2 text-amber-600 font-black text-xs uppercase">
+                                  <Layers size={14} /> {group.lotNumbers.length}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="min-h-0 flex-1">
+                  <PlanningSidebar
+                    orders={dataStore}
+                    trackedProducts={rawProducts}
+                    enableRejectionScopes={true}
+                    selectedOrderId={selectedSidebarEntryId}
+                    onSelect={handleSidebarSelect}
+                  />
+                </div>
               </div>
               <div className={`flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden ${selectedDetailEntry ? 'flex' : 'hidden lg:flex'}`}>
                 {selectedOrder ? (
@@ -1478,6 +1796,115 @@ const TeamleaderHub = React.memo(({
           currentDepartment={targetSlug}
           allowedStations={effectiveStations}
         />
+      )}
+
+      {selectedOverproductionGroup && (
+        <div className="fixed inset-0 z-[120] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-8 py-6 border-b border-slate-100 bg-amber-50/70 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-600 flex items-center gap-2"><Link2 size={14} /> Overproductie koppelen</p>
+                <h3 className="text-2xl font-black text-slate-900 italic mt-2">{selectedOverproductionGroup.originalOrderId}</h3>
+                <p className="text-sm font-bold text-slate-500 mt-1">{selectedOverproductionGroup.count} extra producten · {selectedOverproductionGroup.item || "Onbekend product"}</p>
+              </div>
+              <button onClick={() => setSelectedOverproductionGroup(null)} className="p-2 rounded-full bg-white border border-slate-200 text-slate-500 hover:bg-slate-50">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-6">
+              <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Lotnummers</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedOverproductionGroup.lotNumbers.map((lot) => (
+                    <span key={lot} className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-black text-slate-700">{lot}</span>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Nieuw LN-ordernummer</label>
+                <input
+                  type="text"
+                  value={overproductionTargetOrderId}
+                  onChange={(e) => setOverproductionTargetOrderId(e.target.value.toUpperCase())}
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-800 outline-none focus:border-blue-500"
+                  placeholder="Bijv. 125874 of LN-NEW-001"
+                />
+                <div className="mt-3 space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-1">
+                  {overproductionTargetCandidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      onClick={() => setOverproductionTargetOrderId(String(candidate.orderId || ""))}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50/40"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black text-slate-900">{candidate.orderId}</p>
+                          <p className="text-xs font-bold text-slate-500 mt-1">{candidate.item || "-"}</p>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{candidate.machine || "-"}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {(() => {
+                const targetOrder = rawOrders.find((order) => String(order.orderId || "").trim().toUpperCase() === String(overproductionTargetOrderId || "").trim().toUpperCase());
+                const route = resolveOverproductionRoute(targetOrder, selectedOverproductionGroup, overproductionManualStation);
+                return (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Vervolgroute</p>
+                        <p className="text-sm font-black text-slate-900 mt-2">{route.station || "Nog bepalen"}</p>
+                        <p className="text-xs font-bold text-slate-500 mt-1">
+                          {route.mode === "auto"
+                            ? "Deze order slaat Wikkelen en Lossen over en gaat direct naar het vervolgstation."
+                            : "Pipes zijn nog niet vastgelegd; kies handmatig het doelstation."}
+                        </p>
+                      </div>
+                      <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-xs font-black uppercase tracking-widest text-slate-600">
+                        {route.mode === "auto" ? "Auto" : "Handmatig"}
+                      </div>
+                    </div>
+
+                    {route.mode === "manual" && (
+                      <div className="mt-4">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Doelstation pipes</label>
+                        <select
+                          value={overproductionManualStation}
+                          onChange={(e) => setOverproductionManualStation(e.target.value)}
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
+                        >
+                          <option value="">Kies station...</option>
+                          <option value="Nabewerking">Nabewerking</option>
+                          <option value="Mazak">Mazak</option>
+                          <option value="BM01">BM01</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="px-8 py-5 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button onClick={() => setSelectedOverproductionGroup(null)} className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-100">
+                Annuleren
+              </button>
+              <button
+                onClick={handleAssignOverproduction}
+                disabled={assigningOverproduction}
+                className="px-5 py-3 rounded-2xl bg-amber-500 text-white font-black text-xs uppercase tracking-widest hover:bg-amber-600 shadow-lg disabled:opacity-50 flex items-center gap-2"
+              >
+                {assigningOverproduction ? <Loader2 size={16} className="animate-spin" /> : <Factory size={16} />}
+                {assigningOverproduction ? "Koppelen..." : "Koppel en stuur door"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

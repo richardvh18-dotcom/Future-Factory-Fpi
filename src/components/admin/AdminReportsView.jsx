@@ -1688,20 +1688,17 @@ const AdminReportsView = () => {
   useEffect(() => {
     if (selectedReport?.id !== "offered_totals") return;
     generateReportData(selectedReport);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offeredDepartmentFilter, offeredWorkstationFilter]);
 
   useEffect(() => {
     if (!selectedReport?.id) return;
     if (!isDepartmentScopedReport(selectedReport.id)) return;
     generateReportData(selectedReport);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productionDepartmentFilter]);
 
   useEffect(() => {
     if (selectedReport?.id !== "product_measurements") return;
     generateReportData(selectedReport);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [measurementDetailMode, measurementWeekOffset]);
 
   useEffect(() => {

@@ -4,7 +4,7 @@ import {
   ChevronRight
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { 
   format, 
@@ -182,6 +182,11 @@ const GanttChartView = () => {
           try {
             const orderRef = doc(db, ...PATHS.PLANNING, dragState.orderId);
             await updateDoc(orderRef, { plannedDate: newDate });
+            await logActivity(
+              auth.currentUser?.uid,
+              "ORDER_DATE_MOVE",
+              `Gantt geplande datum aangepast voor order ${dragState.orderId} naar ${newDate.toISOString().slice(0, 10)}`
+            );
           } catch (error) {
             console.error("Error updating order date:", error);
           }

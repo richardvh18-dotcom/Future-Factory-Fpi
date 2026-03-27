@@ -38,6 +38,7 @@ const TerminalPlanningView = ({
   onToggleAllWeeks,
   targetWeekNum,
   productionProgressMap = {},
+  rejectedCountMap = {},
   readyForReturnMap = {},
   isBM01,
   onStartProduction,
@@ -227,6 +228,9 @@ const TerminalPlanningView = ({
   const selectedOrderProduced = selectedOrder
     ? productionProgressMap[String(selectedOrder.orderId || "").trim()] || 0
     : 0;
+  const selectedOrderRejected = selectedOrder
+    ? rejectedCountMap[String(selectedOrder.orderId || "").trim()] || 0
+    : 0;
 
   return (
     <>
@@ -321,6 +325,8 @@ const TerminalPlanningView = ({
             sortedOrders.map((order) => {
               const produced =
                 productionProgressMap[String(order.orderId || "").trim()] || 0;
+              const rejectedCount =
+                rejectedCountMap[String(order.orderId || "").trim()] || 0;
               const total = Number(order.plan || order.quantity) || 1;
               const deliveryDate = order.plannedDeliveryDate || order.deliveryDate;
               const displayName = getOrderDisplayName(order);
@@ -413,8 +419,13 @@ const TerminalPlanningView = ({
 
                     <div className="flex flex-col items-end">
                       <span className="text-xs font-black text-slate-900">
-                        {produced} / {total} ST
+                        Gemaakt: {produced} / {total} ST
                       </span>
+                      {rejectedCount > 0 && (
+                        <span className="text-[10px] font-black text-rose-600 uppercase">
+                          Afkeur: {rejectedCount}
+                        </span>
+                      )}
                       <span className={`text-xs uppercase tracking-tighter ${urgencyClass}`}>
                         {formatDateWithWeek(deliveryDate)}
                       </span>
@@ -477,7 +488,7 @@ const TerminalPlanningView = ({
                 <StatusBadge status={selectedOrder.status} />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-white/10 pt-8 relative z-10">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 border-t border-white/10 pt-8 relative z-10">
                 <div>
                   <p className="text-[10px] font-black text-white/40 uppercase mb-1">
                     Leverdatum (AQ)
@@ -503,10 +514,18 @@ const TerminalPlanningView = ({
                 </div>
                 <div>
                   <p className="text-[10px] font-black text-white/40 uppercase mb-1">
-                    Gereed
+                    Gemaakt
                   </p>
-                  <p className="text-lg font-black text-emerald-400">
+                  <p className="text-lg font-black text-blue-300">
                     {selectedOrderProduced} stuks
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">
+                    Afkeur
+                  </p>
+                  <p className="text-lg font-black text-rose-300">
+                    {selectedOrderRejected} stuks
                   </p>
                 </div>
               </div>

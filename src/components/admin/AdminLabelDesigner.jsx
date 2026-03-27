@@ -950,7 +950,7 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
                   {LABEL_SIZES[s].name}
                 </option>
               ))}
-              <option value="Custom">{t('customSize', 'Custom Size')}</option>
+              <option value="Custom">{t('common.customSize')}</option>
             </select>
             {selectedSizeKey === "Custom" && (
               <div className="flex items-center gap-1 pr-2 border-l border-slate-200 pl-2 animate-in fade-in slide-in-from-left-2">
@@ -1046,7 +1046,7 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
 
           <div className="flex-1 overflow-y-auto p-6 custom-scrollbar text-left flex flex-col">
             <div className="text-[11px] text-slate-500 font-semibold bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              Template-overzicht is verplaatst naar het tabblad Label Templates.
+              {t('adminLabelDesigner.templatesOverviewMoved')}
             </div>
           </div>
         </div>

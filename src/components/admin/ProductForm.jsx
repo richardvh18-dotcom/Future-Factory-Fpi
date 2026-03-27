@@ -20,7 +20,7 @@ import {
   CornerUpLeft,
   X as XIcon,
 } from "lucide-react";
-import { db, storage } from "../../config/firebase";
+import { db, storage, logActivity } from "../../config/firebase";
 import { doc, setDoc, serverTimestamp, getDoc, collection, query, where, getDocs, limit, deleteField, addDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, listAll } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
@@ -711,6 +711,12 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         { merge: true }
       );
 
+      await logActivity(
+        user?.uid || "system",
+        initialData ? "PRODUCT_UPDATE" : "PRODUCT_CREATE",
+        `${initialData ? "Product bijgewerkt" : "Product aangemaakt"}: ${resolvedProductName} (${productId})`
+      );
+
       // Send notification to verifier if assigned
       if (formData.assignedVerifier) {
         const verifier = verifiers.find(v => v.id === formData.assignedVerifier);
@@ -728,6 +734,11 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             senderName: user?.displayName || "System",
             relatedProductId: productId
           });
+          await logActivity(
+            user?.uid || "system",
+            "MESSAGE_SEND",
+            `Verificatieverzoek verstuurd voor product ${productId} naar ${verifier.email}`
+          );
         }
       }
 

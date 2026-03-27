@@ -18,7 +18,7 @@ import {
   Upload
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { executeRuleWithLogging } from "../../utils/automationEngine";
 
@@ -92,6 +92,11 @@ const AutomationRulesView = () => {
         ...newRule,
         updatedAt: serverTimestamp()
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "AUTOMATION_RULE_UPDATE",
+        `Automationregel bijgewerkt: ${editingRule.id} (${newRule.name})`
+      );
     } else {
       // Voeg nieuwe regel toe
       await addDoc(collection(db, ...PATHS.AUTOMATION_RULES), {
@@ -100,6 +105,11 @@ const AutomationRulesView = () => {
         executionCount: 0,
         lastExecuted: null
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "AUTOMATION_RULE_CREATE",
+        `Automationregel aangemaakt: ${newRule.name}`
+      );
     }
 
     // Reset state
@@ -131,6 +141,11 @@ const AutomationRulesView = () => {
   const deleteRule = async (ruleId) => {
     if (confirm(t("planning.automationRules.alerts.confirmDelete", "Weet je zeker dat je deze automation regel wilt verwijderen?"))) {
       await deleteDoc(doc(db, ...PATHS.AUTOMATION_RULES, ruleId));
+      await logActivity(
+        auth.currentUser?.uid,
+        "AUTOMATION_RULE_DELETE",
+        `Automationregel verwijderd: ${ruleId}`
+      );
     }
   };
 
@@ -139,6 +154,12 @@ const AutomationRulesView = () => {
     await updateDoc(doc(db, ...PATHS.AUTOMATION_RULES, ruleId), {
       enabled: !currentState
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "AUTOMATION_RULE_TOGGLE",
+      `Automationregel ${ruleId} ${!currentState ? "ingeschakeld" : "uitgeschakeld"}`
+    );
   };
 
   // Test rule (manual execution using automation engine)
@@ -388,6 +409,11 @@ const AutomationRulesView = () => {
           lastExecuted: null
         });
       }
+      await logActivity(
+        auth.currentUser?.uid,
+        "AUTOMATION_RULES_IMPORT",
+        `${defaultRules.length} standaard automationregels geimporteerd`
+      );
       alert(`✅ ${t("planning.automationRules.alerts.defaultsImported", "{{count}} standaard automation rules geïmporteerd!", { count: defaultRules.length })}`);
     } catch (error) {
       console.error("Import error:", error);

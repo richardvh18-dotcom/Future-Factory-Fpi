@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../config/firebase';
+import { db, auth, logActivity } from '../../config/firebase';
 import { collection, onSnapshot, orderBy, query, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { PATHS } from '../../config/dbPaths';
 import { formatDistanceToNow } from 'date-fns';
@@ -52,6 +52,11 @@ const PrintQueueAdminView = () => {
     try {
       const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
       await updateDoc(jobRef, { status: 'pending', retries: (printJobs.find(j => j.id === jobId)?.retries || 0) + 1 });
+      await logActivity(
+        auth.currentUser?.uid,
+        'PRINT_REQUEUE',
+        `Printtaak opnieuw in wachtrij: ${jobId}`
+      );
       showSuccess("Taak opnieuw in wachtrij geplaatst");
     } catch (e) {
       console.error(e);
@@ -64,6 +69,11 @@ const PrintQueueAdminView = () => {
     try {
       const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
       await deleteDoc(jobRef);
+      await logActivity(
+        auth.currentUser?.uid,
+        'PRINT_QUEUE_DELETE',
+        `Printtaak verwijderd: ${jobId}`
+      );
       showSuccess("Taak verwijderd");
     } catch (e) {
       console.error(e);

@@ -12,7 +12,7 @@ import {
   ThumbsDown,
 } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 
 /**
  * FlashcardViewer V3.0 - AI Training Interface met Results Tracking
@@ -55,6 +55,11 @@ const FlashcardViewer = ({ data, onClose }) => {
         userId: auth.currentUser?.uid || "anonymous",
         timestamp: serverTimestamp(),
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "FLASHCARD_RESULT_SAVE",
+        `Flashcard resultaat opgeslagen (${correct ? "correct" : "incorrect"})`
+      );
       
       // Update local stats
       setStats(prev => ({
