@@ -83,6 +83,22 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return str.startsWith("40") ? str.substring(2) : str;
   };
 
+  const extractMachineHint = (...values) => {
+    const machinePattern = /(?:^|[^A-Z0-9])((?:40)?[A-Z]{2}\d{2})(?=$|[^A-Z0-9])/i;
+
+    for (const value of values.flat(Infinity)) {
+      const text = String(value || "").trim().toUpperCase();
+      if (!text) continue;
+
+      const match = text.match(machinePattern);
+      if (match?.[1]) {
+        return match[1].toUpperCase();
+      }
+    }
+
+    return "";
+  };
+
   const processDates = (rawDate) => {
     if (!rawDate) return { delivery: null, planned: null };
 
@@ -536,7 +552,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       // Parse tab-separated data, inclusief quoted multiline velden (PO Text)
       let rows = parsePastedTabularData(pasteText.trim());
 
-      let machineHintFromFlattened = "";
+      let machineHintFromFlattened = extractMachineHint(pasteText);
 
       // Fallback: soms komt een complete Excel-selectie als (bijna) 1 lange regel binnen.
       // In dat geval reconstrueren we rijen op basis van de bekende format-header.
@@ -551,12 +567,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         );
 
         if (headerStart !== -1) {
-          const machineRegex = /^(?:40)?[A-Z]{2}\d{2}$/i;
-          const machineCell = allCells
-            .slice(0, headerStart)
-            .find((c) => machineRegex.test(String(c || "").trim()));
+          const machineCell = extractMachineHint(allCells.slice(0, headerStart));
           if (machineCell) {
-            machineHintFromFlattened = String(machineCell).trim().toUpperCase();
+            machineHintFromFlattened = machineCell;
           }
 
           const headerLen = 11; // datum, week, order, ... , finish
@@ -620,16 +633,19 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
       // Probeer machinecontext uit rijen boven de header te halen (bv. "40BH18" in eerste regel).
       let machineFromContext = machineHintFromFlattened || "";
-      const machineRegex = /^(?:40)?[A-Z]{2}\d{2}$/i;
       if (!machineFromContext) {
         for (let i = 0; i < headerIndex; i++) {
           const row = rows[i] || [];
-          const hit = row.find((cell) => machineRegex.test(String(cell || "").trim()));
+          const hit = extractMachineHint(row);
           if (hit) {
-            machineFromContext = String(hit).trim().toUpperCase();
+            machineFromContext = hit;
             break;
           }
         }
+      }
+
+      if (!machineFromContext) {
+        machineFromContext = extractMachineHint(rows);
       }
 
       let preparedRows = normalizedRows;
