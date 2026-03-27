@@ -1,7 +1,7 @@
 # Pilot Handover Summary
 
-**Laatst bijgewerkt:** 26 maart 2026 (sessie 19)
-**Branch:** `FpiFF-Pilot-Ready`  
+**Laatst bijgewerkt:** 27 maart 2026 (sessie 26)
+**Branch:** `FPiFF-may-build`  
 **Doel:** compacte overdracht voor hervatten van pilotwerk richting 30 maart
 
 ## Huidige Status
@@ -13,6 +13,180 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
 3. ZM400 kalibratie werkend — lotnummer-batch en queue-label snijgedrag live bevestigd; orderlabel-flow vanuit Print Station nog live te valideren.
 4. Algemene pilot validatie op de vloer moet nog gebeuren met operators.
 5. Verticale tekst op orderlabels (onder QR-codes) is nog niet definitief goed: overlap is opgelost, maar exacte positionering/schaal in preview vs fysieke print is nog in finetune.
+
+### Update sessie 26 (planning import + selectie lopende planning)
+
+- **Direct probleem opgelost:** importfout bij `.xlsm` en geplakte Excel-data (`Fout bij het verwerken van het bestand` / `Geen geldige data gevonden`).
+- **Uitgevoerd in `PlanningImportModal.jsx`:**
+    - worker-afhandeling robuuster gemaakt met timeout en chunk-support.
+    - paste-flow toegevoegd en daarna verbeterd voor echte Excel-kopieen:
+        - CRLF/LF parsing,
+        - trim van trailing lege tab-kolommen,
+        - automatische detectie van de echte headerrij (`Machine` + `order`),
+        - verwerking via toegestane sheetnaam (`40BM01`) zodat workerfilter matcht.
+- **Nieuwe gewenste workflow gebouwd (lopende planning selecteren op 2 manieren):**
+    - manier 1: **weekselectie** (`Week t/m ...`) met knop: selecteert vroege weken.
+    - manier 2: **handmatige orderselectie** per rij met checkbox (`In Planning`).
+    - bulk-acties toegevoegd: `Alles zichtbaar` en `Alles verborgen`.
+- **Belangrijk gedrag voor vervolgimports (gevraagde pilotlogica):**
+    - niet-geselecteerde orders worden nu **wel geimporteerd/opgeslagen**, maar met `planningHidden: true`.
+    - daardoor blijven ze beschikbaar in data voor volgende imports, zonder dat ze telkens opnieuw handmatig uitgesloten hoeven worden.
+    - lopende orders met actieve status blijven zichtbaar (failsafe), ook als ze eerder verborgen stonden.
+- **Uitgevoerd in `usePlanningData.jsx`:**
+    - planninglijst filtert `planningHidden` standaard weg,
+    - behalve voor actieve/lopende statussen (zodat afmaken altijd mogelijk blijft).
+- **Validatie:** builds uitgevoerd; 1 run werd extern afgekapt (`Terminated`), herhaalbuild succesvol afgerond.
+
+### Confirmatie werkflow lopende planning (sessie 26b)
+
+**Gebruiker-bevestigd:** selectie- en verborgen-logica werkt zoals gewenst voor papieren pilot-planning.
+
+**Scenario:** Papieren planning loopt, orders bijna/geheel klaar. Excel-uitdraai bevat dezelfde + nieuwe orders.
+
+**Gewenst** (nu ingebouwd):
+- Orders die al lopen/klaar zijn → uitsluiten uit zichtbare planning maar WEL importeren
+- Zo hoeven ze volgende import niet telkens opnieuw uit te sluiten
+- Nieuwe orders automatisch zichtbaar
+- Lopende orders altijd zichtbaar (failsafe om af te maken)
+
+**Werkflow in import-modal:**
+1. Upload Excel → preview met checkboxes (`In Planning` kolom)
+2. Optie A: `Week t/m [week]` + `Selecteer t/m week + lopende orders` knop
+3. Optie B: Handmatig per order checkbox aan/uit
+4. `Importeer X Regels` → opslaan met `planningHidden: true` voor niet-aangevinkte orders
+5. Volgende import: verborgen orders blijven verborgen, nieuwe automatisch zichtbaar
+
+**Gebruiker-bevestiging:** Workflow past perfect bij papieren pilot-planning met lopende orders.
+
+## Pauzestand Voor Hervatten (sessie 23)
+
+### Open vraag opgeslagen (sessie 24)
+
+- **Letterlijke vraag van gebruiker opgeslagen:**
+    - "kun je een laaste site check doon voordat ik deze als Productie op Vercel wil zetten en naar Git wil pushen en dan over ga op de preview in Vercel en een andere branch tijdens de pilot van 4 weken die vanaf 30 maart start"
+- **Betekenis voor vervolg:**
+    - volledige pre-release check uitvoeren vóór productie op Vercel + vóór Git push
+    - daarna pas overzetten naar Vercel preview-flow en aparte pilot-branch (4 weken vanaf 30 maart).
+
+### Update sessie 25 (pre-release sitecheck uitgevoerd)
+
+- **Uitgevoerd:** pre-release validatie en Vercel preview-deploy vóór productie.
+- **Validatie resultaten:**
+    - `prevalidate` hersteld met nieuw script `scripts/cleanup-duplicates.js` (blokkerende missing module opgelost)
+    - lint van **17 errors** naar **0 errors** gebracht (warnings blijven bestaan)
+    - `type-check` geslaagd
+    - lokale build in devcontainer werd tijdens bundling meerdere keren extern afgekapt (`exit 143`), zonder nieuwe codefouten in gewijzigde bestanden
+- **Vercel preview:** succesvolle cloud deploy op
+    - `https://futurefactoryapp-g9n1msybm-richard-van-heerdes-projects.vercel.app`
+    - `curl -I` geeft `401` door Vercel protection/SSO (verwacht gedrag voor afgeschermde preview)
+- **Conclusie voor release-gate:** codefouten die release blokkeerden zijn opgelost; finale productie-deploy kan door zodra gewenste review van preview in browser is afgerond en Git-commit/push is gedaan.
+
+### Update sessie 25b (branch + productie deploy afgerond)
+
+- **Nieuwe branch aangemaakt:** `FPiFF-may-build`
+- **Vercel productie-deploy uitgevoerd en geslaagd:**
+    - productie URL: `https://futurefactoryapp-c02qf10sc-richard-van-heerdes-projects.vercel.app`
+    - alias actief: `https://future-factory.vercel.app`
+    - inspectie: `https://vercel.com/richard-van-heerdes-projects/futurefactoryapp/BHKKCJacifaVUgpaULsp2Z8pDm7Y`
+- **Status:** laatste production build staat live op Vercel.
+
+- **Nieuwe vraag verwerkt:** teamleader moet in Personeel tijdelijk/per periode van dienst kunnen wisselen en dit moet direct meegenomen worden bij automatische uitlogtijden.
+- **Uitgevoerd in Personeel-tab (`PersonnelOccupancyView.jsx`):**
+    - nieuw blok in medewerker-modal: `Tijdelijke Dienst Override` met:
+        - aan/uit
+        - `van` datum
+        - `tot` datum
+        - tijdelijke `shift`
+        - optionele notitie
+    - opslag genormaliseerd in personeelsdocument als `temporaryShiftOverride`
+    - dienst-resolutie (`getPersonShiftForDate`) gebruikt nu eerst tijdelijke override als datum binnen de ingestelde periode valt.
+- **Uitgevoerd in Workstation check-in (`WorkstationHub.jsx`):**
+    - check-in leest nu tijdelijke override uit personeel (als actief en binnen datumrange) en valt alleen terug op vaste `shiftId`/kloktijd als fallback
+    - hiermee krijgen nieuwe check-ins automatisch de correcte (tijdelijke) dienst mee voor auto-checkout.
+- **Achteraf uren corrigeren toegevoegd:**
+    - nieuwe modal `Achteraf Uren Corrigeren` in Personeel-overzicht
+    - teamleader kan uitgecheckte registraties van gekozen datum alsnog aanpassen
+    - opslaan zet o.a. `manualHoursOverride: true` + timestamp in occupancy.
+- **Validatie:** compile/editor checks zonder fouten op:
+    - `src/components/personnel/PersonnelOccupancyView.jsx`
+    - `src/components/digitalplanning/WorkstationHub.jsx`
+
+### Update sessie 23b (navigatie + datumsturing)
+
+- **Teamleader Personeel-tab uitgebreid:**
+    - knop toegevoegd om direct naar uitgebreide Personeel-module in Admin Hub te gaan
+    - route-state geeft direct `openScreen: personnel` mee.
+- **Admin Hub gedrag uitgebreid:**
+    - `AdminDashboard` opent nu direct de juiste module als `location.state.openScreen` aanwezig is
+    - voor Personeel worden init-parameters doorgegeven (`initialViewDate`, `initialTab`).
+- **Personeel Manager verbeterd:**
+    - ondersteunt initialisatie met datum/tab vanuit route-state
+    - extra kalenderinput (`type=date`) toegevoegd naast bladerknoppen
+    - `Vandaag` knop toegevoegd om snel terug te springen.
+- **Resultaat:** teamleader kan vanuit Teamleader Personeel direct naar uitgebreide Admin Personeel en daar op gekozen datum uren/shiftplanning beheren (ook toekomstige data).
+
+## Pauzestand Voor Hervatten (sessie 22)
+
+- **Opslagpunt hersteld na verbroken chatverbinding:** gebruiker meldde fout bij weekfilter in auditlog: `Scan Onderbroken: Database fout: undefined`.
+- **Opslagpunt expliciet bevestigd voor volgende sessie:** gesprek en fixstatus zijn bewaard in deze samenvatting zodat direct hervat kan worden.
+- **Root cause bevestigd:** `AdminLogView.jsx` gebruikte een ongeldige `date-fns` parse/format combinatie voor ISO-weken (`yyyy` samen met `II`). Dit veroorzaakt een `RangeError` nog voor de Firestore-query draait.
+- **Uitgevoerd:**
+    - week-input in auditlog omgezet naar correcte ISO week-year formattering met `RRRR-'W'II`
+    - week parsing defensief gemaakt met fallback naar huidige datum bij ongeldige invoer
+    - generieke databasefoutmelding aangepast zodat niet langer `undefined` getoond wordt, maar `err.code` of `err.message`
+- **Validatie afgerond:** editorcontrole zonder fouten en parse-test in terminal succesvol voor meerdere ISO-weken.
+- **Verwachte uitkomst:** filter `Per week` in Audit Log opent weer zonder crashmelding en toont bij echte queryfouten een bruikbare melding.
+- **Eerstvolgende check bij hervatten:** Audit Log openen, `Per week` selecteren en controleren op correcte resultaten plus pagination (`Meer laden`) binnen dezelfde filter.
+
+## Pauzestand Voor Hervatten (sessie 21)
+
+- **Opslagpunt bevestigd op verzoek gebruiker:** "ik ga later verder, sla op in conversatie".
+- **Afgerond in deze sessie:** tweede i18n-sweep voor admin modules met resterende hardcoded UI-teksten.
+
+### Concreet afgerond
+- `src/components/admin/AdminMessagesView.jsx`
+    - resterende hardcoded labels/placeholders/tooltips vervangen door `t(...)`
+    - compose modal verder gelokaliseerd (ontvanger/prioriteit/onderwerp/inhoud/bijlage)
+    - onderwerp-fallback en quote-opmaak gestandaardiseerd
+- `src/components/admin/AdminLogView.jsx`
+    - resterende vaste labels gelokaliseerd (`Root: /`, `SRC:`, `IP:`, `CSV`, `PDF`, `null`)
+    - `"Systeem"` fallbacks vervangen door `common.system`
+- `src/components/admin/AdminLabelDesigner.jsx`
+    - hardcoded `Custom Size` en melding over verplaatst template-overzicht gelokaliseerd
+- `src/lang/nl.js` en `src/lang/en.js`
+    - nieuwe keys toegevoegd voor bovenstaande componenten
+
+### Validatie
+- Editor/probleemcontrole uitgevoerd op alle gewijzigde bestanden.
+- Resultaat: **geen fouten gevonden** op de aangepaste files.
+
+### Eerstvolgende stap bij hervatten
+1. Vervolg i18n-sweep op resterende admin-hardcoded strings (met name extra prompts/alerts/fallbacks in `AdminLabelDesigner.jsx`).
+2. Daarna opnieuw gerichte file-checks en eventueel kleine key-normalisatie in `nl/en` dictionaries.
+
+## Nieuwe Notitie Voor Vervolg (sessie 20)
+
+- **Gefixt (code):** valse overproductie na definitieve afkeur is opgelost in `WorkstationHub.jsx`.
+    - Start/overflow controle gebruikt nu de station teller (`started_<station>`) als primaire bron.
+    - Fallback gebruikt alleen actieve, niet-afgekeurde tracking records.
+    - Resultaat: bij scenario "10 gestart, 1 definitief afgekeurd" wordt een vervangend stuk niet meer onterecht als `NOG_TE_BEPALEN` overproductie aangemaakt.
+
+- **Open wens (bewust uitgesteld):** op orderniveau zichtbaar maken als:
+    - `Gemaakt: 10`
+    - `Afkeur: 1`
+    - zodat productie-aantallen en afkeur apart traceerbaar zijn in de orderweergave.
+
+- **Update (sessie 20, uitgevoerd):** Workstation Terminal planning toont nu expliciet `Gemaakt` en `Afkeur` per orderregel en in het order-detailpaneel.
+
+- **Update (sessie 20, uitgevoerd):** Teamleader Hub `Volledige Lijst` filter uitgebreid:
+    - nieuwe scopes: `Tijdelijke Afkeur` en `Definitieve Afkeur`
+    - bij `Definitieve Afkeur` wordt de tweede filter automatisch periode-gebaseerd (`Deze week`, `Vorige week`, `Dit jaar`, `Alles`) i.p.v. `Week + Backlog`
+    - export van de huidige gefilterde lijst toegevoegd (CSV)
+
+- **Aanpak voor volgende sessie:**
+    - Definieer bron voor `Afkeur` teller (tracking status `rejected` per `orderId`, eventueel per station).
+    - Voeg de teller toe in orderdetail en/of Workstation planningkaart.
+    - Valideer op scenario: 10 gestart -> 1 definitief afkeur bij Nabewerking -> 1 vervangend gestart.
 
 ## Kritieke Open Punten
 
@@ -434,7 +608,7 @@ Alle views hebben nu een werkende tekening-knop met 3-stap lookup:
 - Vite devserver gestart op poort 3000 (`http://localhost:3000/`, `http://10.0.10.16:3000/`)
 
 ### 25 maart 2026 — sessie 13 (vervolg)
-- Sync issue nog open: handmatige tekeningsync meldt nog steeds 0 matches in praktijktest.
+- Sync issue was op dat moment nog open: handmatige tekeningsync meldde 0 matches in praktijktest.
 - Reeds aangebrachte fixes in `manualSyncDrawings.jsx`:
     - robuustere normalisatie (`normalized`, `compact`, tokenized keys)
     - filtering van niet-code waardes (zoals productomschrijvingen met spaties)
@@ -443,8 +617,8 @@ Alle views hebben nu een werkende tekening-knop met 3-stap lookup:
     - broncode `EL9AESS08R03E0BCCBB0`
     - conversiematrix bevat o.a. `ELMO90ES00WMST080000320CB0` en `ELMO90CS00WMST080000320CB0`
     - catalogus bevat `articleCode = ELMO90CS00WMST080000320CB0` met gekoppelde tekening
-- Ondanks bovenstaande fixset wordt in UI nog geen match getoond; debugging wordt in volgende sessie hervat.
-- Gebruiker stopt hier tijdelijk en pakt sync-analyse later weer op.
+- Debugging is later vervolgd op materiaalvariant matching, multi-target conversiefallback en sync-ketencontrole.
+- Status per 27 maart 2026: gebruiker bevestigt dat de tekeningen-sync nu in orde is.
 
 ### 25 maart 2026 — sessie 14 (printing vervolg)
 - Focus verlegd naar verticale tekst op orderlabels (fysieke print + preview vergelijking met foto's)
