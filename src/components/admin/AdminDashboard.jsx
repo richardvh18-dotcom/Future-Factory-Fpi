@@ -88,6 +88,11 @@ const AdminDashboard = () => {
 
   // Reset naar dashboard overzicht als er op de sidebar knop wordt geklikt (geen state)
   useEffect(() => {
+    if (location.state?.openScreen) {
+      setActiveScreen(location.state.openScreen);
+      return;
+    }
+
     if (!location.state) {
       setActiveScreen(null);
     }
@@ -455,6 +460,13 @@ const AdminDashboard = () => {
   if (activeScreen) {
     const activeItem = allMenuItems.find((i) => i.id === activeScreen);
     const ActiveComponent = activeItem?.component;
+    const componentProps =
+      activeItem?.id === "personnel"
+        ? {
+            initialViewDate: location.state?.personnelDate,
+            initialTab: location.state?.personnelTab,
+          }
+        : {};
 
     return (
       <div className="flex flex-col h-full bg-slate-50 w-full animate-in fade-in overflow-hidden text-left">
@@ -487,7 +499,7 @@ const AdminDashboard = () => {
               </div>
             }
           >
-            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} onNavigate={setActiveScreen} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
+            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} onNavigate={setActiveScreen} {...componentProps} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
           </Suspense>
         </div>
       </div>

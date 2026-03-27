@@ -8,8 +8,8 @@ import OrderDetail from "./OrderDetail";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot, arrayUnion } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot, arrayUnion, limit } from "firebase/firestore";
+import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import StatusBadge from "./common/StatusBadge";
 import InternalQrImage from "../../utils/InternalQrImage";
@@ -445,6 +445,12 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
           // 2. Verwijder uit actieve tracking
           await deleteDoc(productRef);
 
+                    await logActivity(
+                        user?.uid || "system",
+                        "POST_PROCESS_COMPLETE",
+                        `BM01 afgerond en gearchiveerd: lot ${product.lotNumber || product.id}`
+                    );
+
           // Alleen sluiten als we niet al een nieuwe hebben gescand
           if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
               handleCloseModal();
@@ -502,6 +508,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
       }
 
       await updateDoc(productRef, updates);
+            await logActivity(
+                user?.uid || "system",
+                status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
+                `BM01 afhandeling: lot ${product.lotNumber || product.id}, status ${status}`
+            );
       if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
           handleCloseModal();
       }
@@ -713,6 +724,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
           await updateDoc(ref, {
               qcNotes: arrayUnion(noteObj)
           });
+                    await logActivity(
+                        user?.uid || "system",
+                        "QC_NOTE_ADD",
+                        `QC notitie toegevoegd: lot ${product?.lotNumber || product?.id || "onbekend"}`
+                    );
           
           // Update lokale state voor directe feedback in de modal
           setViewingDossier(prev => ({

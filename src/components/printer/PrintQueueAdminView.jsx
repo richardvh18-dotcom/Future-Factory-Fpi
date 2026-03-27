@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
-import { db, auth } from '../../config/firebase';
+import { db, auth, logActivity } from '../../config/firebase';
 import { 
   collection, onSnapshot, orderBy, query, doc, updateDoc, 
   deleteDoc, where, serverTimestamp, getDocs, limit, getDoc, documentId
@@ -916,6 +916,11 @@ const PrintQueueAdminView = () => {
   const handlePrintJob = async (job) => {
     if (!usbDevice) throw new Error("Geen USB printer verbonden.");
     await updateDoc(doc(db, ...PATHS.PRINT_QUEUE, job.id), { status: 'printing', processedAt: serverTimestamp() });
+    await logActivity(
+      auth.currentUser?.uid || 'system',
+      'PRINT_QUEUE_PROCESS',
+      `Print gestart: job ${job.id}`
+    );
     try {
       // Use printData (standard) or zpl field
       const content = job.printData || job.zpl;
@@ -925,8 +930,18 @@ const PrintQueueAdminView = () => {
       
       await printRawUsb(usbDevice, payload);
       await updateDoc(doc(db, ...PATHS.PRINT_QUEUE, job.id), { status: 'completed', printedAt: serverTimestamp() });
+      await logActivity(
+        auth.currentUser?.uid || 'system',
+        'PRINT_QUEUE_COMPLETE',
+        `Print voltooid: job ${job.id}`
+      );
     } catch (e) {
       await updateDoc(doc(db, ...PATHS.PRINT_QUEUE, job.id), { status: 'error', error: e.message });
+      await logActivity(
+        auth.currentUser?.uid || 'system',
+        'PRINT_QUEUE_ERROR',
+        `Print fout: job ${job.id}, fout: ${e.message}`
+      );
       throw e;
     }
   };
@@ -943,12 +958,22 @@ const PrintQueueAdminView = () => {
         email: auth.currentUser?.email
       }
     });
+    await logActivity(
+      auth.currentUser?.uid || 'system',
+      'PRINT_QUEUE_REPRINT',
+      `Herprint aangevraagd: job ${jobId}`
+    );
   };
 
   const handleDelete = async (jobId) => {
     if (!window.confirm("Weet u zeker dat u deze taak permanent wilt verwijderen?")) return;
     const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
     await deleteDoc(jobRef);
+    await logActivity(
+      auth.currentUser?.uid || 'system',
+      'PRINT_QUEUE_DELETE',
+      `Printtaak verwijderd: job ${jobId}`
+    );
   };
 
   const getJobSizeLabel = (job) => {

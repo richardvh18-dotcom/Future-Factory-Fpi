@@ -10,7 +10,7 @@ import {
   TrendingUp
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 
 /**
@@ -145,6 +145,12 @@ const OrderDependenciesView = () => {
       dependencies: arrayUnion(potentialDependency)
     });
 
+    await logActivity(
+      auth.currentUser?.uid,
+      "ORDER_DEPENDENCY_ADD",
+      `Dependency toegevoegd: ${selectedOrder.id} <- ${potentialDependency}`
+    );
+
     setPotentialDependency("");
     setShowAddDependency(false);
   };
@@ -154,6 +160,12 @@ const OrderDependenciesView = () => {
     await updateDoc(doc(db, ...PATHS.PLANNING, orderId), {
       dependencies: arrayRemove(depId)
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "ORDER_DEPENDENCY_REMOVE",
+      `Dependency verwijderd: ${orderId} -/-> ${depId}`
+    );
   };
 
   // Check if adding dependency would create circular reference

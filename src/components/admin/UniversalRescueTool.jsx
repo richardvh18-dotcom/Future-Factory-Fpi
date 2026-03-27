@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { db, auth } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import {
   getDocs,
   query,
@@ -85,10 +85,20 @@ const UniversalRescueTool = () => {
         status: "Success",
         projectId: activeProjectId,
       });
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        "RESCUE_WRITE_TEST",
+        `Write-test succesvol op project ${activeProjectId}`
+      );
       addLog(t('universalRescueTool.rulesCheckOk', "✅ RULES CHECK OK: Je kunt schrijven naar /future-factory/"));
 
       // Direct weer opruimen
       await deleteDoc(testRef);
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        "RESCUE_WRITE_TEST_CLEANUP",
+        "Write-test cleanup document verwijderd"
+      );
       addLog(t('universalRescueTool.systemReady', "Systeem is gereed voor data-migratie."));
     } catch (err) {
       addLog(`${t('universalRescueTool.accessDenied', "❌ TOEGANG GEWEIGERD: ")}${err.code}`);

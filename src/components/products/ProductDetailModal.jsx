@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 
 import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db, storage } from "../../config/firebase";
+import { db, storage, auth, logActivity } from "../../config/firebase";
 import { generateProductPDF } from "../../utils/pdfGenerator";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
@@ -275,6 +275,11 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                           await updateDoc(productRef, {
                             sourcePdfs: arrayUnion({ name: file.name, url })
                           });
+                          await logActivity(
+                            auth.currentUser?.uid,
+                            "PRODUCT_PDF_UPLOAD",
+                            `PDF toegevoegd aan product ${product.id}: ${file.name}`
+                          );
                           // Trigger AI learning direct (optioneel: feedback)
                           try {
                             await aiService.learnFromPdfUrl(url, file.name);

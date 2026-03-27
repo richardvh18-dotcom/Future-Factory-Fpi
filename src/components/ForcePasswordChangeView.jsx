@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Lock, ShieldCheck, Loader2, Save, AlertCircle } from "lucide-react";
 import { getAuth, updatePassword } from "firebase/auth";
-import { db } from "../config/firebase";
+import { db, auth, logActivity } from "../config/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { PATHS } from "../config/dbPaths";
 
@@ -36,6 +36,11 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
         requirePasswordChange: false,
         tempPassword: null,
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "PASSWORD_FORCE_CHANGE_COMPLETE",
+        "Gebruiker heeft verplicht wachtwoord gewijzigd"
+      );
 
       onComplete();
     } catch (err) {

@@ -90,7 +90,7 @@ const AdminLabelLogic = () => {
   };
 
   const handleLoadExample = () => {
-    if (variables.length > 0 && !window.confirm(t('admin.confirmClearExample', "Huidige invoer wissen voor voorbeeld?"))) return;
+    if (variables.length > 0 && !window.confirm(t('admin.confirmClearExample'))) return;
     
     setSelectedRule({ id: "new_example" });
     setFormCode("A1S1");
@@ -98,18 +98,18 @@ const AdminLabelLogic = () => {
        {
            name: "id_mm",
            triggerField: "innerDiameter",
-           defaultValue: t('adminLabelLogic.idMmDefault', "ID: -"),
+           defaultValue: t('adminLabelLogic.idMmDefault'),
            mappings: [
-               { condition: "> 0", value: t('adminLabelLogic.idSpecMm', "ID Specificatie (mm)") }
+               { condition: "> 0", value: t('adminLabelLogic.idSpecMm') }
            ]
        },
        {
            name: "nprs_bar",
            triggerField: "nprs",
-           defaultValue: t('adminLabelLogic.nprsDefault', "NPRs: -"),
+           defaultValue: t('adminLabelLogic.nprsDefault'),
            mappings: [
-               { condition: ">= 16", value: t('adminLabelLogic.nprsHigh', "NPRs High (bar)") },
-               { condition: "< 16", value: t('adminLabelLogic.nprsLow', "NPRs Low (bar)") }
+               { condition: ">= 16", value: t('adminLabelLogic.nprsHigh') },
+               { condition: "< 16", value: t('adminLabelLogic.nprsLow') }
            ]
        },
        {
@@ -117,7 +117,7 @@ const AdminLabelLogic = () => {
            triggerField: "pq",
            defaultValue: "",
            mappings: [
-               { condition: "> 0", value: t('adminLabelLogic.pqQualified', "Pq Qualified (MPa)") }
+               { condition: "> 0", value: t('adminLabelLogic.pqQualified') }
            ]
        },
        {
@@ -125,7 +125,7 @@ const AdminLabelLogic = () => {
            triggerField: "temperature",
            defaultValue: "",
            mappings: [
-               { condition: "> 60", value: t('adminLabelLogic.tempLimitWarning', "⚠️ Temp Limiet > 60°C") }
+               { condition: "> 60", value: t('adminLabelLogic.tempLimitWarning') }
            ]
        }
     ]);
@@ -172,7 +172,7 @@ const AdminLabelLogic = () => {
   };
 
   const handleSave = async () => {
-    if (!formCode) return alert(t('admin.productCodeRequired', "Product Code is verplicht"));
+    if (!formCode) return alert(t('admin.productCodeRequired'));
     
     const id = formCode.toUpperCase();
     const data = {
@@ -184,7 +184,7 @@ const AdminLabelLogic = () => {
     try {
       await setDoc(doc(db, ...PATHS.LABEL_LOGIC, id), data);
       await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label logic saved: ${id}`);
-      alert(t('admin.logicSaved', "Logica opgeslagen!"));
+      alert(t('admin.logicSaved'));
     } catch (e) {
       console.error(e);
       alert(t('admin.saveError', { message: e.message }));
@@ -192,14 +192,14 @@ const AdminLabelLogic = () => {
   };
 
   const handleDelete = async (id) => {
-    if(!window.confirm(t('common.areYouSure', "Zeker weten?"))) return;
+    if(!window.confirm(t('common.areYouSure'))) return;
     await deleteDoc(doc(db, ...PATHS.LABEL_LOGIC, id));
     await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label logic deleted: ${id}`);
     if (selectedRule?.id === id) setSelectedRule(null);
   };
 
   const calculateTestResult = (variable, input) => {
-    if (input === undefined || input === "") return variable.defaultValue || t('admin.default', "(standaard)");
+    if (input === undefined || input === "") return variable.defaultValue || t('admin.default');
     
     // Helper voor evaluatie (lokaal, zelfde logica als in labelHelpers)
     const evaluate = (condition, val) => {
@@ -223,7 +223,7 @@ const AdminLabelLogic = () => {
         const match = variable.mappings.find(m => evaluate(m.condition || m.project || "", input));
         if (match) return match.value;
     }
-    return variable.defaultValue || t('admin.default', "(standaard)");
+    return variable.defaultValue || t('admin.default');
   };
 
   const filteredRules = rules.filter(r => r.productCode.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -232,15 +232,15 @@ const AdminLabelLogic = () => {
     <div className="p-6 h-full flex flex-col bg-slate-50">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 uppercase italic">{t('labelLogic')}</h1>
-          <p className="text-sm text-slate-500">{t('dynamicFieldsByProject')}</p>
+          <h1 className="text-2xl font-black text-slate-900 uppercase italic">{t('common.labelLogic')}</h1>
+          <p className="text-sm text-slate-500">{t('common.dynamicFieldsByProject')}</p>
         </div>
         <div className="flex gap-2">
             <button onClick={handleLoadExample} className="bg-white border-2 border-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-colors">
-              <Lightbulb size={18} className="text-yellow-500" /> {t('exampleA1S1')}
+              <Lightbulb size={18} className="text-yellow-500" /> {t('common.exampleA1S1')}
             </button>
             <button onClick={handleNew} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-colors">
-              <Plus size={18} /> {t('newRule')}
+              <Plus size={18} /> {t('common.newRule')}
             </button>
         </div>
       </div>
@@ -253,7 +253,7 @@ const AdminLabelLogic = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input 
                 className="w-full pl-10 pr-4 py-2 bg-slate-50 rounded-xl text-sm font-bold outline-none" 
-                placeholder={t('admin.searchProductCode', "Zoek product code...")}
+                placeholder={t('admin.searchProductCode')}
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
               />
@@ -273,7 +273,7 @@ const AdminLabelLogic = () => {
                   </button>
                 </div>
                 <div className="text-xs text-slate-500 mt-1">
-                  {rule.variables?.length || 0} {t('variablesConfigured')}
+                  {rule.variables?.length || 0} {t('common.variablesConfigured')}
                 </div>
               </div>
             ))}
@@ -285,13 +285,13 @@ const AdminLabelLogic = () => {
           {selectedRule ? (
             <div className="space-y-6">
               <div>
-                <label className="block text-xs font-black text-slate-400 uppercase mb-1">{t('productCodeMatch')}</label>
+                <label className="block text-xs font-black text-slate-400 uppercase mb-1">{t('common.productCodeMatch')}</label>
                 <input 
                   list="productCodes"
                   value={formCode}
                   onChange={e => setFormCode(e.target.value.toUpperCase())}
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-black text-lg outline-none focus:border-blue-500"
-                  placeholder={t('admin.exampleCode', "Bijv. A2E5")}
+                  placeholder={t('admin.exampleCode')}
                 />
                 <datalist id="productCodes">
                     {availableCodes.map(code => (
@@ -303,10 +303,10 @@ const AdminLabelLogic = () => {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                    <Variable size={18} className="text-blue-500" /> {t('variables')}
+                    <Variable size={18} className="text-blue-500" /> {t('common.variables')}
                   </h3>
                   <button onClick={addVariable} className="text-xs font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
-                    {t('addVariable')}
+                    {t('common.addVariable')}
                   </button>
                 </div>
 
@@ -314,16 +314,16 @@ const AdminLabelLogic = () => {
                   <div key={vIdx} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
                       <div className="flex-1">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('variableNameInLabel')}</label>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('common.variableNameInLabel')}</label>
                         <input 
                           value={variable.name}
                           onChange={e => updateVariable(vIdx, 'name', e.target.value)}
                           className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm font-bold"
-                          placeholder={t('exampleJointCode')}
+                          placeholder={t('common.exampleJointCode')}
                         />
                       </div>
                       <div className="flex-1">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('dependentTrigger')}</label>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('common.dependentTrigger')}</label>
                         <select 
                           value={variable.triggerField || "project"}
                           onChange={e => updateVariable(vIdx, 'triggerField', e.target.value)}
@@ -335,26 +335,26 @@ const AdminLabelLogic = () => {
                         </select>
                       </div>
                       <div className="flex-1">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('defaultValue')}</label>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t('common.defaultValue')}</label>
                         <input 
                           value={variable.defaultValue}
                           onChange={e => updateVariable(vIdx, 'defaultValue', e.target.value)}
                           className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm"
-                          placeholder={t('fallbackValue')}
+                          placeholder={t('common.fallbackValue')}
                         />
                       </div>
                     </div>
                     <div className="flex justify-end">
-                        <button onClick={() => removeVariable(vIdx)} className="text-xs text-rose-500 hover:underline flex items-center gap-1"><Trash2 size={12}/> {t('removeVariable')}</button>
+                        <button onClick={() => removeVariable(vIdx)} className="text-xs text-rose-500 hover:underline flex items-center gap-1"><Trash2 size={12}/> {t('common.removeVariable')}</button>
                     </div>
 
                     <div className="pl-4 border-l-2 border-slate-200">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-xs font-bold text-slate-500 flex items-center gap-2">
-                          <GitBranch size={14} /> {t('rulesExceptions')}
+                          <GitBranch size={14} /> {t('common.rulesExceptions')}
                         </span>
                         <button onClick={() => addMapping(vIdx)} className="text-[10px] font-bold text-blue-600 hover:underline">
-                          {t('addCondition')}
+                          {t('common.addCondition')}
                         </button>
                       </div>
                       
@@ -366,15 +366,15 @@ const AdminLabelLogic = () => {
                               value={map.condition || map.project} // Fallback voor oude data
                               onChange={e => updateMapping(vIdx, mIdx, 'condition', e.target.value)}
                               className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-mono"
-                              placeholder={t('valuePlaceholder')}
+                              placeholder={t('common.valuePlaceholder')}
                             />
                             <ArrowRight size={14} className="text-slate-300" />
-                            <span className="text-xs text-slate-400 font-mono">{t('then')}</span>
+                            <span className="text-xs text-slate-400 font-mono">{t('common.then')}</span>
                             <input 
                               value={map.value}
                               onChange={e => updateMapping(vIdx, mIdx, 'value', e.target.value)}
                               className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold"
-                              placeholder={t('value')}
+                              placeholder={t('common.value')}
                             />
                             <button onClick={() => removeMapping(vIdx, mIdx)} className="text-slate-300 hover:text-rose-500">
                               <X size={14} />
@@ -382,7 +382,7 @@ const AdminLabelLogic = () => {
                           </div>
                         ))}
                         {variable.mappings.length === 0 && (
-                          <p className="text-xs text-slate-400 italic">{t('noSpecificRules')}</p>
+                          <p className="text-xs text-slate-400 italic">{t('common.noSpecificRules')}</p>
                         )}
                       </div>
 
@@ -390,14 +390,14 @@ const AdminLabelLogic = () => {
                       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-3 bg-slate-50/50 p-2 rounded-lg">
                         <div className="flex items-center gap-2 text-slate-400">
                             <Beaker size={14} />
-                            <span className="text-[10px] font-bold uppercase tracking-wider">{t('testLabel')}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider">{t('common.testLabel')}</span>
                         </div>
                         <div className="flex items-center gap-2 flex-1">
                             <span className="text-xs text-slate-500">{t('ifFieldEquals', { field: variable.triggerField || 'project' })}</span>
                             <input 
                                 type="text" 
                                 className="w-24 p-1.5 bg-white border border-slate-200 rounded-md text-xs font-mono focus:border-blue-500 outline-none"
-                                placeholder={t('admin.valuePlaceholder', "Waarde...")}
+                                placeholder={t('admin.valuePlaceholder')}
                                 value={testInputs[vIdx] || ""}
                                 onChange={(e) => setTestInputs(prev => ({...prev, [vIdx]: e.target.value}))}
                             />
@@ -414,14 +414,14 @@ const AdminLabelLogic = () => {
 
               <div className="pt-4 border-t border-slate-100 flex justify-end">
                 <button onClick={handleSave} className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-600 transition-colors">
-                  <Save size={18} /> {t('save')}
+                  <Save size={18} /> {t('common.save')}
                 </button>
               </div>
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-slate-300">
               <Variable size={64} className="mb-4" />
-              <p>{t('selectOrCreateRule')}</p>
+              <p>{t('common.selectOrCreateRule')}</p>
             </div>
           )}
         </div>

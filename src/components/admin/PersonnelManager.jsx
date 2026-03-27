@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Users,
@@ -18,7 +18,7 @@ import {
   Save,
   AlertCircle,
 } from "lucide-react";
-import { db, auth } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import {
   collection,
   onSnapshot,
@@ -55,7 +55,7 @@ import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
  * - /future-factory/Users/Personnel (Stamdata)
  * - /future-factory/production/machine_occupancy (Bezetting)
  */
-const PersonnelManager = () => {
+const PersonnelManager = ({ initialViewDate, initialTab }) => {
   const { t } = useTranslation();
   const [personnel, setPersonnel] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
@@ -73,8 +73,26 @@ const PersonnelManager = () => {
   const [status, setStatus] = useState(null);
   const [modalTab, setModalTab] = useState("profile");
   const [listExpandedSections, setListExpandedSections] = useState({});
+  const initialStateAppliedRef = useRef(false);
 
   const selectedDateStr = format(viewDate, "yyyy-MM-dd");
+
+  useEffect(() => {
+    if (initialStateAppliedRef.current) return;
+
+    if (initialTab && ["assignment", "loan", "personnel"].includes(initialTab)) {
+      setActiveTab(initialTab);
+    }
+
+    if (initialViewDate) {
+      const parsed = parse(String(initialViewDate), "yyyy-MM-dd", new Date());
+      if (!Number.isNaN(parsed.getTime())) {
+        setViewDate(parsed);
+      }
+    }
+
+    initialStateAppliedRef.current = true;
+  }, [initialViewDate, initialTab]);
 
   const [personForm, setPersonForm] = useState({
     name: "",
@@ -266,6 +284,13 @@ const PersonnelManager = () => {
         );
         for (const docToDel of toDelete)
           await deleteDoc(doc(db, ...colPath, docToDel.id));
+        if (toDelete.length > 0) {
+          await logActivity(
+            auth.currentUser?.uid,
+            "OCCUPANCY_CLEAR",
+            `Bezetting gewist op ${machineId} (${deptId}) voor ${selectedDateStr}: ${toDelete.length} record(s)`
+          );
+        }
         return;
       }
       const person = personnel.find((p) => p.employeeNumber === operatorNumber);
@@ -293,6 +318,12 @@ const PersonnelManager = () => {
         },
         { merge: true }
       );
+
+      await logActivity(
+        auth.currentUser?.uid,
+        "OCCUPANCY_ASSIGN",
+        `Operator ${person.employeeNumber} toegewezen aan ${machineId} (${deptId}) op ${selectedDateStr}`
+      );
     } catch (err) {
       console.error(err);
     }
@@ -300,6 +331,11 @@ const PersonnelManager = () => {
 
   const handleRemoveAssignment = async (assignmentId) => {
     await deleteDoc(doc(db, ...PATHS.OCCUPANCY, assignmentId));
+    await logActivity(
+      auth.currentUser?.uid,
+      "OCCUPANCY_DELETE",
+      `Bezettingsrecord verwijderd: ${assignmentId}`
+    );
   };
 
   const handleCopyYesterday = async (targetDeptId = null) => {
@@ -355,6 +391,11 @@ const PersonnelManager = () => {
         );
       });
       await batch.commit();
+      await logActivity(
+        auth.currentUser?.uid,
+        "OCCUPANCY_COPY",
+        `Bezetting gekopieerd van ${sourceDateStr} naar ${selectedDateStr}: ${sourceData.length} record(s)`
+      );
       setStatus({
         type: "success",
         msg: t('personnel.copiedCount', { count: sourceData.length, day: isMonday ? t('common.friday') : t('common.yesterday') }),
@@ -386,6 +427,12 @@ const PersonnelManager = () => {
           updatedBy: auth.currentUser?.email || "Admin",
         },
         { merge: true }
+      );
+
+      await logActivity(
+        auth.currentUser?.uid,
+        editingId ? "PERSONNEL_UPDATE" : "PERSONNEL_CREATE",
+        `${editingId ? "Personeel bijgewerkt" : "Personeel aangemaakt"}: ${personForm.name} (${personForm.employeeNumber})`
       );
 
       setIsPersonModalOpen(false);
@@ -583,6 +630,27 @@ const PersonnelManager = () => {
             </button>
           </div>
 
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+            <CalendarDays size={14} className="text-slate-500" />
+            <input
+              type="date"
+              value={selectedDateStr}
+              onChange={(e) => {
+                const parsed = parse(e.target.value, "yyyy-MM-dd", new Date());
+                if (!Number.isNaN(parsed.getTime())) {
+                  setViewDate(parsed);
+                }
+              }}
+              className="bg-transparent text-xs font-black text-slate-700 outline-none"
+            />
+            <button
+              onClick={() => setViewDate(new Date())}
+              className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-[10px] font-black uppercase text-slate-600"
+            >
+              Vandaag
+            </button>
+          </div>
+
           <button
             onClick={handleCopyYesterday}
             disabled={isCopying}
@@ -678,6 +746,11 @@ const PersonnelManager = () => {
               onDelete={async (id) => {
                 if (window.confirm(t('common.deleteConfirm', "Verwijderen?"))) {
                   await deleteDoc(doc(db, ...PATHS.PERSONNEL, id));
+                  await logActivity(
+                    auth.currentUser?.uid,
+                    "PERSONNEL_DELETE",
+                    `Personeelsrecord verwijderd: ${id}`
+                  );
                 }
               }}
             />

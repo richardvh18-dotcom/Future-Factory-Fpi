@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, setDoc, deleteDoc, arrayUnion, increment } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { Package,
     Loader2,
@@ -420,6 +420,12 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           await setDoc(archiveRef, finalData);
           await deleteDoc(productRef);
 
+          await logActivity(
+            user?.uid || "system",
+            "POST_PROCESS_COMPLETE",
+            `Lossen/BM01 archief: lot ${product.lotNumber || product.id}, status completed`
+          );
+
           // Update Planning Order
           if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
               try {
@@ -530,6 +536,11 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       }
 
       await updateDoc(productRef, updates);
+      await logActivity(
+        user?.uid || "system",
+        status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
+        `Lossen afhandeling: lot ${product.lotNumber || product.id}, station ${stationId}, status ${status}`
+      );
       // Check of selectie nog steeds hetzelfde is voordat we afsluiten
       if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
           handleCloseModal();

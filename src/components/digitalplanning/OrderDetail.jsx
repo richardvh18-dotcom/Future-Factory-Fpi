@@ -18,6 +18,8 @@ import {
   Save,
   PauseCircle,
   PlayCircle,
+  Star,
+  Zap,
 } from "lucide-react";
 import ProductMoveModal from "./ProductMoveModal";
 import ProductJourneyModal from "./modals/ProductJourneyModal";
@@ -209,6 +211,19 @@ const OrderDetail = React.memo(({
     } catch (error) {
       console.error("Fout bij annuleren:", error);
       showError(t("digitalplanning.order_detail.cancel_error", "Kon order niet annuleren"));
+    }
+  };
+
+  const handleSetPriority = async (level) => {
+    if (!order.id) return;
+    const currentPrio = order.priority === true ? "high" : order.priority;
+    const newPriority = currentPrio === level ? false : level;
+    try {
+      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
+      await updateDoc(orderRef, { priority: newPriority, lastUpdated: serverTimestamp() });
+    } catch (e) {
+      console.error("Fout bij wijzigen prioriteit:", e);
+      showError("Kon prioriteit niet wijzigen");
     }
   };
 
@@ -699,6 +714,46 @@ const OrderDetail = React.memo(({
                <Ban size={16} />
                {t("digitalplanning.order_detail.cancel", "Order Annuleren")}
              </button>
+           )}
+
+           {/* Prioriteit Knoppen */}
+           {['admin', 'teamleader'].includes(role) && (
+             <>
+               <div className="w-px h-8 bg-slate-200 shrink-0" />
+               <button
+                 onClick={() => handleSetPriority("high")}
+                 className={`flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 border ${
+                   normalizedPriority === "high" || order.priority === true
+                     ? "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/20"
+                     : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                 }`}
+               >
+                 <Star size={14} fill={normalizedPriority === "high" || order.priority === true ? "currentColor" : "none"} />
+                 Prio
+               </button>
+               <button
+                 onClick={() => handleSetPriority("urgent")}
+                 className={`flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 border ${
+                   normalizedPriority === "urgent"
+                     ? "bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/20"
+                     : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                 }`}
+               >
+                 <AlertTriangle size={14} fill={normalizedPriority === "urgent" ? "currentColor" : "none"} />
+                 Spoed
+               </button>
+               <button
+                 onClick={() => handleSetPriority("immediate")}
+                 className={`flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 border ${
+                   normalizedPriority === "immediate"
+                     ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-500/20"
+                     : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                 }`}
+               >
+                 <Zap size={14} fill={normalizedPriority === "immediate" ? "currentColor" : "none"} />
+                 1e Prio
+               </button>
+             </>
            )}
         </div>
       )}

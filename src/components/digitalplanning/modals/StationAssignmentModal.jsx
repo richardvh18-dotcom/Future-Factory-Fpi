@@ -19,7 +19,7 @@ import {
   where,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { db } from "../../../config/firebase";
+import { db, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 
 /**
@@ -117,6 +117,12 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
         updatedAt: serverTimestamp(),
       });
 
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        "PERSONNEL_ASSIGN",
+        `Operator toegewezen: ${operator?.name || selectedOperator} -> station ${stationId} (${today})`
+      );
+
       setAssignments([
         ...assignments,
         {
@@ -145,6 +151,11 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
 
     try {
       await deleteDoc(doc(db, ...PATHS.OCCUPANCY, assignmentId));
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        "PERSONNEL_UNASSIGN",
+        `Operator toewijzing verwijderd: ${assignmentId} op station ${stationId}`
+      );
       setAssignments(assignments.filter(a => a.id !== assignmentId));
       setStatus({ type: "success", message: "Toewijzing verwijderd" });
       setTimeout(() => setStatus(null), 3000);

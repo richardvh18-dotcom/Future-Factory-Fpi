@@ -8,7 +8,7 @@ import {
   Calendar
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { format } from "date-fns";
 
@@ -102,6 +102,11 @@ const KanbanBoardView = () => {
         statusUpdatedAt: new Date(),
         statusUpdatedBy: "user" // TODO: Add actual user
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "ORDER_STATUS_MOVE",
+        `Kanban status gewijzigd voor order ${draggableId}: ${source.droppableId} -> ${destination.droppableId}`
+      );
 
       // Optimistic UI update
       setOrders(prev => prev.map(order => 

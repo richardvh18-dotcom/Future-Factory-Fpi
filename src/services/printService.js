@@ -1,4 +1,4 @@
-import { db, auth } from "../config/firebase";
+import { db, auth, logActivity } from "../config/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 const sanitizeFirestoreValue = (value) => {
@@ -47,6 +47,11 @@ export const queuePrintJob = async (printerId, zplData, metadata = {}) => {
     };
 
     const docRef = await addDoc(queueRef, jobData);
+    await logActivity(
+      auth.currentUser?.uid,
+      "PRINT_QUEUE_ADD",
+      `Printjob in wachtrij gezet: ${docRef.id} (${printerId})`
+    );
     console.log(`Print job queued with ID: ${docRef.id} for printer: ${printerId}`);
     return docRef.id;
   } catch (error) {

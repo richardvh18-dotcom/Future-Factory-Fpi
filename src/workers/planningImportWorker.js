@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { subWeeks, isValid, parseISO } from "date-fns";
+import { subWeeks, isValid, parseISO, parse } from "date-fns";
 
 const normalizeMachine = (val) => {
   if (!val) return "-";
@@ -14,8 +14,30 @@ const normalizeMachine = (val) => {
 const processDates = (rawDate) => {
   if (!rawDate) return { delivery: null, planned: null };
 
+  const rawStr = String(rawDate || "").trim();
+  const isSlashDate = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawStr);
   const parsedDate = rawDate instanceof Date ? rawDate : new Date(rawDate);
-  const dateObj = isValid(parsedDate) ? parsedDate : parseISO(String(rawDate));
+
+  let dateObj = null;
+
+  // Voorkom US-interpretatie (MM/dd): slash-datums altijd eerst als dd/MM parsen.
+  if (isSlashDate) {
+    const parsedNl = parse(rawStr, "dd/MM/yyyy", new Date());
+    if (isValid(parsedNl)) dateObj = parsedNl;
+    if (!isValid(dateObj)) {
+      const parsedNlShort = parse(rawStr, "d/M/yyyy", new Date());
+      if (isValid(parsedNlShort)) dateObj = parsedNlShort;
+    }
+  }
+
+  if (!isValid(dateObj)) {
+    const parsedIso = parseISO(rawStr);
+    if (isValid(parsedIso)) dateObj = parsedIso;
+  }
+
+  if (!isValid(dateObj) && isValid(parsedDate)) {
+    dateObj = parsedDate;
+  }
 
   if (!isValid(dateObj)) return { delivery: null, planned: null };
 
@@ -43,6 +65,17 @@ const firstIndex = (headers, candidates) => {
   return -1;
 };
 
+const getSheetPriority = (sheetName) => {
+  const s = String(sheetName || "").toLowerCase();
+  if (s.includes("format fabriek")) return 100;
+  if (s.includes("format mazak")) return 90;
+  if (s.includes("format 40bm01")) return 80;
+  if (s.includes("fabrieksplanning")) return 70;
+  if (s.includes("mazakplanning")) return 60;
+  if (s === "40bm01") return 50;
+  return 10;
+};
+
 const parseWorkbook = (arrayBuffer) => {
   // Stap 1: haal alleen sheetnamen op — geen sheetdata geladen in geheugen
   const wbMeta = XLSX.read(arrayBuffer, { type: "array", bookSheets: true });
@@ -51,8 +84,15 @@ const parseWorkbook = (arrayBuffer) => {
   let allData = [];
   let sheetsFound = 0;
 
-  // Alleen deze drie planningsheets worden verwerkt; alle andere worden genegeerd.
-  const ALLOWED_SHEETS = ["Fabrieksplanning", "Mazakplanning", "40BM01"];
+  // Relevante planning tabs; ondersteunt ook format-tabs uit LN exports.
+  const ALLOWED_SHEETS = [
+    "Fabrieksplanning",
+    "Mazakplanning",
+    "40BM01",
+    "Format fabriek",
+    "Format mazak",
+    "Format 40BM01",
+  ];
   const isAllowed = (name) =>
     ALLOWED_SHEETS.some((a) => name.trim().toLowerCase() === a.toLowerCase());
 
@@ -67,6 +107,13 @@ const parseWorkbook = (arrayBuffer) => {
     });
     const wsScan = wbScan.Sheets[sheetName];
     if (!wsScan) continue;
+
+    const filterMachineRaw = wsScan.E6?.v;
+    const filterMachine = filterMachineRaw ? String(filterMachineRaw).trim() : "";
+    const sourceSheetLabel =
+      sheetName.toLowerCase().includes("format") && filterMachine
+        ? `${sheetName} (${filterMachine})`
+        : sheetName;
 
     const scanRows = XLSX.utils.sheet_to_json(wsScan, { header: 1, defval: "" });
     const headerIndex = scanRows.findIndex((row) => {
@@ -142,7 +189,7 @@ const parseWorkbook = (arrayBuffer) => {
           projectDesc: idxProjectDesc !== -1 ? String(row[idxProjectDesc] || "") : "",
           drawing: idxDrawing !== -1 ? String(row[idxDrawing] || "") : "",
           status: "pending",
-          sourceSheet: sheetName,
+          sourceSheet: sourceSheetLabel,
         };
       });
 
@@ -151,16 +198,17 @@ const parseWorkbook = (arrayBuffer) => {
 
   if (sheetsFound === 0) return [];
 
-  const uniqueData = [];
-  const seenIds = new Set();
+  // Dedupe met sheet-prioriteit: bij gelijke id wint de meest relevante sheet.
+  const byId = new Map();
   allData.forEach((item) => {
-    if (!seenIds.has(item.id)) {
-      seenIds.add(item.id);
-      uniqueData.push(item);
+    const existing = byId.get(item.id);
+    const currentPriority = getSheetPriority(item.sourceSheet);
+    if (!existing || currentPriority > existing.priority) {
+      byId.set(item.id, { priority: currentPriority, item });
     }
   });
 
-  return uniqueData;
+  return Array.from(byId.values()).map((entry) => entry.item);
 };
 
 const workerScope = globalThis;
@@ -173,12 +221,38 @@ workerScope.onmessage = (event) => {
       return;
     }
 
+    console.log("[Worker] Starting parse, buffer size:", arrayBuffer.byteLength);
+    
     const rows = parseWorkbook(arrayBuffer);
-    workerScope.postMessage({ type: "success", payload: rows });
+    
+    console.log("[Worker] Parse complete, rows:", rows.length);
+    
+    // Split payload if too large (safety measure for big files)
+    // Browser postMessage has limits on serializable data
+    const chunkSize = 5000;
+    if (rows.length > chunkSize) {
+      console.log("[Worker] Large payload detected, chunking...");
+      let sent = 0;
+      while (sent < rows.length) {
+        const chunk = rows.slice(sent, sent + chunkSize);
+        workerScope.postMessage({ 
+          type: "success", 
+          payload: chunk,
+          isChunk: true,
+          chunkIndex: sent / chunkSize,
+          totalRows: rows.length
+        });
+        sent += chunkSize;
+      }
+    } else {
+      workerScope.postMessage({ type: "success", payload: rows });
+    }
   } catch (error) {
+    console.error("[Worker] Error:", error);
     workerScope.postMessage({
       type: "error",
       error: error?.message || "Excel parsing mislukt",
+      stack: error?.stack,
     });
   }
 };

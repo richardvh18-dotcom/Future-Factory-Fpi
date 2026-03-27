@@ -10,7 +10,7 @@ import {
   Save,
 } from "lucide-react";
 import { doc, updateDoc, serverTimestamp, increment, addDoc, collection } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS } from "../../../utils/workstationLogic";
 import { useNotifications } from "../../../contexts/NotificationContext";
@@ -89,6 +89,12 @@ const PostProcessingFinishModal = ({
         });
       } catch (e) { console.error("Kon notificatie niet versturen", e); }
     }
+
+    await logActivity(
+      auth.currentUser?.uid || "system",
+      status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
+      `PostProcessing modal: lot ${product?.lotNumber || product?.id}, station ${currentStation}, status ${status}, reasons ${selectedReasons.join(", ") || "-"}`
+    );
 
     await onConfirm(status, { reasons: selectedReasons, note });
     setIsProcessing(false);

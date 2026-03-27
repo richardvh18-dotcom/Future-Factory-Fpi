@@ -1,6 +1,6 @@
 // Service voor het koppelen van tekeningen aan orders
 import { collection, getDocs, query, where, updateDoc, doc, limit } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { db, auth, logActivity } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import i18n from "../i18n";
 
@@ -141,6 +141,11 @@ export const syncOrderDrawing = async (orderId, drawing) => {
       drawing: drawing,
       lastUpdated: new Date() 
     });
+    await logActivity(
+      auth.currentUser?.uid || "system",
+      "DRAWING_LINK",
+      `Tekening gekoppeld aan order ${orderId}: ${drawing}`
+    );
     return true;
   } catch (e) {
     console.error(i18n.t("drawing.update_failed", "Update mislukt:"), e);

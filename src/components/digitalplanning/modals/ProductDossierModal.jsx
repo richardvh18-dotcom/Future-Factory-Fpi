@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect as useResizeEffect } from "react";
 import {
   X,
   Info,
@@ -25,10 +25,12 @@ import { format } from "date-fns";
 import { getISOWeekInfo } from "../../../utils/hubHelpers";
 import { findDrawingForOrder, syncOrderDrawing } from "../../../utils/drawingLinker.jsx";
 import { collection, query, where, getDocs, getDoc, doc, updateDoc, arrayUnion, limit, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import ProductDetailModal from "../../products/ProductDetailModal";
+import LabelVisualPreview from "../../printer/LabelVisualPreview";
+import { useLabelPreview } from "../../../hooks/useLabelPreview";
 import ConfirmationModal from "./ConfirmationModal";
 import { formatDateTimeSafe, toDateSafe } from "../../../utils/dateUtils";
 import { queuePrintJob } from "../../../services/printService";
@@ -61,13 +63,40 @@ const ProductDossierModal = ({
   const [resolvedLabelZPL, setResolvedLabelZPL] = useState("");
   const [resolvedLabelTemplateId, setResolvedLabelTemplateId] = useState(null);
   const [isResolvingLabel, setIsResolvingLabel] = useState(false);
-  const { role } = useAdminAuth();
+  const { role, user } = useAdminAuth();
   const canEditPriority = ["admin", "teamleader"].includes(role);
   const [showConfirmMove, setShowConfirmMove] = useState(false);
   const [showConfirmReject, setShowConfirmReject] = useState(false);
   const [rejectLoading, setRejectLoading] = useState(false);
   const [rejectReasons, setRejectReasons] = useState([]);
   const [rejectNote, setRejectNote] = useState("");
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const previewContainerRef = useRef(null);
+
+  const _DOSSIER_PPM = 3.78;
+  const labelProductData = useMemo(() => product ? {
+    ...product,
+    orderNumber: product.orderId || product.orderNumber,
+    lotNumber: product.lotNumber,
+    item: product.item,
+  } : {}, [product]);
+  const { selectedLabel: dossierLabel, previewData: dossierPreviewData } = useLabelPreview(labelProductData, resolvedLabelTemplateId);
+
+  useResizeEffect(() => {
+    const el = previewContainerRef.current;
+    if (!el || !dossierLabel) return;
+    const recalc = () => {
+      const W = el.clientWidth - 24;
+      const H = Math.max(el.clientHeight - 24, 120);
+      const lW = dossierLabel.width * _DOSSIER_PPM;
+      const lH = dossierLabel.height * _DOSSIER_PPM;
+      if (lW > 0 && lH > 0) setPreviewZoom(Math.min(2, W / lW, H / lH));
+    };
+    recalc();
+    const ro = new ResizeObserver(recalc);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [dossierLabel, showLabelPreview]);
 
   const isTijdelijkeAfkeur = product?.inspection?.status === "Tijdelijke afkeur";
 
@@ -134,6 +163,12 @@ const ProductDossierModal = ({
           lastUpdated: new Date()
         });
       }
+
+      await logActivity(
+        user?.uid || "system",
+        "ORDER_PRIORITY_UPDATE",
+        `Dossier prioriteit gewijzigd: order ${parentOrder.id || displayOrderId}, naar ${newPriority || "normaal"}`
+      );
     } catch (e) {
       console.error("Fout bij wijzigen prioriteit:", e);
     }
@@ -169,26 +204,6 @@ const ProductDossierModal = ({
 
   const hasDrawing = parentOrder.drawing && parentOrder.drawing !== "-" && parentOrder.drawing !== "";
   const effectiveLabelZPL = String(resolvedLabelZPL || product?.labelZPL || "").trim();
-  const previewLabelSize = useMemo(() => {
-    const fallback = "4x6";
-    if (!effectiveLabelZPL) return fallback;
-
-    const pwMatch = effectiveLabelZPL.match(/\^PW(\d{2,5})/i);
-    const llMatch = effectiveLabelZPL.match(/\^LL(\d{2,5})/i);
-    const pwDots = pwMatch ? Number(pwMatch[1]) : null;
-    const llDots = llMatch ? Number(llMatch[1]) : null;
-
-    if (!Number.isFinite(pwDots) || !Number.isFinite(llDots) || pwDots <= 0 || llDots <= 0) {
-      return fallback;
-    }
-
-    // 8 dpmm = 203 dpi (Labelary endpoint used below)
-    const dpi = 203;
-    const widthIn = Math.min(12, Math.max(1, pwDots / dpi));
-    const heightIn = Math.min(12, Math.max(1, llDots / dpi));
-
-    return `${widthIn.toFixed(2)}x${heightIn.toFixed(2)}`;
-  }, [effectiveLabelZPL]);
   const normalizedParentPriority =
     parentOrder.priority === true
       ? "high"
@@ -422,6 +437,12 @@ const ProductDossierModal = ({
           await updateDoc(orderRef, { [stationField]: currentStarted - 1 });
         }
       }
+
+      await logActivity(
+        user?.uid || "system",
+        "QUALITY_REJECT_FINAL",
+        `Definitieve afkeur: lot ${product.lotNumber || product.id}, order ${displayOrderId}, redenen: ${reasonLabels}${rejectNote ? `; opmerking: ${rejectNote}` : ""}`
+      );
     } catch (err) {
       console.error("Fout bij definitieve afkeur:", err);
     } finally {
@@ -465,6 +486,12 @@ const ProductDossierModal = ({
         lastUpdated: new Date(),
       });
     }
+
+    await logActivity(
+      user?.uid || "system",
+      "LOT_MANUAL_MOVE",
+      `Handmatige verplaatsing: lot ${product.lotNumber || product.id} -> ${targetStation} (order ${displayOrderId})`
+    );
 
     setOverrideLoading(false);
     setIsMoving(false);
@@ -511,6 +538,12 @@ const ProductDossierModal = ({
         targetPrinterName: targetPrinter.name || targetPrinter.id,
         source: "product_dossier_reprint",
       });
+
+      await logActivity(
+        user?.uid || "system",
+        "LABEL_REPRINT",
+        `Herprint aangevraagd: order ${displayOrderId}, lot ${product.lotNumber || product.id || "-"}, printer ${targetPrinter.id}, aantal ${quantity}`
+      );
 
       alert(`${quantity} herprint(s) naar wachtrij gestuurd (${targetPrinter.name || targetPrinter.id}) via station BM01.`);
     } catch (e) {
@@ -741,12 +774,22 @@ const ProductDossierModal = ({
                     </div>
 
                     {showLabelPreview && (
-                      <div className="mt-3 bg-white/60 p-2 rounded-lg border border-blue-100/50 flex items-center justify-center overflow-hidden">
-                        <img
-                          src={`http://api.labelary.com/v1/printers/8dpmm/labels/${previewLabelSize}/0/${encodeURIComponent(effectiveLabelZPL)}`}
-                          alt="Label Preview"
-                          className="w-full max-w-[520px] max-h-[50vh] object-contain shadow-md"
-                        />
+                      <div
+                        ref={previewContainerRef}
+                        className="mt-3 bg-white/60 p-3 rounded-lg border border-blue-100/50 flex items-center justify-center overflow-hidden min-h-[140px]"
+                      >
+                        {dossierLabel ? (
+                          <LabelVisualPreview
+                            label={dossierLabel}
+                            data={dossierPreviewData}
+                            zoom={previewZoom}
+                            className="shadow-md"
+                          />
+                        ) : isResolvingLabel ? (
+                          <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">Laden...</span>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">Geen labeltemplate beschikbaar</span>
+                        )}
                       </div>
                     )}
                   </>
@@ -971,7 +1014,7 @@ const ProductDossierModal = ({
             <div className="flex items-center gap-4 text-left">
               <ShieldCheck size={24} className="text-blue-500" />
               <p className="text-[10px] font-bold text-slate-500 uppercase leading-tight">
-                Digitaal dossier conform KMS FPI-GRE (ISO 9001 Traceability)
+                Digitaal dossier conform ISO 9001 Traceability
               </p>
             </div>
             <div className="flex gap-3">

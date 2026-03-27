@@ -19,7 +19,7 @@ import {
   arrayUnion,
   increment
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { toDateSafe } from "../../utils/dateUtils";
 import {
@@ -242,6 +242,19 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     const map = {};
     allTracked.forEach((p) => {
       const oid = String(p.orderId || "").trim();
+      if (!map[oid]) map[oid] = 0;
+      map[oid]++;
+    });
+    return map;
+  }, [allTracked]);
+
+  const rejectedCountMap = useMemo(() => {
+    const map = {};
+    allTracked.forEach((p) => {
+      const oid = String(p.orderId || "").trim();
+      if (!oid) return;
+      const isRejected = ['rejected', 'Rejected', 'AFKEUR', 'REJECTED'].includes(p.status) || p.currentStep === 'REJECTED';
+      if (!isRejected) return;
       if (!map[oid]) map[oid] = 0;
       map[oid]++;
     });
@@ -668,6 +681,12 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         [stationCounterField]: increment(totalToProduce),
       });
 
+      await logActivity(
+        user?.uid || "system",
+        "ORDER_RELEASE",
+        `Terminal start productie: order ${order.orderId}, station ${effectiveStationId}, lots ${createdLots.join(", ")}`
+      );
+
       setShowStartModal(false);
       if (!isNabewerking && !isLossenStation && !isBM01 && !isBH31) setActiveTab("wikkelen");
     } catch (err) {
@@ -701,6 +720,13 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         };
 
         await updateDoc(productRef, updates);
+
+        await logActivity(
+          user?.uid || "system",
+          "QUALITY_REPAIR_COMPLETE",
+          `Reparatie voltooid: lot ${itemToRepair.lotNumber || itemToRepair.id}, station ${effectiveStationId}`
+        );
+
         setShowRepairModal(false);
         setItemToRepair(null);
     } catch (err) {
@@ -788,6 +814,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                 onToggleAllWeeks={() => setShowAllWeeks(!showAllWeeks)}
                 targetWeekNum={targetWeekNum}
                 productionProgressMap={productionProgressMap}
+                rejectedCountMap={rejectedCountMap}
                 readyForReturnMap={readyForReturnMap}
                 isBM01={isBM01}
                 onStartProduction={() => setShowStartModal(true)}

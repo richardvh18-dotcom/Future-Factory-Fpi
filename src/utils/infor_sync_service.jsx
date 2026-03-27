@@ -9,6 +9,7 @@ import {
   deleteDoc, addDoc, setDoc, getDoc 
 } from 'firebase/firestore';
 import { PATHS, getPlanningArchivePath, getEfficiencyArchivePath } from '../config/dbPaths';
+import { logActivity } from '../config/firebase';
 
 // Aliassen voor kolomherkenning (flexibiliteit voor export variaties)
 const ALIASES = {
@@ -153,6 +154,11 @@ export const processInforUpdate = async (db, appId, csvData) => {
     };
     
     await setDoc(doc(efficiencyRef, String(orderId)), efficiencyData, { merge: true });
+    await logActivity(
+      'system',
+      'INFOR_EFFICIENCY_SYNC',
+      `Efficiency gesynchroniseerd voor order ${orderId} (status: ${isReady ? 'completed' : 'active'})`
+    );
 
     if (isReady) {
       // Archiveer Planning Doc
@@ -166,8 +172,10 @@ export const processInforUpdate = async (db, appId, csvData) => {
           archivedAt: new Date().toISOString(),
           efficiencySnapshot: efficiencyData 
         });
+        await logActivity('system', 'INFOR_PLANNING_ARCHIVE', `Planning order gearchiveerd: ${orderId}`);
         
         await deleteDoc(d.ref);
+        await logActivity('system', 'INFOR_PLANNING_DELETE', `Planning order verwijderd na LN gereedmelding: ${orderId}`);
         countDeleted++;
       }
 
@@ -183,7 +191,9 @@ export const processInforUpdate = async (db, appId, csvData) => {
           archivedAt: new Date().toISOString(),
           finalStatus: 'completed_in_ln'
         });
+        await logActivity('system', 'INFOR_EFFICIENCY_ARCHIVE', `Efficiency gearchiveerd voor order ${orderId}`);
         await deleteDoc(effDocRef);
+        await logActivity('system', 'INFOR_EFFICIENCY_DELETE', `Efficiency verwijderd na archivering: ${orderId}`);
       }
     } else {
       // Update Planning Doc
@@ -192,9 +202,16 @@ export const processInforUpdate = async (db, appId, csvData) => {
         quantity: quantity,
         lastSync: new Date().toISOString()
       }, { merge: true });
+      await logActivity('system', 'INFOR_PLANNING_UPDATE', `Planning bijgewerkt vanuit LN voor order ${orderId}`);
       countUpdated++;
     }
   }
+
+  await logActivity(
+    'system',
+    'INFOR_SYNC_RUN',
+    `LN sync afgerond. Matched: ${countMatched}, Updated: ${countUpdated}, Deleted: ${countDeleted}, Unmatched: ${unmatchedOrders.length}`
+  );
 
   return { countCreated, countUpdated, countDeleted, countMatched, unmatchedOrders };
 };

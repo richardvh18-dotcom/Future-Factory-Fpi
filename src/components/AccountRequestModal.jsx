@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, UserPlus, Mail, User, Globe, Building2, Send, CheckCircle } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { db, logActivity } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 
 /**
@@ -65,6 +65,12 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
         processedAt: null,
         processedBy: null,
       });
+
+      await logActivity(
+        "system",
+        "ACCOUNT_REQUEST_CREATE",
+        `Accountaanvraag ontvangen voor ${formData.email}`
+      );
 
       setSubmitted(true);
       

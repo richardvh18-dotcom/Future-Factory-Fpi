@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 import { PATHS } from "../config/dbPaths";
-import { db, auth } from "../config/firebase";
+import { db, auth, logActivity } from "../config/firebase";
 import { updatePassword, updateProfile } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import RoleSwitcher from "./admin/RoleSwitcher";
@@ -136,6 +136,12 @@ const ProfileView = () => {
         { merge: true }
       );
 
+      await logActivity(
+        user.uid,
+        "PROFILE_UPDATE",
+        `Profielinstellingen bijgewerkt voor ${user.email || user.uid}`
+      );
+
       // Update ook direct de actieve taal
       i18n.changeLanguage(preferences.language);
 
@@ -167,6 +173,11 @@ const ProfileView = () => {
       await updatePassword(auth.currentUser, passwordData.newPassword);
       const userRef = doc(db, ...PATHS.USERS, user.uid);
       await setDoc(userRef, { mustChangePassword: false }, { merge: true });
+      await logActivity(
+        user.uid,
+        "PASSWORD_CHANGE",
+        "Wachtwoord gewijzigd en mustChangePassword uitgezet"
+      );
 
       setPwSuccess(true);
       setPasswordData({ newPassword: "", confirmPassword: "" });

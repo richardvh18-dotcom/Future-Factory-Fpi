@@ -10,6 +10,7 @@ import {
   Factory,
   Filter,
   Archive,
+  Download,
 } from "lucide-react";
 import StatusBadge from "./common/StatusBadge";
 import { collection, query, getDocs, limit } from "firebase/firestore";
@@ -44,12 +45,19 @@ const AutoSizer = ({ children }) => {
 /**
  * PlanningSidebar - Nu met 'NIEUW' indicator voor recent toegevoegde orders.
  */
-const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
+const PlanningSidebar = ({
+  orders = [],
+  selectedOrderId,
+  onSelect,
+  trackedProducts = [],
+  enableRejectionScopes = false,
+}) => {
   const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMachine, setSelectedMachine] = useState("ALL");
   const [sortMode, setSortMode] = useState("week_backlog");
   const [dataScope, setDataScope] = useState("active");
+  const [rejectPeriod, setRejectPeriod] = useState("this_week");
   const [archivedOrders, setArchivedOrders] = useState([]);
   const [loadingArchive, setLoadingArchive] = useState(false);
 
@@ -57,6 +65,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
   const currentYear = new Date().getFullYear();
 
   const isHistoryScope = dataScope === "history" || dataScope === "all";
+  const isRejectScope = dataScope === "temp_reject" || dataScope === "definitive_reject";
 
   // Haal archief data op wanneer history scope actief is
   useEffect(() => {
@@ -142,6 +151,52 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
 
   // Bepaal de bron data: Actief, History of beide
   const sourceData = useMemo(() => {
+    if (dataScope === "temp_reject" || dataScope === "definitive_reject") {
+      return trackedProducts
+        .filter((p) => {
+          const status = String(p?.status || "").toLowerCase().trim();
+          const step = String(p?.currentStep || "").toUpperCase().trim();
+          const inspectionStatus = String(p?.inspection?.status || "").toLowerCase().trim();
+
+          if (dataScope === "temp_reject") {
+            return inspectionStatus === "tijdelijke afkeur" || status === "temp_rejected" || status === "held_qc" || step === "HOLD_AREA";
+          }
+
+          return status === "rejected" || step === "REJECTED" || inspectionStatus === "afkeur";
+        })
+        .map((p) => {
+          const rejectDateRaw =
+            p?.inspection?.timestamp ||
+            p?.updatedAt ||
+            p?.createdAt ||
+            p?.startTime ||
+            null;
+          const rejectDate =
+            typeof rejectDateRaw?.toDate === "function"
+              ? rejectDateRaw.toDate()
+              : new Date(rejectDateRaw || Date.now());
+
+          const weekNumber = Number.isFinite(getISOWeek(rejectDate)) ? getISOWeek(rejectDate) : currentWeek;
+          const weekYear = Number.isFinite(rejectDate.getFullYear()) ? rejectDate.getFullYear() : currentYear;
+
+          return {
+            ...p,
+            id: p.id || p.lotNumber || `${p.orderId || "-"}_${p.currentStation || "-"}_${Math.random().toString(36).slice(2)}`,
+            orderId: String(p.orderId || "").trim(),
+            machine: p.originMachine || p.currentStation || "Onbekend",
+            item: p.item || p.itemDescription || p.itemCode || "Onbekend product",
+            lotNumbersText: p.lotNumber || "",
+            rejectDate,
+            rejectDateMs: rejectDate.getTime(),
+            weekNumber,
+            weekYear,
+            isRejectEntry: true,
+            rejectKind: dataScope,
+            status: dataScope === "temp_reject" ? "Tijdelijke afkeur" : "rejected",
+          };
+        });
+    }
+
     if (dataScope === "history") return archivedOrders;
     if (dataScope === "all") {
       const byOrder = new Map();
@@ -159,7 +214,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
       return Array.from(byOrder.values());
     }
     return orders;
-  }, [dataScope, orders, archivedOrders]);
+  }, [dataScope, orders, archivedOrders, trackedProducts, currentWeek, currentYear]);
 
   // Helper om te bepalen of een order nieuw is (< 24 uur)
   const isOrderNew = (order) => {
@@ -176,6 +231,18 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
     const m = new Set(sourceData.map(o => o.machine).filter(Boolean));
     return ["ALL", ...Array.from(m).sort()];
   }, [sourceData]);
+
+  const scopeOptions = [
+    { value: "active", label: "Actief" },
+    { value: "history", label: "History" },
+    { value: "all", label: "Actief + History" },
+    ...(enableRejectionScopes
+      ? [
+          { value: "temp_reject", label: "Tijdelijke Afkeur" },
+          { value: "definitive_reject", label: "Definitieve Afkeur" },
+        ]
+      : []),
+  ];
 
   const filteredOrders = useMemo(() => {
     const getPriorityLevel = (order) => {
@@ -245,6 +312,39 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
       result = result.filter(o => o.status !== 'completed' && o.status !== 'shipped' && o.status !== 'cancelled');
     }
 
+    if (isRejectScope) {
+      const now = new Date();
+      const thisWeek = getISOWeek(now);
+      const thisYear = now.getFullYear();
+      const thisMonth = now.getMonth();
+      const previousWeekDate = new Date(now);
+      previousWeekDate.setDate(previousWeekDate.getDate() - 7);
+      const previousWeek = getISOWeek(previousWeekDate);
+      const previousWeekYear = previousWeekDate.getFullYear();
+
+      result = result.filter((entry) => {
+        const entryWeek = Number(entry.weekNumber || entry.week || 0);
+        const entryYear = Number(entry.weekYear || entry.year || thisYear);
+        const entryDateRaw =
+          entry?.rejectDate ||
+          entry?.inspection?.timestamp ||
+          entry?.updatedAt ||
+          entry?.createdAt ||
+          null;
+        const entryDate =
+          typeof entryDateRaw?.toDate === "function"
+            ? entryDateRaw.toDate()
+            : new Date(entryDateRaw || 0);
+        if (rejectPeriod === "this_week") return entryWeek === thisWeek && entryYear === thisYear;
+        if (rejectPeriod === "previous_week") return entryWeek === previousWeek && entryYear === previousWeekYear;
+        if (rejectPeriod === "this_month") {
+          return Number.isFinite(entryDate.getTime()) && entryDate.getFullYear() === thisYear && entryDate.getMonth() === thisMonth;
+        }
+        if (rejectPeriod === "this_year") return entryYear === thisYear;
+        return true;
+      });
+    }
+
     // 3. Zoeken
     const term = (searchTerm || "").toLowerCase().trim();
     if (term) {
@@ -307,10 +407,11 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
         return (a.orderId || "").localeCompare(b.orderId || "");
       }
 
-      if (sortMode === "date_asc" || sortMode === "date_desc") {
+      if (sortMode === "date_asc" || sortMode === "date_desc" || isRejectScope) {
         const dateA = getOrderDateMs(a);
         const dateB = getOrderDateMs(b);
         if (dateA !== dateB) {
+          if (isRejectScope) return dateB - dateA;
           return sortMode === "date_asc" ? dateA - dateB : dateB - dateA;
         }
 
@@ -340,7 +441,51 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
       // Fallback: Order ID
       return (a.orderId || "").localeCompare(b.orderId || "");
     });
-  }, [sourceData, searchTerm, selectedMachine, dataScope, currentWeek, currentYear, sortMode]);
+  }, [sourceData, searchTerm, selectedMachine, dataScope, currentWeek, currentYear, sortMode, rejectPeriod, isRejectScope]);
+
+  const handleExportCurrentList = () => {
+    if (!filteredOrders.length) return;
+
+    const rows = filteredOrders.map((order) => ({
+      orderId: order.orderId || "",
+      lotNumber: order.lotNumber || order.activeLot || "",
+      item: order.item || order.itemDescription || order.itemCode || "",
+      machine: order.machine || order.originMachine || order.currentStation || "",
+      status: order.status || "",
+      week: order.weekNumber || order.week || "",
+      year: order.weekYear || order.year || "",
+      rejectType: order.rejectKind === "temp_reject" ? "Tijdelijke afkeur" : order.rejectKind === "definitive_reject" ? "Definitieve afkeur" : "",
+      rejectReason: order.inspection?.reasons ? order.inspection.reasons.join(" | ") : "",
+      updatedAt: order.updatedAt?.toDate ? order.updatedAt.toDate().toISOString() : (order.updatedAt || ""),
+    }));
+
+    const headers = Object.keys(rows[0]);
+    const escapeCsv = (value) => {
+      const text = String(value ?? "");
+      if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) => headers.map((h) => escapeCsv(row[h])).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const datePart = new Date().toISOString().slice(0, 10);
+    const scopePart = String(dataScope || "lijst").toLowerCase();
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `teamleader_${scopePart}_${datePart}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const getOrderDisplayName = (order) => {
     return (
@@ -354,6 +499,7 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
 
   const formatDeliveryDate = (order) => {
     const candidates = [
+      order?.rejectDate,
       order?.plannedDeliveryDate,
       order?.deliveryDate,
       order?.dueDate,
@@ -557,16 +703,30 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
             </div>
             <div className="relative flex-1">
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <select
-                value={sortMode}
-                onChange={(e) => setSortMode(e.target.value)}
-                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
-              >
-                <option value="week_backlog">{t("digitalplanning.sidebar.sort_week_backlog", "Week + Backlog")}</option>
-                <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
-                <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
-                <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
-              </select>
+              {isRejectScope ? (
+                <select
+                  value={rejectPeriod}
+                  onChange={(e) => setRejectPeriod(e.target.value)}
+                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
+                >
+                  <option value="this_week">Deze week</option>
+                  <option value="previous_week">Vorige week</option>
+                  <option value="this_month">Deze maand</option>
+                  <option value="this_year">Dit jaar</option>
+                  <option value="all">Alles</option>
+                </select>
+              ) : (
+                <select
+                  value={sortMode}
+                  onChange={(e) => setSortMode(e.target.value)}
+                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
+                >
+                  <option value="week_backlog">{t("digitalplanning.sidebar.sort_week_backlog", "Week + Backlog")}</option>
+                  <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
+                  <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
+                  <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
+                </select>
+              )}
             </div>
             <div className="relative flex-1">
               <Archive className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
@@ -575,11 +735,20 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 onChange={(e) => setDataScope(e.target.value)}
                 className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
               >
-                <option value="active">Actief</option>
-                <option value="history">History</option>
-                <option value="all">Actief + History</option>
+                {scopeOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
+            <button
+              type="button"
+              onClick={handleExportCurrentList}
+              disabled={filteredOrders.length === 0}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Exporteer huidige lijst"
+            >
+              <Download size={14} /> Export
+            </button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-1 custom-scrollbar">
@@ -627,16 +796,30 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
             </div>
             <div className="relative flex-1">
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <select
-                value={sortMode}
-                onChange={(e) => setSortMode(e.target.value)}
-                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
-              >
-                <option value="week_backlog">{t("digitalplanning.sidebar.sort_week_backlog", "Week + Backlog")}</option>
-                <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
-                <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
-                <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
-              </select>
+              {isRejectScope ? (
+                <select
+                  value={rejectPeriod}
+                  onChange={(e) => setRejectPeriod(e.target.value)}
+                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
+                >
+                  <option value="this_week">Deze week</option>
+                  <option value="previous_week">Vorige week</option>
+                  <option value="this_month">Deze maand</option>
+                  <option value="this_year">Dit jaar</option>
+                  <option value="all">Alles</option>
+                </select>
+              ) : (
+                <select
+                  value={sortMode}
+                  onChange={(e) => setSortMode(e.target.value)}
+                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
+                >
+                  <option value="week_backlog">{t("digitalplanning.sidebar.sort_week_backlog", "Week + Backlog")}</option>
+                  <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
+                  <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
+                  <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
+                </select>
+              )}
             </div>
             <div className="relative flex-1">
               <Archive className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
@@ -645,11 +828,20 @@ const PlanningSidebar = ({ orders = [], selectedOrderId, onSelect }) => {
                 onChange={(e) => setDataScope(e.target.value)}
                 className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
               >
-                <option value="active">Actief</option>
-                <option value="history">History</option>
-                <option value="all">Actief + History</option>
+                {scopeOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
+            <button
+              type="button"
+              onClick={handleExportCurrentList}
+              disabled={filteredOrders.length === 0}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Exporteer huidige lijst"
+            >
+              <Download size={14} /> Export
+            </button>
         </div>
       </div>
 

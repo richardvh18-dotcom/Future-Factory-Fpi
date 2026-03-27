@@ -374,18 +374,12 @@ export const downloadZPL = (zpl, filename = "label.zpl") => {
 
 export const logPrintAction = async (user, labelName, printerIp, data) => {
     try {
-        const { db } = await import("../config/firebase");
-        const { collection, addDoc, serverTimestamp } = await import("firebase/firestore");
-        await addDoc(collection(db, "future-factory", "public", "data", "system_logs"), {
-            action: "PRINT_LABEL",
-            user: user?.email || "unknown",
-            userId: user?.uid || "unknown",
-            label: labelName || "Unknown Label",
-            printer: printerIp || "Local/PDF",
-            lotNumber: data?.lotNumber || "N/A",
-            timestamp: serverTimestamp(),
-            details: `Printed ${labelName} for lot ${data?.lotNumber}`
-        });
+        const { logActivity } = await import("../config/firebase");
+        await logActivity(
+            user?.uid || "system",
+            "PRINT_LABEL",
+            `Label geprint: ${labelName || "Unknown Label"} voor lot ${data?.lotNumber || "N/A"} via ${printerIp || "Local/PDF"}`
+        );
     } catch (e) {
         console.error("Failed to log print action", e);
     }

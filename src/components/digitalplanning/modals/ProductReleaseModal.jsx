@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, CheckCircle, ArrowRight, AlertTriangle, Ruler, AlertOctagon, FileText } from "lucide-react";
 import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, getDocs, increment } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS } from "../../../utils/workstationLogic";
 
@@ -242,6 +242,13 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
       }
 
       await updateDoc(productRef, updates);
+
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        status === "approved" ? "PRODUCT_RELEASE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
+        `Release modal: lot ${product?.lotNumber || product?.id}, station ${product?.currentStation || product?.machine || "onbekend"}, status ${status}, next ${updates.currentStep || "nvt"}`
+      );
+
       if (onComplete) onComplete();
       onClose();
     } catch (error) {

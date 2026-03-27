@@ -11,7 +11,7 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
-import { db, auth } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import {
   Ruler,
@@ -97,6 +97,12 @@ const AdminDrillingView = () => {
         { merge: true }
       );
 
+      await logActivity(
+        auth.currentUser?.uid,
+        "DRILLING_PATTERN_CREATE",
+        `Boorpatroon aangemaakt: ${docId}`
+      );
+
       setFormData({
         ...formData,
         pcd: "",
@@ -118,6 +124,11 @@ const AdminDrillingView = () => {
         ...editData,
         lastUpdated: serverTimestamp(),
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "DRILLING_PATTERN_UPDATE",
+        `Boorpatroon bijgewerkt: ${id}`
+      );
       setEditingId(null);
     } catch (err) {
       alert(err.message);
@@ -131,6 +142,11 @@ const AdminDrillingView = () => {
       return;
     try {
       await deleteDoc(doc(db, ...PATHS.BORE_DIMENSIONS, id));
+      await logActivity(
+        auth.currentUser?.uid,
+        "DRILLING_PATTERN_DELETE",
+        `Boorpatroon verwijderd: ${id}`
+      );
     } catch (err) {
       alert(err.message);
     }

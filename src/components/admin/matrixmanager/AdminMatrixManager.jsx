@@ -14,7 +14,7 @@ import {
   Target,
 } from "lucide-react";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 
 // Nieuw pad voor site config
@@ -79,6 +79,11 @@ const AdminMatrixManager = () => {
             appName: oldData.appName || oldData.siteName || ""
           };
           await setDoc(doc(db, ...SITE_CONFIG_PATH), migrated, { merge: true });
+          await logActivity(
+            auth.currentUser?.uid,
+            "SITE_CONFIG_MIGRATE",
+            "Site config gemigreerd van main naar app"
+          );
           setSiteConfig(migrated);
         }
 
@@ -140,6 +145,11 @@ const AdminMatrixManager = () => {
         safeSiteConfig.appName
       ) {
         await setDoc(doc(db, ...SITE_CONFIG_PATH), safeSiteConfig, { merge: true });
+        await logActivity(
+          auth.currentUser?.uid,
+          "SITE_CONFIG_UPDATE",
+          "Site config bijgewerkt vanuit Matrix Hub"
+        );
       }
     } else if (activeTab === "blueprints") {
       pathArray = PATHS.BLUEPRINTS;
@@ -158,6 +168,12 @@ const AdminMatrixManager = () => {
           updatedBy: "Admin Hub Core",
         },
         { merge: true }
+      );
+
+      await logActivity(
+        auth.currentUser?.uid,
+        "MATRIX_MANAGER_SAVE",
+        `Matrix Hub opgeslagen voor tab: ${activeTab}`
       );
 
       addLog("success", "Wijzigingen live gepubliceerd!");
