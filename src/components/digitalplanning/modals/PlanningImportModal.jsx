@@ -409,7 +409,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         };
         
         try {
-          worker.postMessage({ arrayBuffer }, [arrayBuffer]);
+          // Keep the original buffer intact for main-thread fallback.
+          const workerBuffer = arrayBuffer.slice(0);
+          worker.postMessage({ arrayBuffer: workerBuffer }, [workerBuffer]);
         } catch (postErr) {
           clearTimeout(timeoutId);
           reject(new Error("Failed to send file to worker: " + postErr.message));
