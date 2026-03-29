@@ -1,6 +1,6 @@
 # Pilot Handover Summary
 
-**Laatst bijgewerkt:** 27 maart 2026 (sessie 26)
+**Laatst bijgewerkt:** 29 maart 2026 (sessie 27)
 **Branch:** `FPiFF-may-build`  
 **Doel:** compacte overdracht voor hervatten van pilotwerk richting 30 maart
 
@@ -36,6 +36,101 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
     - planninglijst filtert `planningHidden` standaard weg,
     - behalve voor actieve/lopende statussen (zodat afmaken altijd mogelijk blijft).
 - **Validatie:** builds uitgevoerd; 1 run werd extern afgekapt (`Terminated`), herhaalbuild succesvol afgerond.
+
+### Update sessie 27 (import `Gewikkeld` + WIP wijzigingen importmodal)
+
+- **Nieuwe importmapping toegevoegd voor productieaantallen (`Gewikkeld`):**
+    - in zowel `PlanningImportModal.jsx` als `planningImportWorker.js` wordt nu extra kolomdetectie gedaan op `gewikkeld | geproduceerd | gemaakt | produced`.
+    - geimporteerde waarde wordt opgeslagen als:
+        - `produced`
+        - dynamisch stationveld `started_<machine>` (bijv. `started_40BH18`).
+- **Schaallogica voor buismachines uitgebreid:**
+    - bestaande `/10` conversie voor `BA05/BA07/BA08/BA09` bleef gelden voor `plan`.
+    - dezelfde `/10` conversie wordt nu ook toegepast op `gewikkeldCount` zodat `plan` en `produced` consistent blijven.
+- **Paste/import flow in modal aangepast (WIP):**
+    - geplakte data-workbook gebruikt nu sheetnaam `PastedData` i.p.v. `40BM01`.
+    - diverse foutmeldingen en UI-teksten zijn versimpeld.
+    - meerdere UI-blokken zijn sterk vereenvoudigd/verwijderd in de huidige werkversie van de modal.
+- **Belangrijke status voor hervatten:**
+    - dit lijkt een **lopende tussenstand** met grote front-end wijzigingen in de importmodal.
+    - aanbevolen eerstvolgende stap: regressiecheck op import UX (weekselectie, sheetfilter, importstrategie, previewkolommen) en daarna pas committen.
+
+#### Te testen na hervatten (sessie 27)
+
+- [ ] Import met echt LN-bestand met kolom `Gewikkeld`: controleer of `produced` gevuld wordt in Firestore.
+- [ ] Controleer of dynamisch veld `started_<machine>` correct wordt opgeslagen (bijv. `started_40BH18`).
+- [ ] Pipe-machine scenario (`BA05/07/08/09`): verifieer dat zowel `plan` als `produced` met `/10` worden geschaald.
+- [ ] Paste-flow valideren met echte Excel-kopie: headerrij detectie + orderpreview zonder dataverlies.
+- [ ] Regressiecheck modal-UX: weekselectie, sheetfilter, importstrategie en previewkolommen nog volledig beschikbaar.
+- [ ] Controleer dat niet-geselecteerde orders nog steeds als `planningHidden: true` worden opgeslagen.
+- [ ] End-to-end zichtbaarheidstest: import -> Terminal -> Workstation (actieve/lopende orders blijven zichtbaar).
+
+## Pilot Branching & Deploy Flow (4 weken vanaf 30 maart)
+
+### Doel
+
+- Houd 1 stabiele pilotlijn die exclusief naar Vercel Production publiceert.
+- Houd 1 aparte ontwikkellijn voor nieuwe features die alleen naar Vercel Preview publiceert.
+
+### Branchstrategie
+
+- `FPiFF-may-build` = **Pilot Stable** (enige branch voor productie).
+- `pilot-dev` = **Development** (nieuwe ontwikkelingen, refactors, experimenten).
+- `hotfix/*` = tijdelijke branch voor urgente pilotreparaties.
+
+### Codespaces
+
+- **Codespace A: Pilot Ops** (start vanaf `FPiFF-may-build`)
+    - alleen gebruiken voor pilot-fixes, kleine reparaties en productie releases.
+- **Codespace B: Feature Dev** (start vanaf `pilot-dev`)
+    - gebruiken voor nieuwe features en veranderingen die eerst naar preview moeten.
+
+### Vercel instellingen
+
+- Zet in Vercel de **Production Branch** op `FPiFF-may-build`.
+- Laat preview deploys actief voor alle andere branches.
+- Gebruik waar mogelijk gescheiden environment variabelen voor Production vs Preview.
+
+### Dagelijkse werkwijze
+
+1. Nieuwe ontwikkeling:
+    - werk in Codespace B op `pilot-dev` (of `feature/*` vanaf `pilot-dev`).
+    - push naar remote -> automatische Vercel Preview deploy.
+2. Pilot bugfix:
+    - werk in Codespace A op `hotfix/*` vanaf `FPiFF-may-build`.
+    - test minimaal lokaal + smoke op preview.
+    - merge naar `FPiFF-may-build` voor productie deploy.
+3. Geplande release van development naar pilot:
+    - open PR van `pilot-dev` naar `FPiFF-may-build`.
+    - alleen mergen na akkoord en korte regressietest.
+
+### Hotfix flow (6 stappen)
+
+1. Checkout `FPiFF-may-build` en pull laatste wijzigingen.
+2. Maak `hotfix/<korte-naam>`.
+3. Voer minimale fix uit met gerichte validatie.
+4. Open PR naar `FPiFF-may-build`.
+5. Merge PR.
+6. Controleer Vercel Production deploy + korte smoke test.
+
+### Git commando's (referentie)
+
+```bash
+git checkout FPiFF-may-build
+git pull
+git checkout -b hotfix/voorbeeld-fix
+git add .
+git commit -m "Hotfix: voorbeeld"
+git push -u origin hotfix/voorbeeld-fix
+```
+
+### Aanbevolen beveiliging
+
+- Branch protection op `FPiFF-may-build`:
+    - PR verplicht voor merge.
+    - minimaal 1 review of expliciete eigenaar-goedkeuring.
+    - optioneel: status checks verplicht voor merge.
+- Geen directe pushes naar `FPiFF-may-build`.
 
 ### Confirmatie werkflow lopende planning (sessie 26b)
 
