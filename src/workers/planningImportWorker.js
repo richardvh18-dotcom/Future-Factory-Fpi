@@ -142,6 +142,7 @@ const parseWorkbook = (arrayBuffer) => {
     const idxItemCode = firstIndex(headers, ["manufactured item", "item code", "item"]);
     const idxDatum = firstIndex(headers, ["datum", "date", "delivery date", "leverdatum"]);
     const idxPlan = firstIndex(headers, ["plan", "qty", "quantity", "aantal"]);
+    const idxGewikkeld = firstIndex(headers, ["gewikkeld", "geproduceerd", "gemaakt", "produced"]);
     const idxWeek = firstIndex(headers, ["week", "weeknumber", "week number"]);
     const idxItemDesc = firstIndex(headers, ["item desc", "description", "omschrijving"]);
     const idxCode = firstIndex(headers, ["code", "extra code"]);
@@ -168,9 +169,19 @@ const parseWorkbook = (arrayBuffer) => {
         if (Number.isNaN(quantity)) quantity = 1;
 
         const machine = normalizeMachine(row[idxMachine]);
+        const machineKey = `started_${machine.replace(/[^a-zA-Z0-9]/g, "_")}`;
         const PIPE_MACHINES = ["BA05", "BA07", "BA08", "BA09"];
+
+        const rawGewikkeld = idxGewikkeld !== -1 ? row[idxGewikkeld] : null;
+        let gewikkeldCount =
+          typeof rawGewikkeld === "string"
+            ? parseFloat(rawGewikkeld.replace(",", "."))
+            : parseFloat(rawGewikkeld);
+        if (Number.isNaN(gewikkeldCount)) gewikkeldCount = 0;
+
         if (PIPE_MACHINES.includes(machine)) {
           quantity = quantity / 10;
+          gewikkeldCount = gewikkeldCount / 10;
         }
 
         return {
@@ -184,6 +195,8 @@ const parseWorkbook = (arrayBuffer) => {
           item: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
           extraCode: idxCode !== -1 ? String(row[idxCode] || "") : "",
           plan: quantity,
+          produced: gewikkeldCount,
+          [machineKey]: gewikkeldCount,
           notes: idxPoText !== -1 ? String(row[idxPoText] || "") : "",
           project: idxProject !== -1 ? String(row[idxProject] || "") : "",
           projectDesc: idxProjectDesc !== -1 ? String(row[idxProjectDesc] || "") : "",

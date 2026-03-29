@@ -229,6 +229,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       const idxItemCode = firstIndex(headers, ["manufactured item", "item code", "item"]);
       const idxDatum = firstIndex(headers, ["datum", "date", "delivery date", "leverdatum"]);
       const idxPlan = firstIndex(headers, ["plan", "qty", "quantity", "aantal"]);
+      const idxGewikkeld = firstIndex(headers, ["gewikkeld", "geproduceerd", "gemaakt", "produced"]);
       const idxWeek = firstIndex(headers, ["week", "weeknumber", "week number"]);
       const idxItemDesc = firstIndex(headers, ["item desc", "description", "omschrijving"]);
       const idxCode = firstIndex(headers, ["code", "extra code"]);
@@ -255,8 +256,20 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           if (Number.isNaN(quantity)) quantity = 1;
 
           const machine = normalizeMachine(row[idxMachine]);
+      const machineKey = `started_${machine.replace(/[^a-zA-Z0-9]/g, "_")}`;
           const PIPE_MACHINES = ["BA05", "BA07", "BA08", "BA09"];
-          if (PIPE_MACHINES.includes(machine)) quantity = quantity / 10;
+
+      const rawGewikkeld = idxGewikkeld !== -1 ? row[idxGewikkeld] : null;
+      let gewikkeldCount =
+        typeof rawGewikkeld === "string"
+          ? parseFloat(rawGewikkeld.replace(",", "."))
+          : parseFloat(rawGewikkeld);
+      if (Number.isNaN(gewikkeldCount)) gewikkeldCount = 0;
+
+      if (PIPE_MACHINES.includes(machine)) {
+        quantity = quantity / 10;
+        gewikkeldCount = gewikkeldCount / 10;
+      }
 
           return {
             id: docId,
@@ -269,6 +282,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             item: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
             extraCode: idxCode !== -1 ? String(row[idxCode] || "") : "",
             plan: quantity,
+        produced: gewikkeldCount,
+        [machineKey]: gewikkeldCount,
             notes: idxPoText !== -1 ? String(row[idxPoText] || "") : "",
             project: idxProject !== -1 ? String(row[idxProject] || "") : "",
             projectDesc: idxProjectDesc !== -1 ? String(row[idxProjectDesc] || "") : "",
@@ -511,7 +526,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
       if (!parsedRows.length) {
         alert(
-          "Geen geldige sheets gevonden. Zorg dat de kolommen 'Machine' en 'order' aanwezig zijn in ten minste één tabblad."
+          "Geen nieuwe orders gevonden."
         );
         return;
       }
@@ -535,7 +550,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     } finally {
       setLoading(false);
       setLoadingMessage("");
-      // Reset file input so user can try again
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -543,7 +557,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const handlePaste = async () => {
     const pasteText = pasteTextAreaRef.current?.value || "";
     if (!pasteText.trim()) {
-      alert("Plak Excel-gegevens in het tekstveld (kopieer rijen uit Excel en plak hier).");
+      alert("Plak Excel-gegevens in het tekstveld.");
       return;
     }
 
@@ -551,13 +565,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     setLoadingMessage("Geplakte data verwerken...");
 
     try {
-      // Parse tab-separated data, inclusief quoted multiline velden (PO Text)
       let rows = parsePastedTabularData(pasteText.trim());
-
       let machineHintFromFlattened = extractMachineHint(pasteText);
 
-      // Fallback: soms komt een complete Excel-selectie als (bijna) 1 lange regel binnen.
-      // In dat geval reconstrueren we rijen op basis van de bekende format-header.
       if (rows.length <= 2 && (rows[0]?.length || 0) > 40) {
         const allCells = rows.flat();
         const lowered = allCells.map((c) => String(c || "").toLowerCase().trim());
@@ -574,7 +584,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             machineHintFromFlattened = machineCell;
           }
 
-          const headerLen = 11; // datum, week, order, ... , finish
+          const headerLen = 11;
           const header = allCells.slice(headerStart, headerStart + headerLen);
           const dataCells = allCells.slice(headerStart + headerLen);
           const rebuilt = [header];
@@ -583,29 +593,15 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             const chunk = dataCells.slice(i, i + headerLen);
             if (!chunk.length) continue;
             while (chunk.length < headerLen) chunk.push("");
-
-            const hasAnyValue = chunk.some((v) => String(v || "").trim() !== "");
-            if (hasAnyValue) rebuilt.push(chunk);
+            if (chunk.some((v) => String(v || "").trim() !== "")) rebuilt.push(chunk);
           }
 
           if (rebuilt.length > 1) {
             rows = rebuilt;
-            console.log("[Paste] Rebuilt rows from flattened input:", rows.length);
           }
         }
       }
 
-      console.log("[Paste] Parsed rows:", rows.length);
-      console.log("[Paste] Row 0 (raw):", rows[0]?.slice(0, 12));
-      console.log("[Paste] Row 1 (raw):", rows[1]?.slice(0, 12));
-
-      if (rows.length < 2) {
-        alert("Onvoldoende gegevens. Zorg dat je minstens headers + 1 rij data plakt.");
-        return;
-      }
-
-      // Zoek de eerste rij die daadwerkelijk de headers bevat.
-      // Fallback: sommige gefilterde format-tabs hebben geen "Machine" kolom in de header.
       let headerIndex = rows.findIndex((row) => {
         const lowered = row.map((h) => String(h || "").toLowerCase());
         return lowered.includes("machine") && lowered.includes("order");
@@ -619,120 +615,64 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       }
 
       if (headerIndex === -1) {
-        const firstPreview = rows[0]?.slice(0, 12).join(", ") || "(geen data)";
-        alert(
-          "Fout: kolommen 'Machine' en 'order' niet gevonden in geplakte data.\n\n" +
-            "Controleer dat je inclusief headerrij kopieert uit Excel.\n\n" +
-            `Eerste rij voorbeeld: ${firstPreview}`
-        );
+        alert("Fout: kolommen 'Machine' en 'order' niet gevonden.");
         return;
       }
 
       const normalizedRows = rows.slice(headerIndex);
       const headerRow = normalizedRows[0] || [];
-      const hasOrderCol = headerRow.some((h) => String(h).toLowerCase().includes("order"));
       let hasMachineCol = headerRow.some((h) => String(h).toLowerCase().includes("machine"));
 
-      // Probeer machinecontext uit rijen boven de header te halen (bv. "40BH18" in eerste regel).
       let machineFromContext = machineHintFromFlattened || "";
       if (!machineFromContext) {
         for (let i = 0; i < headerIndex; i++) {
           const row = rows[i] || [];
           const hit = extractMachineHint(row);
-          if (hit) {
-            machineFromContext = hit;
-            break;
-          }
+          if (hit) { machineFromContext = hit; break; }
         }
-      }
-
-      if (!machineFromContext) {
-        machineFromContext = extractMachineHint(rows);
       }
 
       let preparedRows = normalizedRows;
       if (!hasMachineCol && machineFromContext) {
         preparedRows = normalizedRows.map((row, idx) => {
-          if (idx === 0) {
-            return ["Machine", ...row];
-          }
-
-          const hasAnyValue = row.some((cell) => String(cell || "").trim() !== "");
-          if (!hasAnyValue) {
-            return ["", ...row];
-          }
-
+          if (idx === 0) return ["Machine", ...row];
+          if (!row.some((cell) => String(cell || "").trim() !== "")) return ["", ...row];
           return [machineFromContext, ...row];
         });
         hasMachineCol = true;
       }
 
-      // Sommige gefilterde Excel-weergaven laten datum/week leeg op vervolgregels.
-      // Vul deze waarden aan uit de vorige rij om dataverlies bij import te voorkomen.
       if (preparedRows.length > 1) {
         const header = preparedRows[0].map((h) => String(h || "").toLowerCase().trim());
         const idxDate = header.indexOf("datum");
         const idxWeek = header.indexOf("week");
         const idxOrder = header.indexOf("order");
-
         let lastDate = "";
         let lastWeek = "";
 
         preparedRows = preparedRows.map((row, idx) => {
           if (idx === 0) return row;
           const next = [...row];
-
           if (idxDate !== -1) {
             const dateVal = String(next[idxDate] || "").trim();
-            if (dateVal) {
-              lastDate = dateVal;
-            } else if (lastDate && String(next[idxOrder] || "").trim()) {
-              next[idxDate] = lastDate;
-            }
+            if (dateVal) lastDate = dateVal; else if (lastDate && String(next[idxOrder] || "").trim()) next[idxDate] = lastDate;
           }
-
           if (idxWeek !== -1) {
             const weekVal = String(next[idxWeek] || "").trim();
-            if (weekVal) {
-              lastWeek = weekVal;
-            } else if (lastWeek && String(next[idxOrder] || "").trim()) {
-              next[idxWeek] = lastWeek;
-            }
+            if (weekVal) lastWeek = weekVal; else if (lastWeek && String(next[idxOrder] || "").trim()) next[idxWeek] = lastWeek;
           }
-
           return next;
         });
       }
 
-      if (!hasOrderCol || !hasMachineCol) {
-        console.error("[Paste] Missing columns. Headers:", headerRow);
-        alert(
-          "Fout: Kolommen 'Machine' en/of 'order' niet gevonden in headers.\n\n" +
-          "Gevonden headers: " + headerRow.slice(0, 10).join(", ") + "\n\n" +
-          (machineFromContext
-            ? `Machine uit context gevonden: ${machineFromContext}, maar header kon niet worden hersteld.\n\n`
-            : "") +
-          "Zorg dat je alle kolommen kopieert uit Excel, inclusief headers."
-        );
-        return;
-      }
-
-      // Create a new workbook from the cleaned pasted data.
-      // Gebruik expliciet een toegestane sheetnaam uit de worker-filter.
       const ws = XLSX.utils.aoa_to_sheet(preparedRows);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "40BM01");
-
-      // Convert to ArrayBuffer
+      XLSX.utils.book_append_sheet(wb, ws, "PastedData");
       const arrayBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-
-      // Process through the same worker pipeline
       const parsedRows = await parseWorkbookInWorker(arrayBuffer);
 
       if (!parsedRows.length) {
-        alert(
-          "Geen geldige data gevonden in geplakte content. Zorg dat kolommen 'Machine' en 'order' aanwezig zijn."
-        );
+        alert("Geen geldige data gevonden.");
         return;
       }
 
@@ -741,19 +681,14 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
       setFileData(withExistingFlags);
       setSelectedForPlanningMap(createSelectionMap(withExistingFlags));
-      const weekNumbers = withExistingFlags
-        .map((r) => Number(r.weekNumber))
-        .filter((w) => Number.isFinite(w));
-      const minWeek = weekNumbers.length ? Math.min(...weekNumbers) : null;
-      setWeekSelectionMax(minWeek);
+      const weekNumbers = withExistingFlags.map((r) => Number(r.weekNumber)).filter((w) => Number.isFinite(w));
+      setWeekSelectionMax(weekNumbers.length ? Math.min(...weekNumbers) : null);
       setMachineFilter("All");
       setSelectedSheet("All");
       setPasteMode(false);
       if (pasteTextAreaRef.current) pasteTextAreaRef.current.value = "";
     } catch (err) {
-      console.error("[ImportModal] Paste error:", err);
-      const errorMsg = err?.message || "Fout bij het verwerken van geplakte data.";
-      alert(`Fout bij importeren: ${errorMsg}`);
+      alert("Fout bij het verwerken van geplakte data.");
     } finally {
       setLoading(false);
       setLoadingMessage("");
@@ -772,35 +707,18 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
   const filteredData = useMemo(() => {
     let data = fileData;
-    if (selectedSheet !== "All") {
-      data = data.filter((item) => item.sourceSheet === selectedSheet);
-    }
-    if (machineFilter !== "All") {
-      data = data.filter((item) => item.machine === machineFilter);
-    }
+    if (selectedSheet !== "All") data = data.filter((item) => item.sourceSheet === selectedSheet);
+    if (machineFilter !== "All") data = data.filter((item) => item.machine === machineFilter);
     return data;
   }, [fileData, selectedSheet, machineFilter]);
 
   const uniqueWeeks = useMemo(() => {
-    const weeks = Array.from(
-      new Set(
-        fileData
-          .map((item) => Number(item.weekNumber))
-          .filter((w) => Number.isFinite(w))
-      )
-    ).sort((a, b) => a - b);
+    const weeks = Array.from(new Set(fileData.map((item) => Number(item.weekNumber)).filter((w) => Number.isFinite(w)))).sort((a, b) => a - b);
     return weeks;
   }, [fileData]);
 
-  const visibleSelectedCount = useMemo(
-    () => filteredData.filter((row) => selectedForPlanningMap[row.id] !== false).length,
-    [filteredData, selectedForPlanningMap]
-  );
-
-  const hiddenSelectedCount = useMemo(
-    () => filteredData.filter((row) => selectedForPlanningMap[row.id] === false).length,
-    [filteredData, selectedForPlanningMap]
-  );
+  const visibleSelectedCount = useMemo(() => filteredData.filter((row) => selectedForPlanningMap[row.id] !== false).length, [filteredData, selectedForPlanningMap]);
+  const hiddenSelectedCount = useMemo(() => filteredData.filter((row) => selectedForPlanningMap[row.id] === false).length, [filteredData, selectedForPlanningMap]);
 
   const toggleRowSelection = (id) => {
     setSelectedForPlanningMap((prev) => ({
@@ -812,24 +730,20 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const setAllSelection = (value) => {
     setSelectedForPlanningMap((prev) => {
       const next = { ...prev };
-      filteredData.forEach((row) => {
-        next[row.id] = value;
-      });
+      filteredData.forEach((row) => { next[row.id] = value; });
       return next;
     });
   };
 
   const applyWeekSelection = () => {
     if (!Number.isFinite(Number(weekSelectionMax))) return;
-
     const maxWeek = Number(weekSelectionMax);
     setSelectedForPlanningMap((prev) => {
       const next = { ...prev };
       fileData.forEach((row) => {
         const rowWeek = Number(row.weekNumber);
         const withinWeekWindow = Number.isFinite(rowWeek) && rowWeek <= maxWeek;
-        const keepVisible = withinWeekWindow || isRunningStatus(row.existingStatus);
-        next[row.id] = keepVisible;
+        next[row.id] = withinWeekWindow || isRunningStatus(row.existingStatus);
       });
       return next;
     });
@@ -839,11 +753,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     if (fileData.length === 0 || importing) return;
     setImporting(true);
 
-    const dataToProcess =
-      importTarget === "temp_labels" ? fileData : filteredData;
-
+    const dataToProcess = importTarget === "temp_labels" ? fileData : filteredData;
     if (dataToProcess.length === 0) {
-      alert("Geen nieuwe orders om te importeren.");
+      alert("Geen nieuwe orders.");
       setImporting(false);
       return;
     }
@@ -859,36 +771,24 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         chunk.forEach((item) => {
           const showInPlanning = selectedForPlanningMap[item.id] !== false;
           const dbData = Object.fromEntries(
-            Object.entries(item).filter(
-              ([key]) => !["isExisting", "existingStatus", "existingPlanningHidden"].includes(key)
-            )
+            Object.entries(item).filter(([key]) => !["isExisting", "existingStatus", "existingPlanningHidden"].includes(key))
           );
-          const targetPath =
-            importTarget === "temp_labels" ? PATHS.TEMP_PLANNING : PATHS.PLANNING;
+          const targetPath = importTarget === "temp_labels" ? PATHS.TEMP_PLANNING : PATHS.PLANNING;
           const docRef = doc(db, ...targetPath, item.id);
-          batch.set(
-            docRef,
-            {
-              ...dbData,
-              importTarget,
-              planningHidden: importTarget === "planning" ? !showInPlanning : false,
-              lastUpdated: serverTimestamp(),
-              importDate: serverTimestamp(),
-            },
-            { merge: true }
-          );
+          batch.set(docRef, {
+            ...dbData,
+            importTarget,
+            planningHidden: importTarget === "planning" ? !showInPlanning : false,
+            lastUpdated: serverTimestamp(),
+            importDate: serverTimestamp(),
+          }, { merge: true });
         });
 
         await batch.commit();
         processed += chunk.length;
       }
 
-      await logActivity(
-        auth.currentUser?.uid,
-        "PLANNING_IMPORT",
-        `Planning imported (${importTarget}): ${processed} records`
-      );
-
+      await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", `Planning imported: ${processed} records`);
       alert(`Import voltooid! ${processed} regels verwerkt.`);
       if (onSuccess) onSuccess();
       onClose();
@@ -902,29 +802,21 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   if (!isOpen || location.pathname.includes("/login")) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden">
         <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200">
+            <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg">
               <FileSpreadsheet size={24} />
             </div>
             <div>
-              <h2 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight">
-                Planning Import
-              </h2>
+              <h2 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight">Planning Import</h2>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1 italic">
-                Urgentie:{" "}
-                <span className="text-slate-900 font-black">Zwart &gt; 2w</span>{" "}
-                | <span className="text-blue-600 font-black">Blauw 2w</span> |{" "}
-                <span className="text-red-600 font-black">Rood 1w</span>
+                Urgentie: <span className="text-slate-900 font-black">Zwart &gt; 2w</span> | <span className="text-blue-600 font-black">Blauw 2w</span> | <span className="text-red-600 font-black">Rood 1w</span>
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-3 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
-          >
+          <button onClick={onClose} className="p-3 hover:bg-slate-200 rounded-full text-slate-400 transition-colors">
             <X size={24} />
           </button>
         </div>
@@ -932,105 +824,36 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {fileData.length === 0 ? (
             <div className="space-y-6">
-              {/* Mode Toggle */}
               <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => setPasteMode(false)}
-                  className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${
-                    !pasteMode
-                      ? "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
-                  }`}
-                >
-                  <Upload size={16} />
-                  Bestand Selecteren
+                <button onClick={() => setPasteMode(false)} className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${!pasteMode ? "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200" : "bg-white text-slate-600 border-slate-200"}`}>
+                  <Upload size={16} /> Bestand Selecteren
                 </button>
-                <button
-                  onClick={() => setPasteMode(true)}
-                  className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${
-                    pasteMode
-                      ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-200"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300"
-                  }`}
-                >
-                  <Clipboard size={16} />
-                  Plak Excel Data
+                <button onClick={() => setPasteMode(true)} className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${pasteMode ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-200" : "bg-white text-slate-600 border-slate-200"}`}>
+                  <Clipboard size={16} /> Plak Excel Data
                 </button>
               </div>
 
-              {/* File Upload Area */}
-              {!pasteMode && (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-4 border-dashed border-slate-100 rounded-[40px] p-16 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-all cursor-pointer group"
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    className="hidden"
-                    accept=".csv, .xlsx, .xls, .xlsm"
-                  />
+              {!pasteMode ? (
+                <div onClick={() => fileInputRef.current?.click()} className="border-4 border-dashed border-slate-100 rounded-[40px] p-16 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-all cursor-pointer group">
+                  <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".csv, .xlsx, .xls, .xlsm" />
                   {loading ? (
                     <div className="flex flex-col items-center gap-3 mb-6">
-                      <Loader2
-                        size={64}
-                        className="mx-auto text-blue-500 animate-spin"
-                      />
-                      <p className="text-xs font-bold text-blue-700 uppercase tracking-wider">
-                        {loadingMessage || "Bezig met verwerken..."}
-                      </p>
+                      <Loader2 size={64} className="text-blue-500 animate-spin" />
+                      <p className="text-xs font-bold text-blue-700 uppercase">{loadingMessage || "Bezig..."}</p>
                     </div>
                   ) : (
-                    <Upload
-                      size={64}
-                      className="mx-auto text-slate-200 group-hover:text-blue-400 transition-colors mb-6"
-                    />
+                    <>
+                      <Upload size={64} className="mx-auto text-slate-200 group-hover:text-blue-400 transition-colors mb-6" />
+                      <h3 className="text-xl font-black text-slate-800 uppercase italic">Selecteer Planning Bestand</h3>
+                    </>
                   )}
-                  <h3 className="text-xl font-black text-slate-800 uppercase italic">
-                    Selecteer Planning Bestand
-                  </h3>
-                  <p className="text-slate-400 font-medium mt-2">
-                    Berekening startdatum en urgentie vindt automatisch plaats
-                  </p>
                 </div>
-              )}
-
-              {/* Paste Area */}
-              {pasteMode && (
+              ) : (
                 <div className="space-y-4">
-                  <div className="bg-emerald-50 border-2 border-emerald-200 rounded-[30px] p-6">
-                    <p className="text-xs font-black text-emerald-700 uppercase tracking-widest mb-2">
-                      📋 Hoe te gebruiken:
-                    </p>
-                    <ol className="text-sm text-emerald-900 space-y-1 ml-4">
-                      <li>1. Open Excel en selecteer alle rijen (headers + data)</li>
-                      <li>2. Kopieer met Ctrl+C (Windows) of Cmd+C (Mac)</li>
-                      <li>3. Plak hieronder in het tekstveld</li>
-                      <li>4. Klik "Verwerk Geplakte Data"</li>
-                    </ol>
-                  </div>
-
-                  <textarea
-                    ref={pasteTextAreaRef}
-                    placeholder="Plak hier de Excel-gegevens (tab-separated)..."
-                    className="w-full h-64 p-4 border-2 border-slate-200 rounded-[20px] font-mono text-sm resize-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                  />
-
-                  {loading ? (
-                    <div className="w-full py-3 px-6 bg-slate-200 text-slate-600 rounded-[20px] font-black uppercase text-center flex items-center justify-center gap-2">
-                      <Loader2 size={16} className="animate-spin" />
-                      {loadingMessage || "Bezig met verwerken..."}
-                    </div>
-                  ) : (
-                    <button
-                      onClick={handlePaste}
-                      className="w-full py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[20px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-200 flex items-center justify-center gap-2"
-                    >
-                      <Clipboard size={16} />
-                      Verwerk Geplakte Data
-                    </button>
-                  )}
+                  <textarea ref={pasteTextAreaRef} placeholder="Plak hier de Excel-gegevens..." className="w-full h-64 p-4 border-2 border-slate-200 rounded-[20px] font-mono text-sm resize-none focus:outline-none focus:border-emerald-500" />
+                  <button onClick={handlePaste} className="w-full py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[20px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                    <Clipboard size={16} /> Verwerk Geplakte Data
+                  </button>
                 </div>
               )}
             </div>
@@ -1038,300 +861,80 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             <div className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 text-center">
-                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block mb-1">
-                    Zichtbaar in Planning
-                  </span>
-                  <span className="text-3xl font-black text-emerald-600 italic">
-                    {visibleSelectedCount}
-                  </span>
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block mb-1">Zichtbaar in Planning</span>
+                  <span className="text-3xl font-black text-emerald-600 italic">{visibleSelectedCount}</span>
                 </div>
                 <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 text-center">
-                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-1">
-                    Verborgen (wel opgeslagen)
-                  </span>
-                  <span className="text-3xl font-black text-blue-600 italic">
-                    {hiddenSelectedCount}
-                  </span>
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-1">Verborgen</span>
+                  <span className="text-3xl font-black text-blue-600 italic">{hiddenSelectedCount}</span>
                 </div>
                 <div className="bg-slate-900 p-6 rounded-3xl text-white">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3 italic">
-                    Import Strategie
-                  </label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block italic">Bestemming</label>
                   <div className="space-y-2">
-                    <button
-                      onClick={() => setImportMode("new_only")}
-                      className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${
-                        importMode === "new_only"
-                          ? "bg-emerald-600 border-emerald-500 text-white"
-                          : "bg-white/5 border-white/10 text-slate-400"
-                      }`}
-                    >
-                      Alleen Nieuwe <PlusCircle size={14} />
-                    </button>
-                    <button
-                      onClick={() => setImportMode("overwrite")}
-                      className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${
-                        importMode === "overwrite"
-                          ? "bg-orange-600 border-orange-500 text-white"
-                          : "bg-white/5 border-white/10 text-slate-400"
-                      }`}
-                    >
-                      Overschrijf alles <RefreshCw size={14} />
-                    </button>
-                  </div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mt-4 mb-2 italic">
-                    Bestemming
-                  </label>
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => setImportTarget("planning")}
-                      className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${
-                        importTarget === "planning"
-                          ? "bg-blue-600 border-blue-500 text-white"
-                          : "bg-white/5 border-white/10 text-slate-400"
-                      }`}
-                    >
-                      Productie Planning
-                    </button>
-                    <button
-                      onClick={() => setImportTarget("temp_labels")}
-                      className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${
-                        importTarget === "temp_labels"
-                          ? "bg-violet-600 border-violet-500 text-white"
-                          : "bg-white/5 border-white/10 text-slate-400"
-                      }`}
-                    >
-                      Temp Labels (Hele Planning)
-                    </button>
+                    <button onClick={() => setImportTarget("planning")} className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${importTarget === "planning" ? "bg-blue-600 border-blue-500 text-white" : "bg-white/5 border-white/10 text-slate-400"}`}>Productie Planning</button>
+                    <button onClick={() => setImportTarget("temp_labels")} className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${importTarget === "temp_labels" ? "bg-violet-600 border-violet-500 text-white" : "bg-white/5 border-white/10 text-slate-400"}`}>Temp Labels</button>
                   </div>
                 </div>
               </div>
 
-              {importTarget === "temp_labels" && (
-                <div className="bg-violet-50 border border-violet-200 p-4 rounded-2xl">
-                  <p className="text-xs font-black uppercase tracking-widest text-violet-700">
-                    Let op: tijdelijke labels import actief
-                  </p>
-                  <p className="text-xs text-violet-900 font-medium mt-1">
-                    Deze import schrijft de volledige planning naar
-                    <span className="font-black"> /future-factory/temp_labels/orders</span>
-                    voor tijdelijke label printing.
-                  </p>
-                </div>
-              )}
-
               {importTarget === "planning" && (
-                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl">
-                  <p className="text-xs font-black uppercase tracking-widest text-amber-700">
-                    Selectie voor lopende planning (2 manieren)
-                  </p>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] font-bold text-amber-900">Week t/m</span>
-                    <select
-                      value={weekSelectionMax ?? ""}
-                      onChange={(e) => setWeekSelectionMax(Number(e.target.value))}
-                      className="bg-white border border-amber-200 rounded-lg px-2 py-1 text-[11px] font-black text-amber-900"
-                    >
-                      {uniqueWeeks.map((week) => (
-                        <option key={week} value={week}>
-                          Week {week}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={applyWeekSelection}
-                      className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase tracking-wider"
-                    >
-                      Selecteer t/m week + lopende orders
-                    </button>
-                    <button
-                      onClick={() => setAllSelection(true)}
-                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-wider"
-                    >
-                      Alles zichtbaar
-                    </button>
-                    <button
-                      onClick={() => setAllSelection(false)}
-                      className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider"
-                    >
-                      Alles verborgen
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-amber-900 mt-2 font-medium">
-                    Niet-geselecteerde orders worden wel geimporteerd, maar als verborgen opgeslagen. Zo hoef je bij volgende imports oude orders niet opnieuw uit te sluiten.
-                  </p>
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-bold text-amber-900">Week t/m</span>
+                  <select value={weekSelectionMax ?? ""} onChange={(e) => setWeekSelectionMax(Number(e.target.value))} className="bg-white border border-amber-200 rounded-lg px-2 py-1 text-[11px] font-black text-amber-900">
+                    {uniqueWeeks.map((week) => <option key={week} value={week}>Week {week}</option>)}
+                  </select>
+                  <button onClick={applyWeekSelection} className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase">Selecteer t/m week + lopende</button>
+                  <button onClick={() => setAllSelection(true)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase">Alles aan</button>
+                  <button onClick={() => setAllSelection(false)} className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-[10px] font-black uppercase">Alles uit</button>
                 </div>
               )}
 
-              <div className="bg-white border border-slate-200 rounded-[30px] overflow-hidden shadow-sm">
-                <div className="bg-slate-100 px-6 py-3 border-b border-slate-200 flex justify-between items-center font-black uppercase text-[10px] text-slate-500 tracking-widest">
+              <div className="bg-white border border-slate-200 rounded-[30px] overflow-hidden">
+                <div className="bg-slate-100 px-6 py-3 flex justify-between items-center font-black uppercase text-[10px] text-slate-500">
                   <div className="flex items-center gap-4">
-                    <span>Preview & Urgentie Controle</span>
-                    {uniqueSheets.length > 1 && (
-                      <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-sm">
-                        <Filter size={12} className="text-blue-500" />
-                        <select
-                          value={selectedSheet}
-                          onChange={(e) => setSelectedSheet(e.target.value)}
-                          className="bg-transparent outline-none font-bold text-slate-700 cursor-pointer text-[10px] uppercase"
-                        >
-                          {uniqueSheets.map((sheet) => (
-                            <option key={sheet} value={sheet}>
-                              {sheet}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                    {uniqueMachines.length > 1 && (
-                      <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-sm ml-2">
-                        <Filter size={12} className="text-purple-500" />
-                        <select
-                          value={machineFilter}
-                          onChange={(e) => setMachineFilter(e.target.value)}
-                          className="bg-transparent outline-none font-bold text-slate-700 cursor-pointer text-[10px] uppercase"
-                        >
-                          {uniqueMachines.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                    <span>Preview</span>
+                    <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="bg-white border rounded px-2 py-1 text-[10px]">
+                      {uniqueMachines.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
                   </div>
                   <Table size={16} className="opacity-30" />
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
+                  <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="bg-white text-slate-400 font-black uppercase tracking-widest border-b border-slate-100">
+                      <tr className="bg-white text-slate-400 font-black uppercase border-b">
                         <th className="px-6 py-4">In Planning</th>
                         <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Sheet</th>
                         <th className="px-6 py-4">Order</th>
-                        <th className="px-6 py-4">Leverdatum (E)</th>
-                        <th className="px-6 py-4">Productie Start (-2w)</th>
+                        <th className="px-6 py-4">Leverdatum</th>
                         <th className="px-6 py-4">Machine</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {filteredData.slice(0, 15).map((row, idx) => (
-                        <tr
-                          key={row.id || idx}
-                          className="hover:bg-slate-50/50 transition-colors"
-                        >
-                          <td className="px-6 py-4">
-                            <input
-                              type="checkbox"
-                              checked={selectedForPlanningMap[row.id] !== false}
-                              onChange={() => toggleRowSelection(row.id)}
-                              className="h-4 w-4 accent-blue-600 cursor-pointer"
-                            />
-                          </td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`${
-                                row.isExisting
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-emerald-100 text-emerald-700"
-                              } px-2 py-0.5 rounded-lg text-[9px] font-black uppercase`}
-                            >
-                              {row.isExisting ? "Bestaand" : "Nieuw"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-slate-500 text-[10px] font-bold uppercase">
-                            {row.sourceSheet}
-                          </td>
-                          <td className="px-6 py-4 font-black text-slate-900">
-                            {row.orderId}
-                          </td>
-                          <td className="px-6 py-4 text-slate-400">
-                            {row.deliveryDate
-                              ? format(row.deliveryDate, "dd-MM-yyyy")
-                              : "-"}
-                          </td>
-                          <td
-                            className={`px-6 py-4 ${getDateStatusStyles(
-                              row.deliveryDate
-                            )}`}
-                          >
-                            {row.plannedDate
-                              ? format(row.plannedDate, "dd-MM-yyyy")
-                              : "-"}
-                          </td>
-                          <td className="px-6 py-4 text-slate-500 font-bold uppercase">
-                            {row.machine}
-                          </td>
+                      {filteredData.slice(0, 15).map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4"><input type="checkbox" checked={selectedForPlanningMap[row.id] !== false} onChange={() => toggleRowSelection(row.id)} className="accent-blue-600" /></td>
+                          <td className="px-6 py-4"><span className={`${row.isExisting ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"} px-2 py-0.5 rounded text-[9px] font-black uppercase`}>{row.isExisting ? "Bestaand" : "Nieuw"}</span></td>
+                          <td className="px-6 py-4 font-black">{row.orderId}</td>
+                          <td className={`px-6 py-4 ${getDateStatusStyles(row.deliveryDate ? new Date(row.deliveryDate) : null)}`}>{row.deliveryDate ? format(new Date(row.deliveryDate), "dd-MM-yyyy") : "-"}</td>
+                          <td className="px-6 py-4 font-bold uppercase">{row.machine}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               </div>
-
-              <div className="bg-blue-50 border border-blue-100 p-5 rounded-3xl flex items-start gap-4 shadow-sm">
-                <Info className="text-blue-500 shrink-0 mt-1" size={24} />
-                <div>
-                  <h4 className="text-sm font-black text-blue-900 uppercase">
-                    Kleurcodering Productie Start
-                  </h4>
-                  <p className="text-xs text-blue-800 font-medium leading-relaxed mt-1 italic">
-                    Het systeem bepaalt de kleur van de startdatum op basis van
-                    de resterende tijd tot levering:
-                    <br />•{" "}
-                    <span className="text-slate-900 font-bold">Zwart:</span>{" "}
-                    Productie start ligt nog in de toekomst.
-                    <br />•{" "}
-                    <span className="text-blue-600 font-bold">Blauw:</span>{" "}
-                    Vandaag is de uiterste startdatum (2 weken zone).
-                    <br />•{" "}
-                    <span className="text-red-600 font-bold">Rood:</span> De
-                    order is urgent of de startdatum is al verstreken (1 week
-                    zone).
-                  </p>
-                </div>
-              </div>
             </div>
           )}
         </div>
 
-        <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-between items-center shrink-0">
-          <button
-            onClick={() => {
-              setFileData([]);
-              setSelectedForPlanningMap({});
-              setWeekSelectionMax(null);
-            }}
-            disabled={fileData.length === 0 || importing}
-            className="text-slate-400 hover:text-slate-600 font-black text-[10px] uppercase tracking-widest disabled:opacity-0 transition-all"
-          >
-            Bestand Wissen
-          </button>
+        <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
+          <button onClick={() => setFileData([])} disabled={fileData.length === 0} className="text-slate-400 font-black text-[10px] uppercase tracking-widest disabled:opacity-0 transition-all">Bestand Wissen</button>
           <div className="flex gap-4">
-            <button
-              onClick={onClose}
-              className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100"
-            >
-              Annuleren
-            </button>
-            <button
-              onClick={startImport}
-              disabled={fileData.length === 0 || importing}
-              className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center gap-3 disabled:opacity-50"
-            >
-              {importing ? (
-                <Loader2 className="animate-spin" size={20} />
-              ) : (
-                <CheckCircle2 size={20} />
-              )}
-              {importing
-                ? "Importeren..."
-                : `Importeer ${
-                    importTarget === "temp_labels"
-                      ? fileData.length
-                      : filteredData.length
-                  } Regels`}
+            <button onClick={onClose} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100">Annuleren</button>
+            <button onClick={startImport} disabled={fileData.length === 0 || importing} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl hover:bg-blue-700 disabled:opacity-50 flex items-center gap-3">
+              {importing ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />}
+              Importeren {importTarget === "temp_labels" ? fileData.length : filteredData.length} Regels
             </button>
           </div>
         </div>
