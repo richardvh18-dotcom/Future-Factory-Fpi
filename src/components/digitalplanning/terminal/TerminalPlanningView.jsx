@@ -18,6 +18,8 @@ import {
   Clock,
   Briefcase,
   PauseCircle,
+  History,
+  Calendar,
 } from "lucide-react";
 import { findDrawingForProduct } from "../../../utils/findDrawingForProduct";
 import { manualSyncDrawings } from "../../../utils/manualSyncDrawings";
@@ -561,6 +563,32 @@ const TerminalPlanningView = ({
                       Code: <span className="text-amber-600 font-black">{selectedOrder.extraCode}</span>
                     </p>
                   )}
+                </section>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t pt-8">
+                <section className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <History size={14} /> Administratie
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase">
+                        Aanmaakdatum LN:
+                      </span>
+                      <span className="text-sm font-black text-blue-600 flex items-center gap-2">
+                        <Calendar size={14} /> {selectedOrder.orderCreationDate || "Niet beschikbaar"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase">
+                        Tekeningnr:
+                      </span>
+                      <span className="text-sm font-black text-slate-700">
+                        {selectedOrder.drawing || "-"}
+                      </span>
+                    </div>
+                  </div>
                 </section>
               </div>
 

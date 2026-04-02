@@ -161,15 +161,22 @@ const PortalView = () => {
       <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
         {/* Welkomsttekst */}
         <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
-          <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight uppercase italic mb-2">
-            {t('common.welcome')},{" "}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 block md:inline">
-              {displayName}
+          <div className="flex items-center justify-center gap-3 md:gap-4 mb-2">
+            <span className="inline-flex items-center px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm font-black uppercase tracking-widest bg-amber-500 text-black shadow-xl shadow-amber-500/50 animate-pulse">
+              TEST
             </span>
-          </h1>
-          <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
-            {t('portal.welcome_sub')}
-          </p>
+            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight uppercase italic">
+              {t('common.welcome')},{" "}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 block md:inline">
+                {displayName}
+              </span>
+            </h1>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
+              {t('portal.welcome_sub')}
+            </p>
+          </div>
         </div>
 
         {/* Keuze Tegels */}

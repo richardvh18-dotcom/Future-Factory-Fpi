@@ -4,20 +4,31 @@
  */
 
 const BASE = "future-factory";
+const ARTIFACT_APP_ID = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
+const USE_ARTIFACTS_PATHS = typeof __app_id !== "undefined";
+const PLANNING_PATH = USE_ARTIFACTS_PATHS
+  ? ["artifacts", ARTIFACT_APP_ID, "public", "data", "digital_planning"]
+  : [BASE, "production", "data", "digital_planning", "orders"];
+const TRACKING_PATH = USE_ARTIFACTS_PATHS
+  ? ["artifacts", ARTIFACT_APP_ID, "public", "data", "tracked_products"]
+  : [BASE, "production", "tracked_products"];
+const EFFICIENCY_HOURS_PATH = USE_ARTIFACTS_PATHS
+  ? ["artifacts", ARTIFACT_APP_ID, "public", "data", "efficiency_hours"]
+  : [BASE, "production", "efficiency_hours"];
 
 export const ACTIVE_SITE = BASE;
 
 export const PATHS = {
   // --- PRODUCTIE (Collecties: oneven segmenten) ---
   PRODUCTS: [BASE, "production", "products"],
-  PLANNING: [BASE, "production", "digital_planning"],
-  TRACKING: [BASE, "production", "tracked_products"],
+  PLANNING: PLANNING_PATH,
+  TRACKING: TRACKING_PATH,
   MESSAGES: [BASE, "production", "messages"],
   OCCUPANCY: [BASE, "production", "machine_occupancy"],
   TEMP_PLANNING: [BASE, "temp_labels", "orders"], // Tijdelijk pad voor legacy labels
   INVENTORY: [BASE, "production", "inventory"],
   PRODUCTION_STANDARDS: [BASE, "production", "time_standards"],
-  EFFICIENCY_HOURS: [BASE, "production", "efficiency_hours"],
+  EFFICIENCY_HOURS: EFFICIENCY_HOURS_PATH,
   TIME_LOGS: [BASE, "production", "time_logs"],
   DOWNTIME: [BASE, "production", "downtime_reports"],
   DEFECTS: [BASE, "production", "defect_reports"],
@@ -98,6 +109,9 @@ export const getPathString = (pathArray) =>
  * @param {number|string} year - Het jaar van het archief
  */
 export const getArchiveItemsPath = (year) => {
+  if (USE_ARTIFACTS_PATHS) {
+    return ["artifacts", ARTIFACT_APP_ID, "public", "data", "archive", String(year), "items"];
+  }
   return [BASE, "production", "archive", String(year), "items"];
 };
 

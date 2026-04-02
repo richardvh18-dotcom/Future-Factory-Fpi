@@ -1,18 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { useLocation } from "react-router-dom";
-import * as XLSX from "xlsx";
 import {
   X,
   Upload,
-  FileSpreadsheet,
-  CheckCircle2,
   Loader2,
-  Table,
-  RefreshCw,
-  PlusCircle,
-  Info,
-  Filter,
-  Clipboard,
+  Database,
+  ShieldCheck,
 } from "lucide-react";
 import {
   collection,
@@ -20,1023 +12,489 @@ import {
   doc,
   serverTimestamp,
   getDocs,
-  query,
-  where,
-  documentId,
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
-import {
-  format,
-  differenceInDays,
-  subWeeks,
-  isValid,
-  parseISO,
-  parse,
-  getISOWeek,
-} from "date-fns";
+import * as XLSX from "xlsx";
+import { getISOWeek } from "date-fns";
 
+/**
+ * PlanningImportModal v4.7 - Pilot Version (Order Creation Date Support)
+ */
 const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [fileData, setFileData] = useState([]);
+  const [availableSheets, setAvailableSheets] = useState([]);
+  const [selectedSheetName, setSelectedSheetName] = useState("");
+  const [rawWorkbook, setRawWorkbook] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState("");
   const [importing, setImporting] = useState(false);
+  const [existingIds, setExistingIds] = useState(new Set());
   const [importMode, setImportMode] = useState("new_only");
-  const [importTarget, setImportTarget] = useState("planning");
-  const [selectedSheet, setSelectedSheet] = useState("All");
   const [machineFilter, setMachineFilter] = useState("All");
-  const [selectedForPlanningMap, setSelectedForPlanningMap] = useState({});
-  const [weekSelectionMax, setWeekSelectionMax] = useState(null);
-  const [overwriteExisting, setOverwriteExisting] = useState(false);
-  const [pasteMode, setPasteMode] = useState(false);
+  const [machineGroupFilter, setMachineGroupFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [debugLogs, setDebugLogs] = useState([]);
+
   const fileInputRef = useRef(null);
-  const pasteTextAreaRef = useRef(null);
-  const location = useLocation();
 
   useEffect(() => {
-    if (!isOpen) {
-      setLoadingMessage("");
-    }
+    const fetchExisting = async () => {
+      if (!isOpen) return;
+      try {
+        const snap = await getDocs(collection(db, ...PATHS.PLANNING));
+        setExistingIds(new Set(snap.docs.map(d => d.id)));
+      } catch (err) {
+        addLog("Database connectie mislukt.", "error");
+      }
+    };
+    fetchExisting();
   }, [isOpen]);
 
-  // Helper voor de kleurcodering op basis van de leverdatum t.o.v. vandaag
-  const getDateStatusStyles = (deliveryDate) => {
-    if (!deliveryDate) return "text-slate-900";
+  const addLog = (msg, type = "info") => {
+    setDebugLogs(prev => [{ msg, type, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 15)]);
+  };
 
-    const today = new Date();
-    const daysUntilDelivery = differenceInDays(deliveryDate, today);
+  const clean = (val) => String(val || "").trim();
 
-    // Rood: 1 week (7 dagen) of minder
-    if (daysUntilDelivery <= 7) {
-      return "text-red-600 font-black";
-    }
-    // Blauw: 2 weken (14 dagen) of minder
-    if (daysUntilDelivery <= 14) {
-      return "text-blue-600 font-black";
-    }
-    // Zwart: Meer dan 2 weken
-    return "text-slate-900 font-bold";
+  const parseNum = (val) => {
+    if (val === null || val === undefined || val === "") return 0;
+    const s = String(val).replace(/\s/g, "").replace(",", ".");
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
   };
 
   const normalizeMachine = (val) => {
-    if (!val) return "-";
-    let str = String(val).toUpperCase().trim();
+    let str = clean(val).toUpperCase();
+    // Work Center uit LN moet zichtbaar blijven zoals aangeleverd (bijv. 40BH18).
     if (str === "BM18") str = "BH18";
-    return str.startsWith("40") ? str.substring(2) : str;
+    if (str === "40BM18") str = "40BH18";
+    return str || "-";
   };
 
-  const extractMachineHint = (...values) => {
-    const machinePattern = /(?:^|[^A-Z0-9])((?:40)?[A-Z]{2}\d{2})(?=$|[^A-Z0-9])/i;
-
-    for (const value of values.flat(Infinity)) {
-      const text = String(value || "").trim().toUpperCase();
-      if (!text) continue;
-
-      const match = text.match(machinePattern);
-      if (match?.[1]) {
-        return match[1].toUpperCase();
-      }
-    }
-
-    return "";
+  const isStatusAllowed = (status) => {
+    const s = clean(status).toLowerCase();
+    if (s.includes("production completed") || s.includes("completed")) return false;
+    const allowed = ["released", "planned", "active", "created", "vrijgegeven", "aangemaakt", "actief"];
+    return allowed.some(keyword => s.includes(keyword));
   };
 
-  const pickBestDateCandidate = (candidates, expectedWeekNumber = null) => {
-    const parsedExpectedWeek = Number(expectedWeekNumber);
-    const hasExpectedWeek = Number.isFinite(parsedExpectedWeek) && parsedExpectedWeek > 0;
-
-    const ranked = candidates
-      .filter((candidate) => isValid(candidate.date))
-      .map((candidate, index) => {
-        let score = 0;
-        if (candidate.priority === "preferred") score += 10;
-        if (hasExpectedWeek) {
-          score += getISOWeek(candidate.date) === parsedExpectedWeek ? 100 : -25;
-        }
-        return { ...candidate, score, index };
-      })
-      .sort((a, b) => b.score - a.score || a.index - b.index);
-
-    return ranked[0]?.date || null;
+  const getMachinePriority = (machineCode) => {
+    const m = clean(machineCode).toUpperCase();
+    if (/^40BH\d{2}$/.test(m)) return 600;
+    if (/^40BM\d{2}$/.test(m)) return 550;
+    if (/^40BA\d{2}$/.test(m)) return 500;
+    if (/^40BB\d{2}$/.test(m)) return 450;
+    if (/^40AJ\d{2}$/.test(m)) return 300;
+    if (/^40\d{4}$/.test(m)) return 150;
+    return 50;
   };
 
-  const processDates = (rawDate, expectedWeekNumber = null) => {
-    if (!rawDate) return { delivery: null, planned: null };
+  const isFittingsMachine = (machineCode) => {
+    const m = clean(machineCode).toUpperCase();
+    const normalized = m.startsWith("40") ? m.slice(2) : m;
+    const allowed = new Set(["BH11", "BH12", "BH15", "BH16", "BH17", "BH18", "BH31"]);
+    return allowed.has(normalized);
+  };
 
-    const rawStr = String(rawDate || "").trim();
-    const isLocalDate = /^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/.test(rawStr);
-    const parsedDate = rawDate instanceof Date ? rawDate : new Date(rawDate);
+  const isPipesMachine = (machineCode) => {
+    const m = clean(machineCode).toUpperCase();
+    const normalized = m.startsWith("40") ? m.slice(2) : m;
+    const padded = normalized.replace(/^BA(\d)$/, "BA0$1");
+    const allowed = new Set(["BA05", "BA07", "BA08", "BA09"]);
+    return allowed.has(padded);
+  };
 
-    let dateObj = null;
-
-    // Ondersteun zowel NL- als Engelse Office-notaties; gebruik weeknummer om ambiguiteit op te lossen.
-    if (isLocalDate) {
-      const localFormats = [
-        "dd/MM/yyyy",
-        "d/M/yyyy",
-        "dd-MM-yyyy",
-        "d-M-yyyy",
-        "dd.MM.yyyy",
-        "d.M.yyyy",
-      ];
-      const usFormats = [
-        "MM/dd/yyyy",
-        "M/d/yyyy",
-        "MM-dd-yyyy",
-        "M-d-yyyy",
-        "MM.dd.yyyy",
-        "M.d.yyyy",
-      ];
-
-      const candidates = [
-        ...localFormats.map((fmt) => ({
-          date: parse(rawStr, fmt, new Date()),
-          priority: "preferred",
-        })),
-        ...usFormats.map((fmt) => ({
-          date: parse(rawStr, fmt, new Date()),
-          priority: "fallback",
-        })),
-      ];
-
-      dateObj = pickBestDateCandidate(candidates, expectedWeekNumber);
+  // LOGICA: Aggregatie van Operations per unieke Productie Order inclusief Creation Date
+  const processRawLNDump = (rawRows) => {
+    const headerIdx = rawRows.findIndex(r => r.some(c => clean(c).toLowerCase() === "production order"));
+    if (headerIdx === -1) {
+      addLog("Fout formaat: 'Production Order' niet gevonden.", "error");
+      return [];
     }
 
-    if (!isValid(dateObj) && /[A-Za-z]/.test(rawStr)) {
-      const textFormats = [
-        "d MMM yyyy",
-        "dd MMM yyyy",
-        "d MMMM yyyy",
-        "dd MMMM yyyy",
-        "MMM d yyyy",
-        "MMMM d yyyy",
-        "MMM dd yyyy",
-        "MMMM dd yyyy",
-      ];
+    const headers = rawRows[headerIdx].map(h => clean(h).toLowerCase());
+    const dataRows = rawRows.slice(headerIdx + 1);
+    const findCol = (names) => headers.findIndex(h => names.some(n => h.includes(n)));
 
-      const candidates = textFormats.map((fmt) => ({
-        date: parse(rawStr.replace(/,/g, " "), fmt, new Date()),
-        priority: "fallback",
-      }));
-
-      dateObj = pickBestDateCandidate(candidates, expectedWeekNumber);
-    }
-
-    if (!isValid(dateObj)) {
-      const parsedIso = parseISO(rawStr);
-      if (isValid(parsedIso)) dateObj = parsedIso;
-    }
-
-    if (!isValid(dateObj) && isValid(parsedDate)) {
-      dateObj = parsedDate;
-    }
-
-    if (!isValid(dateObj)) return { delivery: null, planned: null };
-
-    return {
-      delivery: dateObj,
-      planned: subWeeks(dateObj, 2),
+    const idx = {
+      order: findCol(["production order"]),
+      delivery: findCol(["planned delivery date"]),
+      machine: findCol(["work center"]),
+      status: findCol(["order status"]),
+      item: findCol(["item", "artikel"]),
+      desc: findCol(["item description", "omschrijving"]),
+      project: findCol(["project"]),
+      projectDesc: findCol(["project description", "project desc"]),
+      qty: findCol(["quantity ordered", "aantal"]),
+      plannedHours: findCol(["production time", "labor hours"]),
+      actualHours: findCol(["spent production time"]),
+      refOp: findCol(["reference operation"]),
+      drawing: findCol(["drawing number", "tekening"]),
+      // Alleen Special Instructions mag naar extraCode (Lot Code mag niet worden geïmporteerd als code).
+      special: findCol(["special instructions", "special instruction", "extra code", "extra-code"]),
+      todo: findCol(["to do qty"]),
+      creation: findCol(["order creation date"]) // Nieuwe kolom voor Dossier
     };
-  };
 
-  const normalizeHeader = (value) =>
-    String(value || "")
-      .toLowerCase()
-      .trim()
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ");
+    const orderMap = new Map();
 
-  const firstIndex = (headers, candidates) => {
-    const normalizedHeaders = headers.map(normalizeHeader);
-    for (const name of candidates) {
-      const idx = normalizedHeaders.findIndex((h) => h === normalizeHeader(name));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  };
+    dataRows.forEach(row => {
+      const orderId = clean(row[idx.order]);
+      if (!orderId || orderId === "" || orderId === "0") return;
 
-  const getSheetPriority = (sheetName) => {
-    const s = String(sheetName || "").toLowerCase();
-    if (s.includes("format fabriek")) return 100;
-    if (s.includes("format mazak")) return 90;
-    if (s.includes("format 40bm01")) return 80;
-    if (s === "pasteddata") return 75;
-    if (s.includes("fabrieksplanning")) return 70;
-    if (s.includes("mazakplanning")) return 60;
-    if (s === "40bm01") return 50;
-    return 10;
-  };
+      const refOp = clean(row[idx.refOp]);
+      const pTime = parseNum(row[idx.plannedHours]);
+      const aTime = parseNum(row[idx.actualHours]);
+      const rawStatus = clean(row[idx.status]);
+      const rowMachine = normalizeMachine(row[idx.machine]);
+      const rowStatusAllowed = isStatusAllowed(rawStatus);
 
-  const parseWorkbookOnMainThread = (arrayBuffer) => {
-    const wbMeta = XLSX.read(arrayBuffer, { type: "array", bookSheets: true });
-    const sheetNames = wbMeta.SheetNames || [];
-
-    const ALLOWED_SHEETS = [
-      "Fabrieksplanning",
-      "Mazakplanning",
-      "40BM01",
-      "PastedData",
-      "Format fabriek",
-      "Format mazak",
-      "Format 40BM01",
-    ];
-    const isAllowed = (name) =>
-      ALLOWED_SHEETS.some((a) => String(name || "").trim().toLowerCase() === a.toLowerCase());
-
-    let allData = [];
-    let sheetsFound = 0;
-
-    for (const sheetName of sheetNames) {
-      if (!isAllowed(sheetName)) continue;
-
-      const wbMetaSingle = XLSX.read(arrayBuffer, {
-        type: "array",
-        sheets: sheetName,
-        sheetRows: 6,
-      });
-      const wsMetaSingle = wbMetaSingle.Sheets[sheetName];
-      const filterMachineRaw = wsMetaSingle?.E6?.v;
-      const filterMachine = filterMachineRaw ? String(filterMachineRaw).trim() : "";
-      const sourceSheetLabel =
-        sheetName.toLowerCase().includes("format") && filterMachine
-          ? `${sheetName} (${filterMachine})`
-          : sheetName;
-
-      const wbScan = XLSX.read(arrayBuffer, {
-        type: "array",
-        sheets: sheetName,
-        sheetRows: 15,
-      });
-      const wsScan = wbScan.Sheets[sheetName];
-      if (!wsScan) continue;
-
-      const scanRows = XLSX.utils.sheet_to_json(wsScan, { header: 1, defval: "" });
-      const headerIndex = scanRows.findIndex((row) => {
-        const rowStr = row.map((c) => normalizeHeader(c));
-        return rowStr.includes("machine") && rowStr.includes("order");
-      });
-      if (headerIndex === -1) continue;
-
-      sheetsFound++;
-      const wbFull = XLSX.read(arrayBuffer, {
-        type: "array",
-        cellDates: true,
-        dense: true,
-        sheets: sheetName,
-      });
-      const ws = wbFull.Sheets[sheetName];
-      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-
-      const headers = (rawRows[headerIndex] || []).map((h) => String(h || "").trim());
-      const dataRows = rawRows.slice(headerIndex + 1);
-
-      const idxOrder = firstIndex(headers, ["order", "order id", "ordernummer"]);
-      const idxMachine = firstIndex(headers, ["machine", "station"]);
-      const idxItemCode = firstIndex(headers, ["manufactured item", "item code", "item"]);
-      const idxDatum = firstIndex(headers, ["datum", "date", "delivery date", "leverdatum"]);
-      const idxPlan = firstIndex(headers, ["plan", "qty", "quantity", "aantal"]);
-      const idxGewikkeld = firstIndex(headers, ["gewikkeld", "geproduceerd", "gemaakt", "produced"]);
-      const idxWeek = firstIndex(headers, ["week", "weeknumber", "week number"]);
-      const idxItemDesc = firstIndex(headers, ["item desc", "description", "omschrijving"]);
-      const idxCode = firstIndex(headers, ["code", "extra code"]);
-      const idxPoText = firstIndex(headers, ["po text", "po-text", "po note", "opmerking"]);
-      const idxProject = firstIndex(headers, ["project"]);
-      const idxProjectDesc = firstIndex(headers, ["project desc", "project description"]);
-      const idxDrawing = firstIndex(headers, ["drawing", "tekening"]);
-
-      const sheetData = dataRows
-        .filter((row) => idxOrder !== -1 && idxMachine !== -1 && row[idxOrder] && row[idxMachine])
-        .map((row) => {
-          const orderId = String(row[idxOrder]).trim();
-          const manufacturedItem = String(row[idxItemCode] || "").trim();
-          const docId = `${orderId}_${manufacturedItem}`.replace(/[^a-zA-Z0-9]/g, "_");
-
-          const rawDateVal = idxDatum !== -1 ? row[idxDatum] : null;
-          const expectedWeekNumber = idxWeek !== -1 ? parseInt(row[idxWeek], 10) || null : null;
-          const { delivery, planned } = processDates(rawDateVal, expectedWeekNumber);
-
-          const rawPlan = idxPlan !== -1 ? row[idxPlan] : null;
-          let quantity =
-            typeof rawPlan === "string"
-              ? parseFloat(rawPlan.replace(",", "."))
-              : parseFloat(rawPlan);
-          if (Number.isNaN(quantity)) quantity = 1;
-
-          const machine = normalizeMachine(row[idxMachine]);
-      const machineKey = `started_${machine.replace(/[^a-zA-Z0-9]/g, "_")}`;
-          const PIPE_MACHINES = ["BA05", "BA07", "BA08", "BA09"];
-
-      const rawGewikkeld = idxGewikkeld !== -1 ? row[idxGewikkeld] : null;
-      let gewikkeldCount =
-        typeof rawGewikkeld === "string"
-          ? parseFloat(rawGewikkeld.replace(",", "."))
-          : parseFloat(rawGewikkeld);
-      if (Number.isNaN(gewikkeldCount)) gewikkeldCount = 0;
-
-      if (PIPE_MACHINES.includes(machine)) {
-        quantity = quantity / 10;
-        gewikkeldCount = gewikkeldCount / 10;
-      }
-
-          return {
-            id: docId,
-            orderId,
-            machine,
-            deliveryDate: delivery ? delivery.toISOString() : null,
-            plannedDate: planned ? planned.toISOString() : null,
-            weekNumber: expectedWeekNumber,
-            itemCode: idxItemCode !== -1 ? String(row[idxItemCode] || "") : "",
-            item: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
-            extraCode: idxCode !== -1 ? String(row[idxCode] || "") : "",
-            plan: quantity,
-        produced: gewikkeldCount,
-        [machineKey]: gewikkeldCount,
-            notes: idxPoText !== -1 ? String(row[idxPoText] || "") : "",
-            project: idxProject !== -1 ? String(row[idxProject] || "") : "",
-            projectDesc: idxProjectDesc !== -1 ? String(row[idxProjectDesc] || "") : "",
-            drawing: idxDrawing !== -1 ? String(row[idxDrawing] || "") : "",
-            status: "pending",
-            sourceSheet: sourceSheetLabel,
-          };
+      if (!orderMap.has(orderId)) {
+        orderMap.set(orderId, {
+          id: orderId,
+          orderId: orderId,
+          machine: rowMachine,
+          itemCode: clean(row[idx.item]),
+          itemDescription: clean(row[idx.desc]),
+          project: clean(row[idx.project]),
+          projectDesc: clean(row[idx.projectDesc]),
+          extraCode: clean(row[idx.special]),
+          quantity: parseNum(row[idx.qty]),
+          toDoQty: parseNum(row[idx.todo]),
+          plannedDeliveryDate: row[idx.delivery],
+          orderCreationDate: clean(row[idx.creation]), // Alleen voor dossier
+          orderStatus: rawStatus,
+          drawing: clean(row[idx.drawing]),
+          isValidForImport: rowStatusAllowed,
+          status: "waiting",
+          plan: parseNum(row[idx.todo]) || parseNum(row[idx.qty]) || 0,
+          totalPlannedHours: 0,
+          totalActualHours: 0,
+          operations: {},
+          machineTotals: {},
+          sourceType: "LN Consolidated"
         });
+      }
 
-      allData = allData.concat(sheetData);
-    }
+      const order = orderMap.get(orderId);
+      if ((order.machine === "-" || !order.machine) && rowMachine !== "-") {
+        order.machine = rowMachine;
+      }
+      if (!rowStatusAllowed) {
+        order.isValidForImport = false;
+      }
+      if (!order.orderStatus && rawStatus) {
+        order.orderStatus = rawStatus;
+      }
 
-    if (sheetsFound === 0) return [];
+      if (!order.orderCreationDate) {
+        order.orderCreationDate = clean(row[idx.creation]);
+      }
 
-    // Dedupe met sheet-prioriteit: bij gelijke id wint de meest relevante sheet.
-    const byId = new Map();
-    allData.forEach((item) => {
-      const existing = byId.get(item.id);
-      const currentPriority = getSheetPriority(item.sourceSheet);
-      if (!existing || currentPriority > existing.priority) {
-        byId.set(item.id, { priority: currentPriority, item });
+      if ((!order.extraCode || order.extraCode === "-") && clean(row[idx.special])) {
+        order.extraCode = clean(row[idx.special]);
+      }
+
+      if (!order.project) {
+        order.project = clean(row[idx.project]);
+      }
+
+      if (!order.projectDesc) {
+        order.projectDesc = clean(row[idx.projectDesc]);
+      }
+
+      if (!order.drawing) {
+        order.drawing = clean(row[idx.drawing]);
+      }
+
+      if (rowMachine !== "-") {
+        const machineWeight = pTime > 0 ? pTime : 0.001;
+        order.machineTotals[rowMachine] = (order.machineTotals[rowMachine] || 0) + machineWeight;
+      }
+
+      order.totalPlannedHours += pTime;
+      order.totalActualHours += aTime;
+
+      if (refOp) {
+        order.operations[refOp] = {
+          planned: (order.operations[refOp]?.planned || 0) + pTime,
+          actual: (order.operations[refOp]?.actual || 0) + aTime
+        };
       }
     });
 
-    return Array.from(byId.values()).map((entry) => entry.item);
-  };
+    const result = Array.from(orderMap.values()).map((order) => {
+      const rankedMachines = Object.entries(order.machineTotals || {})
+        .map(([machineCode, weightedHours]) => ({
+          machineCode,
+          weightedHours,
+          score: getMachinePriority(machineCode) + weightedHours,
+        }))
+        .sort((a, b) => b.score - a.score);
 
-  const normalizeStatus = (status) => String(status || "").toLowerCase().trim();
+      const primaryMachine = rankedMachines[0]?.machineCode || order.machine;
+      const { machineTotals, ...rest } = order;
 
-  const isRunningStatus = (status) => {
-    const s = normalizeStatus(status);
-    return [
-      "in_progress",
-      "in production",
-      "active",
-      "post_processing",
-      "to_unload",
-      "unloading",
-      "to_inspect",
-      "held_qc",
-      "on_hold",
-      "delegated",
-    ].includes(s);
-  };
+      // Planned Delivery Date → deliveryDate (canonical field used throughout the app)
+      let deliveryDate = rest.plannedDeliveryDate || null;
+      let weekNumber = rest.weekNumber || null;
+      if (deliveryDate) {
+        const d = deliveryDate instanceof Date ? deliveryDate : new Date(deliveryDate);
+        if (!isNaN(d.getTime())) {
+          deliveryDate = d.toISOString();
+          weekNumber = getISOWeek(d);
+        } else {
+          deliveryDate = null;
+        }
+      }
 
-  const createSelectionMap = (rows) => {
-    const map = {};
-    rows.forEach((row) => {
-      const keepVisible = row.existingPlanningHidden ? isRunningStatus(row.existingStatus) : true;
-      map[row.id] = keepVisible;
-    });
-    return map;
-  };
-
-  const mapExistingFlags = async (rows, target) => {
-    if (!rows.length) return rows;
-
-    const targetPath = target === "temp_labels" ? PATHS.TEMP_PLANNING : PATHS.PLANNING;
-    const ids = Array.from(new Set(rows.map((r) => r.id).filter(Boolean)));
-    const existingById = new Map();
-    const chunkSize = 30;
-
-    for (let i = 0; i < ids.length; i += chunkSize) {
-      const slice = ids.slice(i, i + chunkSize);
-      const existingSnap = await getDocs(
-        query(collection(db, ...targetPath), where(documentId(), "in", slice))
-      );
-      existingSnap.docs.forEach((d) => {
-        existingById.set(d.id, d.data() || {});
-      });
-    }
-
-    return rows.map((item) => {
-      const existingDoc = existingById.get(item.id) || null;
       return {
-        ...item,
-        isExisting: Boolean(existingDoc),
-        existingStatus: existingDoc?.status || null,
-        existingPlanningHidden: Boolean(existingDoc?.planningHidden),
+        ...rest,
+        machine: primaryMachine,
+        deliveryDate,
+        weekNumber,
       };
     });
+    addLog(`${result.length} orders geconsolideerd.`, "success");
+    return result;
   };
 
-  const parseWorkbookInWorker = async (arrayBuffer) => {
-    const worker = new globalThis.Worker(
-      new URL("../../../workers/planningImportWorker.js", import.meta.url),
-      { type: "module" }
-    );
-
+  const handleSheetChange = (sheetName, workbookOverride = null) => {
+    const workbook = workbookOverride || rawWorkbook;
+    if (!workbook) return;
+    setSelectedSheetName(sheetName);
+    setLoading(true);
     try {
-      const allRows = [];
-      
-      const parsedRows = await new Promise((resolve, reject) => {
-        // Set a timeout of 60 seconds for worker completion
-        const timeoutId = setTimeout(() => {
-          worker.terminate();
-          reject(new Error("Worker timeout: parsing took too long (>60s)"));
-        }, 60000);
-
-        worker.onmessage = (event) => {
-          try {
-            const { type, payload, error, isChunk, totalRows } = event.data || {};
-            
-            if (type === "success") {
-              if (isChunk) {
-                // Accumulate chunks
-                allRows.push(...payload);
-                if (allRows.length >= totalRows) {
-                  clearTimeout(timeoutId);
-                  resolve(allRows);
-                }
-              } else {
-                // Single payload
-                clearTimeout(timeoutId);
-                resolve(payload || []);
-              }
-            } else if (type === "error") {
-              clearTimeout(timeoutId);
-              reject(new Error(error || "Onbekende parse fout"));
-            }
-          } catch (err) {
-            clearTimeout(timeoutId);
-            reject(err);
-          }
-        };
-        
-        worker.onerror = (err) => {
-          clearTimeout(timeoutId);
-          const msg = [
-            err?.message,
-            err?.filename ? `file: ${err.filename}` : null,
-            err?.lineno ? `line: ${err.lineno}` : null,
-            err?.colno ? `col: ${err.colno}` : null,
-          ]
-            .filter(Boolean)
-            .join(" | ");
-          reject(new Error(msg || "Worker load/runtime error"));
-        };
-        
-        try {
-          // Keep the original buffer intact for main-thread fallback.
-          const workerBuffer = arrayBuffer.slice(0);
-          worker.postMessage({ arrayBuffer: workerBuffer }, [workerBuffer]);
-        } catch (postErr) {
-          clearTimeout(timeoutId);
-          reject(new Error("Failed to send file to worker: " + postErr.message));
-        }
-      });
-
-      return parsedRows.map((row) => ({
-        ...row,
-        deliveryDate: row.deliveryDate ? new Date(row.deliveryDate) : null,
-        plannedDate: row.plannedDate ? new Date(row.plannedDate) : null,
-      }));
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) {
+        addLog(`Tabblad niet gevonden: ${sheetName}`, "error");
+        setFileData([]);
+        return;
+      }
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      const data = processRawLNDump(rawRows);
+      setFileData(data);
     } catch (err) {
-      // Production fallback: sommige browsers/omgevingen laden module workers onbetrouwbaar.
-      console.warn("[ImportModal] Worker failed, fallback to main-thread parser:", err);
-      const parsedRows = parseWorkbookOnMainThread(arrayBuffer);
-      return parsedRows.map((row) => ({
-        ...row,
-        deliveryDate: row.deliveryDate ? new Date(row.deliveryDate) : null,
-        plannedDate: row.plannedDate ? new Date(row.plannedDate) : null,
-      }));
+      addLog("Fout bij inlezen tabblad.", "error");
     } finally {
-      worker.terminate();
+      setLoading(false);
     }
   };
 
-  const parsePastedTabularData = (text) => {
-    const rows = [];
-    let row = [];
-    let cell = "";
-    let inQuotes = false;
-
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      const next = text[i + 1];
-
-      if (ch === '"') {
-        if (inQuotes && next === '"') {
-          // Escaped quote inside quoted field
-          cell += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-        continue;
-      }
-
-      if (ch === "\t" && !inQuotes) {
-        row.push(cell.trim());
-        cell = "";
-        continue;
-      }
-
-      if ((ch === "\n" || ch === "\r") && !inQuotes) {
-        if (ch === "\r" && next === "\n") i++;
-        row.push(cell.trim());
-        rows.push(row);
-        row = [];
-        cell = "";
-        continue;
-      }
-
-      if ((ch === "\n" || ch === "\r") && inQuotes) {
-        // Keep multiline PO-text in one field without breaking row parsing
-        cell += " ";
-        continue;
-      }
-
-      cell += ch;
-    }
-
-    if (cell.length > 0 || row.length > 0) {
-      row.push(cell.trim());
-      rows.push(row);
-    }
-
-    return rows
-      .map((r) => {
-        const cells = [...r];
-        while (cells.length > 0 && !String(cells[cells.length - 1] || "").trim()) {
-          cells.pop();
-        }
-        return cells;
-      })
-      .filter((r) => r.some((c) => String(c || "").trim() !== ""));
-  };
-
-  const handleFileChange = async (e) => {
-    const file = e.target.files[0];
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
-
     setLoading(true);
-    setLoadingMessage("Bestand verwerken op achtergrond...");
-
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const parsedRows = await parseWorkbookInWorker(arrayBuffer);
-
-      if (!parsedRows.length) {
-        alert(
-          "Geen nieuwe orders gevonden."
-        );
-        return;
-      }
-
-      setLoadingMessage("Bestaande orders controleren...");
-      const withExistingFlags = await mapExistingFlags(parsedRows, importTarget);
-
-      setFileData(withExistingFlags);
-      setSelectedForPlanningMap(createSelectionMap(withExistingFlags));
-      const weekNumbers = withExistingFlags
-        .map((r) => Number(r.weekNumber))
-        .filter((w) => Number.isFinite(w));
-      const minWeek = weekNumbers.length ? Math.min(...weekNumbers) : null;
-      setWeekSelectionMax(minWeek);
-      setMachineFilter("All");
-      setSelectedSheet("All");
-    } catch (err) {
-      console.error("[ImportModal] Error:", err);
-      const errorMsg = err?.message || "Fout bij het verwerken van het bestand.";
-      alert(`Fout bij importeren: ${errorMsg}`);
-    } finally {
-      setLoading(false);
-      setLoadingMessage("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { cellDates: true });
+      setRawWorkbook(workbook);
+      setAvailableSheets(workbook.SheetNames);
+      const bestSheet = workbook.SheetNames.find(n => n.toLowerCase().includes("data") || n.toLowerCase().includes("format") || n === "40BM01");
+      handleSheetChange(bestSheet || workbook.SheetNames[0], workbook);
+    } catch (err) { addLog("Bestand onleesbaar.", "error"); } finally { setLoading(false); }
   };
 
-  const handlePaste = async () => {
-    const pasteText = pasteTextAreaRef.current?.value || "";
-    if (!pasteText.trim()) {
-      alert("Plak Excel-gegevens in het tekstveld.");
-      return;
+  const validOrders = useMemo(() => fileData.filter((d) => d.isValidForImport), [fileData]);
+  const availableMachines = useMemo(() => ["All", ...Array.from(new Set(validOrders.map(d => d.machine))).sort()], [validOrders]);
+  const displayData = useMemo(() => {
+    let rows = [...validOrders];
+
+    if (machineGroupFilter === "fittings") {
+      rows = rows.filter((d) => isFittingsMachine(d.machine));
+    } else if (machineGroupFilter === "pipes") {
+      rows = rows.filter((d) => isPipesMachine(d.machine));
+    } else if (machineGroupFilter === "other") {
+      rows = rows.filter((d) => !isFittingsMachine(d.machine) && !isPipesMachine(d.machine));
     }
 
-    setLoading(true);
-    setLoadingMessage("Geplakte data verwerken...");
-
-    try {
-      let rows = parsePastedTabularData(pasteText.trim());
-      let machineHintFromFlattened = extractMachineHint(pasteText);
-
-      if (rows.length <= 2 && (rows[0]?.length || 0) > 40) {
-        const allCells = rows.flat();
-        const lowered = allCells.map((c) => String(c || "").toLowerCase().trim());
-        const headerStart = lowered.findIndex(
-          (c, i) =>
-            c === "datum" &&
-            lowered[i + 1] === "week" &&
-            lowered[i + 2] === "order"
-        );
-
-        if (headerStart !== -1) {
-          const machineCell = extractMachineHint(allCells.slice(0, headerStart));
-          if (machineCell) {
-            machineHintFromFlattened = machineCell;
-          }
-
-          const headerLen = 11;
-          const header = allCells.slice(headerStart, headerStart + headerLen);
-          const dataCells = allCells.slice(headerStart + headerLen);
-          const rebuilt = [header];
-
-          for (let i = 0; i < dataCells.length; i += headerLen) {
-            const chunk = dataCells.slice(i, i + headerLen);
-            if (!chunk.length) continue;
-            while (chunk.length < headerLen) chunk.push("");
-            if (chunk.some((v) => String(v || "").trim() !== "")) rebuilt.push(chunk);
-          }
-
-          if (rebuilt.length > 1) {
-            rows = rebuilt;
-          }
-        }
-      }
-
-      let headerIndex = rows.findIndex((row) => {
-        const lowered = row.map((h) => String(h || "").toLowerCase());
-        return lowered.includes("machine") && lowered.includes("order");
-      });
-
-      if (headerIndex === -1) {
-        headerIndex = rows.findIndex((row) => {
-          const lowered = row.map((h) => String(h || "").toLowerCase());
-          return lowered.includes("order") && lowered.includes("datum");
-        });
-      }
-
-      if (headerIndex === -1) {
-        alert("Fout: kolommen 'Machine' en 'order' niet gevonden.");
-        return;
-      }
-
-      const normalizedRows = rows.slice(headerIndex);
-      const headerRow = normalizedRows[0] || [];
-      let hasMachineCol = headerRow.some((h) => String(h).toLowerCase().includes("machine"));
-
-      let machineFromContext = machineHintFromFlattened || "";
-      if (!machineFromContext) {
-        for (let i = 0; i < headerIndex; i++) {
-          const row = rows[i] || [];
-          const hit = extractMachineHint(row);
-          if (hit) { machineFromContext = hit; break; }
-        }
-      }
-
-      let preparedRows = normalizedRows;
-      if (!hasMachineCol && machineFromContext) {
-        preparedRows = normalizedRows.map((row, idx) => {
-          if (idx === 0) return ["Machine", ...row];
-          if (!row.some((cell) => String(cell || "").trim() !== "")) return ["", ...row];
-          return [machineFromContext, ...row];
-        });
-        hasMachineCol = true;
-      }
-
-      if (preparedRows.length > 1) {
-        const header = preparedRows[0].map((h) => String(h || "").toLowerCase().trim());
-        const idxDate = header.indexOf("datum");
-        const idxWeek = header.indexOf("week");
-        const idxOrder = header.indexOf("order");
-        let lastDate = "";
-        let lastWeek = "";
-
-        preparedRows = preparedRows.map((row, idx) => {
-          if (idx === 0) return row;
-          const next = [...row];
-          if (idxDate !== -1) {
-            const dateVal = String(next[idxDate] || "").trim();
-            if (dateVal) lastDate = dateVal; else if (lastDate && String(next[idxOrder] || "").trim()) next[idxDate] = lastDate;
-          }
-          if (idxWeek !== -1) {
-            const weekVal = String(next[idxWeek] || "").trim();
-            if (weekVal) lastWeek = weekVal; else if (lastWeek && String(next[idxOrder] || "").trim()) next[idxWeek] = lastWeek;
-          }
-          return next;
-        });
-      }
-
-      const ws = XLSX.utils.aoa_to_sheet(preparedRows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "PastedData");
-      const arrayBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-      const parsedRows = await parseWorkbookInWorker(arrayBuffer);
-
-      if (!parsedRows.length) {
-        alert("Geen geldige data gevonden.");
-        return;
-      }
-
-      setLoadingMessage("Bestaande orders controleren...");
-      const withExistingFlags = await mapExistingFlags(parsedRows, importTarget);
-
-      setFileData(withExistingFlags);
-      setSelectedForPlanningMap(createSelectionMap(withExistingFlags));
-      const weekNumbers = withExistingFlags.map((r) => Number(r.weekNumber)).filter((w) => Number.isFinite(w));
-      setWeekSelectionMax(weekNumbers.length ? Math.min(...weekNumbers) : null);
-      setMachineFilter("All");
-      setSelectedSheet("All");
-      setPasteMode(false);
-      if (pasteTextAreaRef.current) pasteTextAreaRef.current.value = "";
-    } catch (err) {
-      alert("Fout bij het verwerken van geplakte data.");
-    } finally {
-      setLoading(false);
-      setLoadingMessage("");
+    if (machineFilter !== "All") {
+      rows = rows.filter((d) => d.machine === machineFilter);
     }
-  };
 
-  const uniqueSheets = useMemo(() => {
-    const sheets = new Set(fileData.map((item) => item.sourceSheet).filter(Boolean));
-    return ["All", ...Array.from(sheets)];
-  }, [fileData]);
+    if (statusFilter === "new") {
+      rows = rows.filter((d) => !existingIds.has(d.id));
+    } else if (statusFilter === "existing") {
+      rows = rows.filter((d) => existingIds.has(d.id));
+    }
 
-  const uniqueMachines = useMemo(() => {
-    const machines = new Set(fileData.map((item) => item.machine).filter(Boolean));
-    return ["All", ...Array.from(machines).sort()];
-  }, [fileData]);
-
-  const filteredData = useMemo(() => {
-    let data = fileData;
-    if (selectedSheet !== "All") data = data.filter((item) => item.sourceSheet === selectedSheet);
-    if (machineFilter !== "All") data = data.filter((item) => item.machine === machineFilter);
-    return data;
-  }, [fileData, selectedSheet, machineFilter]);
-
-  const uniqueWeeks = useMemo(() => {
-    const weeks = Array.from(new Set(fileData.map((item) => Number(item.weekNumber)).filter((w) => Number.isFinite(w)))).sort((a, b) => a - b);
-    return weeks;
-  }, [fileData]);
-
-  const visibleSelectedCount = useMemo(() => filteredData.filter((row) => selectedForPlanningMap[row.id] !== false).length, [filteredData, selectedForPlanningMap]);
-  const hiddenSelectedCount = useMemo(() => filteredData.filter((row) => selectedForPlanningMap[row.id] === false).length, [filteredData, selectedForPlanningMap]);
-
-  const skippedExistingCount = useMemo(
-    () => filteredData.filter((r) => r.isExisting).length,
-    [filteredData]
-  );
-
-  const importableCount = useMemo(() => {
-    const data = importTarget === "temp_labels" ? fileData : filteredData;
-    return overwriteExisting ? data.length : data.filter((r) => !r.isExisting).length;
-  }, [fileData, filteredData, importTarget, overwriteExisting]);
-
-  const toggleRowSelection = (id) => {
-    setSelectedForPlanningMap((prev) => ({
-      ...prev,
-      [id]: prev[id] === false,
-    }));
-  };
-
-  const setAllSelection = (value) => {
-    setSelectedForPlanningMap((prev) => {
-      const next = { ...prev };
-      filteredData.forEach((row) => { next[row.id] = value; });
-      return next;
-    });
-  };
-
-  const applyWeekSelection = () => {
-    if (!Number.isFinite(Number(weekSelectionMax))) return;
-    const maxWeek = Number(weekSelectionMax);
-    setSelectedForPlanningMap((prev) => {
-      const next = { ...prev };
-      fileData.forEach((row) => {
-        const rowWeek = Number(row.weekNumber);
-        const withinWeekWindow = Number.isFinite(rowWeek) && rowWeek <= maxWeek;
-        next[row.id] = withinWeekWindow || isRunningStatus(row.existingStatus);
-      });
-      return next;
-    });
-  };
+    return rows;
+  }, [validOrders, machineFilter, machineGroupFilter, statusFilter, existingIds]);
+  const importableCount = useMemo(() => displayData.filter(d => d.isValidForImport && (importMode === "overwrite" || !existingIds.has(d.id))).length, [displayData, importMode, existingIds]);
 
   const startImport = async () => {
-    if (fileData.length === 0 || importing) return;
     setImporting(true);
-
-    const dataToProcess = importTarget === "temp_labels" ? fileData : filteredData;
-    const itemsToWrite = dataToProcess.filter((item) => overwriteExisting || !item.isExisting);
-    if (itemsToWrite.length === 0) {
-      alert("Geen nieuwe orders te importeren. Zet 'Bestaande orders overschrijven' aan om bestaande te herImporteren.");
-      setImporting(false);
-      return;
-    }
-
-    const batchSize = 400;
-    let processed = 0;
-
     try {
-      for (let i = 0; i < itemsToWrite.length; i += batchSize) {
+      const toImport = displayData.filter(d => d.isValidForImport && (importMode === "overwrite" || !existingIds.has(d.id)));
+
+      // Schrijf in chunks van 400 (Firestore batch limiet is 500)
+      const CHUNK = 400;
+      for (let i = 0; i < toImport.length; i += CHUNK) {
+        const chunk = toImport.slice(i, i + CHUNK);
         const batch = writeBatch(db);
-        const chunk = itemsToWrite.slice(i, i + batchSize);
-
-        chunk.forEach((item) => {
-          const showInPlanning = selectedForPlanningMap[item.id] !== false;
-          const dbData = Object.fromEntries(
-            Object.entries(item).filter(([key]) => !["isExisting", "existingStatus", "existingPlanningHidden"].includes(key))
-          );
-          const targetPath = importTarget === "temp_labels" ? PATHS.TEMP_PLANNING : PATHS.PLANNING;
-          const docRef = doc(db, ...targetPath, item.id);
-          batch.set(docRef, {
-            ...dbData,
-            importTarget,
-            planningHidden: importTarget === "planning" ? !showInPlanning : false,
-            lastUpdated: serverTimestamp(),
-            importDate: serverTimestamp(),
-          }, { merge: true });
+        chunk.forEach(item => {
+          const { isValidForImport, ...dbData } = item;
+          // Planning order
+          batch.set(doc(db, ...PATHS.PLANNING, item.id), { ...dbData, updatedAt: serverTimestamp() }, { merge: true });
+          // Efficiency record: totalPlannedHours → standardTimeTotal (in minuten)
+          const plannedMinutes = (item.totalPlannedHours || 0) * 60;
+          const actualMinutes = (item.totalActualHours || 0) * 60;
+          const qty = item.quantity || item.toDoQty || 1;
+          const effData = {
+            orderId: item.id,
+            itemCode: item.itemCode || "",
+            itemDescription: item.itemDescription || "",
+            machine: item.machine || "",
+            standardTimeTotal: plannedMinutes,
+            productionTimeTotal: plannedMinutes,
+            actualTimeTotal: actualMinutes,
+            qcTimeTotal: 0,
+            postProcessingTimeTotal: 0,
+            quantity: qty,
+            minutesPerUnit: qty > 0 ? plannedMinutes / qty : 0,
+            status: "active",
+            source: "ln_import",
+            lastSync: new Date().toISOString(),
+          };
+          batch.set(doc(db, ...PATHS.EFFICIENCY_HOURS, item.id), effData, { merge: true });
         });
-
         await batch.commit();
-        processed += chunk.length;
       }
-
-      await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", `Planning imported: ${processed} records`);
-      alert(`Import voltooid! ${processed} regels verwerkt.`);
-      if (onSuccess) onSuccess();
-      onClose();
-    } catch {
-      alert("Fout tijdens opslaan.");
-    } finally {
-      setImporting(false);
-    }
+      addLog("Import succesvol!", "success");
+      await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", `${toImport.length} orders geimporteerd.`);
+      setTimeout(() => { onSuccess?.(); onClose(); }, 1000);
+    } catch (err) { addLog("Database fout.", "error"); } finally { setImporting(false); }
   };
 
-  if (!isOpen || location.pathname.includes("/login")) return null;
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
-      <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden">
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg">
-              <FileSpreadsheet size={24} />
-            </div>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-md">
+      <div className="bg-white w-full max-w-7xl max-h-[92vh] rounded-[3rem] shadow-2xl flex flex-col overflow-hidden border border-white/20 text-left">
+        <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+          <div className="flex items-center gap-5">
+            <div className="bg-blue-600 p-4 rounded-[1.5rem] text-white shadow-xl"><Database size={28} /></div>
             <div>
-              <h2 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight">Planning Import</h2>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1 italic">
-                Urgentie: <span className="text-slate-900 font-black">Zwart &gt; 2w</span> | <span className="text-blue-600 font-black">Blauw 2w</span> | <span className="text-red-600 font-black">Rood 1w</span>
-              </p>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight italic leading-none">Planning Import</h2>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-2">v4.7 • Extended Dossier Support</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-3 hover:bg-slate-200 rounded-full text-slate-400 transition-colors">
-            <X size={24} />
-          </button>
+          <button onClick={onClose} className="p-3 hover:bg-slate-200 rounded-full text-slate-400 transition-all"><X size={28} /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          {fileData.length === 0 ? (
-            <div className="space-y-6">
-              <div className="flex gap-3 justify-center">
-                <button onClick={() => setPasteMode(false)} className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${!pasteMode ? "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200" : "bg-white text-slate-600 border-slate-200"}`}>
-                  <Upload size={16} /> Bestand Selecteren
-                </button>
-                <button onClick={() => setPasteMode(true)} className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${pasteMode ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-200" : "bg-white text-slate-600 border-slate-200"}`}>
-                  <Clipboard size={16} /> Plak Excel Data
-                </button>
-              </div>
-
-              {!pasteMode ? (
-                <div onClick={() => fileInputRef.current?.click()} className="border-4 border-dashed border-slate-100 rounded-[40px] p-16 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-all cursor-pointer group">
-                  <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".csv, .xlsx, .xls, .xlsm" />
-                  {loading ? (
-                    <div className="flex flex-col items-center gap-3 mb-6">
-                      <Loader2 size={64} className="text-blue-500 animate-spin" />
-                      <p className="text-xs font-bold text-blue-700 uppercase">{loadingMessage || "Bezig..."}</p>
+        <div className="flex-1 overflow-hidden flex">
+          <div className="flex-1 p-8 overflow-hidden bg-white custom-scrollbar">
+            {fileData.length === 0 ? (
+                <div onClick={() => fileInputRef.current?.click()} className="h-full border-4 border-dashed border-slate-100 rounded-[4rem] flex flex-col items-center justify-center hover:border-blue-400 hover:bg-blue-50/50 transition-all cursor-pointer group text-center">
+                    <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6 text-blue-600 group-hover:scale-110 transition-transform">
+                      {loading ? <Loader2 className="animate-spin" size={50} /> : <Upload size={50} />}
                     </div>
-                  ) : (
-                    <>
-                      <Upload size={64} className="mx-auto text-slate-200 group-hover:text-blue-400 transition-colors mb-6" />
-                      <h3 className="text-xl font-black text-slate-800 uppercase italic">Selecteer Planning Bestand</h3>
-                    </>
-                  )}
+                    <h3 className="text-2xl font-black text-slate-700 uppercase">Selecteer LN Export</h3>
+                    <p className="text-slate-400 mt-2 font-medium italic">Geconsolideerde import inclusief Order Creation Date</p>
+                    <input type="file" ref={fileInputRef} onChange={handleFile} accept=".xlsx,.xlsm" className="hidden" />
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <textarea ref={pasteTextAreaRef} placeholder="Plak hier de Excel-gegevens..." className="w-full h-64 p-4 border-2 border-slate-200 rounded-[20px] font-mono text-sm resize-none focus:outline-none focus:border-emerald-500" />
-                  <button onClick={handlePaste} className="w-full py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[20px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
-                    <Clipboard size={16} /> Verwerk Geplakte Data
-                  </button>
+            ) : (
+              <div className="h-full min-h-0 flex flex-col gap-8">
+                <div className="bg-slate-900 p-6 rounded-[2.5rem] flex justify-between items-center shadow-2xl">
+                   <div className="flex items-center gap-8 text-white">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">Tabblad</span>
+                        <select value={selectedSheetName} onChange={(e) => handleSheetChange(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
+                          {availableSheets.map(s => <option key={s} value={s} className="text-slate-800">{s}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">Filter</span>
+                        <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
+                          {availableMachines.map(m => <option key={m} value={m} className="text-slate-800">{m === "All" ? "ALLE MACHINES" : m}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">Machinegroep</span>
+                        <select value={machineGroupFilter} onChange={(e) => setMachineGroupFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
+                          <option value="all" className="text-slate-800">ALLES</option>
+                          <option value="fittings" className="text-slate-800">FITTINGS (BH11/12/15/16/17/18/31)</option>
+                          <option value="pipes" className="text-slate-800">PIPES (BA05/07/08/09)</option>
+                          <option value="other" className="text-slate-800">OVERIG</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">Status</span>
+                        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
+                          <option value="all" className="text-slate-800">ALLES</option>
+                          <option value="new" className="text-slate-800">NIEUW</option>
+                          <option value="existing" className="text-slate-800">BESTAAND</option>
+                        </select>
+                      </div>
+                   </div>
+                   <div className="text-right text-white">
+                       <p className="text-[10px] font-black opacity-40 uppercase tracking-widest">Gevonden Orders</p>
+                       <p className="text-3xl font-black tracking-tighter">{displayData.length}</p>
+                   </div>
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 text-center">
-                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block mb-1">Zichtbaar in Planning</span>
-                  <span className="text-3xl font-black text-emerald-600 italic">{visibleSelectedCount}</span>
-                </div>
-                <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 text-center">
-                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-1">Verborgen</span>
-                  <span className="text-3xl font-black text-blue-600 italic">{hiddenSelectedCount}</span>
-                </div>
-                <div className="bg-slate-900 p-6 rounded-3xl text-white">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block italic">Bestemming</label>
-                  <div className="space-y-2">
-                    <button onClick={() => setImportTarget("planning")} className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${importTarget === "planning" ? "bg-blue-600 border-blue-500 text-white" : "bg-white/5 border-white/10 text-slate-400"}`}>Productie Planning</button>
-                    <button onClick={() => setImportTarget("temp_labels")} className={`w-full py-2 px-4 rounded-xl text-[10px] font-black uppercase flex items-center justify-between border ${importTarget === "temp_labels" ? "bg-violet-600 border-violet-500 text-white" : "bg-white/5 border-white/10 text-slate-400"}`}>Temp Labels</button>
-                  </div>
-                </div>
-              </div>
 
-              {importTarget === "planning" && (
-                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-bold text-amber-900">Week t/m</span>
-                  <select value={weekSelectionMax ?? ""} onChange={(e) => setWeekSelectionMax(Number(e.target.value))} className="bg-white border border-amber-200 rounded-lg px-2 py-1 text-[11px] font-black text-amber-900">
-                    {uniqueWeeks.map((week) => <option key={week} value={week}>Week {week}</option>)}
-                  </select>
-                  <button onClick={applyWeekSelection} className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase">Selecteer t/m week + lopende</button>
-                  <button onClick={() => setAllSelection(true)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase">Alles aan</button>
-                  <button onClick={() => setAllSelection(false)} className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-[10px] font-black uppercase">Alles uit</button>
-                </div>
-              )}
-
-              {skippedExistingCount > 0 && (
-                <div className={`flex items-center gap-3 rounded-2xl px-4 py-3 border transition-colors ${overwriteExisting ? "bg-orange-50 border-orange-200" : "bg-slate-100 border-slate-200"}`}>
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={overwriteExisting}
-                      onChange={(e) => setOverwriteExisting(e.target.checked)}
-                      className="accent-orange-600 w-4 h-4"
-                    />
-                    <span className="text-[11px] font-black text-slate-700 uppercase tracking-widest">
-                      Bestaande orders overschrijven
-                    </span>
-                  </label>
-                  <span className={`ml-auto text-[10px] font-black uppercase ${overwriteExisting ? "text-orange-600" : "text-slate-400"}`}>
-                    {overwriteExisting
-                      ? `${skippedExistingCount} bestaand · wordt overschreven`
-                      : `${skippedExistingCount} bestaand · wordt overgeslagen`}
-                  </span>
-                </div>
-              )}
-
-              <div className="bg-white border border-slate-200 rounded-[30px] overflow-hidden">
-                <div className="bg-slate-100 px-6 py-3 flex justify-between items-center font-black uppercase text-[10px] text-slate-500">
-                  <div className="flex items-center gap-4">
-                    <span>Preview</span>
-                    <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="bg-white border rounded px-2 py-1 text-[10px]">
-                      {uniqueMachines.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                  <Table size={16} className="opacity-30" />
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-white text-slate-400 font-black uppercase border-b">
-                        <th className="px-6 py-4">In Planning</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Order</th>
-                        <th className="px-6 py-4">Leverdatum</th>
-                        <th className="px-6 py-4">Machine</th>
+                <div className="border border-slate-100 rounded-[2.5rem] overflow-hidden bg-white shadow-sm flex-1 min-h-0 overflow-y-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b">
+                      <tr>
+                        <th className="px-8 py-5 sticky top-0 bg-slate-50">Order</th>
+                        <th className="px-6 py-5 sticky top-0 bg-slate-50">Machine</th>
+                        <th className="px-6 py-5 sticky top-0 bg-slate-50">Product</th>
+                        <th className="px-6 py-5 sticky top-0 bg-slate-50">ExtraCode (Special Instructions)</th>
+                        <th className="px-6 py-5 sticky top-0 bg-slate-50 text-center">Plan Uren</th>
+                        <th className="px-6 py-5 sticky top-0 bg-slate-50 text-right pr-10">Check</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {filteredData.slice(0, 15).map((row) => {
-                        const isSkipped = !overwriteExisting && row.isExisting;
+                      {displayData.slice(0, 50).map((order) => {
+                        const isExisting = existingIds.has(order.id);
                         return (
-                        <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${isSkipped ? "opacity-40" : ""}`}>
-                          <td className="px-6 py-4"><input type="checkbox" checked={selectedForPlanningMap[row.id] !== false} onChange={() => toggleRowSelection(row.id)} className="accent-blue-600" disabled={isSkipped} /></td>
-                          <td className="px-6 py-4"><span className={`${row.isExisting ? (isSkipped ? "bg-slate-100 text-slate-400" : "bg-orange-100 text-orange-700") : "bg-emerald-100 text-emerald-700"} px-2 py-0.5 rounded text-[9px] font-black uppercase`}>{row.isExisting ? (isSkipped ? "Overgeslagen" : "Overschrijven") : "Nieuw"}</span></td>
-                          <td className="px-6 py-4 font-black">{row.orderId}</td>
-                          <td className={`px-6 py-4 ${isSkipped ? "text-slate-400" : getDateStatusStyles(row.deliveryDate ? new Date(row.deliveryDate) : null)}`}>{row.deliveryDate ? format(new Date(row.deliveryDate), "dd-MM-yyyy") : "-"}</td>
-                          <td className="px-6 py-4 font-bold uppercase">{row.machine}</td>
-                        </tr>
+                          <tr key={order.id} className={`hover:bg-blue-50/30 transition-all ${!order.isValidForImport ? 'opacity-30 grayscale italic' : ''}`}>
+                            <td className="px-8 py-4 font-black text-slate-900">{order.orderId}</td>
+                            <td className="px-6 py-4"><span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-xl font-black text-[10px] uppercase">{order.machine}</span></td>
+                            <td className="px-6 py-4">
+                              <p className="font-bold text-slate-800 truncate max-w-sm">{order.itemDescription}</p>
+                              <span className="text-[9px] text-slate-400 font-mono">{order.itemCode}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              {order.extraCode ? (
+                                <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-1 rounded font-black border border-amber-100">{order.extraCode}</span>
+                              ) : (
+                                <span className="text-[10px] text-slate-300 font-black">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                                <span className="text-sm font-black text-blue-600">{Number(order.totalPlannedHours).toFixed(1)}h</span>
+                            </td>
+                            <td className="px-6 py-4 text-right pr-10">
+                               {isExisting ? (
+                                 <span className="text-amber-500 font-black uppercase text-[10px]">Update</span>
+                               ) : (
+                                 <span className="text-emerald-500 font-black uppercase text-[10px]">Nieuw</span>
+                               )}
+                            </td>
+                          </tr>
                         );
                       })}
                     </tbody>
                   </table>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+
         </div>
 
-        <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
-          <button onClick={() => setFileData([])} disabled={fileData.length === 0} className="text-slate-400 font-black text-[10px] uppercase tracking-widest disabled:opacity-0 transition-all">Bestand Wissen</button>
-          <div className="flex gap-4">
-            <button onClick={onClose} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100">Annuleren</button>
-            <button onClick={startImport} disabled={fileData.length === 0 || importing} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl hover:bg-blue-700 disabled:opacity-50 flex items-center gap-3">
-              {importing ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />}
-              Importeren {importableCount} Regels
+        <div className="p-10 border-t bg-slate-50 flex justify-between items-center">
+          <div className="flex gap-5 bg-white p-1.5 rounded-3xl border border-slate-200">
+             <button onClick={() => setImportMode("new_only")} className={`px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "new_only" ? "bg-blue-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>Alleen Nieuwe</button>
+             <button onClick={() => setImportMode("overwrite")} className={`px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "overwrite" ? "bg-orange-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>Overschrijf Alles</button>
+          </div>
+          <div className="flex gap-5">
+            <button onClick={onClose} className="px-10 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100 transition-all">Annuleren</button>
+            <button onClick={startImport} disabled={importableCount === 0 || importing} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-2xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center gap-4 disabled:opacity-50 disabled:bg-slate-300">
+              {importing ? <Loader2 className="animate-spin" size={24} /> : <ShieldCheck size={24} />}
+              Importeer {importableCount} Orders
             </button>
           </div>
         </div>

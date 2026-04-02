@@ -21,7 +21,7 @@ import {
 import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, limit, increment } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek } from "date-fns";
-import { PATHS } from "../../config/dbPaths";
+import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import * as XLSX from "xlsx";
 
 // Helpers & Modals
@@ -205,7 +205,7 @@ const TeamleaderHub = React.memo(({
       const year = now.getFullYear();
       const unsubArchive = onSnapshot(
         query(
-          collection(db, "future-factory", "production", "archive", String(year), "items"),
+          collection(db, ...getArchiveItemsPath(year)),
           where("timestamps.finished", ">=", start),
           where("timestamps.finished", "<=", end)
         ),
@@ -593,7 +593,7 @@ const TeamleaderHub = React.memo(({
           years.map((year) =>
             getDocs(
               query(
-                collection(db, "future-factory", "production", "archive", String(year), "items"),
+                collection(db, ...getArchiveItemsPath(year)),
                 where("orderId", "==", entryOrderId),
                 limit(100)
               )
@@ -688,7 +688,7 @@ const TeamleaderHub = React.memo(({
           years.map((year) =>
             getDocs(
               query(
-                collection(db, "future-factory", "production", "archive", String(year), "items"),
+                collection(db, ...getArchiveItemsPath(year)),
                 where("orderId", "==", orderId),
                 limit(150)
               )
@@ -858,7 +858,7 @@ const TeamleaderHub = React.memo(({
       } else if (!isAlgemeen) {
           planned = dataStore
             .filter((o) => (o.machine || "").toLowerCase() === stationName.toLowerCase())
-            .reduce((acc, o) => acc + Number(o.plan || 0), 0);
+            .reduce((acc, o) => acc + Number(o.plan ?? o.toDoQty ?? o.quantity ?? 0), 0);
           active = mProducts.filter((p) => p.status === "In Production").length;
           finished = mProducts.filter((p) => p.status === "Finished").length + mArchived.length;
       }
@@ -878,7 +878,7 @@ const TeamleaderHub = React.memo(({
     return {
       totalPlanned: dataStore
         .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
-        .reduce((acc, o) => acc + Number(o.plan || 0), 0),
+        .reduce((acc, o) => acc + Number(o.plan ?? o.toDoQty ?? o.quantity ?? 0), 0),
       
       activeCount: rawProducts.filter((p) => {
         if (!validOrderIds.has(p.orderId)) return false;
