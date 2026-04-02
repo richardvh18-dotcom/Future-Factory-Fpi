@@ -82,6 +82,10 @@ const ProductionStartModal = ({
   // Refs voor autofocus bij barcode scanning
   const orderInputRef = useRef(null);
   const lotInputRef = useRef(null);
+  const manualLotAutoStartTimeoutRef = useRef(null);
+  const lastLotInputAtRef = useRef(0);
+  const previousLotInputRef = useRef("");
+  const scannerLikeLotInputRef = useRef(false);
   const [orderValidated, setOrderValidated] = useState(false);
   const [orderError, setOrderError] = useState("");
 
@@ -105,6 +109,7 @@ const ProductionStartModal = ({
   const [isCheckingLot, setIsCheckingLot] = useState(false);
   const [lotError, setLotError] = useState("");
   const [isStarting, setIsStarting] = useState(false);
+  const isManualMode = mode === "manual";
 
   const sanitizePositiveIntInput = (value) => {
     const digitsOnly = String(value ?? "").replace(/\D/g, "");
@@ -154,11 +159,11 @@ const ProductionStartModal = ({
 
   const productForPreview = useMemo(() => ({
     ...order,
-    orderNumber: mode === "manual" ? manualOrderInput || order.orderId : order.orderId,
+    orderNumber: isManualMode ? manualOrderInput || order.orderId : order.orderId,
     productId: order.itemCode,
     description: order.item,
-    lotNumber: mode === "manual" ? manualLotInput : (lotNumber || "LADEN..."),
-  }), [order, mode, manualOrderInput, manualLotInput, lotNumber]);
+    lotNumber: isManualMode ? manualLotInput : (lotNumber || "LADEN..."),
+  }), [order, isManualMode, manualOrderInput, manualLotInput, lotNumber]);
 
   const { selectedLabel, previewData, availableLabels: allLabels, loadingLabels } = useLabelPreview(productForPreview, selectedLabelId);
 
@@ -752,6 +757,7 @@ const ProductionStartModal = ({
     setManualOrderInput(value);
     setOrderError("");
     setOrderValidated(false);
+    scannerLikeLotInputRef.current = false;
 
     if (value.trim().length >= 4) {
       const expectedOrderId = order?.orderId?.toUpperCase();
@@ -769,26 +775,167 @@ const ProductionStartModal = ({
 
   const handleManualLotChange = async (e) => {
     const value = e.target.value.toUpperCase();
+    const now = Date.now();
+    const previousValue = previousLotInputRef.current;
+    const deltaLength = value.length - previousValue.length;
+    const deltaTime = now - lastLotInputAtRef.current;
+    const looksScannerLike = deltaLength > 1 || (deltaLength === 1 && lastLotInputAtRef.current > 0 && deltaTime < 40);
+
     setManualLotInput(value);
     setLotNumber(value);
     setLotError("");
 
-    if (value.trim().length === 15) {
-      setIsCheckingLot(true);
-      let exists = existingProducts?.some(p => p.lotNumber === value.trim() || p.activeLot === value.trim());
-      if (exists) {
-        setLotError("Dit lotnummer is op dit moment al in productie!");
-      } else {
-        const existsInDb = await checkLotNumberExists(value.trim());
-        if (existsInDb) {
-          setLotError("Dit lotnummer is al gebruikt!");
+    if (!value.trim()) {
+      scannerLikeLotInputRef.current = false;
+    } else if (looksScannerLike) {
+      scannerLikeLotInputRef.current = true;
+    }
+
+    previousLotInputRef.current = value;
+    lastLotInputAtRef.current = now;
+  };
+
+  const canStartManual = isManualMode && orderValidated && !!manualLotInput.trim() && !orderError;
+  const canStartAuto = !isManualMode && !!lotNumber && !isCheckingLot && !lotError;
+
+  const handleStartProduction = async () => {
+    if (isStarting) return;
+    if (isManualMode && !canStartManual) return;
+    if (!isManualMode && !canStartAuto) return;
+
+    scannerLikeLotInputRef.current = false;
+
+    if (!isManualMode && !selectedLabel) {
+      alert("Selecteer eerst een label formaat.");
+      return;
+    }
+
+    setIsStarting(true);
+    try {
+      let targetPrinter = null;
+      let effectiveLotNumber = isManualMode ? manualLotInput.trim() : lotNumber;
+      let printData = null;
+      let counterClaimed = false;
+      const totalToProduce = isManualMode ? 1 : Math.max(1, parseInt(stringCount, 10) || 1);
+      const labelsToPrint = Math.max(1, parseInt(labelCount, 10) || 1);
+
+      if (!isManualMode) {
+        targetPrinter = await resolveTargetPrinterAsync();
+        const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
+        effectiveLotNumber = await claimAutoLotRange(totalToProduce);
+        counterClaimed = true;
+        setLotNumber(effectiveLotNumber);
+
+        const printPreviewData = {
+          ...previewData,
+          lotNumber: effectiveLotNumber,
+        };
+        printData = await generatePrintData(selectedLabel, printPreviewData, dpiForPrint);
+      }
+
+      if (!counterClaimed) {
+        await updateCounterOnStart(effectiveLotNumber, totalToProduce);
+      }
+      await logActivity(auth.currentUser?.uid, "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
+
+      await onStart(
+        order,
+        effectiveLotNumber,
+        totalToProduce,
+        isManualMode ? manualOrderInput : order.orderId,
+        operatorInput,
+        selectedOperatorName,
+        printData,
+        !isManualMode ? selectedLabelId : null
+      );
+
+      if (printConfig.mode === "queue" && labelsToPrint > 0 && selectedLabel && printData) {
+        try {
+          if (targetPrinter) {
+            const queueJobId = await queuePrintJob(
+              targetPrinter.id,
+              printData,
+              {
+                description: `Label voor ${order.orderId} (Lot: ${effectiveLotNumber}) (x${labelsToPrint})`,
+                quantity: labelsToPrint,
+                orderId: order.orderId,
+                lotNumber: effectiveLotNumber,
+                stationId: stationId || "Onbekend",
+                targetPrinterName: targetPrinter.name,
+                width: parseInt(selectedLabel.width),
+                height: parseInt(selectedLabel.height),
+                variables: previewData,
+                templateId: selectedLabel.id
+              }
+            );
+            console.log("[ProductionStartModal] Queue print job created:", queueJobId, "printer:", targetPrinter.id);
+            showSuccess(`${labelsToPrint} label(s) naar de wachtrij gestuurd voor printer: ${targetPrinter.name}`);
+          } else {
+            showError(`Order gestart, maar geen printer geconfigureerd voor station '${stationId}' en er is geen standaard printer ingesteld. Ga naar Admin > Printer Beheer.`);
+          }
+        } catch (printError) {
+          console.error(printError);
+          alert(`Order gestart, maar printen mislukte: ${printError.message}`);
+          showError(`Order gestart, maar printen mislukte: ${printError.message}`);
         }
       }
-      setIsCheckingLot(false);
-    } else if (value.trim().length > 15) {
-      setLotError("Lotnummer mag maximaal 15 tekens zijn.");
+    } catch (e) {
+      console.error(e);
+      showError(e.message || "Order starten mislukt.");
+    } finally {
+      setIsStarting(false);
     }
   };
+
+  const handleManualLotKeyDown = async (e) => {
+    if ((e.key === "Enter" || e.key === "Tab") && canStartManual) {
+      e.preventDefault();
+      await handleStartProduction();
+    }
+  };
+
+  useEffect(() => {
+    if (manualLotAutoStartTimeoutRef.current) {
+      clearTimeout(manualLotAutoStartTimeoutRef.current);
+      manualLotAutoStartTimeoutRef.current = null;
+    }
+
+    if (!isManualMode || !canStartManual || isStarting || !scannerLikeLotInputRef.current) {
+      return;
+    }
+
+    const snapshotLot = manualLotInput.trim();
+    if (snapshotLot.length < 6) {
+      return;
+    }
+
+    manualLotAutoStartTimeoutRef.current = setTimeout(() => {
+      if (
+        scannerLikeLotInputRef.current &&
+        manualLotInput.trim() === snapshotLot &&
+        document.activeElement === lotInputRef.current
+      ) {
+        void handleStartProduction();
+      }
+    }, 120);
+
+    return () => {
+      if (manualLotAutoStartTimeoutRef.current) {
+        clearTimeout(manualLotAutoStartTimeoutRef.current);
+        manualLotAutoStartTimeoutRef.current = null;
+      }
+    };
+  }, [isManualMode, canStartManual, isStarting, manualLotInput, handleStartProduction]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    return () => {
+      if (manualLotAutoStartTimeoutRef.current) {
+        clearTimeout(manualLotAutoStartTimeoutRef.current);
+        manualLotAutoStartTimeoutRef.current = null;
+      }
+    };
+  }, [isOpen]);
 
   const selectedOperatorName = assignedOperators.find(op => op.number === operatorInput)?.name;
 
@@ -1000,6 +1147,7 @@ const ProductionStartModal = ({
                       type="text"
                       value={manualLotInput}
                       onChange={handleManualLotChange}
+                      onKeyDown={handleManualLotKeyDown}
                       placeholder="Handmatig Lot"
                       disabled={!orderValidated}
                       className={`w-full p-3 bg-white border-2 rounded-2xl font-mono text-xl font-black uppercase outline-none shadow-sm text-center placeholder:text-slate-300 ${
@@ -1029,7 +1177,7 @@ const ProductionStartModal = ({
             )}
 
             {/* Label selectie */}
-            <div className="pt-3 border-t border-slate-200 text-left">
+            {!isManualMode && <div className="pt-3 border-t border-slate-200 text-left">
               <label className="text-[9px] font-black text-slate-400 uppercase block mb-1.5 ml-2 flex items-center gap-2">
                 Label Formaat
               </label>
@@ -1061,7 +1209,7 @@ const ProductionStartModal = ({
                   />
                 </div>
               )}
-            </div>
+            </div>}
           </div>
 
           <div className="mt-4 pt-4 border-t border-slate-200 flex gap-3">
@@ -1072,106 +1220,14 @@ const ProductionStartModal = ({
               Annuleren
             </button>
             <button
-              onClick={async () => {
-                if (mode === "auto" && !selectedLabel) {
-                  alert("Selecteer eerst een label formaat.");
-                  return;
-                }
-                setIsStarting(true);
-                try {
-                  let targetPrinter = null;
-                  let effectiveLotNumber = mode === "auto" ? lotNumber : manualLotInput;
-                  let printData = null;
-                  let counterClaimed = false;
-                  const totalToProduce = mode === "auto" ? Math.max(1, parseInt(stringCount, 10) || 1) : 1;
-                  const labelsToPrint = Math.max(1, parseInt(labelCount, 10) || 1);
-
-                  if (mode === "auto") {
-                    targetPrinter = await resolveTargetPrinterAsync();
-                    const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
-                    effectiveLotNumber = await claimAutoLotRange(totalToProduce);
-                    counterClaimed = true;
-                    setLotNumber(effectiveLotNumber);
-
-                    const printPreviewData = {
-                      ...previewData,
-                      lotNumber: effectiveLotNumber,
-                    };
-                    printData = await generatePrintData(selectedLabel, printPreviewData, dpiForPrint);
-                  } else if (selectedLabel) {
-                    targetPrinter = await resolveTargetPrinterAsync();
-                    const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
-                    const printPreviewData = {
-                      ...previewData,
-                      lotNumber: effectiveLotNumber,
-                    };
-                    printData = await generatePrintData(selectedLabel, printPreviewData, dpiForPrint);
-                  }
-
-                  if (!counterClaimed) {
-                    await updateCounterOnStart(effectiveLotNumber, totalToProduce);
-                  }
-                  await logActivity(auth.currentUser?.uid, "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
-
-                  await onStart(
-                    order,
-                    effectiveLotNumber,
-                    totalToProduce,
-                    mode === "manual" ? manualOrderInput : order.orderId,
-                    operatorInput,
-                    selectedOperatorName,
-                    printData,
-                    mode === "auto" ? selectedLabelId : null
-                  );
-                  
-                  // --- Queue/print na succesvol starten ---
-                  const quantity = labelsToPrint;
-
-                  if (printConfig.mode === "queue" && quantity > 0 && selectedLabel && printData) {
-                    try {
-                      if (targetPrinter) {
-                        const queueJobId = await queuePrintJob(
-                            targetPrinter.id,
-                            printData,
-                            {
-                              description: `Label voor ${order.orderId} (Lot: ${effectiveLotNumber}) (x${quantity})`,
-                              quantity,
-                              orderId: order.orderId,
-                              lotNumber: effectiveLotNumber,
-                              stationId: stationId || "Onbekend",
-                              targetPrinterName: targetPrinter.name,
-                              width: parseInt(selectedLabel.width),
-                              height: parseInt(selectedLabel.height),
-                              variables: previewData,
-                              templateId: selectedLabel.id
-                            }
-                        );
-                        console.log("[ProductionStartModal] Queue print job created:", queueJobId, "printer:", targetPrinter.id);
-                        showSuccess(`${quantity} label(s) naar de wachtrij gestuurd voor printer: ${targetPrinter.name}`);
-                      } else {
-                        showError(`Order gestart, maar geen printer geconfigureerd voor station '${stationId}' en er is geen standaard printer ingesteld. Ga naar Admin > Printer Beheer.`);
-                      }
-                    } catch (printError) {
-                      console.error(printError);
-                      alert(`Order gestart, maar printen mislukte: ${printError.message}`);
-                      showError(`Order gestart, maar printen mislukte: ${printError.message}`);
-                    }
-                  }
-                  // --- Einde queue/print ---
-                } catch(e) {
-                   console.error(e)
-                   showError(e.message || "Order starten mislukt.");
-                } finally {
-                   setIsStarting(false);
-                }
-              }}
+              onClick={handleStartProduction}
               disabled={
                 isStarting ||
-                (mode === "manual" && (!orderValidated || manualLotInput.trim().length !== 15 || !!lotError || !!orderError || isCheckingLot)) ||
-                (mode === "auto" && (!lotNumber || isCheckingLot || !!lotError)) // lotError can be empty string which is falsy
+                (isManualMode && !canStartManual) ||
+                (!isManualMode && !canStartAuto)
               }
               className={`flex-[2] py-5 rounded-2xl font-black uppercase text-[10px] tracking-[0.15em] shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95 ${
-                mode === "manual" && orderValidated && manualLotInput.trim().length === 15 && !lotError && !orderError && !isCheckingLot
+                isManualMode && canStartManual
                   ? "bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-600/50 animate-pulse"
                   : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
               }`}

@@ -70,13 +70,49 @@ const getLongestPreviewLineLength = (value) => {
   return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
 };
 
+const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1) => {
+  const explicitMaxLines = Number(element.maxLines);
+  if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
+    return Math.max(1, Math.floor(explicitMaxLines));
+  }
+
+  const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+  const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
+  const blockHeightMm = isVerticalRotation
+    ? (element.width || element.height || 0)
+    : (element.height || 0);
+
+  if (!blockHeightMm || !baseFontPx) return 1;
+
+  const blockHeightPx = blockHeightMm * PIXELS_PER_MM * zoom;
+  const estimatedLineHeightPx = Math.max(1, baseFontPx * 1.05);
+  return Math.max(1, Math.floor((blockHeightPx * 0.92) / estimatedLineHeightPx));
+};
+
 const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
   const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
   const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
   const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
+  const maxLines = getResolvedPreviewMaxLines(element, baseFontPx, normalizedRotation, zoom);
 
-  // Voor verticale tekst geen agressieve auto-fit: houd leesbare, normale grootte.
   if (isVerticalRotation) {
+    const runLengthMm = element.height || element.width || 0;
+    const runLengthPx = runLengthMm * PIXELS_PER_MM * zoom;
+    const lineBudgetMm = element.width || element.height || 0;
+    const lineBudgetPx = lineBudgetMm * PIXELS_PER_MM * zoom;
+
+    if (runLengthPx > 0) {
+      const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
+      const estimatedLongestWrappedLine = Math.max(1, Math.ceil(longestLineLength / maxLines));
+      const widthLimitedFontPx = (runLengthPx * 0.92) / (estimatedLongestWrappedLine * 0.52);
+      const heightLimitedFontPx = lineBudgetPx ? (lineBudgetPx * 0.9) / maxLines : baseFontPx;
+      const fittedFontPx = Math.max(1, Math.min(baseFontPx, widthLimitedFontPx, heightLimitedFontPx));
+      return {
+        fontSize: `${fittedFontPx}px`,
+        lineHeight: "1.05",
+      };
+    }
+
     return {
       fontSize: `${baseFontPx}px`,
       lineHeight: "1.05",
@@ -87,7 +123,6 @@ const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
     ? (element.height || element.width || 0)
     : (element.width || 0);
   const blockWidthPx = effectiveWidthMm * PIXELS_PER_MM * zoom;
-  const maxLines = Math.max(1, Number(element.maxLines) || 1);
   const blockHeightPx = element.height
     ? element.height * PIXELS_PER_MM * zoom
     : null;
@@ -100,7 +135,8 @@ const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
   }
 
   const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
-  const widthLimitedFontPx = (blockWidthPx * 0.92) / (longestLineLength * 0.52);
+  const estimatedLongestWrappedLine = Math.max(1, Math.ceil(longestLineLength / maxLines));
+  const widthLimitedFontPx = (blockWidthPx * 0.92) / (estimatedLongestWrappedLine * 0.52);
   const heightLimitedFontPx = blockHeightPx
     ? (blockHeightPx * 0.9) / maxLines
     : baseFontPx;
@@ -1175,9 +1211,9 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
                             color: hasContent ? (el.isInverse ? "white" : "black") : "#cbd5e1",
                             textAlign: el.align || "left",
                             overflow: "hidden",
-                            whiteSpace: isVerticalRotation ? "nowrap" : "pre-wrap",
-                            overflowWrap: isVerticalRotation ? "normal" : "anywhere",
-                            wordBreak: isVerticalRotation ? "keep-all" : "normal",
+                            whiteSpace: "pre-wrap",
+                            overflowWrap: "anywhere",
+                            wordBreak: "normal",
                           }}
                         >
                           {hasContent ? content : t('adminLabelDesigner.noData')}

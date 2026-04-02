@@ -8,9 +8,10 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import { generatePrintData, generateLotBatchZPL } from '../../utils/zplHelper';
 import { getDriver } from '../../utils/printerDrivers';
 import { getISOWeekInfo, getStationMachineCode } from '../../utils/lotLogic';
+import { queuePrintJob } from '../../services/printService';
 import AutoScaledLabelPreview from './AutoScaledLabelPreview';
 import { useLabelPreview } from '../../hooks/useLabelPreview';
-import { processLabelData, applyLabelLogic, filterTempOrderLabelsByProduct } from '../../utils/labelHelpers';
+import { processLabelData, applyLabelLogic, filterTempOrderLabelsByProduct, resolveLabelContent } from '../../utils/labelHelpers';
 
 const stationNameFromValue = (stationValue) => {
   if (!stationValue) return '';
@@ -23,16 +24,44 @@ const stationNameFromValue = (stationValue) => {
   return String(stationValue).trim();
 };
 
+const getOrderLabelOrder = (item = {}) =>
+  item.orderId ||
+  item.orderNumber ||
+  item.Order ||
+  item.Productieorder ||
+  item.order ||
+  item.originalOrderId ||
+  item.id ||
+  "ONBEKEND";
+
+const getOrderLabelItemCode = (item = {}) =>
+  item.itemCode ||
+  item.productCode ||
+  item.articleCode ||
+  item.productId ||
+  item.Item ||
+  item.Artikel ||
+  item.item ||
+  "";
+
+const getOrderLabelDescription = (item = {}) =>
+  item.itemDescription ||
+  item.description ||
+  item.Description ||
+  item.Omschrijving ||
+  item.item ||
+  "";
+
 // --- Helper voor Tijdelijke Labels ---
 const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, onToggle, printerDpi = 203 }) => {
-  const itemDisplay = item.item || item.description || item.Description || item.Omschrijving || item.itemCode || item.Item || item.Artikel || "";
+  const itemDisplay = getOrderLabelDescription(item) || getOrderLabelItemCode(item);
 
   const topOptions = useMemo(() => {
     const normalizedProduct = {
-      itemCode: item.itemCode || item.Item || item.Artikel || item.item || '',
-      productId: item.productId || item.itemCode || item.Item || item.Artikel || item.item || '',
-      description: item.description || item.Description || item.Omschrijving || '',
-      item: item.item || item.description || item.Description || item.Omschrijving || '',
+      itemCode: getOrderLabelItemCode(item),
+      productId: item.productId || getOrderLabelItemCode(item),
+      description: getOrderLabelDescription(item),
+      item: item.item || getOrderLabelDescription(item),
       extraCode: item.extraCode || item.Code || ''
     };
 
@@ -56,9 +85,9 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, 
   
   const previewData = useMemo(() => {
     if (!isExpanded) return {};
-    const order = item.orderId || item.Order || item.Productieorder || item.id || "ONBEKEND";
-    const itemCode = item.itemCode || item.item || item.Item || item.Artikel || "";
-    const desc = item.description || item.Description || item.Omschrijving || "";
+    const order = getOrderLabelOrder(item);
+    const itemCode = getOrderLabelItemCode(item);
+    const desc = getOrderLabelDescription(item);
 
     const labelData = processLabelData({
         ...item,
@@ -78,7 +107,7 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, 
       >
         <div className="flex-1">
           <p className="text-xl font-black text-slate-800 tracking-tight leading-none mb-1">
-            {item.orderId || item.Order || item.Productieorder || item.id || "ONBEKEND"}
+            {getOrderLabelOrder(item)}
           </p>
           {itemDisplay && (
             <p className="text-sm font-bold text-slate-600 tracking-wider mb-0.5 mt-2">
@@ -180,8 +209,8 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
         });
 
         dedup.sort((a, b) =>
-          String(a.orderId || a.Order || a.Productieorder || a.id).localeCompare(
-            String(b.orderId || b.Order || b.Productieorder || b.id),
+          String(getOrderLabelOrder(a)).localeCompare(
+            String(getOrderLabelOrder(b)),
             undefined,
             { numeric: true }
           )
@@ -274,19 +303,29 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
       // 2. Parallelle exacte zoekopdrachten
       const exactQueries = [
         getDocs(query(colRef, where("orderId", "in", uniqueOptions))),
+        getDocs(query(colRef, where("orderNumber", "in", uniqueOptions))),
         getDocs(query(colRef, where("Order", "in", uniqueOptions))),
         getDocs(query(colRef, where("Productieorder", "in", uniqueOptions))),
         getDocs(query(colRef, where("order", "in", uniqueOptions))),
+        getDocs(query(colRef, where("originalOrderId", "in", uniqueOptions))),
         getDocs(query(colRef, where("itemCode", "in", uniqueOptions))),
+        getDocs(query(colRef, where("productCode", "in", uniqueOptions))),
+        getDocs(query(colRef, where("articleCode", "in", uniqueOptions))),
         getDocs(query(colRef, where("Item", "in", uniqueOptions))),
         getDocs(query(colRef, where("Artikel", "in", uniqueOptions))),
+        getDocs(query(colRef, where("itemDescription", "in", uniqueOptions))),
         getDocs(query(planRef, where("orderId", "in", uniqueOptions))),
+        getDocs(query(planRef, where("orderNumber", "in", uniqueOptions))),
         getDocs(query(planRef, where("Order", "in", uniqueOptions))),
         getDocs(query(planRef, where("Productieorder", "in", uniqueOptions))),
         getDocs(query(planRef, where("order", "in", uniqueOptions))),
+        getDocs(query(planRef, where("originalOrderId", "in", uniqueOptions))),
         getDocs(query(planRef, where("itemCode", "in", uniqueOptions))),
+        getDocs(query(planRef, where("productCode", "in", uniqueOptions))),
+        getDocs(query(planRef, where("articleCode", "in", uniqueOptions))),
         getDocs(query(planRef, where("Item", "in", uniqueOptions))),
-        getDocs(query(planRef, where("Artikel", "in", uniqueOptions)))
+        getDocs(query(planRef, where("Artikel", "in", uniqueOptions))),
+        getDocs(query(planRef, where("itemDescription", "in", uniqueOptions)))
       ];
       const exactSnaps = await Promise.all(exactQueries.map(p => p.catch(() => null)));
       exactSnaps.forEach(addDocs);
@@ -305,15 +344,21 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
         Array.from(new Set(startOptions)).forEach(opt => {
             startsWithQueries.push(getDocs(query(colRef, where(documentId(), ">=", opt), where(documentId(), "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("orderId", ">=", opt), where("orderId", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(colRef, where("orderNumber", ">=", opt), where("orderNumber", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("Order", ">=", opt), where("Order", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("item", ">=", opt), where("item", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(colRef, where("itemDescription", ">=", opt), where("itemDescription", "<=", opt + "\uf8ff"), limit(10))));
+            startsWithQueries.push(getDocs(query(colRef, where("productCode", ">=", opt), where("productCode", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(colRef, where("description", ">=", opt), where("description", "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(planRef, where(documentId(), ">=", opt), where(documentId(), "<=", opt + "\uf8ff"), limit(10))));
             startsWithQueries.push(getDocs(query(planRef, where("orderId", ">=", opt), where("orderId", "<=", opt + "\uf8ff"), limit(10))));
+          startsWithQueries.push(getDocs(query(planRef, where("orderNumber", ">=", opt), where("orderNumber", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("Order", ">=", opt), where("Order", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("Productieorder", ">=", opt), where("Productieorder", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("order", ">=", opt), where("order", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("item", ">=", opt), where("item", "<=", opt + "\uf8ff"), limit(10))));
+          startsWithQueries.push(getDocs(query(planRef, where("itemDescription", ">=", opt), where("itemDescription", "<=", opt + "\uf8ff"), limit(10))));
+          startsWithQueries.push(getDocs(query(planRef, where("productCode", ">=", opt), where("productCode", "<=", opt + "\uf8ff"), limit(10))));
           startsWithQueries.push(getDocs(query(planRef, where("description", ">=", opt), where("description", "<=", opt + "\uf8ff"), limit(10))));
         });
 
@@ -323,8 +368,19 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
       
       const queryText = normalizeText(orderStr);
       const clientMatches = initialList.filter((item) => {
-        const orderText = normalizeText(item.orderId || item.Order || item.Productieorder || item.order || item.id);
-        const productText = normalizeText(item.item || item.itemCode || item.Item || item.Artikel || item.description || item.Description || item.Omschrijving);
+        const orderText = normalizeText(getOrderLabelOrder(item));
+        const productText = normalizeText([
+          item.item,
+          item.itemDescription,
+          item.itemCode,
+          item.productCode,
+          item.articleCode,
+          item.Item,
+          item.Artikel,
+          item.description,
+          item.Description,
+          item.Omschrijving,
+        ].filter(Boolean).join(' '));
         return orderText.includes(queryText) || productText.includes(queryText);
       });
 
@@ -612,6 +668,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
 };
 
 const PrintStationView = () => {
+  const { t } = useTranslation();
   const [lotNumber, setLotNumber] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [productData, setProductData] = useState(null);
@@ -671,13 +728,13 @@ const PrintStationView = () => {
     try { await device.claimInterface(0); } catch {
       void 0;
     }
-    
+
     const encoder = new globalThis.TextEncoder();
     const data = encoder.encode(content);
     const interface0 = device.configuration.interfaces[0];
     const endpoint = interface0?.alternate?.endpoints.find(e => e.direction === 'out');
     const endpointNumber = endpoint ? endpoint.endpointNumber : 1;
-    
+
     await device.transferOut(endpointNumber, data);
   };
 
@@ -750,7 +807,9 @@ const PrintStationView = () => {
 
   const printerDpi = useMemo(() => {
     const parsed = parseInt(activeQueuePrinter?.dpi, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 203;
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    const fallback = getDriver(activeQueuePrinter)?.nativeDpi;
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 203;
   }, [activeQueuePrinter]);
 
   const printerDarkness = useMemo(() => {
@@ -805,11 +864,11 @@ const PrintStationView = () => {
     const dpi = printerDpi;
     const dotsPerMm = dpi / 25.4;
     const darkness = printerDarkness;
-    
-    const order = orderData.orderId || orderData.Order || orderData.Productieorder || orderData.id || "ONBEKEND";
-    const item = orderData.itemCode || orderData.item || orderData.Item || orderData.Artikel || "";
-    const desc = orderData.description || orderData.Description || orderData.Omschrijving || "";
-    
+
+    const order = getOrderLabelOrder(orderData);
+    const item = getOrderLabelItemCode(orderData);
+    const desc = getOrderLabelDescription(orderData);
+
     let zpl = "";
 
     if (template) {
@@ -821,7 +880,7 @@ const PrintStationView = () => {
             lotNumber: orderData.lotNumber || order
         });
         const processedData = applyLabelLogic(labelData, labelRules);
-        zpl = await generatePrintData(template, processedData, dpi);
+        zpl = await generatePrintData(template, processedData, dpi, resolveLabelContent, t);
     } else {
         zpl = `^XA
 ^PW${Math.round(90 * dotsPerMm)}
@@ -836,17 +895,17 @@ const PrintStationView = () => {
     try {
       let deviceToUse = usbDevice;
       if (!deviceToUse) {
-        deviceToUse = await navigator.usb.requestDevice({ filters: [] });
-        setUsbDevice(deviceToUse);
-        localStorage.setItem('usb_printer_vendor', deviceToUse.vendorId);
-        localStorage.setItem('usb_printer_product', deviceToUse.productId);
+        // Geen printer gekoppeld, direct foutmelding tonen
+        showError("Geen USB-printer gekoppeld. Koppel eerst een printer via de knop rechtsboven.");
+        return;
       }
 
       await printRawUsb(deviceToUse, zpl);
       showSuccess(`Label voor ${order} direct geprint via USB!`);
       setShowTempModal(false);
+      return;
     } catch (e) {
-      showError("USB Print Fout: " + e.message);
+      showError("Print Fout: " + e.message);
     }
   };
 
@@ -857,7 +916,7 @@ const PrintStationView = () => {
     }
     setIsLoading(true);
     try {
-      const printData = await generatePrintData(selectedLabel, previewData, printerDpi);
+      const printData = await generatePrintData(selectedLabel, previewData, printerDpi, resolveLabelContent, t);
       
       let deviceToUse = usbDevice;
       if (!deviceToUse) {

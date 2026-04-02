@@ -18,6 +18,8 @@ import { generatePrintData, generateLotBatchZPL } from '../../utils/zplHelper';
 import { getDriver } from '../../utils/printerDrivers';
 import { processLabelData, resolveLabelContent, applyLabelLogic, getQRCodeUrl, getBarcodeUrl, filterTempOrderLabelsByProduct } from '../../utils/labelHelpers';
 import { getISOWeekInfo, getStationMachineCode } from '../../utils/lotLogic';
+import { queuePrintJob } from '../../services/printService';
+import { requestUsbDevice, printRawUsbToDevice, isUsbDirectSupported as usbDirectSupported } from '../../utils/usbPrintService';
 import AutoScaledLabelPreview from './AutoScaledLabelPreview';
 
 const stationNameFromValue = (stationValue) => {
@@ -53,23 +55,10 @@ const StatusBadge = ({ status }) => {
 };
 
 // Local Helper: WebUSB logic
-const isUsbDirectSupported = () => 'usb' in navigator;
+const isUsbDirectSupported = () => usbDirectSupported();
 
 const printRawUsb = async (device, content) => {
-  if (!device) throw new Error("Geen printer verbonden");
-  if (!device.opened) await device.open();
-  if (device.configuration === null) await device.selectConfiguration(1);
-  try { await device.claimInterface(0); } catch {
-    void 0;
-  }
-  
-  const encoder = new globalThis.TextEncoder();
-  const data = encoder.encode(content);
-  const interface0 = device.configuration.interfaces[0];
-  const endpoint = interface0.alternate.endpoints.find(e => e.direction === 'out');
-  const endpointNumber = endpoint ? endpoint.endpointNumber : 1;
-  
-  await device.transferOut(endpointNumber, data);
+  return printRawUsbToDevice({ device, content });
 };
 
 const normalizeQueuePrintPayload = (content, quantity) => {
@@ -82,7 +71,7 @@ const normalizeQueuePrintPayload = (content, quantity) => {
 };
 
 // --- Helper voor Tijdelijke Labels ---
-const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, onToggle, printerDpi = 203 }) => {
+const TempLabelItem = ({ item, labelTemplates, labelRules, isExpanded, onToggle, printerDpi = 203, handleTempLegacyPrint }) => {
   const itemDisplay = item.item || item.description || item.Description || item.Omschrijving || item.itemCode || item.Item || item.Artikel || "";
 
   const topOptions = useMemo(() => {
@@ -172,7 +161,7 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, 
             </div>
             
             <button 
-              onClick={() => onPrint(item, selectedTemplateId)} 
+              onClick={() => handleTempLegacyPrint(item, selectedTemplateId)} 
               disabled={!selectedTemplateId || topOptions.length === 0}
               className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95 disabled:opacity-50 mt-auto"
             >
@@ -197,8 +186,80 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, 
 };
 
 // --- Modal: Tijdelijke Labels Zoeken ---
-const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = [], printerDpi = 203 }) => {
+const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printerDpi = 203, usbDevice, setUsbDevice, activeQueuePrinter, selectedStation }) => {
   const { t } = useTranslation();
+
+  // Printfunctie nu binnen de modal zodat t altijd beschikbaar is
+  const handleTempLegacyPrint = async (orderData, templateId) => {
+    const template = labelTemplates.find(t => t.id === templateId);
+    const dpi = printerDpi;
+    const dotsPerMm = dpi / 25.4;
+    const darkness = 15; // of printerDarkness als beschikbaar
+
+    const order = orderData.orderId || orderData.Order || orderData.Productieorder || orderData.id || "ONBEKEND";
+    const item = orderData.itemCode || orderData.item || orderData.Item || orderData.Artikel || "";
+    const desc = orderData.description || orderData.Description || orderData.Omschrijving || "";
+
+    let zpl = "";
+
+    if (template) {
+      const labelData = processLabelData({
+        ...orderData,
+        orderNumber: order,
+        productId: item,
+        description: desc,
+        lotNumber: orderData.lotNumber || order
+      });
+      const processedData = applyLabelLogic(labelData, labelRules);
+      zpl = await generatePrintData(template, processedData, dpi, resolveLabelContent, t);
+    } else {
+      zpl = `^XA\n^PW${Math.round(90 * dotsPerMm)}\n~SD${darkness}\n^FO${Math.round(5 * dotsPerMm)},${Math.round(5 * dotsPerMm)}^A0N,${Math.round(8 * dotsPerMm)},${Math.round(6 * dotsPerMm)}^FDOrder: ${order}^FS\n^FO${Math.round(5 * dotsPerMm)},${Math.round(15 * dotsPerMm)}^A0N,${Math.round(6 * dotsPerMm)},${Math.round(5 * dotsPerMm)}^FDItem: ${item}^FS\n^FO${Math.round(5 * dotsPerMm)},${Math.round(25 * dotsPerMm)}^A0N,${Math.round(5 * dotsPerMm)},${Math.round(4 * dotsPerMm)}^FD${desc.substring(0, 40)}^FS\n^FO${Math.round(60 * dotsPerMm)},${Math.round(5 * dotsPerMm)}^BQN,2,${Math.max(2, Math.round(4 * dpi / 203))}^FDQA,${order}^FS\n^XZ`;
+    }
+
+    try {
+      let deviceToUse = usbDevice;
+      if (!deviceToUse && isUsbDirectSupported()) {
+        deviceToUse = await requestUsbDevice(activeQueuePrinter || {});
+        setUsbDevice(deviceToUse);
+      }
+
+      if (deviceToUse) {
+        await printRawUsb(deviceToUse, zpl);
+        alert(`Label voor ${order} direct geprint via USB!`);
+        return;
+      }
+
+      if (activeQueuePrinter?.id) {
+        await queuePrintJob(
+          activeQueuePrinter.id,
+          zpl,
+          {
+            description: `Order label voor ${order}`,
+            quantity: 1,
+            orderId: order,
+            lotNumber: orderData.lotNumber || order,
+            stationId: selectedStation || 'PRINT_QUEUE_ADMIN',
+            targetPrinterName: activeQueuePrinter.name,
+            width: parseInt(template?.width || 90, 10),
+            height: parseInt(template?.height || 40, 10),
+            variables: {
+              orderNumber: order,
+              productId: item,
+              description: desc,
+            },
+            templateId: template?.id || null,
+            source: 'temp_order_labels'
+          }
+        );
+        alert(`Label voor ${order} naar de wachtrij gestuurd: ${activeQueuePrinter.name}`);
+        return;
+      }
+
+      throw new Error('Geen directe USB printer gekoppeld en geen wachtrijprinter geconfigureerd.');
+    } catch (e) {
+      alert("Print Fout: " + e.message);
+    }
+  };
   const [orderStr, setOrderStr] = useState("");
   const [results, setResults] = useState([]);
   const [initialList, setInitialList] = useState([]);
@@ -456,10 +517,10 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
                     item={item} 
                     labelTemplates={labelTemplates} 
                     labelRules={labelRules}
-                    onPrint={onPrint} 
                     isExpanded={expandedItemId === (item.id || idx)}
                     onToggle={() => setExpandedItemId(expandedItemId === (item.id || idx) ? null : (item.id || idx))}
                     printerDpi={printerDpi}
+                    handleTempLegacyPrint={handleTempLegacyPrint}
                   />
                 ))}
               </div>
@@ -671,6 +732,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
 
 const PrintQueueAdminView = () => {
   const { role } = useAdminAuth();
+  const { t } = useTranslation();
   const canManage = ['admin', 'teamleader', 'planner'].includes(role);
 
   const [printJobs, setPrintJobs] = useState([]);
@@ -879,7 +941,9 @@ const PrintQueueAdminView = () => {
 
   const printerDpi = useMemo(() => {
     const parsed = parseInt(activeQueuePrinter?.dpi, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 203;
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    const fallback = getDriver(activeQueuePrinter)?.nativeDpi;
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 203;
   }, [activeQueuePrinter]);
 
   const printerDarkness = useMemo(() => {
@@ -1078,7 +1142,7 @@ const PrintQueueAdminView = () => {
         
         // Gebruik generatePrintData (consistent met rest van app)
         const processedData = applyLabelLogic(labelData, labelRules);
-        zpl = await generatePrintData(template, processedData, printerDpi);
+        zpl = await generatePrintData(template, processedData, printerDpi, resolveLabelContent, t);
       }
 
       await printRawUsb(usbDevice, zpl);
@@ -1092,48 +1156,6 @@ const PrintQueueAdminView = () => {
     }
   };
 
-  const handleTempLegacyPrint = async (orderData, templateId) => {
-    const template = labelTemplates.find(t => t.id === templateId);
-    const dpi = printerDpi;
-    const dotsPerMm = dpi / 25.4;
-    const darkness = printerDarkness;
-    
-    const order = orderData.orderId || orderData.Order || orderData.Productieorder || orderData.id || "ONBEKEND";
-    const item = orderData.itemCode || orderData.item || orderData.Item || orderData.Artikel || "";
-    const desc = orderData.description || orderData.Description || orderData.Omschrijving || "";
-    
-    let zpl = "";
-
-    if (template) {
-        const labelData = processLabelData({
-            ...orderData,
-            orderNumber: order,
-            productId: item,
-            description: desc,
-            lotNumber: orderData.lotNumber || order
-        });
-        const processedData = applyLabelLogic(labelData, labelRules);
-        zpl = await generatePrintData(template, processedData, dpi);
-    } else {
-        zpl = `^XA
-^PW${Math.round(90 * dotsPerMm)}
-~SD${darkness}
-^FO${Math.round(5 * dotsPerMm)},${Math.round(5 * dotsPerMm)}^A0N,${Math.round(8 * dotsPerMm)},${Math.round(6 * dotsPerMm)}^FDOrder: ${order}^FS
-^FO${Math.round(5 * dotsPerMm)},${Math.round(15 * dotsPerMm)}^A0N,${Math.round(6 * dotsPerMm)},${Math.round(5 * dotsPerMm)}^FDItem: ${item}^FS
-^FO${Math.round(5 * dotsPerMm)},${Math.round(25 * dotsPerMm)}^A0N,${Math.round(5 * dotsPerMm)},${Math.round(4 * dotsPerMm)}^FD${desc.substring(0, 40)}^FS
-^FO${Math.round(60 * dotsPerMm)},${Math.round(5 * dotsPerMm)}^BQN,2,${Math.max(2, Math.round(4 * dpi / 203))}^FDQA,${order}^FS
-^XZ`;
-    }
-
-    try {
-      if (!usbDevice) throw new Error("Geen USB printer verbonden. Koppel eerst een printer via de knop rechtsboven.");
-      await printRawUsb(usbDevice, zpl);
-      alert(`Label voor ${order} direct geprint via USB!`);
-      setShowTempModal(false);
-    } catch (e) {
-      alert("USB Print Fout: " + e.message);
-    }
-  };
 
   return (
     <div className="p-4 md:p-8">
@@ -1472,7 +1494,16 @@ const PrintQueueAdminView = () => {
       )}
 
       {showTempModal && (
-        <TempLabelModal onClose={() => setShowTempModal(false)} onPrint={handleTempLegacyPrint} labelTemplates={labelTemplates} labelRules={labelRules} printerDpi={printerDpi} />
+        <TempLabelModal
+          onClose={() => setShowTempModal(false)}
+          labelTemplates={labelTemplates}
+          labelRules={labelRules}
+          printerDpi={printerDpi}
+          usbDevice={usbDevice}
+          setUsbDevice={setUsbDevice}
+          activeQueuePrinter={activeQueuePrinter}
+          selectedStation={selectedStation}
+        />
       )}
 
       {showLotModal && (

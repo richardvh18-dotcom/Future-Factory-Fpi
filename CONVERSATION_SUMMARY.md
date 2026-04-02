@@ -1,10 +1,58 @@
 # Pilot Handover Summary
 
-**Laatst bijgewerkt:** 29 maart 2026 (sessie 27)
+### Update sessie 30 (Implementatie "Gereed" Tab)
+
+- **Doel:** Een extra "Gereed" tab toevoegen in de `Terminal` om operators inzicht te geven in recent voltooide producten, met name producten die naar "Nabewerken" zijn gegaan. Dit is belangrijk voor de overdracht tussen ploegen.
+
+- **Iteratie 1 & 2:**
+    - Eerste pogingen om de "Gereed" tab te implementeren door de bestaande `LossenView` component te hergebruiken met een nieuwe `viewMode="completed"`.
+    - Dit leidde tot een reeks problemen:
+        1.  **Build Fout:** Een dubbele `import` van `LossenView` in `Terminal.jsx` veroorzaakte een "Identifier has already been declared" fout. Dit is opgelost.
+        2.  **Runtime Fout:** Een `ReferenceError: Cannot access 'isBM01' before initialization` in `LossenView.jsx` door een verkeerde variabele-volgorde. Dit is opgelost.
+        3.  **Logica Fout:** De filterlogica voor de "Gereed" tab was incorrect. De poging om een 5-dagen filter toe te passen voldeed niet aan de wens van de gebruiker.
+
+- **Conclusie & Herstel:**
+    - Na meerdere pogingen werd duidelijk dat het hergebruiken van `LossenView` de verkeerde aanpak was. De gebruiker bevestigde: "gereed heeft niets met lossenvieuw te maken".
+    - Alle wijzigingen aan `LossenView.jsx` en `Terminal.jsx` met betrekking tot de "Gereed" tab zijn volledig teruggedraaid.
+
+- **Volgende Stap:** De `Terminal` en `LossenView` componenten zijn hersteld naar een stabiele basis. De volgende stap is om de "Gereed" tab opnieuw en op de juiste manier te implementeren, waarschijnlijk met een nieuwe, aparte component die specifiek voor deze functionaliteit wordt gebouwd.
+
+---
+
+## Pauzestand Voor Hervatten (31 maart 2026)
+
+- **Opslagpunt bevestigd op verzoek gebruiker:** "dat kan morgen pas".
+- **Context:** Meerdere fixes zijn doorgevoerd in `LossenView.jsx` om de productlijst correct te filteren.
+    - **Afkeur-filter:** Producten met status "Tijdelijke Afkeur" of "Definitieve Afkeur" worden nu correct verborgen.
+    - **Diameter-detectie:** De logica is aangepast om het eerste getal in de omschrijving te pakken (bv. `350` in `Elb 350R1.5/90`), wat routingproblemen voor complexe fittingen oplost.
+    - **OK-QR Alert:** Een `alert()` is toegevoegd om operators in Lossen te informeren dat metingen verplicht zijn en de OK-QR daar niet werkt.
+- **Eerstvolgende stap bij hervatten:** Gebruiker zal de volledige flow in de `Lossen`-view testen, inclusief het verwerken van een product door de meetwaarden in te vullen.
+
+---
+
+## Nieuwe Open Punten en Wensen (toegevoegd 31 maart 2026)
+
+## Nieuwe Open Punten en Wensen (toegevoegd 31 maart 2026)
+
+- **BM01 scanner input werkt niet:** Scanner input functioneert niet in BM01. Oplossen zodat producten gescand kunnen worden.
+- **Aangeboden lijst resetten:** Controleren of de aangeboden lijst in BM01 elke dag automatisch op 0 wordt gezet.
+- **Mobile inspector pakt geen lotnummers van gereedgemelde producten:** In de mobiele inspector worden lotnummers niet opgehaald voor producten die al gereedgemeld zijn. Oplossen zodat deze producten correct verschijnen.
+- **Extra losstation voor BH18/BH12/BH15/BH17:** Maak een extra "los"-station aan voor deze machines, waarbij automatisch de namen van de operators worden meegenomen.
+- **Tab Lossen vervangen door werkstations:** Zorg dat de Lossen-tab vervangen kan worden door de nieuwe werkstations, waarbij de operatornamen automatisch worden meegenomen.
+- **Extra tab in werkstations met gereed-producten:** Voeg in de werkstations een extra tab toe waarin producten die gereed zijn (klaar met lossen) zichtbaar zijn, zodat een operator kan controleren of een product echt gemaakt is.
+
+**Laatst bijgewerkt:** 30 maart 2026 (sessie 28)
 **Branch:** `FPiFF-may-build`  
 **Doel:** compacte overdracht voor hervatten van pilotwerk richting 30 maart
 
 ## Huidige Status
+
+### Update sessie 29 (Filter-regressie in Lossen)
+- **Gesprek opgeslagen met de notitie:** de "Lossen" view toont momenteel ook producten die al gereed zijn.
+- **Analyse:** Dit is waarschijnlijk een neveneffect van de vereenvoudigde filterlogica in `LossenView.jsx` die recent is doorgevoerd om de BH18/Centraal Lossen-scheiding te testen. De huidige filter (`return origin === "BH18" && ...`) is te breed en houdt geen rekening met de eindstatus van een product.
+- **Vervolgactie (geparkeerd):** De filterlogica in `processData` van `LossenView.jsx` moet worden uitgebreid om voltooide of gearchiveerde producten uit te sluiten, zodat alleen relevante, actieve items worden getoond. Dit wordt later opgepakt.
+
+---
 
 De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, permissies en AI. De belangrijkste open risico's zitten nog in:
 
@@ -13,6 +61,43 @@ De pilotbranch bevat meerdere afgeronde verbeteringen voor planning, printing, p
 3. ZM400 kalibratie werkend — lotnummer-batch en queue-label snijgedrag live bevestigd; orderlabel-flow vanuit Print Station nog live te valideren.
 4. Algemene pilot validatie op de vloer moet nog gebeuren met operators.
 5. Verticale tekst op orderlabels (onder QR-codes) is nog niet definitief goed: overlap is opgelost, maar exacte positionering/schaal in preview vs fysieke print is nog in finetune.
+
+### Update sessie 28 (Lossen meetvelden + productie deploy)
+
+- **Lossen Vrijgeven-popup aangepast voor interactieve meetwaarden in de Lossen-tab.**
+- **Uitgevoerd in `ProductReleaseModal.jsx`:**
+    - modal ondersteunt nu expliciete Lossen-context via `forceLossenMode`, zodat meetvelden ook zichtbaar zijn bij huidige producten die intern op `Wacht op Lossen` of station `LOSSEN` staan.
+    - meetveldlogica is product- en mof-afhankelijk gemaakt.
+    - CB/TB-herkenning is robuuster gemaakt voor codes zoals `CBCB` en `TBTB`.
+- **Definitieve meetveldregels die nu zijn ingebouwd:**
+    - standaard fittings zoals **Elbow**, **Redcon**, **Tee** en vergelijkbare types:
+        - altijd `TW`
+        - plus `TWcb` bij CB-mof
+        - plus `TWtb` bij TB-mof
+    - **Flens**:
+        - alleen `TF`
+    - **Coupler**:
+        - `TWco` bij CB-mof
+        - `TWto` bij TB-mof
+- **Compatibiliteit:**
+    - bij opslag wordt `TWco` ook als `TWc` weggeschreven wanneer `TWc` nog leeg is, zodat oudere rapportages blijven werken.
+- **Uitgevoerd in `LossenView.jsx`:**
+    - `ProductReleaseModal` krijgt nu `forceLossenMode={true}` mee vanuit de Lossen-tab.
+- **Gebruiker-gevalideerde concrete case:**
+    - producttekst `ELB 150R1.5/30 EST20 CBCB` moet nu `TW` en `TWcb` tonen in de popup.
+- **Validatie:**
+    - editor/probleemcontrole zonder fouten op gewijzigde Lossen-bestanden.
+
+### Productie deploy uitgevoerd (30 maart 2026)
+
+- **Vercel productie-deploy direct vanaf lokale workspace uitgevoerd** met `npx vercel --prod --yes`.
+- **Build vooraf succesvol afgerond** met `npm run build`.
+- **Live productie-URLs:**
+    - `https://future-factory.vercel.app`
+    - `https://futurefactoryapp-11tqlwbx6-richard-van-heerdes-projects.vercel.app`
+- **Belangrijk:**
+    - deployment is gedaan vanaf de huidige lokale werkboom,
+    - dus wijzigingen staan live op Vercel maar zijn op dit moment niet automatisch gecommit of gepusht naar Git.
 
 ### Update sessie 26 (planning import + selectie lopende planning)
 

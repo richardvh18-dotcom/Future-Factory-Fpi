@@ -21,23 +21,10 @@ const QR_CODE_OK_CONFIRMATION = 'FPI-ACTION-APPROVE-OK';
 // Helper voor diameter (simpel)
 const getDiameter = (str) => {
   const text = String(str || "").toUpperCase();
-  const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((m) => ({
-    value: Number(m[0]),
-    index: m.index || 0,
-  }));
-  const candidates = numberMatches.filter((n) => Number.isFinite(n.value) && n.value >= 25 && n.value <= 1000);
-  if (candidates.length === 0) return 0;
-
-  const typeIdx = Math.max(text.indexOf("TB"), text.indexOf("CB"));
-  if (typeIdx >= 0) {
-    const nearest = candidates.reduce((best, cur) => {
-      if (!best) return cur;
-      return Math.abs(cur.index - typeIdx) < Math.abs(best.index - typeIdx) ? cur : best;
-    }, null);
-    return nearest?.value || 0;
-  }
-
-  return candidates[0]?.value || 0;
+  const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((m) => Number(m[0]));
+  const candidates = numberMatches.filter((n) => Number.isFinite(n) && n >= 25 && n <= 2000);
+  
+  return candidates.length > 0 ? candidates[0] : 0;
 };
 
 const shouldGoToCentralLossen = (item) => {
@@ -45,14 +32,24 @@ const shouldGoToCentralLossen = (item) => {
   const d = getDiameter(item?.item || "");
   const isTB = itemStr.includes("TB");
   const isCB = itemStr.includes("CB");
-    const origin = normalizeMachine(item?.originMachine || item?.machine || item?.currentStation || "");
-    const isBh18Origin = origin === "BH18" || origin === "18";
-    const isElbow = /\bELB(OW)?\b/.test(itemStr);
-    const hasAbMof = itemStr.includes("ABAB") || /\bAB\b/.test(itemStr);
+  const isELB = itemStr.includes("ELB");
+  const isAB = /\bAB\b/.test(itemStr);
+  const isSB = /\bSB\b/.test(itemStr);
+  const isElbow = isELB || isCB;
+  const origin = normalizeMachine(item?.originMachine || item?.machine || "");
+  const isBh18Origin = origin === "BH18" || origin === "18";
 
-    // BH18 business rule: Elbows met AB-mof gaan altijd naar centraal LOSSEN.
-    if (isBh18Origin && isElbow && hasAbMof) return true;
-  return (isTB && d > 300) || (isCB && d > 350);
+  // Alle AB en SB elbows altijd naar centraal LOSSEN
+  if (isElbow && (isAB || isSB)) return true;
+
+  // BH18 business rule: Elbows met AB-mof gaan altijd naar centraal LOSSEN (oude regel, nu afgevangen door regel hierboven)
+
+  // TB >= 300mm naar centraal, < 300mm lokaal
+  if (isTB && d >= 300) return true;
+  // CB/ELB >= 350mm naar centraal, < 350mm lokaal
+  if ((isCB || isELB) && d >= 350) return true;
+
+  return false;
 };
 
 /**
@@ -115,9 +112,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, productToProcess);
         } else {
           // Voor Lossen: GEEN auto-release, want meting is verplicht.
-          // De modal is al open door de lot-scan (zie hieronder), dus we doen hier niets.
-          // Of we kunnen een melding geven:
-          // alert("Voor Lossen is een meting verplicht. Vul dit in op het scherm.");
+          alert("Let op: Voor Lossen is een meting verplicht. Vul de meetwaarden in op het scherm in plaats van de OK-QR te scannen.");
         }
         return;
       }
@@ -194,11 +189,27 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
     // Verwerkingslogica losgekoppeld zodat deze voor zowel prop als snapshot werkt
     const processData = (sourceData) => {
+      const currentStationNorm = normalizeMachine(stationId);
       const filtered = sourceData.filter((item) => {
+        const stepUpper = String(item.currentStep || "").toUpperCase().trim();
+        const statusUpper = String(item.status || "").toUpperCase().trim();
+        const inspectionStatus = String(item.inspection?.status || "").toUpperCase().trim();
+
+        // --- AFKEUR FILTER: Producten met tijdelijke of definitieve afkeur direct uitsluiten ---
+        if (
+          inspectionStatus === "TIJDELIJKE AFKEUR" || 
+          inspectionStatus === "AFKEUR" || 
+          statusUpper === "REJECTED" || 
+          statusUpper === "AFKEUR" ||
+          stepUpper === "REJECTED" || 
+          stepUpper === "HOLD_AREA"
+        ) {
+          return false;
+        }
+
         // Filter op currentStation die overeenkomt met dit werkstation
         // Fallback naar 'machine' (origin) als currentStation niet is gezet
         const itemStationNorm = normalizeMachine(item.currentStation || item.machine || "");
-        const currentStationNorm = normalizeMachine(stationId);
         const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
         const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
         const isMazak = cleanStationId === "MAZAK";
@@ -206,15 +217,14 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         
         let isOurStation = itemStationNorm === currentStationNorm;
 
-        // FIX: Als item op 'Lossen' staat, toon het ook op het station van herkomst (bv BH11)
+        // FIX: Als item op 'Lossen' staat, toon het alleen op het station van herkomst als het NIET naar centraal Lossen hoort
         if (!isOurStation && (item.currentStep === "Lossen" || item.currentStep === "Wacht op Lossen" || normalizeMachine(item.currentStation) === "LOSSEN")) {
           const originNorm = normalizeMachine(item.originMachine || item.machine || "");
           if (originNorm === currentStationNorm) {
-            // BH18: toon lokaal voor items die NIET naar centraal LOSSEN horen.
-            // Dit blijft correct, ook als currentStation historisch al op "LOSSEN" staat.
-            if (currentStationNorm === "BH18" || currentStationNorm === "18") {
-                if (!shouldGoToCentralLossen(item)) isOurStation = true;
-            } else {
+            // BH18: toon lokaal alleen als shouldGoToCentralLossen false is EN currentStation niet 'Lossen'
+            if ((currentStationNorm === "BH18" || currentStationNorm === "18") && !shouldGoToCentralLossen(item) && normalizeMachine(item.currentStation) !== "LOSSEN") {
+                isOurStation = true;
+            } else if (!(currentStationNorm === "BH18" || currentStationNorm === "18")) {
                 isOurStation = true;
             }
           }
@@ -274,94 +284,71 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           }
 
            if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
-             // BH18: TB > 300mm en CB > 350mm gaan naar centraal lossen
+             // BH18: Alleen tonen in Station Lossen als shouldGoToCentralLossen true is
              if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current)) {
-               if (shouldGoToCentralLossen(item)) isOurStation = true;
+               if (shouldGoToCentralLossen(item)) {
+                 isOurStation = true;
+               } else {
+                 isOurStation = false;
+               }
              } else {
                  isOurStation = true;
              }
            } else if (!useStrictFilter && (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current))) {
-             if (shouldGoToCentralLossen(item)) isOurStation = true;
+             if (shouldGoToCentralLossen(item)) {
+               isOurStation = true;
+             } else {
+               isOurStation = false;
+             }
           }
         }
 
-        const stepUpper = String(item.currentStep || "").toUpperCase().trim();
-        const statusUpper = String(item.status || "").toUpperCase().trim();
-
-        // Alleen items tonen die op "Lossen" stap staan
-        const isLossenStep =
-          stepUpper === "LOSSEN" ||
-          stepUpper === "WACHT OP LOSSEN" ||
-          stepUpper.includes("LOSSEN") ||
-          isBM01 ||
-          isMazak ||
-          isNabewerking;
-
-        // Of items die status "in_progress" hebben en nog niet finished zijn
-        // FIX: 'completed' toegestaan voor BM01/Mazak/Nabewerking omdat inkomende items deze status kunnen hebben van vorig station
-        const isActive = (
-          statusUpper === "IN_PROGRESS" ||
-          statusUpper === "TE LOSSEN" ||
-          statusUpper === "WACHT OP LOSSEN" ||
-          statusUpper === "TE NABEWERKEN" ||
-          statusUpper === "TE KEUREN" ||
-          ((isBM01 || isMazak || isNabewerking) && !["FINISHED", "GEREED"].includes(statusUpper))
-        ) && stepUpper !== "FINISHED" && statusUpper !== "REJECTED" && stepUpper !== "REJECTED";
-
-        return isOurStation && isLossenStep && isActive;
+        return isOurStation;
       });
 
-      setItems(
-        filtered.sort((a, b) => {
-          const tA = a.updatedAt?.seconds || 0;
-          const tB = b.updatedAt?.seconds || 0;
-          return tA - tB; // FIFO: Oudste eerst voor correcte verwerkingsvolgorde
-        })
-      );
+      const sorted = filtered.sort((a, b) => {
+        const tA = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+        const tB = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+        return tB - tA;
+      });
 
+      setItems(sorted);
       setLoading(false);
     };
 
-    // OPTIMALISATIE: Gebruik meegegeven data indien beschikbaar
-    if (products) {
+    // Als 'products' prop is meegegeven, gebruik die direct.
+    // Anders, zet een snapshot listener op.
+    if (products && products.length > 0) {
       processData(products);
-      return;
-    }
+      setLoading(false);
 
-    // FALLBACK: Zelf fetchen als geen data is meegegeven
-    setLoading(true);
-    const productsRef = collection(db, ...PATHS.TRACKING);
-
-    const unsubscribe = onSnapshot(
-      productsRef,
-      (snapshot) => {
-        const docs = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        processData(docs);
-      },
-      (err) => {
-        console.error("Lossen fout:", err);
+      // Optioneel: toch een listener opzetten voor live updates, maar de eerste render is snel.
+      const q = query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted"]));
+      const unsub = onSnapshot(q, (snap) => {
+        const sourceData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        processData(sourceData);
+      }, (err) => {
+        console.error("Error in LossenView snapshot:", err);
         setLoading(false);
-      }
-    );
+      });
+      return () => unsub();
 
-    return () => unsubscribe();
-  }, [stationId, appId, products, user]);
-
-  const currentStationNorm = normalizeMachine(stationId);
-  const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
-  const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
-  const isMazak = cleanStationId === "MAZAK";
-  const isNabewerking = cleanStationId === "NABEWERKING" || cleanStationId === "NABW" || cleanStationId.includes("NABEWERK");
-  
-  // Bepaal of we de geavanceerde modal (met afkeur opties) moeten gebruiken
-  const isAdvancedStation = isNabewerking || isMazak || isBM01;
+    } else {
+      const q = query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted"]));
+      const unsub = onSnapshot(q, (snap) => {
+        const sourceData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        processData(sourceData);
+      }, (err) => {
+        console.error("Error in LossenView snapshot:", err);
+        setLoading(false);
+      });
+      return () => unsub();
+    }
+  }, [stationId, user, products]); // Dependency op 'products' toegevoegd
 
   const handleItemClick = (item) => {
-    setSelectedProduct(item); // Selecteer het item
-    setShowActionModal(true); // Open de modal voor handmatige actie
+    setSelectedProduct(item);
+    setShowActionModal(true);
   };
 
   const handleCloseModal = () => {
@@ -369,10 +356,23 @@ const LossenView = ({ stationId, appId, products = [] }) => {
     setShowActionModal(false);
   };
 
+  const currentStationNorm = useMemo(() => normalizeMachine(stationId), [stationId]);
+  const isBM01 = currentStationNorm === "BM01";
+  const isMazak = currentStationNorm === "MAZAK";
+  const isNabewerking = currentStationNorm === "NABEWERKING" || currentStationNorm === "NABW" || currentStationNorm.includes("NABEWERK");
+
+  const viewTitle = useMemo(() => {
+    if (isBM01 || isMazak || isNabewerking) return t('bm01.to_offer');
+    if (currentStationNorm === "LOSSEN") return t('lossen.wait_for_unload');
+    return t('lossen.waiting_receipt');
+  }, [isBM01, isMazak, isNabewerking, currentStationNorm, t]);
+  const isAdvancedStation = isBM01 || isMazak || isNabewerking;
+
+  // --- NIEUW: Aparte handler voor afronden in Lossen vs. Nabewerking ---
   const handlePostProcessingFinish = async (status, data, productOverride = null) => {
     const product = productOverride || selectedProduct;
     if (!product) return;
-    
+
     try {
       const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
       
@@ -381,113 +381,106 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         note: data.note || "",
         processedBy: user?.email || "Unknown",
         history: arrayUnion({
-          action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
-          timestamp: new Date().toISOString(),
-          user: user?.email || "Operator",
-          station: stationId,
-          details: status === "completed" ? "Verwerking afgerond" : `Reden: ${data.reasons?.join(", ")}`
+            action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
+            timestamp: new Date().toISOString(),
+            user: user?.email || "Operator",
+            station: stationId,
+            details: status === "completed" ? "Verwerking afgerond" : `Reden: ${data.reasons?.join(", ")}`
         })
       };
 
-      // Voeg operators toe aan tracking
-      if (activeOperators.length > 0) {
-        updates[`personnelTracking.${stationId}`] = activeOperators;
-      }
-
       if (status === "completed") {
-        if (isBM01) {
-          const flowState = getNextFlowState('FINISH_INSPECTION');
-          updates.currentStation = flowState.currentStation || "GEREED";
-          updates.currentStep = flowState.currentStep || "Finished";
-          updates.status = flowState.status || "completed";
-          updates["timestamps.finished"] = serverTimestamp();
-          updates.lastStation = "BM01";
+        // BM01/Mazak/Nabewerking flow
+        if (isAdvancedStation) {
+          // Als het van BM01 komt, is het klaar voor archief
+          if (stationId === "BM01") {
+              updates.currentStation = "GEREED";
+              updates.currentStep = "Finished";
+              updates.status = "completed";
+              updates.lastStation = "BM01";
+              updates["timestamps.finished"] = serverTimestamp();
 
-          // ARCHIVERING LOGICA
-          const year = new Date().getFullYear();
-          const archiveRef = doc(db, "future-factory", "production", "archive", String(year), "items", product.id || product.lotNumber);
-          
-          const finalData = { 
-              ...product, 
-              ...updates,
-              updatedAt: new Date(),
-              timestamps: {
-                  ...product.timestamps,
-                  finished: new Date()
-              }
-          };
+              // ARCHIVERING LOGICA
+              const year = new Date().getFullYear();
+              const archiveRef = doc(db, "future-factory", "production", "archive", String(year), "items", product.id || product.lotNumber);
+              
+              const finalData = { 
+                  ...product, 
+                  ...updates,
+                  updatedAt: new Date(),
+                  timestamps: {
+                      ...product.timestamps,
+                      finished: new Date()
+                  },
+                  history: [...(product.history || []), updates.history[0]] // arrayUnion is een object, we willen de waarde
+              };
+              delete finalData.history; // Verwijder de arrayUnion operator
 
-          await setDoc(archiveRef, finalData);
-          await deleteDoc(productRef);
+              await setDoc(archiveRef, finalData);
+              await deleteDoc(productRef);
 
-          await logActivity(
-            user?.uid || "system",
-            "POST_PROCESS_COMPLETE",
-            `Lossen/BM01 archief: lot ${product.lotNumber || product.id}, status completed`
-          );
+              await logActivity(
+                  user?.uid || "system",
+                  "POST_PROCESS_COMPLETE",
+                  `BM01 afgerond en gearchiveerd: lot ${product.lotNumber || product.id}`
+              );
 
-          // Update Planning Order
-          if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-              try {
-                  const planningRef = collection(db, ...PATHS.PLANNING);
-                  const q = query(planningRef, where("orderId", "==", product.orderId));
-                  const snap = await getDocs(q);
-                  if (!snap.empty) {
-                      const orderDoc = snap.docs[0];
-                      const newProduced = (orderDoc.data().produced || 0) + 1;
-                      const plan = orderDoc.data().plan || 0;
-                      const orderUpdates = {
-                          produced: increment(1),
-                          lastUpdated: serverTimestamp()
-                      };
-                      if (newProduced >= plan) orderUpdates.status = "completed";
-                      await updateDoc(orderDoc.ref, orderUpdates);
-                  }
-              } catch (e) { console.error(e); }
-          }
-
-          // Alleen afsluiten als we niet alweer een nieuw product hebben gescand
-          if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-             handleCloseModal();
-          }
-          return;
-        } else {
-          const flowState = getNextFlowState('FINISH_PROCESSING');
-          updates.currentStation = flowState.currentStation || "BM01";
-          updates.currentStep = flowState.currentStep || "Eindinspectie";
-          updates.status = flowState.status || "Te Keuren";
-          updates.lastStation = stationId;
-          updates["timestamps.bm01_start"] = serverTimestamp();
-
-          // --- FIX: Update Order Status for non-BM01 stations ---
-          // Zorgt ervoor dat orders automatisch sluiten als alle items de machine hebben verlaten
-          if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-              try {
-                  const planningRef = collection(db, ...PATHS.PLANNING);
-                  const q = query(planningRef, where("orderId", "==", product.orderId));
-                  const snap = await getDocs(q);
-                  if (!snap.empty) {
-                      const orderDoc = snap.docs[0];
-                      const orderData = orderDoc.data();
-                      
-                      // Gebruik produced teller voor robuustheid (zoals in BM01)
-                      // Dit zorgt ervoor dat de order uit de actieve lijst verdwijnt (produced >= plan)
-                      const currentProduced = (orderData.produced || 0);
-                      const newProduced = currentProduced + 1;
-                      const plan = parseInt(orderData.plan || orderData.quantity || 0);
-                      
-                      const orderUpdates = {
-                          produced: increment(1),
-                          lastUpdated: serverTimestamp()
-                      };
-
-                      if (newProduced >= plan) {
-                          orderUpdates.status = "completed";
+              // Update de 'produced' teller op de planning order
+              if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
+                  try {
+                      const planningRef = collection(db, ...PATHS.PLANNING);
+                      const q = query(planningRef, where("orderId", "==", product.orderId));
+                      const snap = await getDocs(q);
+                      if (!snap.empty) {
+                          const orderDoc = snap.docs[0];
+                          const newProduced = (orderDoc.data().produced || 0) + 1;
+                          const plan = orderDoc.data().plan || 0;
+                          const orderUpdates = {
+                              produced: increment(1),
+                              lastUpdated: serverTimestamp()
+                          };
+                          if (newProduced >= plan) orderUpdates.status = "completed";
+                          await updateDoc(orderDoc.ref, orderUpdates);
                       }
-                      
-                      await updateDoc(orderDoc.ref, orderUpdates);
-                  }
-              } catch (e) { console.error("Error updating order status:", e); }
+                  } catch (e) { console.error(e); }
+              }
+
+              if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
+                 handleCloseModal();
+              }
+              return;
+          } else {
+            const flowState = getNextFlowState('FINISH_PROCESSING');
+            updates.currentStation = flowState.currentStation || "BM01";
+            updates.currentStep = flowState.currentStep || "Eindinspectie";
+            updates.status = flowState.status || "Te Keuren";
+            updates.lastStation = stationId;
+            updates["timestamps.bm01_start"] = serverTimestamp();
+
+            if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
+                try {
+                    const planningRef = collection(db, ...PATHS.PLANNING);
+                    const q = query(planningRef, where("orderId", "==", product.orderId));
+                    const snap = await getDocs(q);
+                    if (!snap.empty) {
+                        const orderDoc = snap.docs[0];
+                        const orderData = orderDoc.data();
+                        const newProduced = (orderData.produced || 0) + 1;
+                        const plan = parseInt(orderData.plan || orderData.quantity || 0);
+                        
+                        const orderUpdates = {
+                            produced: increment(1),
+                            lastUpdated: serverTimestamp()
+                        };
+
+                        if (newProduced >= plan) {
+                            orderUpdates.status = "completed";
+                        }
+                        
+                        await updateDoc(orderDoc.ref, orderUpdates);
+                    }
+                } catch (e) { console.error("Error updating order status:", e); }
+            }
           }
         }
       } else if (status === "temp_reject") {
@@ -507,7 +500,6 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           timestamp: new Date().toISOString(),
         };
         
-        // Update order teller bij definitieve afkeur
         if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
              try {
                 const orderQuery = query(
@@ -541,7 +533,6 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
         `Lossen afhandeling: lot ${product.lotNumber || product.id}, station ${stationId}, status ${status}`
       );
-      // Check of selectie nog steeds hetzelfde is voordat we afsluiten
       if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
           handleCloseModal();
       }
@@ -594,6 +585,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           <ProductReleaseModal
             isOpen={true}
             product={selectedProduct}
+            forceLossenMode={true}
             onClose={() => setSelectedProduct(null)}
             appId={appId}
             activeOperators={activeOperators}
@@ -652,15 +644,15 @@ const LossenView = ({ stationId, appId, products = [] }) => {
               <div className="flex items-center gap-2 mb-4 ml-2">
                 <ArrowRight size={16} className="text-emerald-500" />
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                  {isBM01 || isMazak || isNabewerking ? t('bm01.to_offer') : (currentStationNorm === "LOSSEN" ? t('lossen.wait_for_unload') : t('lossen.waiting_receipt'))} ({items.length})
+                {viewTitle} ({items.length})
                 </h3>
               </div>
               {items.map((item) => (
                 <div
                   key={item.id}
-                  onClick={() => handleItemClick(item)}
-                  className={`bg-white border-2 rounded-[35px] p-6 shadow-sm hover:border-emerald-300 transition-all group animate-in slide-in-from-bottom-2 cursor-pointer
-                    ${selectedProduct?.id === item.id ? 'border-purple-400 ring-4 ring-purple-200' : 'border-slate-100'}`}
+                onClick={() => handleItemClick(item)}
+                className={`bg-white border-2 rounded-[35px] p-6 shadow-sm hover:border-emerald-300 transition-all group animate-in slide-in-from-bottom-2 cursor-pointer
+                  ${selectedProduct?.id === item.id ? 'border-purple-400 ring-4 ring-purple-200' : 'border-slate-100'}`}
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div className="text-left">

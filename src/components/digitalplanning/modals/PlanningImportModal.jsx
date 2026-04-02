@@ -33,6 +33,7 @@ import {
   isValid,
   parseISO,
   parse,
+  getISOWeek,
 } from "date-fns";
 
 const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
@@ -46,6 +47,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [machineFilter, setMachineFilter] = useState("All");
   const [selectedForPlanningMap, setSelectedForPlanningMap] = useState({});
   const [weekSelectionMax, setWeekSelectionMax] = useState(null);
+  const [overwriteExisting, setOverwriteExisting] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const fileInputRef = useRef(null);
   const pasteTextAreaRef = useRef(null);
@@ -99,23 +101,85 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return "";
   };
 
-  const processDates = (rawDate) => {
+  const pickBestDateCandidate = (candidates, expectedWeekNumber = null) => {
+    const parsedExpectedWeek = Number(expectedWeekNumber);
+    const hasExpectedWeek = Number.isFinite(parsedExpectedWeek) && parsedExpectedWeek > 0;
+
+    const ranked = candidates
+      .filter((candidate) => isValid(candidate.date))
+      .map((candidate, index) => {
+        let score = 0;
+        if (candidate.priority === "preferred") score += 10;
+        if (hasExpectedWeek) {
+          score += getISOWeek(candidate.date) === parsedExpectedWeek ? 100 : -25;
+        }
+        return { ...candidate, score, index };
+      })
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+
+    return ranked[0]?.date || null;
+  };
+
+  const processDates = (rawDate, expectedWeekNumber = null) => {
     if (!rawDate) return { delivery: null, planned: null };
 
     const rawStr = String(rawDate || "").trim();
-    const isSlashDate = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawStr);
+    const isLocalDate = /^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/.test(rawStr);
     const parsedDate = rawDate instanceof Date ? rawDate : new Date(rawDate);
 
     let dateObj = null;
 
-    // Voorkom US-interpretatie (MM/dd): slash-datums altijd eerst als dd/MM parsen.
-    if (isSlashDate) {
-      const parsedNl = parse(rawStr, "dd/MM/yyyy", new Date());
-      if (isValid(parsedNl)) dateObj = parsedNl;
-      if (!isValid(dateObj)) {
-        const parsedNlShort = parse(rawStr, "d/M/yyyy", new Date());
-        if (isValid(parsedNlShort)) dateObj = parsedNlShort;
-      }
+    // Ondersteun zowel NL- als Engelse Office-notaties; gebruik weeknummer om ambiguiteit op te lossen.
+    if (isLocalDate) {
+      const localFormats = [
+        "dd/MM/yyyy",
+        "d/M/yyyy",
+        "dd-MM-yyyy",
+        "d-M-yyyy",
+        "dd.MM.yyyy",
+        "d.M.yyyy",
+      ];
+      const usFormats = [
+        "MM/dd/yyyy",
+        "M/d/yyyy",
+        "MM-dd-yyyy",
+        "M-d-yyyy",
+        "MM.dd.yyyy",
+        "M.d.yyyy",
+      ];
+
+      const candidates = [
+        ...localFormats.map((fmt) => ({
+          date: parse(rawStr, fmt, new Date()),
+          priority: "preferred",
+        })),
+        ...usFormats.map((fmt) => ({
+          date: parse(rawStr, fmt, new Date()),
+          priority: "fallback",
+        })),
+      ];
+
+      dateObj = pickBestDateCandidate(candidates, expectedWeekNumber);
+    }
+
+    if (!isValid(dateObj) && /[A-Za-z]/.test(rawStr)) {
+      const textFormats = [
+        "d MMM yyyy",
+        "dd MMM yyyy",
+        "d MMMM yyyy",
+        "dd MMMM yyyy",
+        "MMM d yyyy",
+        "MMMM d yyyy",
+        "MMM dd yyyy",
+        "MMMM dd yyyy",
+      ];
+
+      const candidates = textFormats.map((fmt) => ({
+        date: parse(rawStr.replace(/,/g, " "), fmt, new Date()),
+        priority: "fallback",
+      }));
+
+      dateObj = pickBestDateCandidate(candidates, expectedWeekNumber);
     }
 
     if (!isValid(dateObj)) {
@@ -156,6 +220,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     if (s.includes("format fabriek")) return 100;
     if (s.includes("format mazak")) return 90;
     if (s.includes("format 40bm01")) return 80;
+    if (s === "pasteddata") return 75;
     if (s.includes("fabrieksplanning")) return 70;
     if (s.includes("mazakplanning")) return 60;
     if (s === "40bm01") return 50;
@@ -170,6 +235,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       "Fabrieksplanning",
       "Mazakplanning",
       "40BM01",
+      "PastedData",
       "Format fabriek",
       "Format mazak",
       "Format 40BM01",
@@ -246,7 +312,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           const docId = `${orderId}_${manufacturedItem}`.replace(/[^a-zA-Z0-9]/g, "_");
 
           const rawDateVal = idxDatum !== -1 ? row[idxDatum] : null;
-          const { delivery, planned } = processDates(rawDateVal);
+          const expectedWeekNumber = idxWeek !== -1 ? parseInt(row[idxWeek], 10) || null : null;
+          const { delivery, planned } = processDates(rawDateVal, expectedWeekNumber);
 
           const rawPlan = idxPlan !== -1 ? row[idxPlan] : null;
           let quantity =
@@ -277,7 +344,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             machine,
             deliveryDate: delivery ? delivery.toISOString() : null,
             plannedDate: planned ? planned.toISOString() : null,
-            weekNumber: idxWeek !== -1 ? parseInt(row[idxWeek], 10) || null : null,
+            weekNumber: expectedWeekNumber,
             itemCode: idxItemCode !== -1 ? String(row[idxItemCode] || "") : "",
             item: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
             extraCode: idxCode !== -1 ? String(row[idxCode] || "") : "",
@@ -720,6 +787,16 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const visibleSelectedCount = useMemo(() => filteredData.filter((row) => selectedForPlanningMap[row.id] !== false).length, [filteredData, selectedForPlanningMap]);
   const hiddenSelectedCount = useMemo(() => filteredData.filter((row) => selectedForPlanningMap[row.id] === false).length, [filteredData, selectedForPlanningMap]);
 
+  const skippedExistingCount = useMemo(
+    () => filteredData.filter((r) => r.isExisting).length,
+    [filteredData]
+  );
+
+  const importableCount = useMemo(() => {
+    const data = importTarget === "temp_labels" ? fileData : filteredData;
+    return overwriteExisting ? data.length : data.filter((r) => !r.isExisting).length;
+  }, [fileData, filteredData, importTarget, overwriteExisting]);
+
   const toggleRowSelection = (id) => {
     setSelectedForPlanningMap((prev) => ({
       ...prev,
@@ -754,8 +831,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     setImporting(true);
 
     const dataToProcess = importTarget === "temp_labels" ? fileData : filteredData;
-    if (dataToProcess.length === 0) {
-      alert("Geen nieuwe orders.");
+    const itemsToWrite = dataToProcess.filter((item) => overwriteExisting || !item.isExisting);
+    if (itemsToWrite.length === 0) {
+      alert("Geen nieuwe orders te importeren. Zet 'Bestaande orders overschrijven' aan om bestaande te herImporteren.");
       setImporting(false);
       return;
     }
@@ -764,9 +842,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     let processed = 0;
 
     try {
-      for (let i = 0; i < dataToProcess.length; i += batchSize) {
+      for (let i = 0; i < itemsToWrite.length; i += batchSize) {
         const batch = writeBatch(db);
-        const chunk = dataToProcess.slice(i, i + batchSize);
+        const chunk = itemsToWrite.slice(i, i + batchSize);
 
         chunk.forEach((item) => {
           const showInPlanning = selectedForPlanningMap[item.id] !== false;
@@ -889,6 +967,27 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                 </div>
               )}
 
+              {skippedExistingCount > 0 && (
+                <div className={`flex items-center gap-3 rounded-2xl px-4 py-3 border transition-colors ${overwriteExisting ? "bg-orange-50 border-orange-200" : "bg-slate-100 border-slate-200"}`}>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={overwriteExisting}
+                      onChange={(e) => setOverwriteExisting(e.target.checked)}
+                      className="accent-orange-600 w-4 h-4"
+                    />
+                    <span className="text-[11px] font-black text-slate-700 uppercase tracking-widest">
+                      Bestaande orders overschrijven
+                    </span>
+                  </label>
+                  <span className={`ml-auto text-[10px] font-black uppercase ${overwriteExisting ? "text-orange-600" : "text-slate-400"}`}>
+                    {overwriteExisting
+                      ? `${skippedExistingCount} bestaand · wordt overschreven`
+                      : `${skippedExistingCount} bestaand · wordt overgeslagen`}
+                  </span>
+                </div>
+              )}
+
               <div className="bg-white border border-slate-200 rounded-[30px] overflow-hidden">
                 <div className="bg-slate-100 px-6 py-3 flex justify-between items-center font-black uppercase text-[10px] text-slate-500">
                   <div className="flex items-center gap-4">
@@ -911,15 +1010,18 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {filteredData.slice(0, 15).map((row) => (
-                        <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4"><input type="checkbox" checked={selectedForPlanningMap[row.id] !== false} onChange={() => toggleRowSelection(row.id)} className="accent-blue-600" /></td>
-                          <td className="px-6 py-4"><span className={`${row.isExisting ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"} px-2 py-0.5 rounded text-[9px] font-black uppercase`}>{row.isExisting ? "Bestaand" : "Nieuw"}</span></td>
+                      {filteredData.slice(0, 15).map((row) => {
+                        const isSkipped = !overwriteExisting && row.isExisting;
+                        return (
+                        <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${isSkipped ? "opacity-40" : ""}`}>
+                          <td className="px-6 py-4"><input type="checkbox" checked={selectedForPlanningMap[row.id] !== false} onChange={() => toggleRowSelection(row.id)} className="accent-blue-600" disabled={isSkipped} /></td>
+                          <td className="px-6 py-4"><span className={`${row.isExisting ? (isSkipped ? "bg-slate-100 text-slate-400" : "bg-orange-100 text-orange-700") : "bg-emerald-100 text-emerald-700"} px-2 py-0.5 rounded text-[9px] font-black uppercase`}>{row.isExisting ? (isSkipped ? "Overgeslagen" : "Overschrijven") : "Nieuw"}</span></td>
                           <td className="px-6 py-4 font-black">{row.orderId}</td>
-                          <td className={`px-6 py-4 ${getDateStatusStyles(row.deliveryDate ? new Date(row.deliveryDate) : null)}`}>{row.deliveryDate ? format(new Date(row.deliveryDate), "dd-MM-yyyy") : "-"}</td>
+                          <td className={`px-6 py-4 ${isSkipped ? "text-slate-400" : getDateStatusStyles(row.deliveryDate ? new Date(row.deliveryDate) : null)}`}>{row.deliveryDate ? format(new Date(row.deliveryDate), "dd-MM-yyyy") : "-"}</td>
                           <td className="px-6 py-4 font-bold uppercase">{row.machine}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -934,7 +1036,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             <button onClick={onClose} className="px-8 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100">Annuleren</button>
             <button onClick={startImport} disabled={fileData.length === 0 || importing} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl hover:bg-blue-700 disabled:opacity-50 flex items-center gap-3">
               {importing ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />}
-              Importeren {importTarget === "temp_labels" ? fileData.length : filteredData.length} Regels
+              Importeren {importableCount} Regels
             </button>
           </div>
         </div>

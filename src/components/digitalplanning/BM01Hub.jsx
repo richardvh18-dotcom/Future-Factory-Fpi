@@ -71,39 +71,40 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     return () => document.removeEventListener('click', handleClick);
     }, [activeTab, showFinishModal, viewingDossier, selectedOrderId, scannerMode]);
 
-  const handleScan = async (e) => {
-    if (e.key === 'Enter') {
-        const code = scanInput.trim().toUpperCase();
-        if (!code) return;
+    const handleScan = async (e) => {
+        if (e.key === 'Enter') {
+            const code = scanInput.trim().toUpperCase();
+            if (!code) return;
 
-        // --- NIEUW: Goedkeuren met QR-code ---
-        if (code === QR_CODE_OK_CONFIRMATION && selectedProduct) {
-            const productToProcess = selectedProduct;
-            setScanInput("");
-            // Geef product expliciet mee
-            await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, productToProcess);
-            return;
+            // Debug: log scan
+            console.debug('[BM01] Scan ontvangen:', code, 'selectedProduct:', selectedProduct);
+
+            // Goedkeuren met QR-code (OK QR)
+            if (code === QR_CODE_OK_CONFIRMATION && selectedProduct) {
+                setScanInput("");
+                await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, selectedProduct);
+                return;
+            }
+
+            // Zoek product op lotnummer
+            const found = bm01Products.find(i => (i.lotNumber || "").toUpperCase() === code);
+            if (found) {
+                setSelectedProduct(found);
+                setShowFinishModal(true); // Direct popup openen
+                setScanInput("");
+                // Debug: log gevonden product
+                console.debug('[BM01] Product gevonden en popup geopend:', found);
+            } else {
+                alert(`Item ${code} niet gevonden in de lijst 'Aan te bieden'.`);
+                setScanInput("");
+                setSelectedProduct(null);
+            }
+            // Na scan altijd weer focus op het scanveld
+            setTimeout(() => {
+                scanInputRef.current?.focus();
+            }, 50);
         }
-        
-        const found = bm01Products.find(i => 
-            (i.lotNumber || "").toUpperCase() === code
-        );
-        
-        if (found) {
-            // Selecteer alleen, open geen modal
-            setSelectedProduct(found);
-            setScanInput("");
-        } else {
-            alert(`Item ${code} niet gevonden in de lijst 'Aan te bieden'.`);
-            setScanInput("");
-            setSelectedProduct(null);
-        }
-        // Na scan altijd weer focus op het scanveld
-        setTimeout(() => {
-          scanInputRef.current?.focus();
-        }, 50);
-    }
-  };
+    };
 
     const planningOrders = useMemo(() => {
         return (orders || []).filter(o => o.status !== "completed" && o.status !== "cancelled");

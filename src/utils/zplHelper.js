@@ -22,8 +22,90 @@ const getLongestLineLength = (value) => {
     return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
 };
 
+const wrapTextContent = (value, maxCharsPerLine = 1, maxLines = 1) => {
+    const safeMaxChars = Math.max(1, Math.floor(maxCharsPerLine));
+    const safeMaxLines = Math.max(1, Math.floor(maxLines));
+    const sourceLines = String(value || "").replace(/\r/g, "").split("\n");
+    const wrapped = [];
+
+    const pushLine = (line) => {
+        if (wrapped.length >= safeMaxLines) return;
+        wrapped.push(line);
+    };
+
+    for (const sourceLine of sourceLines) {
+        if (wrapped.length >= safeMaxLines) break;
+
+        const words = sourceLine.split(/\s+/).filter(Boolean);
+        if (words.length === 0) {
+            pushLine("");
+            continue;
+        }
+
+        let currentLine = "";
+        for (const word of words) {
+            if (wrapped.length >= safeMaxLines) break;
+
+            if (word.length > safeMaxChars) {
+                if (currentLine) {
+                    pushLine(currentLine);
+                    currentLine = "";
+                }
+
+                let remainder = word;
+                while (remainder.length > safeMaxChars && wrapped.length < safeMaxLines) {
+                    pushLine(remainder.slice(0, safeMaxChars));
+                    remainder = remainder.slice(safeMaxChars);
+                }
+                currentLine = remainder;
+                continue;
+            }
+
+            const candidate = currentLine ? `${currentLine} ${word}` : word;
+            if (candidate.length <= safeMaxChars) {
+                currentLine = candidate;
+            } else {
+                pushLine(currentLine);
+                currentLine = word;
+            }
+        }
+
+        if (wrapped.length < safeMaxLines && currentLine) {
+            pushLine(currentLine);
+        }
+    }
+
+    if (wrapped.length === 0) {
+        return [""];
+    }
+
+    if (sourceLines.length > 0 && wrapped.length === safeMaxLines) {
+        const lastIndex = wrapped.length - 1;
+        wrapped[lastIndex] = wrapped[lastIndex].trimEnd();
+    }
+
+    return wrapped.slice(0, safeMaxLines);
+};
+
+const getResolvedTextMaxLines = (el, requestedHeight, rot = 'N') => {
+    const explicitMaxLines = Number(el.maxLines);
+    if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
+        return Math.max(1, Math.floor(explicitMaxLines));
+    }
+
+    const lineBudgetMm = (rot === 'R' || rot === 'B')
+        ? (Number(el.width) || Number(el.height) || 0)
+        : (Number(el.height) || 0);
+    if (!lineBudgetMm || !requestedHeight) return 1;
+
+    const lineBudgetDots = mmToDots(lineBudgetMm);
+    const estimatedLineHeightDots = Math.max(1, Math.round(requestedHeight * 1.05));
+    return Math.max(1, Math.floor((lineBudgetDots * 0.92) / estimatedLineHeightDots));
+};
+
 const getTextMetrics = (el, content, rot = 'N') => {
     const requestedHeight = mmToDots((el.fontSize || 10) / 2.8);
+    const maxLines = getResolvedTextMaxLines(el, requestedHeight, rot);
     const hasExplicitWidth = Number.isFinite(Number(el.fontWidth));
     const explicitWidth = hasExplicitWidth
         ? mmToDots((el.fontWidth || 12) / 2.8)
@@ -45,7 +127,6 @@ const getTextMetrics = (el, content, rot = 'N') => {
         : Number(el.width);
     const rawWidthDots = mmToDots(wrapWidthMm);
     const innerWidthDots = Math.max(1, rawWidthDots - mmToDots(0.8));
-    const maxLines = Math.max(1, Number(el.maxLines) || 1);
     // Het beschikbare regelbudget staat bij verticale tekst op de X-as (element.width).
     const lineBudgetMm = (rot === 'R' || rot === 'B')
         ? (Number(el.width) || Number(el.height) || 0)
@@ -54,9 +135,12 @@ const getTextMetrics = (el, content, rot = 'N') => {
         ? Math.max(1, Math.floor(mmToDots(lineBudgetMm) / maxLines))
         : requestedHeight;
     const longestLineLength = Math.max(1, getLongestLineLength(content));
-    const maxCharWidth = Math.max(1, Math.floor((innerWidthDots * 0.98) / longestLineLength));
+    const estimatedLongestWrappedLine = Math.max(1, Math.ceil(longestLineLength / maxLines));
+    const maxCharWidth = Math.max(1, Math.floor((innerWidthDots * 0.98) / estimatedLongestWrappedLine));
     const fittedWidth = Math.min(naturalWidth, maxCharWidth);
     const fittedHeight = Math.max(1, Math.min(heightLimitDots, requestedHeight));
+    const estimatedCharWidthDots = Math.max(1, hasExplicitWidth ? fittedWidth : Math.round(fittedHeight * 0.48));
+    const charsPerLine = Math.max(1, Math.floor((innerWidthDots * 0.98) / estimatedCharWidthDots));
 
     return {
         fontHeight: fittedHeight,
@@ -64,6 +148,8 @@ const getTextMetrics = (el, content, rot = 'N') => {
         // Dit voorkomt dat tekst in print te dun wordt t.o.v. de visuele preview.
         fontWidth: hasExplicitWidth ? fittedWidth : 0,
         widthDots: innerWidthDots,
+        maxLines,
+        charsPerLine,
     };
 };
 
@@ -132,6 +218,8 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
 
     // 4. Render Elements (De "NiceLabel" Engine)
     elements.forEach(el => {
+        // Ondersteun per-object offsetX/offsetY (in mm, optioneel)
+        // Voeg { offsetX: 1, offsetY: 0 } toe aan een element om extra correctie toe te passen
         // Variabelen vervangen
         let content = el.content;
         if (resolveFn) {
@@ -141,18 +229,28 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
         } else {
              content = parseContent(el.content, data);
         }
-        
+
         // Positie berekenen
-        const baseX = globalXOffset + mmToDots(el.x);
-        const baseY = mmToDots(el.y);
-        
+        let baseX = globalXOffset + mmToDots(el.x + (el.offsetX || 0));
+        let baseY = mmToDots(el.y + (el.offsetY || 0));
+
         // Rotatie
         const rotationMap = { 0: 'N', 90: 'R', 180: 'I', 270: 'B' };
         const rot = rotationMap[el.rotation || 0] || 'N';
+        const rawRotation = Number(el.rotation) || 0;
+
+        // Correctie voor verticale objecten zodat print overeenkomt met preview
+        // Preview gebruikt altijd linksboven vóór rotatie als referentie
+        // ZPL gebruikt linksboven na rotatie, dus bij 90° X -= hoogte, bij 270° Y -= breedte
+        if (rawRotation === 90) {
+            baseX -= mmToDots(el.height || 0);
+        } else if (rawRotation === 270) {
+            baseY -= mmToDots(el.width || 0);
+        }
 
         // TYPE: TEXT
         if (el.type === 'text') {
-            let { fontHeight, fontWidth, widthDots } = getTextMetrics(el, content, rot);
+            let { fontHeight, fontWidth, widthDots, maxLines, charsPerLine } = getTextMetrics(el, content, rot);
             const printableMinX = mmToDots(1);
             const printableMaxX = mmToDots(width) - mmToDots(1);
             const printableMinY = mmToDots(1);
@@ -161,28 +259,51 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             let x = baseX;
             let y = baseY;
 
+
+            const isVerticalRotation = rot === 'R' || rot === 'B';
             x = Math.max(printableMinX, Math.min(x, printableMaxX));
             y = Math.max(printableMinY, Math.min(y, printableMaxY));
 
-            // Font selectie (0 is scalable standard)
-            zpl += `^FO${x},${y}`;
-            zpl += `^A0${rot},${fontHeight},${fontWidth}`;
-            
             // Field Block voor tekst wrapping en uitlijning.
-            // Bij geroteerde tekst gebruiken we het beschikbare loopvlak (height) als wrap-breedte.
-            if (widthDots) {
+            // Let op: op ZM400 geeft ^FB in combinatie met ^A0R/^A0B instabiele output,
+            // dus voor verticale tekst bewust uitschakelen.
+            if (!isVerticalRotation) {
+                zpl += `^FO${x},${y}`;
+                zpl += `^A0${rot},${fontHeight},${fontWidth}`;
+            }
+
+            if (widthDots && !isVerticalRotation) {
                 const alignMap = { 'left': 'L', 'center': 'C', 'right': 'R', 'justify': 'J' };
                 const align = alignMap[el.align] || 'L';
-                const maxLines = (rot === 'R' || rot === 'B') ? Math.max(2, el.maxLines || 2) : (el.maxLines || 1);
                 zpl += `^FB${widthDots},${maxLines},0,${align},0`;
             }
 
             // Inverted text (wit op zwart)
-            if (el.inverted) {
+            if (el.inverted && !isVerticalRotation) {
                 zpl += `^FR`;
             }
 
-            zpl += `^FD${content}^FS`;
+            if (isVerticalRotation && widthDots) {
+                const wrappedLines = wrapTextContent(content, charsPerLine, maxLines);
+                const lineAdvanceDots = Math.max(1, Math.round(fontHeight * 1.05));
+                const startX = rot === 'B'
+                    ? x + Math.max(0, (wrappedLines.length - 1) * lineAdvanceDots)
+                    : x;
+
+                wrappedLines.forEach((line, lineIndex) => {
+                    const lineX = rot === 'B'
+                        ? startX - (lineIndex * lineAdvanceDots)
+                        : startX + (lineIndex * lineAdvanceDots);
+                    zpl += `^FO${lineX},${y}`;
+                    zpl += `^A0${rot},${fontHeight},${fontWidth}`;
+                    if (el.inverted) {
+                        zpl += `^FR`;
+                    }
+                    zpl += `^FD${line}^FS`;
+                });
+            } else {
+                zpl += `^FD${content}^FS`;
+            }
         }
 
         // TYPE: BARCODE (Code 128)

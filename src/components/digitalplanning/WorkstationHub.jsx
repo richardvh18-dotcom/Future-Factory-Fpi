@@ -22,6 +22,7 @@ import ActiveProductionView from "./views/ActiveProductionView";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 
 import Terminal from "./Terminal";
+import Nabewerken from "./Nabewerken";
 import LossenView from "./LossenView";
 import ProductDetailModal from "../products/ProductDetailModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
@@ -42,52 +43,30 @@ const getDiameter = (str) => {
   return 0;
 };
 
-const getLossenTypeAndDiameter = (rawText) => {
-  const text = String(rawText || "").toUpperCase();
-  const isTB = text.includes("TB");
-  const isCB = text.includes("CB");
-
-  const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((m) => ({
-    value: Number(m[0]),
-    index: m.index || 0,
-  }));
-
-  const candidates = numberMatches.filter((n) => Number.isFinite(n.value) && n.value >= 25 && n.value <= 1000);
-
-  if (candidates.length === 0) {
-    return { isTB, isCB, diameter: 0 };
-  }
-
-  const typeIdx = Math.max(text.indexOf("TB"), text.indexOf("CB"));
-  if (typeIdx >= 0) {
-    const nearest = candidates.reduce((best, cur) => {
-      if (!best) return cur;
-      return Math.abs(cur.index - typeIdx) < Math.abs(best.index - typeIdx) ? cur : best;
-    }, null);
-    return { isTB, isCB, diameter: nearest?.value || 0 };
-  }
-
-  return { isTB, isCB, diameter: candidates[0]?.value || 0 };
-};
-
 // Bepaal lossen route op basis van product type (TB/CB) en diameter
 // TB 25-300mm  → tab lossen (lokaal)
-// TB > 300mm   → station LOSSEN (centraal)
+// TB >= 300mm  → station LOSSEN (centraal)
 // CB 25-350mm  → tab lossen (lokaal)
-// CB > 350mm   → station LOSSEN (centraal)
-// Uitzondering BH18: Elbow met AB-mof (o.a. ABAB) gaat altijd naar station LOSSEN.
+// CB >= 350mm  → station LOSSEN (centraal)
 const getLossenRoute = (itemText, originStation = "") => {
   const text = String(itemText || "").toUpperCase();
-  const origin = normalizeMachine(originStation || "");
-  const isBh18Origin = origin === "BH18" || origin === "18";
-  const isElbow = /\bELB(OW)?\b/.test(text);
-  const hasAbMof = text.includes("ABAB") || /\bAB\b/.test(text);
+  const isTB = text.includes("TB");
+  const isCB = text.includes("CB");
+  const isELB = text.includes("ELB");
+  const isAB = /\bAB\b/.test(text) || text.includes("ABAB");
+  const isSB = /\bSB\b/.test(text);
+  const isElbow = isELB || isCB;
 
-  if (isBh18Origin && isElbow && hasAbMof) return "STATION";
+  // Alle AB en SB elbows altijd naar centraal LOSSEN
+  if (isElbow && (isAB || isSB)) return "STATION";
 
-  const { isTB, isCB, diameter } = getLossenTypeAndDiameter(itemText);
-  if (isTB && diameter > 300) return "STATION";
-  if (isCB && diameter > 350) return "STATION";
+  const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((m) => Number(m[0]));
+  const candidates = numberMatches.filter((n) => Number.isFinite(n) && n >= 25 && n <= 2000);
+  const diameter = candidates.length > 0 ? candidates[0] : 0;
+
+  if (isTB && diameter >= 300) return "STATION";
+  if ((isCB || isELB) && diameter >= 350) return "STATION";
+  
   return "TAB";
 };
 
@@ -1105,10 +1084,17 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       if (cleanStationId === "MAZAK")
         return pClean === "MAZAK";
       
-      if (cleanStationId === "NABEWERKING" || cleanStationId === "NABEWERKEN" || cleanStationId.includes("NABEWERK"))
-        return (
-          pClean === "NABEWERKING" || pClean === "NABEWERKEN" || pClean === "NABW" || pClean.includes("NABEWERK")
+      if (cleanStationId === "NABEWERKING" || cleanStationId === "NABEWERKEN" || cleanStationId.includes("NABEWERK")) {
+        // Altijd hoofdletterongevoelig vergelijken
+        const pCleanUpper = (p.currentStation || "").toUpperCase().replace(/\s/g, "");
+        const match = (
+          pCleanUpper === "NABEWERKING" || pCleanUpper === "NABEWERKEN" || pCleanUpper === "NABW" || pCleanUpper.includes("NABEWERK")
         );
+        console.log(
+          `[Nabewerking Filter Debug] lotNumber: ${p.lotNumber}, id: ${p.id}, currentStation: ${p.currentStation}, currentStep: ${p.currentStep}, match: ${match}`
+        );
+        return match;
+      }
       
       if (cleanStationId === "BM01" || cleanStationId.includes("BM01"))
         return pClean === "BM01" || pClean.includes("BM01");
@@ -2177,14 +2163,18 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         ) : (
           <>
             {activeTab === "winding" && (
-              <ActiveProductionView
-                activeUnits={activeUnitsHere}
-                smartSuggestions={isPostProcessing ? [] : []}
-                selectedStation={selectedStation}
-                onProcessUnit={handleProcessUnit}
-                onPauseResume={handlePauseResume}
-                onClickUnit={handleActiveUnitClick}
-              />
+              ((selectedStation || "").toUpperCase().replace(/\s/g, "").includes("NABEWERK")) ? (
+                <Nabewerken products={rawProducts} />
+              ) : (
+                <ActiveProductionView
+                  activeUnits={activeUnitsHere}
+                  smartSuggestions={isPostProcessing ? [] : []}
+                  selectedStation={selectedStation}
+                  onProcessUnit={handleProcessUnit}
+                  onPauseResume={handlePauseResume}
+                  onClickUnit={handleActiveUnitClick}
+                />
+              )
             )}
             {activeTab === "lossen" && (
               <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

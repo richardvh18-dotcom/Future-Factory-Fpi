@@ -26,7 +26,7 @@ const REJECTION_REASON_FALLBACKS = {
  * Stuurt het product door naar de volgende stap (bijv. van Wikkelen -> Lossen).
  * UPDATE: Uitgebreide functionaliteit voor Lossen (metingen, afkeur opties).
  */
-const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger = 0 }) => {
+const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger = 0, forceLossenMode = false }) => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const lastAutoApproveRef = useRef(0);
@@ -44,16 +44,39 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
     return REJECTION_REASON_FALLBACKS[reasonKey] || reasonKey;
   };
 
-  // Determine product type for measurements
+  // Determine product/connectie type for measurements
   const itemDesc = (product?.item || "").toUpperCase();
-  const isFlange = itemDesc.includes("FL") || itemDesc.includes("FLENS");
-  const isCB = itemDesc.includes("CB");
-  const isTB = itemDesc.includes("TB");
+  const mofDesc = String(product?.mof || product?.mofType || "").toUpperCase();
+  const combinedDesc = `${itemDesc} ${mofDesc}`.trim();
+  const isFlange = combinedDesc.includes("FL") || combinedDesc.includes("FLENS") || /\bFLANGE\b/.test(combinedDesc);
+  const isElbow = /\bELB(OW)?\b/.test(combinedDesc);
+  const isCoupler =
+    !isFlange &&
+    !isElbow &&
+    (/\bCOUPLER\b/.test(combinedDesc) || /\bKOPPELING\b/.test(combinedDesc));
+  const isCB = /(?:^|[^A-Z0-9])CB(?:CB)?(?=$|[^A-Z0-9])/.test(combinedDesc) || combinedDesc.includes("CBCB");
+  const isTB = /(?:^|[^A-Z0-9])TB(?:TB)?(?=$|[^A-Z0-9])/.test(combinedDesc) || combinedDesc.includes("TBTB");
+
+  const isStandardFitting = !isFlange && !isCoupler;
+  const couplerMeasurementKey = isCB ? "TWco" : isTB ? "TWto" : "TWco";
+  const primaryMeasurementKey = isFlange ? "TF" : isCoupler ? couplerMeasurementKey : "TW";
+  const primaryMeasurementLabel = primaryMeasurementKey;
+  const showSecondaryMeasurement = isStandardFitting && (isCB || isTB);
+  const secondaryMeasurementKey = isCB ? "TWcb" : isTB ? "TWtb" : null;
 
   // Bepaal huidige en volgende stap dynamisch
   const currentStep = product?.currentStep || "Wikkelen";
-  // Only show extended form if we are at "Lossen" step
-  const isLossenStep = currentStep === "Lossen";
+  const currentStepUpper = String(product?.currentStep || "").toUpperCase();
+  const currentStationUpper = String(product?.currentStation || "").toUpperCase();
+  const statusUpper = String(product?.status || "").toUpperCase();
+  // Only show extended form if we are processing in Lossen context.
+  const isLossenStep =
+    forceLossenMode ||
+    currentStepUpper === "LOSSEN" ||
+    currentStepUpper.includes("LOSSEN") ||
+    currentStationUpper === "LOSSEN" ||
+    currentStationUpper.includes("LOSSEN") ||
+    statusUpper.includes("LOSSEN");
 
   let nextStepDisplay = "Lossen";
 
@@ -67,28 +90,20 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
     nextStepDisplay = "Gereed";
   }
 
-  // Validatie helper voor metingen
-  const hasValidMeasurements = () => {
-    if (isFlange) {
-      return measurements.TF && String(measurements.TF).trim() !== "";
-    }
-    // Standaard fitting
-    const hasTW = measurements.TW && String(measurements.TW).trim() !== "";
-    const hasCB = !isCB || (measurements.TWcb && String(measurements.TWcb).trim() !== "");
-    const hasTB = !isTB || (measurements.TWtb && String(measurements.TWtb).trim() !== "");
-    
-    return hasTW && hasCB && hasTB;
-  };
-
   const validateForm = () => {
     const newErrors = {};
     if (isLossenStep && status === 'approved') {
-      if (isFlange) {
-        if (!measurements.TF || String(measurements.TF).trim() === "") newErrors.TF = true;
-      } else {
-        if (!measurements.TW || String(measurements.TW).trim() === "") newErrors.TW = true;
-        if (isCB && (!measurements.TWcb || String(measurements.TWcb).trim() === "")) newErrors.TWcb = true;
-        if (isTB && (!measurements.TWtb || String(measurements.TWtb).trim() === "")) newErrors.TWtb = true;
+      const rawPrimaryValue =
+        measurements[primaryMeasurementKey] ||
+        (primaryMeasurementKey === "TWco" ? measurements.TWc : "");
+      if (!rawPrimaryValue || String(rawPrimaryValue).trim() === "") {
+        newErrors[primaryMeasurementKey] = true;
+      }
+      if (showSecondaryMeasurement && secondaryMeasurementKey) {
+        const rawSecondaryValue = measurements[secondaryMeasurementKey];
+        if (!rawSecondaryValue || String(rawSecondaryValue).trim() === "") {
+          newErrors[secondaryMeasurementKey] = true;
+        }
       }
     }
     setErrors(newErrors);
@@ -152,11 +167,17 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
         console.warn("Kon operator niet ophalen voor historie:", err);
       }
 
+      const normalizedMeasurements = { ...measurements };
+      // Backward compatibility: sommige rapportages gebruiken nog TWc.
+      if (String(normalizedMeasurements.TWco || "").trim() !== "" && String(normalizedMeasurements.TWc || "").trim() === "") {
+        normalizedMeasurements.TWc = normalizedMeasurements.TWco;
+      }
+
       const productRef = doc(db, ...PATHS.TRACKING, product.id);
       const updates = {
         lastUpdated: serverTimestamp(),
         note: comment,
-        measurements: measurements
+        measurements: normalizedMeasurements
       };
 
       // Handle Status Logic
@@ -338,16 +359,17 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
                 ) : (
                   <>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">TW (mm)</label>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">{primaryMeasurementLabel} (mm)</label>
                       <input
                         type="number"
-                        value={measurements.TW || ""}
-                        onChange={(e) => handleMeasurementChange('TW', e.target.value)}
-                        className={`w-full p-3 rounded-xl border font-bold text-slate-700 focus:border-blue-500 outline-none transition-colors ${errors.TW ? 'border-red-500 bg-red-50' : 'border-slate-200'}`}
+                        value={measurements[primaryMeasurementKey] || (primaryMeasurementKey === 'TWco' ? measurements.TWc || "" : "")}
+                        onChange={(e) => handleMeasurementChange(primaryMeasurementKey, e.target.value)}
+                        className={`w-full p-3 rounded-xl border font-bold text-slate-700 focus:border-blue-500 outline-none transition-colors ${errors[primaryMeasurementKey] ? 'border-red-500 bg-red-50' : 'border-slate-200'}`}
                         placeholder="Waarde..."
                       />
                     </div>
-                    {isCB && (
+
+                    {showSecondaryMeasurement && isCB && (
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">TWcb (mm)</label>
                         <input
@@ -359,7 +381,8 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
                         />
                       </div>
                     )}
-                    {isTB && (
+
+                    {showSecondaryMeasurement && isTB && (
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">TWtb (mm)</label>
                         <input

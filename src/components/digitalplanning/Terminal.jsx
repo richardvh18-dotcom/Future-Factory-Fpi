@@ -59,7 +59,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   const normalizedStationId = (normalizeMachine(effectiveStationId) || "").toUpperCase().trim();
   const cleanStationId = normalizedStationId.replace(/\s/g, "");
 
-  const isNabewerking = normalizedStationId === "NABEWERKING" || cleanStationId === "NABEWERKING" || normalizedStationId.includes("NABEWERKING") || normalizedStationId.includes("NABEWERKEN");
+  const isNabewerking = useMemo(() => normalizedStationId === "NABEWERKING" || cleanStationId === "NABEWERKING" || normalizedStationId.includes("NABEWERKING") || normalizedStationId.includes("NABEWERKEN"), [normalizedStationId, cleanStationId]);
   const isMazak = normalizedStationId === "MAZAK" || cleanStationId === "MAZAK";
   const isLossenStation = normalizedStationId === "LOSSEN";
   const isSimpleViewStation = isNabewerking || isMazak || isLossenStation;
@@ -216,25 +216,13 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     };
   }, [stationId]);
 
-  // DEBUG: Log data flow om te zien waar het misgaat
-  useEffect(() => {
-    if (!loading) {
-      console.log(`[Terminal DEBUG] Station: ${normalizedStationId}`);
-      console.log(`[Terminal DEBUG] Totaal actieve orders in DB: ${allOrders.length}`);
-      // Tel orders die matchen met dit station
-      const matching = allOrders.filter(o => (normalizeMachine(o.machine) || "").toUpperCase().trim() === normalizedStationId);
-      console.log(`[Terminal DEBUG] Orders voor ${normalizedStationId}: ${matching.length}`);
-    }
-  }, [loading, allOrders, normalizedStationId]);
-
   // Gefilterde data voor het huidige station
   const myOrders = useMemo(() => {
     if (isBM01) return allOrders;
     return allOrders.filter(o => {
-        const machineNorm = (normalizeMachine(o.machine) || "").toUpperCase().trim();
-        const returnNorm = (normalizeMachine(o.returnStation) || "").toUpperCase().trim();
-        
-        return machineNorm === normalizedStationId || returnNorm === normalizedStationId;
+      const machineNorm = (normalizeMachine(o.machine) || "").toUpperCase().trim();
+      const returnNorm = (normalizeMachine(o.returnStation) || "").toUpperCase().trim();
+      return machineNorm === normalizedStationId || returnNorm === normalizedStationId;
     });
   }, [allOrders, normalizedStationId, isBM01]);
 
@@ -740,8 +728,14 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     </div>
   );
 
-  // SIMPELE VIEW VOOR NABEWERKING, MAZAK & LOSSEN
   if (isSimpleViewStation) {
+    if (isNabewerking) {
+      return (
+        <div className="flex-1 overflow-hidden h-full text-left">
+          <LossenView stationId={effectiveStationId} appId={appId} products={allTracked} />
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
         <div className="flex-1 overflow-hidden h-full text-left">

@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { subWeeks, isValid, parseISO, parse } from "date-fns";
+import { subWeeks, isValid, parseISO, parse, getISOWeek } from "date-fns";
 
 const normalizeMachine = (val) => {
   if (!val) return "-";
@@ -11,23 +11,85 @@ const normalizeMachine = (val) => {
   return str.startsWith("40") ? str.substring(2) : str;
 };
 
-const processDates = (rawDate) => {
+const pickBestDateCandidate = (candidates, expectedWeekNumber = null) => {
+  const parsedExpectedWeek = Number(expectedWeekNumber);
+  const hasExpectedWeek = Number.isFinite(parsedExpectedWeek) && parsedExpectedWeek > 0;
+
+  const ranked = candidates
+    .filter((candidate) => isValid(candidate.date))
+    .map((candidate, index) => {
+      let score = 0;
+      if (candidate.priority === "preferred") score += 10;
+      if (hasExpectedWeek) {
+        score += getISOWeek(candidate.date) === parsedExpectedWeek ? 100 : -25;
+      }
+      return { ...candidate, score, index };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  return ranked[0]?.date || null;
+};
+
+const processDates = (rawDate, expectedWeekNumber = null) => {
   if (!rawDate) return { delivery: null, planned: null };
 
   const rawStr = String(rawDate || "").trim();
-  const isSlashDate = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawStr);
+  const isLocalDate = /^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/.test(rawStr);
   const parsedDate = rawDate instanceof Date ? rawDate : new Date(rawDate);
 
   let dateObj = null;
 
-  // Voorkom US-interpretatie (MM/dd): slash-datums altijd eerst als dd/MM parsen.
-  if (isSlashDate) {
-    const parsedNl = parse(rawStr, "dd/MM/yyyy", new Date());
-    if (isValid(parsedNl)) dateObj = parsedNl;
-    if (!isValid(dateObj)) {
-      const parsedNlShort = parse(rawStr, "d/M/yyyy", new Date());
-      if (isValid(parsedNlShort)) dateObj = parsedNlShort;
-    }
+  // Ondersteun zowel NL- als Engelse Office-notaties; gebruik weeknummer om ambiguiteit op te lossen.
+  if (isLocalDate) {
+    const localFormats = [
+      "dd/MM/yyyy",
+      "d/M/yyyy",
+      "dd-MM-yyyy",
+      "d-M-yyyy",
+      "dd.MM.yyyy",
+      "d.M.yyyy",
+    ];
+    const usFormats = [
+      "MM/dd/yyyy",
+      "M/d/yyyy",
+      "MM-dd-yyyy",
+      "M-d-yyyy",
+      "MM.dd.yyyy",
+      "M.d.yyyy",
+    ];
+
+    const candidates = [
+      ...localFormats.map((fmt) => ({
+        date: parse(rawStr, fmt, new Date()),
+        priority: "preferred",
+      })),
+      ...usFormats.map((fmt) => ({
+        date: parse(rawStr, fmt, new Date()),
+        priority: "fallback",
+      })),
+    ];
+
+    dateObj = pickBestDateCandidate(candidates, expectedWeekNumber);
+  }
+
+  if (!isValid(dateObj) && /[A-Za-z]/.test(rawStr)) {
+    const textFormats = [
+      "d MMM yyyy",
+      "dd MMM yyyy",
+      "d MMMM yyyy",
+      "dd MMMM yyyy",
+      "MMM d yyyy",
+      "MMMM d yyyy",
+      "MMM dd yyyy",
+      "MMMM dd yyyy",
+    ];
+
+    const candidates = textFormats.map((fmt) => ({
+      date: parse(rawStr.replace(/,/g, " "), fmt, new Date()),
+      priority: "fallback",
+    }));
+
+    dateObj = pickBestDateCandidate(candidates, expectedWeekNumber);
   }
 
   if (!isValid(dateObj)) {
@@ -70,6 +132,7 @@ const getSheetPriority = (sheetName) => {
   if (s.includes("format fabriek")) return 100;
   if (s.includes("format mazak")) return 90;
   if (s.includes("format 40bm01")) return 80;
+  if (s === "pasteddata") return 75;
   if (s.includes("fabrieksplanning")) return 70;
   if (s.includes("mazakplanning")) return 60;
   if (s === "40bm01") return 50;
@@ -89,6 +152,7 @@ const parseWorkbook = (arrayBuffer) => {
     "Fabrieksplanning",
     "Mazakplanning",
     "40BM01",
+    "PastedData",
     "Format fabriek",
     "Format mazak",
     "Format 40BM01",
@@ -159,7 +223,8 @@ const parseWorkbook = (arrayBuffer) => {
         const docId = `${orderId}_${manufacturedItem}`.replace(/[^a-zA-Z0-9]/g, "_");
 
         const rawDateVal = idxDatum !== -1 ? row[idxDatum] : null;
-        const { delivery, planned } = processDates(rawDateVal);
+        const expectedWeekNumber = idxWeek !== -1 ? parseInt(row[idxWeek], 10) || null : null;
+        const { delivery, planned } = processDates(rawDateVal, expectedWeekNumber);
 
         const rawPlan = idxPlan !== -1 ? row[idxPlan] : null;
         let quantity =
@@ -190,7 +255,7 @@ const parseWorkbook = (arrayBuffer) => {
           machine,
           deliveryDate: delivery ? delivery.toISOString() : null,
           plannedDate: planned ? planned.toISOString() : null,
-          weekNumber: idxWeek !== -1 ? parseInt(row[idxWeek], 10) || null : null,
+          weekNumber: expectedWeekNumber,
           itemCode: idxItemCode !== -1 ? String(row[idxItemCode] || "") : "",
           item: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
           extraCode: idxCode !== -1 ? String(row[idxCode] || "") : "",
