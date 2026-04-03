@@ -53,6 +53,7 @@ export const PATHS = {
   LABEL_TEMPLATES: [BASE, "settings", "label_templates"],
   LABEL_LOGIC: [BASE, "settings", "label_logic"],
   PRINTERS: [BASE, "settings", "printers"],
+  TOOLING_MOLDS: [BASE, "settings", "tooling_molds"],
   
   // --- PRINTER SERVICE ---
   PRINT_QUEUE: [BASE, "production", "print_queue"],

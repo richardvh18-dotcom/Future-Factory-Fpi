@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Zap, ChevronRight, ArrowLeft, ClipboardCheck, ScanBarcode, Trash2, FileText, AlertTriangle } from "lucide-react";
+import { Zap, ChevronRight, ChevronDown, ArrowLeft, ClipboardCheck, ScanBarcode, Trash2, FileText, AlertTriangle } from "lucide-react";
 
 const TerminalProductionView = ({
   activeWikkelingen = [],
@@ -18,6 +18,70 @@ const TerminalProductionView = ({
 }) => {
   const { t } = useTranslation();
   const itemRefs = useRef({});
+  const [collapsedGroups, setCollapsedGroups] = useState({});
+
+  const groupedSeries = useMemo(() => {
+    const grouped = new Map();
+    activeWikkelingen.forEach((item) => {
+      const groupId = item?.seriesGroupId;
+      if (!groupId) return;
+      if (!grouped.has(groupId)) grouped.set(groupId, []);
+      grouped.get(groupId).push(item);
+    });
+    return grouped;
+  }, [activeWikkelingen]);
+
+  useEffect(() => {
+    setCollapsedGroups((prev) => {
+      const next = { ...prev };
+      groupedSeries.forEach((group, groupId) => {
+        if (group.length <= 1) return;
+        if (!(groupId in next)) next[groupId] = true;
+      });
+      Object.keys(next).forEach((groupId) => {
+        const group = groupedSeries.get(groupId);
+        if (!group || group.length <= 1) {
+          delete next[groupId];
+        }
+      });
+      return next;
+    });
+  }, [groupedSeries]);
+
+  const displayRows = useMemo(() => {
+    const rendered = new Set();
+    const rows = [];
+
+    activeWikkelingen.forEach((item) => {
+      const groupId = item?.seriesGroupId;
+      const group = groupId ? groupedSeries.get(groupId) || [] : [];
+      const isSeriesGroup = groupId && group.length > 1;
+
+      if (isSeriesGroup && !rendered.has(groupId)) {
+        rows.push({
+          id: `series_header_${groupId}`,
+          isSeriesHeader: true,
+          seriesGroupId: groupId,
+          orderId: group[0]?.orderId || item?.orderId || "-",
+          seriesUnits: group,
+          seriesCount: group.length,
+        });
+        rendered.add(groupId);
+      }
+
+      if (!isSeriesGroup || !collapsedGroups[groupId]) {
+        rows.push(item);
+      }
+    });
+
+    return rows;
+  }, [activeWikkelingen, groupedSeries, collapsedGroups]);
+
+  const selectedSeriesUnits = useMemo(() => {
+    if (!selectedWikkeling?.seriesGroupId) return [];
+    const group = groupedSeries.get(selectedWikkeling.seriesGroupId) || [];
+    return group.length > 1 ? group : [];
+  }, [selectedWikkeling, groupedSeries]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -113,7 +177,41 @@ const TerminalProductionView = ({
           className="flex-1 overflow-y-auto space-y-3 custom-scrollbar text-left text-left pb-24"
           style={{ paddingBottom: "max(6rem, env(safe-area-inset-bottom))" }}
         >
-          {activeWikkelingen.map((prod) => {
+          {displayRows.map((prod) => {
+            if (prod.isSeriesHeader) {
+              const isCollapsed = !!collapsedGroups[prod.seriesGroupId];
+              const firstSeriesUnit = prod.seriesUnits?.[0] || null;
+              return (
+                <div
+                  key={prod.id}
+                  onClick={() => firstSeriesUnit && onSelectTracked(firstSeriesUnit.id)}
+                  className="p-4 rounded-[24px] border-2 bg-orange-50 border-orange-200 cursor-pointer"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-black italic leading-none mb-1">Order {prod.orderId}</h4>
+                      <p className="text-[10px] font-bold text-orange-700 uppercase">Serie {prod.seriesCount} stuks</p>
+                    </div>
+                    <button
+                      onClick={() =>
+                        setCollapsedGroups((prev) => ({
+                          ...prev,
+                          [prod.seriesGroupId]: !prev[prod.seriesGroupId],
+                        }))
+                      }
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-orange-200 text-orange-700 text-[10px] font-black uppercase"
+                    >
+                      {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      {isCollapsed ? "Uitklappen" : "Inklappen"}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[10px] font-bold text-orange-700/80 uppercase tracking-wide">
+                    Selecteer voor gereedmelden in rechterpaneel
+                  </p>
+                </div>
+              );
+            }
+
             const lotKey = String(prod?.lotNumber || "").trim().toUpperCase();
             const conflict = lotConflictMeta[lotKey];
             const hasLotConflict = Boolean(conflict?.hasConflict);
@@ -183,6 +281,11 @@ const TerminalProductionView = ({
             )}
 
             <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-8 text-left">
+              {selectedSeriesUnits.length > 1 && (
+                <button onClick={() => onReleaseProduct(selectedSeriesUnits[0], selectedSeriesUnits)} className="w-full py-4 bg-emerald-600 text-white rounded-[22px] font-black uppercase text-sm shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                  <ClipboardCheck size={20} /> Serie gereedmelden ({selectedSeriesUnits.length}x)
+                </button>
+              )}
               <button onClick={() => onReleaseProduct(selectedWikkeling)} className="w-full py-6 bg-slate-900 text-white rounded-[30px] font-black uppercase text-base shadow-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-4 active:scale-95 group">
                 <ClipboardCheck size={28} /> Product Gereedmelden
               </button>

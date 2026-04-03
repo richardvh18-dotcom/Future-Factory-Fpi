@@ -38,6 +38,7 @@ import TerminalPlanningView from "./terminal/TerminalPlanningView";
 import TerminalProductionView from "./terminal/TerminalProductionView";
 import TerminalManualInput from "./terminal/TerminalManualInput";
 import MalOptimizationPanel from "./MalOptimizationPanel";
+import MazakView from "./MazakView";
 import RepairModal from "./modals/RepairModal";
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
@@ -80,6 +81,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   const [manualInputValue, setManualInputValue] = useState("");
   const [showStartModal, setShowStartModal] = useState(false);
   const [productToRelease, setProductToRelease] = useState(null);
+  const [bulkProductsToRelease, setBulkProductsToRelease] = useState([]);
   const [releaseAutoApproveToken, setReleaseAutoApproveToken] = useState(0);
   const [viewingProduct, setViewingProduct] = useState(null);
   const [showRepairModal, setShowRepairModal] = useState(false);
@@ -546,6 +548,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
 
         if (selectedWikkeling && isWikkelenStep) {
           setProductToRelease(selectedWikkeling);
+          setBulkProductsToRelease([]);
           setReleaseAutoApproveToken(Date.now());
           setScanInput("");
         } else {
@@ -595,6 +598,15 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   // Handlers
   const handleTabChange = (tab) => {
     setActiveTab(tab);
+  };
+
+  const handleOpenReleaseModal = (product, bulkProducts = []) => {
+    setProductToRelease(product || null);
+    if (Array.isArray(bulkProducts) && bulkProducts.length > 1) {
+      setBulkProductsToRelease(bulkProducts);
+    } else {
+      setBulkProductsToRelease([]);
+    }
   };
 
   const handleViewDrawing = async (productId) => {
@@ -648,7 +660,8 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     _operatorInput,
     _selectedOperatorName,
     labelZplData,
-    labelTemplateId
+    labelTemplateId,
+    startOptions = {}
   ) => {
     try {
       const timestamp = serverTimestamp();
@@ -659,6 +672,11 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       const startLot = String(lot || "").trim().toUpperCase();
       const hasLabel = typeof labelZplData === "string" && !!labelZplData.trim();
       const lotMatch = startLot.match(/^(.*?)(\d+)$/);
+      const seriesGroupId =
+        startOptions?.seriesGroupId ||
+        (totalToProduce > 1
+          ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${startLot}`
+          : null);
 
       const buildLotNumber = (offset) => {
         if (!lotMatch) {
@@ -717,6 +735,15 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                 templateId: labelTemplateId || null,
               }
             : null,
+          ...(seriesGroupId
+            ? {
+                seriesGroupId,
+                seriesIndex: i + 1,
+                seriesSize: totalToProduce,
+                seriesOrderNumber: order.orderId,
+                isFlangeSeries: !!startOptions?.isFlangeSeries,
+              }
+            : {}),
         });
 
         createdLots.push(currentLot);
@@ -793,6 +820,15 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       return (
         <div className="flex-1 overflow-hidden h-full text-left">
           <LossenView stationId={effectiveStationId} appId={appId} products={allTracked} />
+        </div>
+      );
+    }
+    if (isMazak) {
+      return (
+        <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in">
+          <div className="flex-1 overflow-hidden h-full text-left">
+            <MazakView stationId={effectiveStationId} products={allTracked} />
+          </div>
         </div>
       );
     }
@@ -893,7 +929,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                 selectedTrackedId={selectedTrackedId}
                 onSelectTracked={setSelectedTrackedId}
                 selectedWikkeling={selectedWikkeling}
-                onReleaseProduct={setProductToRelease}
+                onReleaseProduct={handleOpenReleaseModal}
                 scanInput={scanInput}
                 setScanInput={setScanInput}
                 onScan={handleScan}
@@ -904,7 +940,11 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
             ) : (
               /* TAB LOSSEN */
               <div className="flex-1 overflow-hidden h-full text-left">
-                <LossenView stationId={effectiveStationId} appId={appId} products={allTracked} />
+                {isMazak ? (
+                  <MazakView stationId={effectiveStationId} products={allTracked} />
+                ) : (
+                  <LossenView stationId={effectiveStationId} appId={appId} products={allTracked} />
+                )}
               </div>
             )}
           </div>
@@ -935,8 +975,13 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       {productToRelease && (
         <ProductReleaseModal
           isOpen={true} product={productToRelease}
+          bulkProducts={bulkProductsToRelease}
           autoApproveTrigger={releaseAutoApproveToken}
-          onClose={() => { setProductToRelease(null); setSelectedTrackedId(null); }}
+          onClose={() => {
+            setProductToRelease(null);
+            setBulkProductsToRelease([]);
+            setSelectedTrackedId(null);
+          }}
           appId={appId}
         />
       )}

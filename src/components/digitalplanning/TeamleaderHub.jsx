@@ -429,9 +429,10 @@ const TeamleaderHub = React.memo(({
 
   const resolveOverproductionRoute = (targetOrder, group, manualStation = "") => {
     const itemText = `${targetOrder?.item || ""} ${group?.item || ""}`.toUpperCase();
+    const normalizedItem = itemText.trim().replace(/\s+/g, " ");
     const machineNorm = normalizeMachine(targetOrder?.machine || group?.originMachine || "");
 
-    if (itemText.includes("FL")) {
+    if (normalizedItem.startsWith("FL")) {
       return { station: "Mazak", mode: "auto", label: "Mazak" };
     }
 
@@ -876,6 +877,7 @@ const TeamleaderHub = React.memo(({
     });
 
     return {
+      plannedOrdersCount: dataStore.filter((o) => !['cancelled', 'rejected', 'REJECTED'].includes(o.status)).length,
       totalPlanned: dataStore
         .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
         .reduce((acc, o) => acc + Number(o.plan ?? o.toDoQty ?? o.quantity ?? 0), 0),
@@ -1586,7 +1588,7 @@ const TeamleaderHub = React.memo(({
             showAiPrediction ? (
               <AiPredictionView onClose={() => setShowAiPrediction(false)} />
             ) : (
-              <TeamleaderEfficiencyView departmentName={departmentFilter !== "ALL" ? departmentFilter : departmentName} />
+              <TeamleaderEfficiencyView departmentName={departmentFilter !== "ALL" ? departmentFilter : departmentName} lockDepartment={fixedScope !== "all"} />
             )
           ) : activeTab === "gantt" ? (
             <TeamleaderGanttView metrics={metrics} />

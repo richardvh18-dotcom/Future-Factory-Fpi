@@ -48,7 +48,7 @@ const getLossenRoute = (itemText) => {
  * Stuurt het product door naar de volgende stap (bijv. van Wikkelen -> Lossen).
  * UPDATE: Uitgebreide functionaliteit voor Lossen (metingen, afkeur opties).
  */
-const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger = 0, forceLossenMode = false }) => {
+const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, autoApproveTrigger = 0, forceLossenMode = false }) => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const lastAutoApproveRef = useRef(0);
@@ -59,6 +59,23 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
   const [errors, setErrors] = useState({});
   const [reason, setReason] = useState("");
   const [comment, setComment] = useState("");
+  const [selectedBulkLotIds, setSelectedBulkLotIds] = useState([]);
+
+  const isBulkMode = Array.isArray(bulkProducts) && bulkProducts.length > 1;
+
+  useEffect(() => {
+    if (isBulkMode) {
+      setSelectedBulkLotIds(
+        bulkProducts.map((p) => String(p.id || p.lotNumber || "")).filter(Boolean)
+      );
+      return;
+    }
+    setSelectedBulkLotIds([]);
+  }, [isBulkMode, bulkProducts]);
+
+  const selectedTargets = isBulkMode
+    ? bulkProducts.filter((p) => selectedBulkLotIds.includes(String(p.id || p.lotNumber || "")))
+    : [product].filter(Boolean);
 
   const getReasonLabel = (reasonKey) => {
     const translated = t(reasonKey);
@@ -67,10 +84,12 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
   };
 
   // Determine product/connectie type for measurements
-  const itemDesc = (product?.item || "").toUpperCase();
+  const itemDesc = (product?.item || product?.itemDescription || "").toUpperCase();
   const mofDesc = String(product?.mof || product?.mofType || "").toUpperCase();
   const combinedDesc = `${itemDesc} ${mofDesc}`.trim();
-  const isFlange = combinedDesc.includes("FL") || combinedDesc.includes("FLENS") || /\bFLANGE\b/.test(combinedDesc);
+  const compactItemDesc = itemDesc.trim().replace(/\s+/g, " ");
+  const startsWithFl = compactItemDesc.startsWith("FL");
+  const isFlange = startsWithFl || combinedDesc.includes("FLENS") || /\bFLANGE\b/.test(combinedDesc);
   const isElbow = /\bELB(OW)?\b/.test(combinedDesc);
   const isCoupler =
     !isFlange &&
@@ -104,8 +123,8 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
 
   if (product?.isManualMove) {
     nextStepDisplay = "Nabewerking";
-  } else if (currentStep === "Lossen") {
-    nextStepDisplay = itemDesc.includes("FL") ? "Mazak" : "Nabewerking";
+  } else if (isLossenStep) {
+    nextStepDisplay = isFlange ? "Mazak" : "Nabewerking";
   } else if (currentStep === "Nabewerking" || currentStep === "Mazak") {
     nextStepDisplay = "Eindinspectie";
   } else if (currentStep === "Eindinspectie" || currentStep === "Inspectie" || product?.currentStation === "BM01") {
@@ -149,6 +168,11 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
       PILOT_ALLOW_INCOMPLETE_LOSSEN_MEASUREMENTS &&
       isLossenStep &&
       status === "approved";
+
+    if (selectedTargets.length === 0) {
+      alert("Selecteer minimaal 1 lotnummer.");
+      return;
+    }
 
     if (!isFormValid && !mayProceedInPilot) return;
 
@@ -195,109 +219,111 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
         normalizedMeasurements.TWc = normalizedMeasurements.TWco;
       }
 
-      const productRef = doc(db, ...PATHS.TRACKING, product.id);
-      const updates = {
-        lastUpdated: serverTimestamp(),
-        note: comment,
-        measurements: normalizedMeasurements
-      };
+      for (const target of selectedTargets) {
+        const targetId = target?.id || target?.lotNumber;
+        if (!targetId) continue;
 
-      // Handle Status Logic
-      if (status === "approved") {
-        // Normal flow
-        let nextStep = nextStepDisplay;
-        let nextStatus = `Wacht op ${nextStep}`;
-        let updateStation = true;
-        let targetStation = nextStep;
-
-        if (nextStepDisplay === "Gereed") {
-          nextStep = "Finished";
-          nextStatus = "Finished";
-          updateStation = false;
-        } else if (product.isManualMove) {
-          updates.isManualMove = false;
-          nextStep = "Nabewerking";
-          targetStation = "Nabewerking";
-        } else if (nextStep === "Eindinspectie") {
-          targetStation = "BM01";
-        } else if (nextStep === "Lossen") {
-          const lossenRoute = getLossenRoute(
-            `${product.item || ""} ${product.description || ""} ${product.itemCode || ""}`
-          );
-          const originStation = product.currentStation || product.machine || "Lossen";
-          nextStep = "Wacht op Lossen";
-          nextStatus = "Wacht op Lossen";
-          targetStation = lossenRoute === "STATION" ? "LOSSEN" : originStation;
-        }
-
-        updates.currentStep = nextStep;
-        updates.status = nextStatus;
-        updates[`timestamps.${currentStep.toLowerCase()}_end`] = serverTimestamp();
-        updates[`timestamps.${nextStep.toLowerCase()}_start`] = serverTimestamp();
-        
-        updates.history = arrayUnion({
-          action: "Stap Voltooid",
-          timestamp: new Date(),
-          user: activeOperator, // Gebruik de opgehaalde operator
-          details: `Doorgestuurd van ${currentStep} naar ${nextStep}`,
-          station: product.currentStation || product.machine || "Onbekend"
-        });
-
-        if (updateStation) {
-          updates.currentStation = targetStation;
-          updates.lastStation = product.currentStation || product.machine || "Onbekend";
-        }
-
-      } else if (status === "temp_reject") {
-        updates.status = "Tijdelijke afkeur";
-        updates.currentStep = "HOLD_AREA"; // Move to hold
-        updates.inspection = {
-          status: "Tijdelijke afkeur",
-          reasons: [reason],
-          timestamp: new Date().toISOString()
+        const targetRef = doc(db, ...PATHS.TRACKING, targetId);
+        const targetCurrentStep = target?.currentStep || currentStep;
+        const updates = {
+          lastUpdated: serverTimestamp(),
+          note: comment,
+          measurements: normalizedMeasurements,
         };
-        updates.history = arrayUnion({
-          action: "Tijdelijke Afkeur",
-          timestamp: new Date(),
-          user: activeOperator, // Gebruik de opgehaalde operator
-          details: `Reden: ${reason} - ${comment}`,
-          station: product.currentStation || product.machine || "Onbekend"
-        });
 
-      } else if (status === "rejected") {
-        updates.status = "Rejected";
-        updates.currentStep = "REJECTED";
-        updates.currentStation = "AFKEUR";
-        updates.inspection = {
-          status: "Afkeur",
-          reasons: [reason],
-          timestamp: new Date().toISOString()
-        };
-        updates.history = arrayUnion({
-          action: "Definitieve Afkeur",
-          timestamp: new Date(),
-          user: activeOperator, // Gebruik de opgehaalde operator
-          details: `Reden: ${reason} - ${comment}`,
-          station: product.currentStation || product.machine || "Onbekend"
-        });
+        if (status === "approved") {
+          let nextStep = nextStepDisplay;
+          let nextStatus = `Wacht op ${nextStep}`;
+          let updateStation = true;
+          let targetStation = nextStep;
 
-        // CRITICAl: Update de moeder-order zodat deze weer in de planning komt
-        if (product.orderId) {
-          const orderRef = doc(db, ...PATHS.PLANNING, product.orderId);
-          // We verhogen de rejectedCount. De planning logica (Plan - (Started - Rejected)) zal nu weer > 0 zijn.
-          updateDoc(orderRef, {
-            rejectedCount: increment(1),
-            lastUpdated: serverTimestamp()
-          }).catch(e => console.error("Kon order niet updaten na afkeur:", e));
+          if (nextStepDisplay === "Gereed") {
+            nextStep = "Finished";
+            nextStatus = "Finished";
+            updateStation = false;
+          } else if (target?.isManualMove) {
+            updates.isManualMove = false;
+            nextStep = "Nabewerking";
+            targetStation = "Nabewerking";
+          } else if (nextStep === "Eindinspectie") {
+            targetStation = "BM01";
+          } else if (nextStep === "Lossen") {
+            const lossenRoute = getLossenRoute(
+              `${target.item || ""} ${target.description || ""} ${target.itemCode || ""}`
+            );
+            const originStation = target.currentStation || target.machine || "Lossen";
+            nextStep = "Wacht op Lossen";
+            nextStatus = "Wacht op Lossen";
+            targetStation = lossenRoute === "STATION" ? "LOSSEN" : originStation;
+          } else if (nextStep === "Mazak") {
+            targetStation = "Mazak";
+            nextStatus = "Te Nabewerken";
+          }
+
+          updates.currentStep = nextStep;
+          updates.status = nextStatus;
+          updates[`timestamps.${String(targetCurrentStep).toLowerCase()}_end`] = serverTimestamp();
+          updates[`timestamps.${String(nextStep).toLowerCase()}_start`] = serverTimestamp();
+          updates.history = arrayUnion({
+            action: "Stap Voltooid",
+            timestamp: new Date(),
+            user: activeOperator,
+            details: `Doorgestuurd van ${targetCurrentStep} naar ${nextStep}`,
+            station: target.currentStation || target.machine || "Onbekend",
+          });
+
+          if (updateStation) {
+            updates.currentStation = targetStation;
+            updates.lastStation = target.currentStation || target.machine || "Onbekend";
+          }
+        } else if (status === "temp_reject") {
+          updates.status = "Tijdelijke afkeur";
+          updates.currentStep = "HOLD_AREA";
+          updates.inspection = {
+            status: "Tijdelijke afkeur",
+            reasons: [reason],
+            timestamp: new Date().toISOString(),
+          };
+          updates.history = arrayUnion({
+            action: "Tijdelijke Afkeur",
+            timestamp: new Date(),
+            user: activeOperator,
+            details: `Reden: ${reason} - ${comment}`,
+            station: target.currentStation || target.machine || "Onbekend",
+          });
+        } else if (status === "rejected") {
+          updates.status = "Rejected";
+          updates.currentStep = "REJECTED";
+          updates.currentStation = "AFKEUR";
+          updates.inspection = {
+            status: "Afkeur",
+            reasons: [reason],
+            timestamp: new Date().toISOString(),
+          };
+          updates.history = arrayUnion({
+            action: "Definitieve Afkeur",
+            timestamp: new Date(),
+            user: activeOperator,
+            details: `Reden: ${reason} - ${comment}`,
+            station: target.currentStation || target.machine || "Onbekend",
+          });
+
+          if (target.orderId) {
+            const orderRef = doc(db, ...PATHS.PLANNING, target.orderId);
+            updateDoc(orderRef, {
+              rejectedCount: increment(1),
+              lastUpdated: serverTimestamp(),
+            }).catch((e) => console.error("Kon order niet updaten na afkeur:", e));
+          }
         }
+
+        await updateDoc(targetRef, updates);
       }
-
-      await updateDoc(productRef, updates);
 
       await logActivity(
         auth.currentUser?.uid || "system",
         status === "approved" ? "PRODUCT_RELEASE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
-        `Release modal: lot ${product?.lotNumber || product?.id}, station ${product?.currentStation || product?.machine || "onbekend"}, status ${status}, next ${updates.currentStep || "nvt"}`
+        `Release modal: ${selectedTargets.length} lot(s), station ${product?.currentStation || product?.machine || "onbekend"}, status ${status}`
       );
 
       if (onComplete) onComplete();
@@ -365,6 +391,35 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
               >
                 <AlertOctagon size={20} className="md:w-6 md:h-6" /> Definitieve afkeur
               </button>
+            </div>
+          )}
+
+          {isBulkMode && (
+            <div className="mb-4 md:mb-6 bg-blue-50 p-3 md:p-4 rounded-2xl border border-blue-100">
+              <h4 className="text-xs font-black text-blue-700 uppercase tracking-widest mb-3">
+                Serie Selectie ({selectedBulkLotIds.length}/{bulkProducts.length})
+              </h4>
+              <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
+                {bulkProducts.map((bulkItem) => {
+                  const key = String(bulkItem.id || bulkItem.lotNumber || "");
+                  const checked = selectedBulkLotIds.includes(key);
+                  return (
+                    <label key={key} className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setSelectedBulkLotIds((prev) =>
+                            prev.includes(key) ? prev.filter((id) => id !== key) : [...prev, key]
+                          );
+                        }}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{bulkItem.lotNumber || bulkItem.id}</span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
           )}
 
