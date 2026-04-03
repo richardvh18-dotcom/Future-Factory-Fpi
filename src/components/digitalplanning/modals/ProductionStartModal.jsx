@@ -17,7 +17,7 @@ import {
   Loader2,
   Database
 } from "lucide-react";
-import { collection, getDocs, query, where, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp, runTransaction } from "firebase/firestore";
+import { collection, getDocs, query, where, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp, runTransaction, limit } from "firebase/firestore";
 
 import { db, auth, logActivity } from "../../../config/firebase"; 
 import { PATHS, getArchiveItemsPath } from "../../../config/dbPaths";
@@ -32,6 +32,7 @@ import LabelVisualPreview from "../../printer/LabelVisualPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
 
 const PIXELS_PER_MM = 3.78;
+const LOT_ARCHIVE_LOOKBACK_YEARS = 6;
 
 // Functie om ISO week en bijbehorend ISO jaar te berekenen
 const getIsoWeekAndYear = (d) => {
@@ -374,21 +375,39 @@ const ProductionStartModal = ({
   const checkLotNumberExists = async (lotToCheck) => {
     if (!lotToCheck) return false;
     try {
-      const actPaths = PATHS?.ACTIVE_PRODUCTION || ['future-factory', 'production', 'active'];
+      const normalizedLot = String(lotToCheck || "").trim().toUpperCase();
+      if (!normalizedLot) return false;
+
+      // 1) Lokale context check (realtime meegegeven producten in de modal)
+      const localExists = (existingProducts || []).some((p) => {
+        const lot = String(p?.lotNumber || "").trim().toUpperCase();
+        const activeLot = String(p?.activeLot || "").trim().toUpperCase();
+        return lot === normalizedLot || activeLot === normalizedLot;
+      });
+      if (localExists) return true;
+
+      // 2) Actieve tracking check (bron van waarheid voor lopende productie)
+      const trackingRef = collection(db, ...PATHS.TRACKING);
+      const trackingByLotSnap = await getDocs(query(trackingRef, where("lotNumber", "==", normalizedLot), limit(1)));
+      if (!trackingByLotSnap.empty) return true;
+
+      // 3) Legacy active production check (orders met activeLot)
+      const actPaths = PATHS?.ACTIVE_PRODUCTION || ["future-factory", "production", "active"];
       const activeRef = collection(db, ...actPaths);
-      
-      const qActive = query(activeRef, where("lotNumber", "==", lotToCheck));
-      const snapshotActive = await getDocs(qActive);
-      if (!snapshotActive.empty) return true;
+      const activeLotSnap = await getDocs(query(activeRef, where("activeLot", "==", normalizedLot), limit(1)));
+      if (!activeLotSnap.empty) return true;
 
-      const qActive2 = query(activeRef, where("activeLot", "==", lotToCheck));
-      const snapshotActive2 = await getDocs(qActive2);
-      if (!snapshotActive2.empty) return true;
+      // 4) Multi-year archive check (failsafe tegen hergebruik van historische lotnummers)
+      const currentYear = new Date().getFullYear();
+      const yearsToCheck = Array.from({ length: LOT_ARCHIVE_LOOKBACK_YEARS }, (_, idx) => currentYear - idx);
 
-      const archiveRef = collection(db, ...getArchiveItemsPath(new Date().getFullYear()));
-      const qArchive = query(archiveRef, where("lotNumber", "==", lotToCheck));
-      const snapshotArchive = await getDocs(qArchive);
-      return !snapshotArchive.empty;
+      for (const year of yearsToCheck) {
+        const archiveRef = collection(db, ...getArchiveItemsPath(year));
+        const archiveSnap = await getDocs(query(archiveRef, where("lotNumber", "==", normalizedLot), limit(1)));
+        if (!archiveSnap.empty) return true;
+      }
+
+      return false;
     } catch (error) {
       console.error("Fout bij lot validatie:", error);
       return false;
@@ -795,7 +814,7 @@ const ProductionStartModal = ({
     lastLotInputAtRef.current = now;
   };
 
-  const canStartManual = isManualMode && orderValidated && !!manualLotInput.trim() && !orderError;
+  const canStartManual = isManualMode && orderValidated && !!manualLotInput.trim() && !orderError && !lotError && !isCheckingLot;
   const canStartAuto = !isManualMode && !!lotNumber && !isCheckingLot && !lotError;
 
   const handleStartProduction = async () => {
@@ -826,11 +845,32 @@ const ProductionStartModal = ({
         counterClaimed = true;
         setLotNumber(effectiveLotNumber);
 
+        // Failsafe: ook na counter-claim expliciet controleren op bestaand lot (tracking + archief).
+        const autoStartSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
+        if (!Number.isFinite(autoStartSeq)) {
+          throw new Error("Kan lotnummerreeks niet valideren.");
+        }
+
+        for (let i = 0; i < totalToProduce; i++) {
+          const candidateLot = `${String(effectiveLotNumber).slice(0, -4)}${String(autoStartSeq + i).padStart(4, "0")}`;
+          const exists = await checkLotNumberExists(candidateLot);
+          if (exists) {
+            throw new Error(`Lotnummer ${candidateLot} bestaat al (actief of archief). Probeer opnieuw.`);
+          }
+        }
+
         const printPreviewData = {
           ...previewData,
           lotNumber: effectiveLotNumber,
         };
         printData = await generatePrintData(selectedLabel, printPreviewData, dpiForPrint);
+      } else {
+        // Manual mode moet ook altijd uniciteit afdwingen voor we starten.
+        const manualExists = await checkLotNumberExists(effectiveLotNumber);
+        if (manualExists) {
+          setLotError(`Lotnummer ${effectiveLotNumber} bestaat al (actief of archief).`);
+          throw new Error(`Lotnummer ${effectiveLotNumber} bestaat al (actief of archief).`);
+        }
       }
 
       if (!counterClaimed) {

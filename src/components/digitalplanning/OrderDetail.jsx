@@ -20,6 +20,7 @@ import {
   PlayCircle,
   Star,
   Zap,
+  Edit3,
 } from "lucide-react";
 import ProductMoveModal from "./ProductMoveModal";
 import ProductJourneyModal from "./modals/ProductJourneyModal";
@@ -30,9 +31,9 @@ import ConfirmationModal from "./modals/ConfirmationModal";
 import { FileImage } from "lucide-react";
 import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
-import { doc, updateDoc, serverTimestamp, collection, addDoc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, collection, addDoc, getDoc, getDocs, query, where, limit, arrayUnion } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import { useNotifications } from "../../contexts/NotificationContext";
 import StatusBadge from "./common/StatusBadge";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
@@ -64,6 +65,11 @@ const OrderDetail = React.memo(({
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [holdLoading, setHoldLoading] = useState(false);
   const [moveConfirmData, setMoveConfirmData] = useState(null);
+  const [lotEditTarget, setLotEditTarget] = useState(null);
+  const [lotEditNewValue, setLotEditNewValue] = useState("");
+  const [lotEditReason, setLotEditReason] = useState("");
+  const [lotEditError, setLotEditError] = useState("");
+  const [isSavingLotEdit, setIsSavingLotEdit] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [planDraft, setPlanDraft] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
@@ -75,6 +81,11 @@ const OrderDetail = React.memo(({
 
   const canEditOrderNotes = ['admin', 'teamleader', 'planner'].includes(role);
   const canEditOrderPlan = ['admin', 'teamleader', 'planner'].includes(role);
+  const normalizedRole = String(role || "").toLowerCase();
+  const canEditLotNumber =
+    normalizedRole === "admin" ||
+    normalizedRole === "teamleader" ||
+    (normalizedRole.includes("teamleader") && normalizedRole.includes("admin"));
   const visibleOrderNote = String(order?.notes || order?.poText || "").trim();
   const visibleOrderPlan = Number(order?.plan) || 0;
 
@@ -256,12 +267,17 @@ const OrderDetail = React.memo(({
     showSuccess("Ordernummer gekopieerd");
   };
 
-  const normalizedPlanDraft = String(planDraft || "").trim().replace(",", ".");
-  const parsedPlanDraft = parseFloat(normalizedPlanDraft);
+  const normalizedPlanDraft = String(planDraft || "").trim().replace(/[^0-9]/g, "");
+  const parsedPlanDraft = parseInt(normalizedPlanDraft, 10);
   const nextPlan = Number.isNaN(parsedPlanDraft) ? null : parsedPlanDraft;
   const hasNoteChanged = String(noteDraft || "").trim() !== visibleOrderNote;
   const hasPlanChanged = canEditOrderPlan && nextPlan !== null && nextPlan !== visibleOrderPlan;
   const hasPendingChanges = hasNoteChanged || hasPlanChanged;
+  const machineCounterKey = String(order?.machine || "").replace(/[^a-zA-Z0-9]/g, "_");
+  const startedCounterField = machineCounterKey ? `started_${machineCounterKey}` : "";
+  const startedAmount = Number(startedCounterField ? order?.[startedCounterField] : 0) || 0;
+  const effectivePlanForTodo = canEditOrderPlan && nextPlan !== null ? Number(nextPlan) : visibleOrderPlan;
+  const todoAmount = Math.max(0, Number((Number(effectivePlanForTodo || 0) - startedAmount).toFixed(2)));
   const normalizedPriority =
     order?.priority === true
       ? "high"
@@ -304,6 +320,104 @@ const OrderDetail = React.memo(({
       showError("Opslaan wijzigingen mislukt: " + err.message);
     } finally {
       setIsSavingNote(false);
+    }
+  };
+
+  const checkLotExistsGlobal = async (lotToCheck, excludeDocId = null) => {
+    const normalizedLot = String(lotToCheck || "").trim().toUpperCase();
+    if (!normalizedLot) return false;
+
+    const trackingRef = collection(db, ...PATHS.TRACKING);
+    const activeSnap = await getDocs(query(trackingRef, where("lotNumber", "==", normalizedLot), limit(5)));
+    const hasActiveConflict = activeSnap.docs.some((d) => d.id !== excludeDocId);
+    if (hasActiveConflict) return true;
+
+    const currentYear = new Date().getFullYear();
+    for (let i = 0; i < 6; i++) {
+      const year = currentYear - i;
+      const archiveRef = collection(db, ...getArchiveItemsPath(year));
+      const archiveSnap = await getDocs(query(archiveRef, where("lotNumber", "==", normalizedLot), limit(1)));
+      if (!archiveSnap.empty) return true;
+    }
+
+    return false;
+  };
+
+  const handleOpenLotEdit = (product) => {
+    if (!canEditLotNumber || !product?.id) return;
+    const oldLot = String(product.lotNumber || product.id || "").trim().toUpperCase();
+    setLotEditTarget(product);
+    setLotEditNewValue(oldLot);
+    setLotEditReason("");
+    setLotEditError("");
+  };
+
+  const handleCloseLotEdit = () => {
+    if (isSavingLotEdit) return;
+    setLotEditTarget(null);
+    setLotEditNewValue("");
+    setLotEditReason("");
+    setLotEditError("");
+  };
+
+  const handleSaveLotEdit = async () => {
+    if (!lotEditTarget?.id || isSavingLotEdit) return;
+
+    const oldLot = String(lotEditTarget.lotNumber || lotEditTarget.id || "").trim().toUpperCase();
+    const newLot = String(lotEditNewValue || "").trim().toUpperCase();
+    const reason = String(lotEditReason || "").trim();
+
+    if (!newLot) {
+      setLotEditError("Lotnummer mag niet leeg zijn.");
+      return;
+    }
+    if (!reason) {
+      setLotEditError("Reden is verplicht bij lotnummerwijziging.");
+      return;
+    }
+    if (newLot === oldLot) {
+      setLotEditError("Nieuw lotnummer is gelijk aan het huidige lotnummer.");
+      return;
+    }
+
+    try {
+      setIsSavingLotEdit(true);
+      setLotEditError("");
+
+      const exists = await checkLotExistsGlobal(newLot, lotEditTarget.id);
+      if (exists) {
+        setLotEditError(`Lotnummer ${newLot} bestaat al in actief of archief.`);
+        return;
+      }
+
+      const historyEntry = {
+        action: "Lotnummer gewijzigd",
+        timestamp: new Date().toISOString(),
+        station: lotEditTarget.currentStation || "Teamleader",
+        user: user?.email || auth.currentUser?.email || "Teamleader",
+        details: `${oldLot} -> ${newLot} | Reden: ${reason}`,
+      };
+
+      const productRef = doc(db, ...PATHS.TRACKING, lotEditTarget.id);
+      await updateDoc(productRef, {
+        lotNumber: newLot,
+        updatedAt: serverTimestamp(),
+        history: arrayUnion(historyEntry),
+      });
+
+      await logActivity(
+        user?.uid || auth.currentUser?.uid || "system",
+        "LOT_NUMBER_EDITED",
+        `Lotnummer gewijzigd in Volledige Lijst: ${oldLot} -> ${newLot} (order ${order.orderId}) | Reden: ${reason}`
+      );
+
+      handleCloseLotEdit();
+      showSuccess(`Lotnummer gewijzigd: ${oldLot} -> ${newLot}`);
+    } catch (err) {
+      console.error("Fout bij wijzigen lotnummer:", err);
+      setLotEditError("Wijzigen lotnummer mislukt: " + err.message);
+    } finally {
+      setIsSavingLotEdit(false);
     }
   };
 
@@ -353,7 +467,7 @@ const OrderDetail = React.memo(({
       </div>
 
       {/* Details Grid */}
-      <div className="p-6 grid grid-cols-2 md:grid-cols-5 gap-4 border-b border-slate-100 shrink-0">
+      <div className="p-6 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4 border-b border-slate-100 shrink-0">
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.planning")}</span>
           <span className="font-bold text-slate-700">{formatExcelDate(order.deliveryDate)}</span>
@@ -365,20 +479,27 @@ const OrderDetail = React.memo(({
               <input
                 type="number"
                 min="0"
-                step="0.01"
+                step="1"
                 value={planDraft}
-                onChange={(e) => setPlanDraft(e.target.value)}
+                onChange={(e) => setPlanDraft(String(e.target.value || "").replace(/[^0-9]/g, ""))}
                 className="w-24 px-2 py-1 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
               />
-              <span className="font-bold text-slate-700">stuks</span>
             </div>
           ) : (
-            <span className="font-bold text-slate-700">{order.plan} stuks</span>
+            <span className="font-bold text-slate-700">{order.plan}</span>
           )}
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.machine")}</span>
           <span className="font-bold text-slate-700">{order.machine?.replace("_INBOX", "") || t("digitalplanning.order_detail.na")}</span>
+        </div>
+        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.started_amount", "Start Aantal")}</span>
+          <span className="font-bold text-slate-700">{startedAmount}</span>
+        </div>
+        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.todo_amount", "To do")}</span>
+          <span className="font-black text-blue-700">{todoAmount}</span>
         </div>
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.status")}</span>
@@ -619,6 +740,18 @@ const OrderDetail = React.memo(({
                     title={t("digitalplanning.order_detail.move_station")}
                   >
                     <ArrowRightLeft size={16} />
+                  </button>
+                )}
+                {isManager && canEditLotNumber && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenLotEdit(p);
+                    }}
+                    className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                    title="Lotnummer aanpassen"
+                  >
+                    <Edit3 size={16} />
                   </button>
                 )}
                 {isManager && (
@@ -873,6 +1006,83 @@ const OrderDetail = React.memo(({
         message={`Weet je zeker dat je order ${order.orderId} wilt verplaatsen naar ${moveConfirmData?.id}?`}
         confirmText="Ja, Verplaatsen"
       />
+
+      {lotEditTarget && (
+        <div className="fixed inset-0 z-[550] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-[30px] shadow-2xl w-full max-w-lg p-8">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-black text-slate-800 uppercase italic">Lotnummer aanpassen</h3>
+                <p className="text-sm text-slate-500 font-bold mt-1">
+                  Huidig: {String(lotEditTarget.lotNumber || lotEditTarget.id || "-")}
+                </p>
+              </div>
+              <button
+                onClick={handleCloseLotEdit}
+                className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                disabled={isSavingLotEdit}
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nieuw lotnummer</label>
+                <input
+                  type="text"
+                  value={lotEditNewValue}
+                  onChange={(e) => {
+                    setLotEditNewValue(String(e.target.value || "").toUpperCase());
+                    if (lotEditError) setLotEditError("");
+                  }}
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-500"
+                  placeholder="Bijv. 402614418400004"
+                  autoFocus
+                  disabled={isSavingLotEdit}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Reden (verplicht)</label>
+                <textarea
+                  value={lotEditReason}
+                  onChange={(e) => {
+                    setLotEditReason(e.target.value);
+                    if (lotEditError) setLotEditError("");
+                  }}
+                  className="w-full min-h-[90px] p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-500"
+                  placeholder="Bijv. foutief gescand label of administratieve correctie"
+                  disabled={isSavingLotEdit}
+                />
+              </div>
+
+              {lotEditError && (
+                <div className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold">
+                  {lotEditError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-6">
+              <button
+                onClick={handleCloseLotEdit}
+                className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs hover:bg-slate-200 disabled:opacity-50"
+                disabled={isSavingLotEdit}
+              >
+                Annuleren
+              </button>
+              <button
+                onClick={handleSaveLotEdit}
+                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-indigo-700 disabled:opacity-50"
+                disabled={isSavingLotEdit}
+              >
+                {isSavingLotEdit ? "Opslaan..." : "Opslaan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

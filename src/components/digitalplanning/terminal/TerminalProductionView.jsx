@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Zap, ChevronRight, ArrowLeft, ClipboardCheck, ScanBarcode, Trash2, FileText } from "lucide-react";
+import { Zap, ChevronRight, ArrowLeft, ClipboardCheck, ScanBarcode, Trash2, FileText, AlertTriangle } from "lucide-react";
 
 const TerminalProductionView = ({
   activeWikkelingen = [],
+  lotConflictMeta = {},
   selectedTrackedId,
   onSelectTracked,
   selectedWikkeling,
@@ -112,40 +113,51 @@ const TerminalProductionView = ({
           className="flex-1 overflow-y-auto space-y-3 custom-scrollbar text-left text-left pb-24"
           style={{ paddingBottom: "max(6rem, env(safe-area-inset-bottom))" }}
         >
-          {activeWikkelingen.map((prod) => (
-            <div
-              key={prod.id}
-              ref={el => (itemRefs.current[prod.id] = el)}
-              onClick={() => onSelectTracked(prod.id)}
-              className={`p-5 rounded-[30px] border-2 transition-all cursor-pointer flex items-center justify-between group ${
-                selectedTrackedId === prod.id ? "bg-orange-50 border-orange-500 shadow-md" : "bg-white border-slate-100"
-              } text-left`}
-            >
-              <div className="flex items-center gap-4 text-left">
-                <div className="p-3 bg-orange-50 text-orange-600 rounded-2xl text-left"><Zap size={20} /></div>
-                <div className="text-left text-left">
-                  <h4 className="font-black italic leading-none mb-1">{prod.lotNumber}</h4>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase">Order: {prod.orderId}</p>
+          {activeWikkelingen.map((prod) => {
+            const lotKey = String(prod?.lotNumber || "").trim().toUpperCase();
+            const conflict = lotConflictMeta[lotKey];
+            const hasLotConflict = Boolean(conflict?.hasConflict);
+
+            return (
+              <div
+                key={prod.id}
+                ref={el => (itemRefs.current[prod.id] = el)}
+                onClick={() => onSelectTracked(prod.id)}
+                className={`p-5 rounded-[30px] border-2 transition-all cursor-pointer flex items-center justify-between group ${
+                  selectedTrackedId === prod.id ? "bg-orange-50 border-orange-500 shadow-md" : "bg-white border-slate-100"
+                } text-left`}
+              >
+                <div className="flex items-center gap-4 text-left">
+                  <div className="p-3 bg-orange-50 text-orange-600 rounded-2xl text-left"><Zap size={20} /></div>
+                  <div className="text-left text-left">
+                    <h4 className="font-black italic leading-none mb-1">{prod.lotNumber}</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Order: {prod.orderId}</p>
+                    {hasLotConflict && (
+                      <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-1">
+                        <AlertTriangle size={12} /> Lot conflict
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`Weet je zeker dat je lot ${prod.lotNumber} wilt annuleren? Dit kan niet ongedaan worden gemaakt.`)) {
+                        onCancelProduction(prod.id);
+                      }
+                    }}
+                    className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Annuleer productie"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                  <ChevronRight size={20} className="text-slate-300" />
                 </div>
               </div>
-              
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (window.confirm(`Weet je zeker dat je lot ${prod.lotNumber} wilt annuleren? Dit kan niet ongedaan worden gemaakt.`)) {
-                      onCancelProduction(prod.id);
-                    }
-                  }}
-                  className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Annuleer productie"
-                >
-                  <Trash2 size={20} />
-                </button>
-                <ChevronRight size={20} className="text-slate-300" />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       <div

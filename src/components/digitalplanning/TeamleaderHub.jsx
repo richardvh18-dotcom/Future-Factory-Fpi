@@ -18,7 +18,7 @@ import {
   Layers,
   Factory,
 } from "lucide-react";
-import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, limit, increment } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, getDoc, limit, increment } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek } from "date-fns";
 import { PATHS } from "../../config/dbPaths";
@@ -1348,7 +1348,23 @@ const TeamleaderHub = React.memo(({
   const handleMoveLot = async (lotNumber, newStation) => {
     if (!lotNumber || !newStation) return;
     try {
-      const productRef = doc(db, ...PATHS.TRACKING, lotNumber);
+      let productRef = doc(db, ...PATHS.TRACKING, lotNumber);
+      let productSnap = await getDoc(productRef);
+      let foundProduct = productSnap.exists();
+
+      if (!foundProduct) {
+        const trackingRef = collection(db, ...PATHS.TRACKING);
+        const byLotSnap = await getDocs(query(trackingRef, where("lotNumber", "==", String(lotNumber).trim()), limit(1)));
+        if (!byLotSnap.empty) {
+          productRef = byLotSnap.docs[0].ref;
+          productSnap = byLotSnap.docs[0];
+          foundProduct = true;
+        }
+      }
+
+      if (!foundProduct) {
+        throw new Error(`Geen tracking item gevonden voor lot ${lotNumber}`);
+      }
       
       // Bepaal direct de juiste status (bijv. Te Nabewerken)
       const nextState = getStepForStation(newStation);
