@@ -1,5 +1,88 @@
 # Pilot Handover Summary
 
+### Update sessie 32 (Serie-groepering Wikkelen/Lossen + MazakView)
+
+**Datum:** 3 april 2026 | **Branch:** `pilot-dev`
+
+**Wat is gedaan:**
+
+- **Serie-groepering in Terminal Wikkelen tab (TerminalProductionView.jsx):**
+    - Producten met hetzelfde `seriesGroupId` worden nu als inklapbare groep getoond in de linkerlijst.
+    - Groepen starten ingeklapt. Klikken op een groepsheader klapt open/dicht én selecteert het eerste item.
+    - Hint tekst in header: "Selecteer voor gereedmelden in rechterpaneel".
+    - `Serie gereedmelden (Nx)` knop is uitsluitend in het rechter detailpaneel zichtbaar (niet links).
+    - `bulkProductsToRelease` state toegevoegd in `Terminal.jsx`; `handleOpenReleaseModal(product, bulkProducts)` wired naar `ProductReleaseModal`.
+
+- **LossenView twee-paneel layout:**
+    - Herschreven van single-pane (direct modal op tap) naar left-list + right-detail layout.
+    - Klikken op item of serie-header stelt alleen selectie in — actie pas via knoppen in rechterpaneel.
+    - Serie-groepen inklapbaar (zelfde patroon als Wikkelen).
+    - `supportsSeriesGrouping = !isBM01 && !isMazak && !isNabewerking` guard: BM01, Mazak én Nabewerking tonen nooit groepen.
+
+- **MazakView.jsx — nieuw standalone component:**
+    - Bestand: `src/components/digitalplanning/MazakView.jsx`
+    - Eigen Firebase data-filtering op `currentStation === "MAZAK"`.
+    - Twee-paneels layout (identiek aan LossenView), geen serie-groepering.
+    - `handlePostProcessingFinish` met flow: `FINISH_PROCESSING` → BM01/Eindinspectie.
+    - Scan-input met `QR_CODE_OK_CONFIRMATION` ondersteuning.
+    - Placeholder in rechterpaneel: "Printstap kan hier stationspecifiek aan Mazak worden toegevoegd".
+    - Gebruik van `PostProcessingFinishModal` voor approve/reject flow.
+
+- **Routing MazakView:**
+    - `Terminal.jsx`: `if (isMazak)` branch in `isSimpleViewStation` block → rendert `<MazakView>`. Lossen tab: `{isMazak ? <MazakView> : <LossenView>}`.
+    - `WorkstationHub.jsx`: lossen tab rendert `<MazakView>` wanneer `selectedStation === "MAZAK"`.
+    - `DepartmentStationSelector.jsx`: **geen wijziging nodig** — station-tegel stuurt door naar WorkstationHub, Mazak-routing zit in WorkstationHub/Terminal.
+
+- **ActiveProductionView.jsx:**
+    - `groupedSeries` retourneert lege Map wanneer `isMazakStation` → geen groepen in Wikkelen-tab van de Hub bij Mazak.
+
+**Build status:** ✓ `npm run build` geslaagd — 2788 modules getransformeerd.
+
+**Openstaand:**
+- Mazak printstap: placeholder aanwezig in MazakView rechterpaneel, logica nog niet geïmplementeerd. Gebruiker heeft aangegeven dat er een print stap bij Mazak moet. Afstemmen wat precies geprint moet worden en of het verplicht is vóór doorsturen naar BM01.
+
+---
+
+### Update sessie 31 (Import + Capaciteitsplanning + BH12 flowrouting)
+
+- Doel van deze sessie: import- en capaciteitslogica laten aansluiten op echte LN data en routing voor BH12 aanscherpen.
+
+- Import en efficiency-splitsing verbeterd:
+    - Kolommapping uitgebreid zodat zowel oude als nieuwe PO-tekst kolomnamen worden herkend.
+    - item en itemDescription worden beide consequent gevuld bij import, zodat omschrijvingen overal zichtbaar blijven.
+    - Efficiency-uren worden gesplitst opgeslagen in productie, nabewerking en QC.
+
+- Capaciteitsplanning verbeterd:
+    - Benodigde order-uren tellen nu ook QC uren mee in de totaalsom.
+    - QC vraag wordt per afdeling naar het juiste station gestuurd:
+        - BH machines naar BM01
+        - BA machines naar BA01
+    - Departmentfilter in Benodigde order-uren werkt nu ook met LN machinecodes met 40-prefix (bijv. 40BH18).
+
+- Root-cause bevinding op basis van echte LN dump:
+    - Eindinspectie zat in de praktijk op reference operation 1740 met work center 40BM01.
+    - Daardoor werkte classificatie puur op eindcode niet betrouwbaar.
+    - Opgelost door work center mee te nemen per operatie en daarop te classificeren (BM01/BA01 als QC).
+
+- Central Planner Hub filtergedrag gefixt:
+    - In planner-context mag afdeling gekozen worden.
+    - In teamleader-context blijft afdeling vergrendeld op toegewezen afdeling.
+
+- BH12 routing aangepast na gebruikersinput:
+    - Nieuwe regel: na Lossen moeten producten die met FL beginnen naar Mazak.
+    - Alle overige producten gaan naar Nabewerking.
+    - In ProductReleaseModal is dit nu functioneel doorgezet in de echte targetStation update (niet alleen weergavetekst).
+
+- Belangrijke operationele noot:
+    - Bestaande al-geimporteerde records behouden oude classificatie.
+    - Voor zichtbaar effect in Capaciteitsplanning en station-routing is opnieuw importeren van de relevante orders nodig.
+
+- Eerstvolgende validatie op de vloer:
+    - Test BH12 met FL voorbeeld (bijv. FL 50 EDF11 FLTB PN16) en controleer route naar Mazak na Lossen.
+    - Test niet-FL voorbeeld op BH12 en controleer route naar Nabewerking.
+    - Controleer in Capaciteitsplanning dat Benodigde order-uren in Fittings overeenkomen met filter Alles voor dezelfde order-set.
+    - Controleer dat BM01/BA01 alleen verschijnen bij afdelingen met daadwerkelijke QC vraag.
+
 ### Update sessie 30 (Implementatie "Gereed" Tab)
 
 - **Doel:** Een extra "Gereed" tab toevoegen in de `Terminal` om operators inzicht te geven in recent voltooide producten, met name producten die naar "Nabewerken" zijn gegaan. Dit is belangrijk voor de overdracht tussen ploegen.
@@ -30,16 +113,16 @@
 
 ---
 
-## Nieuwe Open Punten en Wensen (toegevoegd 31 maart 2026)
-
-## Nieuwe Open Punten en Wensen (toegevoegd 31 maart 2026)
+## Nieuwe Pilot Doelen & Wensen (April 2026)
 
 - **BM01 scanner input werkt niet:** Scanner input functioneert niet in BM01. Oplossen zodat producten gescand kunnen worden.
 - **Aangeboden lijst resetten:** Controleren of de aangeboden lijst in BM01 elke dag automatisch op 0 wordt gezet.
 - **Mobile inspector pakt geen lotnummers van gereedgemelde producten:** In de mobiele inspector worden lotnummers niet opgehaald voor producten die al gereedgemeld zijn. Oplossen zodat deze producten correct verschijnen.
-- **Extra losstation voor BH18/BH12/BH15/BH17:** Maak een extra "los"-station aan voor deze machines, waarbij automatisch de namen van de operators worden meegenomen.
-- **Tab Lossen vervangen door werkstations:** Zorg dat de Lossen-tab vervangen kan worden door de nieuwe werkstations, waarbij de operatornamen automatisch worden meegenomen.
-- **Extra tab in werkstations met gereed-producten:** Voeg in de werkstations een extra tab toe waarin producten die gereed zijn (klaar met lossen) zichtbaar zijn, zodat een operator kan controleren of een product echt gemaakt is.
+- **Nieuw Excel format planning:** De planning import gaat via een ander Excel format lopen, inclusief efficiëntie-uren en gerelateerde data.
+- **Voorbereiding uitbreiding BH12 & Mazak:** Onderzoeken en voorbereiden of BH12 en de Mazak na de eerste pilotmaand aan het systeem toegevoegd kunnen worden.
+- **Extra tab 'Gereed' in werkstations:** Voeg in de werkstations een extra tab toe met producten die gereed zijn, zodat een operator (bijv. bij ploegoverdracht) direct kan zien of een product door de andere ploeg al gemaakt is.
+- **Gecombineerd Lossen-station (BH12 & BH18):** Maak een nieuw, overkoepelend "Lossen" station specifiek voor BH12 en BH18.
+- **Lossen tab verwijderen uit individuele stations:** Zorg dat de tab "Lossen" verdwijnt uit de individuele interfaces van werkstations BH12 en BH18, aangezien dit naar het gecombineerde station verplaatst wordt.
 
 **Laatst bijgewerkt:** 30 maart 2026 (sessie 28)
 **Branch:** `FPiFF-may-build`  

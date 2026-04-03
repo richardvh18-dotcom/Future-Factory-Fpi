@@ -210,7 +210,7 @@ const parseWorkbook = (arrayBuffer) => {
     const idxWeek = firstIndex(headers, ["week", "weeknumber", "week number"]);
     const idxItemDesc = firstIndex(headers, ["item desc", "description", "omschrijving"]);
     const idxCode = firstIndex(headers, ["code", "extra code"]);
-    const idxPoText = firstIndex(headers, ["po text", "po-text", "po note", "opmerking"]);
+    const idxPoText = firstIndex(headers, ["production order text", "po text", "po-text", "po note", "opmerking"]);
     const idxProject = firstIndex(headers, ["project"]);
     const idxProjectDesc = firstIndex(headers, ["project desc", "project description"]);
     const idxDrawing = firstIndex(headers, ["drawing", "tekening"]);
@@ -258,6 +258,7 @@ const parseWorkbook = (arrayBuffer) => {
           weekNumber: expectedWeekNumber,
           itemCode: idxItemCode !== -1 ? String(row[idxItemCode] || "") : "",
           item: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
+          itemDescription: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
           extraCode: idxCode !== -1 ? String(row[idxCode] || "") : "",
           plan: quantity,
           produced: gewikkeldCount,

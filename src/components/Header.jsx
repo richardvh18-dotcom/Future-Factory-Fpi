@@ -62,17 +62,22 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
             </div>
           )}
           <div className="text-left">
-            <h1 className="text-base md:text-xl font-black uppercase italic tracking-tighter leading-none text-white">
-              {appName || (
-                <>
-                  {t('header.branding_main1', 'Future')}
-                  {' '}
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-orange-400">
-                    {t('header.branding_main2', 'Factory')}
-                  </span>
-                </>
-              )}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base md:text-xl font-black uppercase italic tracking-tighter leading-none text-white">
+                {appName || (
+                  <>
+                    {t('header.branding_main1', 'Future')}
+                    {' '}
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-orange-400">
+                      {t('header.branding_main2', 'Factory')}
+                    </span>
+                  </>
+                )}
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-500 text-black shadow-lg shadow-amber-500/40 animate-pulse">
+                TEST
+              </span>
+            </div>
             <p className="hidden sm:block text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1.5">
               {t('header.branding_sub', 'Smart Manufacturing Platform')}
             </p>

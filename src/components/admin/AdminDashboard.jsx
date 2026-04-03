@@ -61,6 +61,7 @@ const ProductionTimeStandardsManager = React.lazy(() => import("./ProductionTime
 const CapacityPlanningView = React.lazy(() => import("../planning/CapacityPlanningView"));
 const AiCenterView = React.lazy(() => import("../ai/AiCenterView"));
 const AdminLabelManager = React.lazy(() => import("./AdminLabelManager"));
+const AdminToolingMoldsView = React.lazy(() => import("./AdminToolingMoldsView"));
 const PilotMigrationTool = React.lazy(() => import("./PilotMigrationTool"));
 // NIEUW: Referentie Tabel toevoegen
 const AdminReferenceTable = React.lazy(() => import("./AdminReferenceTable"));
@@ -271,6 +272,15 @@ const AdminDashboard = () => {
           color: "bg-orange-50 border-orange-100",
           roles: ["admin", "engineer"],
           component: AdminLabelManager,
+        },
+        {
+          id: "tooling_molds",
+          title: "Mallen & Gereedschappen",
+          desc: "Centraal beheer voor alle mallen, met flens-tab voor cavity regels.",
+          icon: <Settings2 size={24} className="text-sky-600" />,
+          color: "bg-sky-50 border-sky-100",
+          roles: ["admin", "engineer"],
+          component: AdminToolingMoldsView,
         },
       ]
     },

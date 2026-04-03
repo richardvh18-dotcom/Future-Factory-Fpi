@@ -16,7 +16,12 @@ import {
   Settings,
   Rocket,
 } from "lucide-react";
-import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS, ACTIVE_SITE } from "../../config/dbPaths";
 
@@ -72,7 +77,10 @@ const AdminSettingsView = () => {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          setSettings((prev) => ({ ...prev, ...data }));
+          setSettings((prev) => ({
+            ...prev,
+            ...data,
+          }));
           setUploadedLogos(data.uploadedLogos || []);
         }
         setLoading(false);
@@ -288,6 +296,12 @@ const AdminSettingsView = () => {
             <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
               <Settings size={16} className="text-blue-500" /> Systeem Tools
             </h3>
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-left">
+              <p className="text-[10px] text-slate-500 font-medium">
+                Product- en malbeheer staat nu onder Product & Data Management in de tegel "Mallen & Gereedschappen".
+              </p>
+            </div>
             
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div>

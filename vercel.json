@@ -39,8 +39,9 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "FpiFF-Pilot-Ready": true,
-      "preview-v2": true
+      "pilot-dev": true,
+      "FF-2-4-26": false,
+      "main": false
     }
   }
 }

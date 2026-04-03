@@ -367,10 +367,9 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
     // Filter op afdeling als niet "ALLES"
     if (selectedDepartment !== "ALLES") {
       periodOrders = periodOrders.filter(order => {
-        // Altijd meenemen als machine bij de afdeling hoort
-        const machine = (order.machine || "").toUpperCase();
+        // normalizeMachine strips LN-prefix "40" (bijv. "40BH18" → "BH18")
+        const machine = normalizeMachine(order.machine || "");
         const selDept = selectedDepartment.toUpperCase();
-        // Toleranter filter: BH machines horen bij Fittings, maar sta ook toe als de import BM18 bevatte (voor de zekerheid)
         if (selDept === "FITTINGS" && (machine.startsWith("BH") || machine === "BM18")) return true;
         if (selDept === "PIPES" && machine.startsWith("BA")) return true;
         // Anders: standaard department check
@@ -401,11 +400,14 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       }
 
       if (importedInfo && importedInfo.minutesPerUnit) {
-        // Gebruik de geïmporteerde 'norm' per stuk
+        // Gebruik de geïmporteerde 'norm' per stuk (productie + nabewerken)
         const hoursNeeded = (importedInfo.minutesPerUnit * planCount) / 60;
-        estimatedHours += hoursNeeded;
+        // Voeg Eindinspectie (QC) uren toe — staan apart in qcTimeTotal, niet in minutesPerUnit
+        const qcQty = importedInfo.quantity || 1;
+        const qcHours = qcQty > 0 ? ((importedInfo.qcTimeTotal || 0) / qcQty * planCount) / 60 : 0;
+        estimatedHours += hoursNeeded + qcHours;
         ordersWithStandards++;
-        hoursFromEfficiency += hoursNeeded;
+        hoursFromEfficiency += hoursNeeded + qcHours;
         ordersWithEfficiency++;
       } else if (splitHours.total > 0) {
         // Nieuwe PlanningImportModal met gesplitste stationuren (1715/1740/1020).
@@ -448,6 +450,13 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
   // Bereken balans per machine (Vraag vs Aanbod)
   const machineBreakdown = useMemo(() => {
     const breakdown = {};
+
+    // Geeft het QC/Eindinspectie station terug op basis van hoofdmachine
+    const getQcStation = (machineName) => {
+      if (machineName.startsWith("BH")) return "BM01";
+      if (machineName.startsWith("BA")) return "BA01";
+      return "BM01"; // Default fallback
+    };
 
     const addDemandToMachine = (machineName, hours) => {
       const normalizedMachine = normalizeMachine(machineName || "");
@@ -546,6 +555,16 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
                 if (!breakdown[postMachine]) breakdown[postMachine] = { capacity: 0, demand: 0 };
                 breakdown[postMachine].demand += postHours;
             }
+
+            // 3. Eindinspectie (QC) Tijd -> Gaat naar het QC station van de afdeling
+            const qcTotal = importedInfo.qcTimeTotal || 0;
+            if (qcTotal > 0) {
+                const qcPerUnit = qty > 0 ? qcTotal / qty : 0;
+                const qcHoursNeeded = (qcPerUnit * planCount) / 60;
+                const qcStation = getQcStation(machine);
+                if (!breakdown[qcStation]) breakdown[qcStation] = { capacity: 0, demand: 0 };
+                breakdown[qcStation].demand += qcHoursNeeded;
+            }
         } else if (importedInfo.minutesPerUnit) {
             // Fallback voor oude imports zonder splitsing
             hoursNeeded = (importedInfo.minutesPerUnit * planCount) / 60;
@@ -610,7 +629,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
         if (isBHB) return 1;
         
         // 2. Specifieke volgorde voor overige
-        const priorityOrder = ["ALGEMEEN", "NABEWERK", "MAZAK", "LOSSEN"];
+        const priorityOrder = ["ALGEMEEN", "NABEWERK", "BM01", "BA01", "MAZAK", "LOSSEN"];
         
         const getPriority = (name) => {
           const idx = priorityOrder.findIndex(k => name.includes(k));

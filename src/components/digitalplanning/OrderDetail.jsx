@@ -421,6 +421,7 @@ const OrderDetail = React.memo(({
     }
   };
 
+
   const departments = [
     { id: "FITTINGS", label: "Fittings" },
     { id: "PIPES", label: "Pipes" },

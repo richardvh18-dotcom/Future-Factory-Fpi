@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Layers,
   Zap,
@@ -13,6 +13,12 @@ import {
 } from "lucide-react";
 
 const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
+  const [planningKpiMode, setPlanningKpiMode] = useState("products");
+
+  const planningProducts = Number(metrics.totalPlanned || 0);
+  const planningOrders = Number(metrics.plannedOrdersCount || 0);
+  const planningValue = planningKpiMode === "orders" ? planningOrders : planningProducts;
+
   return (
     <div className="h-full overflow-y-auto custom-scrollbar space-y-8 pr-2 pb-20">
       {/* PRODUCTIE KPI'S */}
@@ -25,7 +31,8 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
             {
               id: "gepland",
               label: "Planning",
-              val: Math.round(metrics.totalPlanned),
+              val: Math.round(planningValue),
+              valueSuffix: planningKpiMode === "orders" ? "Orders" : "Producten",
               icon: Layers,
               color: "text-blue-600",
             },
@@ -77,6 +84,20 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
               <p className="text-2xl font-black text-slate-800 italic">
                 {item.val}
               </p>
+              {item.id === "gepland" && (
+                <div className="mt-2 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPlanningKpiMode((prev) => (prev === "products" ? "orders" : "products"));
+                    }}
+                    className="text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
+                  >
+                    Switch: {item.valueSuffix}
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
