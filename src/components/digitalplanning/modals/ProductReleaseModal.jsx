@@ -20,6 +20,28 @@ const REJECTION_REASON_FALLBACKS = {
   "rejection.other": "Overig",
 };
 
+const getLossenRoute = (itemText) => {
+  const text = String(itemText || "").toUpperCase();
+  const isTB = text.includes("TB");
+  const isCB = text.includes("CB");
+  const isELB = text.includes("ELB");
+  const isAB = /\bAB\b/.test(text) || text.includes("ABAB");
+  const isSB = /\bSB\b/.test(text);
+  const isElbow = isELB || isCB;
+
+  // Alle AB en SB elbows altijd naar centraal LOSSEN.
+  if (isElbow && (isAB || isSB)) return "STATION";
+
+  const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((m) => Number(m[0]));
+  const candidates = numberMatches.filter((n) => Number.isFinite(n) && n >= 25 && n <= 2000);
+  const diameter = candidates.length > 0 ? candidates[0] : 0;
+
+  if (isTB && diameter >= 300) return "STATION";
+  if ((isCB || isELB) && diameter >= 350) return "STATION";
+
+  return "TAB";
+};
+
 /**
  * ProductReleaseModal
  * Verschijnt wanneer een operator op "Gereedmelden" klikt.
@@ -198,6 +220,14 @@ const ProductReleaseModal = ({ product, onClose, onComplete, autoApproveTrigger 
           targetStation = "Nabewerking";
         } else if (nextStep === "Eindinspectie") {
           targetStation = "BM01";
+        } else if (nextStep === "Lossen") {
+          const lossenRoute = getLossenRoute(
+            `${product.item || ""} ${product.description || ""} ${product.itemCode || ""}`
+          );
+          const originStation = product.currentStation || product.machine || "Lossen";
+          nextStep = "Wacht op Lossen";
+          nextStatus = "Wacht op Lossen";
+          targetStation = lossenRoute === "STATION" ? "LOSSEN" : originStation;
         }
 
         updates.currentStep = nextStep;
