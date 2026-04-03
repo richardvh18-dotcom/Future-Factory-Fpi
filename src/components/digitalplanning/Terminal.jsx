@@ -292,9 +292,12 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   const activeWikkelingen = useMemo(() => {
     const active = allTracked
       .filter(p => {
-        const mNorm = (normalizeMachine(p.machine) || "").toUpperCase().trim();
-        const cNorm = (normalizeMachine(p.currentStation) || "").toUpperCase().trim();
-        return mNorm === normalizedStationId || cNorm === normalizedStationId;
+        const currentNorm = (normalizeMachine(p.currentStation) || "").toUpperCase().trim();
+        const fallbackNorm = (normalizeMachine(p.originMachine || p.machine) || "").toUpperCase().trim();
+
+        // currentStation is leidend; fallback alleen voor legacy records zonder currentStation.
+        if (currentNorm) return currentNorm === normalizedStationId;
+        return fallbackNorm === normalizedStationId;
       })
       .filter(p => p.status === "In Production" || p.status === "Held_QC" || p.status === "in_progress");
     
@@ -302,6 +305,48 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     const term = sidebarSearch.toLowerCase();
     return active.filter(p => (p.lotNumber || "").toLowerCase().includes(term) || (p.orderId || "").toLowerCase().includes(term));
   }, [allTracked, normalizedStationId, sidebarSearch]);
+
+  const lotConflictMeta = useMemo(() => {
+    const buckets = new Map();
+
+    allTracked.forEach((p) => {
+      const lotKey = String(p?.lotNumber || "").trim().toUpperCase();
+      if (!lotKey) return;
+
+      const productSignature = [
+        String(p?.itemCode || "").trim().toUpperCase(),
+        String(p?.item || "").trim().toUpperCase(),
+        String(p?.drawing || "").trim().toUpperCase(),
+      ].join("|");
+
+      const existing = buckets.get(lotKey) || {
+        productSignatures: new Set(),
+        orderIds: new Set(),
+      };
+
+      if (productSignature.replace(/\|/g, "").trim()) {
+        existing.productSignatures.add(productSignature);
+      }
+
+      const oid = String(p?.orderId || "").trim();
+      if (oid) existing.orderIds.add(oid);
+
+      buckets.set(lotKey, existing);
+    });
+
+    const meta = {};
+    buckets.forEach((entry, lotKey) => {
+      const hasProductConflict = entry.productSignatures.size > 1;
+      const hasOrderConflict = entry.orderIds.size > 1;
+      meta[lotKey] = {
+        hasConflict: hasProductConflict || hasOrderConflict,
+        productCount: entry.productSignatures.size,
+        orderCount: entry.orderIds.size,
+      };
+    });
+
+    return meta;
+  }, [allTracked]);
 
   // NIEUW: Items die in de planning tab moeten verschijnen (Reparaties / Verplaatsingen)
   const repairItems = useMemo(() => {
@@ -517,6 +562,21 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
         (i.orderId || "").toLowerCase() === code.toLowerCase()
       );
+
+      const normalizedCode = code.toUpperCase();
+      const lotMatches = activeWikkelingen.filter(
+        (i) => String(i.lotNumber || "").toUpperCase() === normalizedCode
+      );
+      const conflictOnScannedLot = lotConflictMeta[normalizedCode]?.hasConflict;
+
+      if (lotMatches.length > 1 && conflictOnScannedLot) {
+        alert(`Lot ${code} bestaat meerdere keren met verschillend product/order. Kies handmatig het juiste item in de lijst.`);
+        setScanInput("");
+        setTimeout(() => {
+          scanInputRef.current?.focus();
+        }, 50);
+        return;
+      }
       
       if (found) {
         setSelectedTrackedId(found.id);
@@ -829,6 +889,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
               /* TAB WIKKELEN */
               <TerminalProductionView
                 activeWikkelingen={activeWikkelingen}
+                lotConflictMeta={lotConflictMeta}
                 selectedTrackedId={selectedTrackedId}
                 onSelectTracked={setSelectedTrackedId}
                 selectedWikkeling={selectedWikkeling}

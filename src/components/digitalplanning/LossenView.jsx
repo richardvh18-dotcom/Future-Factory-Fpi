@@ -221,8 +221,8 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         if (!isOurStation && (item.currentStep === "Lossen" || item.currentStep === "Wacht op Lossen" || normalizeMachine(item.currentStation) === "LOSSEN")) {
           const originNorm = normalizeMachine(item.originMachine || item.machine || "");
           if (originNorm === currentStationNorm) {
-            // BH18: toon lokaal alleen als shouldGoToCentralLossen false is EN currentStation niet 'Lossen'
-            if ((currentStationNorm === "BH18" || currentStationNorm === "18") && !shouldGoToCentralLossen(item) && normalizeMachine(item.currentStation) !== "LOSSEN") {
+            // BH18: toon lokaal alle niet-centrale Lossen-items, ook als legacy data currentStation op LOSSEN heeft gezet.
+            if ((currentStationNorm === "BH18" || currentStationNorm === "18") && !shouldGoToCentralLossen(item)) {
                 isOurStation = true;
             } else if (!(currentStationNorm === "BH18" || currentStationNorm === "18")) {
                 isOurStation = true;
