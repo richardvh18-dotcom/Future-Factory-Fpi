@@ -25,11 +25,12 @@ import {
 import { getFlangeSeriesInfo } from "../../../utils/flangeSeriesHelper";
 import { lookupProductByManufacturedId } from "../../../utils/conversionLogic";
 import { useNotifications } from "../../../contexts/NotificationContext";
-import { generatePrintData } from "../../../utils/zplHelper";
+import { generatePrintData, generateLotBatchZPL } from "../../../utils/zplHelper";
 import { getDriver } from "../../../utils/printerDrivers";
 import { queuePrintJob } from "../../../services/printService.js";
 import LabelVisualPreview from "../../printer/LabelVisualPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
+import InternalQrImage from "../../../utils/InternalQrImage";
 
 const PIXELS_PER_MM = 3.78;
 const LOT_ARCHIVE_LOOKBACK_YEARS = 6;
@@ -850,6 +851,7 @@ const ProductionStartModal = ({
       let targetPrinter = null;
       let effectiveLotNumber = isManualMode ? manualLotInput.trim() : lotNumber;
       let printData = null;
+      let lotBatchPrintData = null;
       let counterClaimed = false;
       const totalToProduce = isManualMode
         ? Math.max(1, parseInt(stringCount, 10) || 1)
@@ -857,6 +859,9 @@ const ProductionStartModal = ({
         ? Math.max(1, Number(flangeSeriesInfo?.cavityCount || 1))
         : Math.max(1, parseInt(stringCount, 10) || 1);
       const labelsToPrint = isFlangeOrder ? 0 : Math.max(1, parseInt(labelCount, 10) || 1);
+      const normalizedRunStationId = String(stationId || "").toUpperCase();
+      const shouldPrintStringLotBatch = (normalizedRunStationId === "BH11" || normalizedRunStationId === "BH12") && totalToProduce > 1;
+      let lotBatchLots = [];
       const seriesGroupId = totalToProduce > 1
         ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`
         : null;
@@ -913,6 +918,33 @@ const ProductionStartModal = ({
         }
       }
 
+      if (shouldPrintStringLotBatch) {
+        const prefix = String(effectiveLotNumber || "").slice(0, -4);
+        const startSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
+        if (!prefix || !Number.isFinite(startSeq)) {
+          throw new Error("Kan string-lotnummers niet opbouwen: start-lot moet eindigen op 4 cijfers.");
+        }
+
+        lotBatchLots = Array.from({ length: totalToProduce }, (_, idx) => (
+          `${prefix}${String(startSeq + idx).padStart(4, "0")}`
+        ));
+
+        // Queue mode gebruikt printer-DPI voor consistente weergave op labelstrip.
+        if (printConfig.mode === "queue") {
+          if (!targetPrinter) {
+            targetPrinter = await resolveTargetPrinterAsync();
+          }
+          const lotBatchDpi = getNormalizedPrinterDpi(targetPrinter, 203);
+          const lotBatchDarkness = Number.parseInt(targetPrinter?.darkness, 10);
+          lotBatchPrintData = generateLotBatchZPL({
+            lots: lotBatchLots,
+            orderNumber: isManualMode ? (manualOrderInput || order.orderId) : order.orderId,
+            printerDpi: lotBatchDpi,
+            darkness: Number.isFinite(lotBatchDarkness) ? lotBatchDarkness : 15,
+          });
+        }
+      }
+
       if (!counterClaimed) {
         await updateCounterOnStart(effectiveLotNumber, totalToProduce);
       }
@@ -962,6 +994,36 @@ const ProductionStartModal = ({
           console.error(printError);
           alert(`Order gestart, maar printen mislukte: ${printError.message}`);
           showError(`Order gestart, maar printen mislukte: ${printError.message}`);
+        }
+      }
+
+      if (printConfig.mode === "queue" && shouldPrintStringLotBatch && lotBatchPrintData) {
+        try {
+          if (targetPrinter) {
+            const queueJobId = await queuePrintJob(
+              targetPrinter.id,
+              lotBatchPrintData,
+              {
+                description: `String lotnummers voor ${order.orderId} (${lotBatchLots.length} + orderregel)` ,
+                quantity: lotBatchLots.length + 1,
+                orderId: order.orderId,
+                lotNumber: effectiveLotNumber,
+                stationId: stationId || "Onbekend",
+                targetPrinterName: targetPrinter.name,
+                isStringLotBatch: true,
+                includesOrderRow: true,
+                lots: lotBatchLots,
+              }
+            );
+            console.log("[ProductionStartModal] String lot batch queue job created:", queueJobId, "printer:", targetPrinter.id);
+            showSuccess(`String-lotnummers (${lotBatchLots.length} + orderregel) naar wachtrij gestuurd voor ${targetPrinter.name}.`);
+          } else {
+            showError(`Order gestart, maar geen printer geconfigureerd voor station '${stationId}' en er is geen standaard printer ingesteld. Ga naar Admin > Printer Beheer.`);
+          }
+        } catch (printError) {
+          console.error(printError);
+          alert(`Order gestart, maar string-lot printen mislukte: ${printError.message}`);
+          showError(`Order gestart, maar string-lot printen mislukte: ${printError.message}`);
         }
       }
     } catch (e) {
@@ -1024,6 +1086,31 @@ const ProductionStartModal = ({
 
   const selectedOperatorName = assignedOperators.find(op => op.number === operatorInput)?.name;
   const showPreviewPane = mode !== "manual";
+  const normalizedStationId = String(stationId || "").toUpperCase();
+  const supportsStringLotBatch = normalizedStationId === "BH11" || normalizedStationId === "BH12";
+  const previewStringCount = Math.max(1, parseInt(stringCount, 10) || 1);
+
+  const stringLotPreview = useMemo(() => {
+    if (!showPreviewPane || !supportsStringLotBatch || previewStringCount <= 1) {
+      return { rows: [], valid: false };
+    }
+
+    const baseLot = String(lotNumber || "").trim();
+    const prefix = baseLot.slice(0, -4);
+    const startSeq = parseInt(baseLot.slice(-4), 10);
+    if (!prefix || !Number.isFinite(startSeq)) {
+      return { rows: [], valid: false };
+    }
+
+    const rows = [];
+    for (let i = 0; i < previewStringCount; i++) {
+      rows.push(`${prefix}${String(startSeq + i).padStart(4, "0")}`);
+    }
+
+    return { rows, valid: true };
+  }, [showPreviewPane, supportsStringLotBatch, previewStringCount, lotNumber]);
+
+  const shouldShowStringLotPreview = showPreviewPane && supportsStringLotBatch && previewStringCount > 1;
 
   if (!isOpen || !order || location.pathname.includes("/login")) return null;
 
@@ -1386,6 +1473,48 @@ const ProductionStartModal = ({
               )
             )}
           </div>
+
+          {shouldShowStringLotPreview && (
+            <div className="w-full max-w-2xl bg-black/25 border border-white/10 rounded-2xl p-4 mb-3 text-left">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <p className="text-[10px] font-black text-emerald-300 uppercase tracking-widest">
+                  String Lot Preview (BH11/BH12)
+                </p>
+                <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                  {stringLotPreview.valid ? `${stringLotPreview.rows.length} lotregels + 1 orderregel` : "Wacht op geldig start-lot"}
+                </p>
+              </div>
+
+              {stringLotPreview.valid ? (
+                <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-1">
+                  {stringLotPreview.rows.map((lotRow, idx) => (
+                    <div key={lotRow} className="flex items-center gap-3 bg-white/95 rounded-xl px-3 py-2 border border-slate-200">
+                      <span className="text-[10px] font-black text-slate-500 w-6">{idx + 1}.</span>
+                      <span className="text-xs font-black tracking-wider text-slate-900">{lotRow}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-3 bg-emerald-50 rounded-xl px-3 py-2 border border-emerald-200">
+                    <span className="text-[10px] font-black text-emerald-700 w-6">{stringLotPreview.rows.length + 1}.</span>
+                    <div className="w-8 h-8 rounded border border-emerald-200 bg-white flex items-center justify-center overflow-hidden shrink-0">
+                      <InternalQrImage
+                        value={isManualMode ? (manualOrderInput || order.orderId) : order.orderId}
+                        size={96}
+                        alt="Order QR"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <span className="text-xs font-black tracking-wider text-emerald-900">
+                      ORDER {isManualMode ? (manualOrderInput || order.orderId) : order.orderId}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] font-bold text-amber-200">
+                  Nog geen geldig start-lotnummer voor string preview.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* --- PRINT AREA (ALLEEN PRINT KNOP) --- */}
           <div className="w-full max-w-sm bg-white/5 border border-white/10 p-4 rounded-2xl backdrop-blur-md mb-2 flex flex-col gap-3 animate-in slide-in-from-bottom-6 duration-700 text-left">

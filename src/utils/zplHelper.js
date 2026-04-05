@@ -370,6 +370,7 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
  */
 export const generateLotBatchZPL = ({
     lots = [],
+    orderNumber = "",
     printerDpi = 203,
     darkness = 15,
     labelWidthMm = 90,
@@ -389,6 +390,17 @@ export const generateLotBatchZPL = ({
 } = {}) => {
     if (!Array.isArray(lots) || lots.length === 0) return "";
 
+    const normalizedOrderNumber = String(orderNumber || "").trim();
+    const rows = [
+        ...lots.map((lot) => ({
+            text: String(lot || ""),
+            qrValue: String(lot || ""),
+        })),
+        ...(normalizedOrderNumber
+            ? [{ text: `ORDER ${normalizedOrderNumber}`, qrValue: normalizedOrderNumber }]
+            : []),
+    ];
+
     const dotsPerMm = printerDpi === 300 ? 12 : 8;
     const toDots = (mm) => Math.round(mm * dotsPerMm);
 
@@ -403,7 +415,7 @@ export const generateLotBatchZPL = ({
         : autoQrCellWidth;
     const textAreaStartDots = toDots(qrXmm + qrSizeMm + gapAfterQrMm);
     const textAreaWidthDots = toDots(labelWidthMm - rightMarginMm - (qrXmm + qrSizeMm + gapAfterQrMm));
-    const lotChars = Math.max(15, ...lots.map((lot) => String(lot || "").length));
+    const lotChars = Math.max(15, ...rows.map((row) => String(row.text || "").length));
     const spreadFactor = 2.0;
     const fontWidthDots = Math.max(1, Math.round((textAreaWidthDots / lotChars) * spreadFactor));
     const estimatedTextWidthDots = lotChars * fontWidthDots;
@@ -414,16 +426,16 @@ export const generateLotBatchZPL = ({
     );
 
     let zplBatch = "";
-    lots.forEach((lot, index) => {
-        const isLast = index === lots.length - 1;
+    rows.forEach((row, index) => {
+        const isLast = index === rows.length - 1;
         zplBatch += "^XA";
         zplBatch += "^CI28";
         zplBatch += isLast ? "^MMC" : "^MMT";
         zplBatch += `^PW${toDots(labelWidthMm)}`;
         zplBatch += `^LL${toDots(labelHeightMm)}`;
         zplBatch += `^MD${darkness}`;
-        zplBatch += `^FO${leftQrX},${qrY}^BQN,2,${effectiveQrCellWidth},Q,7^FDQA,${lot}^FS`;
-        zplBatch += `^FO${textX},${textY}^A0N,${fontHeightDots},${fontWidthDots}^FD${lot}^FS`;
+        zplBatch += `^FO${leftQrX},${qrY}^BQN,2,${effectiveQrCellWidth},Q,7^FDQA,${row.qrValue}^FS`;
+        zplBatch += `^FO${textX},${textY}^A0N,${fontHeightDots},${fontWidthDots}^FD${row.text}^FS`;
         zplBatch += `^FO${toDots(separatorXmm)},${toDots(separatorYmm)}^GB${toDots(separatorWidthMm)},1,1^FS`;
         if (isLast) {
             zplBatch += "^PQ1,0,1,Y";
