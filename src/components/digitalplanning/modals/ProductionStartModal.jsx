@@ -130,6 +130,7 @@ const ProductionStartModal = ({
   const PRODUCT_TYPES = ["EST", "CST", "EWT", "EMT"]; // Veelvoorkomende types voor filtering
 
   const containerRef = useRef(null);
+  const previewAreaRef = useRef(null);
 
   const [isCheckingLot, setIsCheckingLot] = useState(false);
   const [lotError, setLotError] = useState("");
@@ -741,22 +742,24 @@ const ProductionStartModal = ({
   };
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !selectedLabel) return;
+    const previewEl = previewAreaRef.current || containerRef.current;
+    if (!previewEl || !selectedLabel) return;
 
     const recalc = () => {
-      const containerW = el.clientWidth - 60;
-      const containerH = el.clientHeight - 180;
+      const availableW = Math.max(120, previewEl.clientWidth - 24);
+      const availableH = Math.max(120, previewEl.clientHeight - 24);
       const labelW = selectedLabel.width * PIXELS_PER_MM;
       const labelH = selectedLabel.height * PIXELS_PER_MM;
+
       if (labelW > 0 && labelH > 0) {
-        setPreviewZoom(Math.min(4, containerW / labelW, containerH / labelH));
+        const nextZoom = Math.min(5, availableW / labelW, availableH / labelH);
+        setPreviewZoom(Math.max(0.45, nextZoom));
       }
     };
 
     recalc();
     const ro = new ResizeObserver(recalc);
-    ro.observe(el);
+    ro.observe(previewEl);
     return () => ro.disconnect();
   }, [selectedLabel, isOpen]);
 
@@ -1339,7 +1342,7 @@ const ProductionStartModal = ({
             <Activity size={12} className="text-emerald-500" /> Etiket Preview
           </div>
 
-          <div className="flex-1 flex items-center justify-center w-full min-h-0 py-8">
+          <div ref={previewAreaRef} className="flex-1 flex items-center justify-center w-full min-h-0 py-4">
             {mode === "manual" && (!manualLotInput || !manualOrderInput) ? (
               <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] text-xs uppercase font-black tracking-widest italic">
                 Vul order en lot in...
