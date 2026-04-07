@@ -1,7 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Search, Factory, X, Bot, Sparkles, Menu } from "lucide-react";
+import {
+  getAdminDataSourceMode,
+  getPathString,
+  getReadPaths,
+} from "../config/dbPaths";
 
 /**
  * Header - Donker Thema v2.3 - Responsive voor mobiel en tablet
@@ -11,6 +16,30 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [isAIMode, setIsAIMode] = useState(false);
+  const [adminDataSourceMode, setAdminDataSourceMode] = useState(() => {
+    if (typeof window === "undefined") return "current";
+    return getAdminDataSourceMode();
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const syncModeFromStorage = () => {
+      setAdminDataSourceMode(getAdminDataSourceMode());
+    };
+
+    window.addEventListener("admin-data-source-mode-changed", syncModeFromStorage);
+    return () => {
+      window.removeEventListener("admin-data-source-mode-changed", syncModeFromStorage);
+    };
+  }, []);
+
+  const isPilotReadMode = adminDataSourceMode === "pilot-read";
+  const activeReadPaths = useMemo(
+    () => getReadPaths(isPilotReadMode),
+    [isPilotReadMode]
+  );
+  const planningPathLabel = `/${getPathString(activeReadPaths.PLANNING)}`;
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -143,10 +172,19 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
 
       {/* Rechterkant: Systeem status (verborgen op kleine schermen) */}
       <div className="hidden lg:flex min-w-[280px] justify-end">
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5">
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5"
+          title={`Databron: ${isPilotReadMode ? "Pilot DB (Read Only)" : "Huidige DB"}\nPLANNING: ${planningPathLabel}`}
+        >
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
           <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic select-none">
             {t('header.system_status', 'Systeem actief')}
+          </span>
+          <span className={`text-[9px] font-black uppercase tracking-widest select-none ${isPilotReadMode ? "text-amber-400" : "text-slate-600"}`}>
+            {isPilotReadMode ? "Pilot" : "Current"}
+          </span>
+          <span className="max-w-[210px] truncate text-[9px] font-semibold text-slate-400 normal-case tracking-normal">
+            {planningPathLabel}
           </span>
         </div>
       </div>

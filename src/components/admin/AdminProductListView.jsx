@@ -1,3 +1,4 @@
+import { useNotifications } from '../../contexts/NotificationContext';
 import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -26,6 +27,7 @@ import { VERIFICATION_STATUS } from "../../data/constants";
  */
 const AdminProductListView = ({ products = [], onDelete, onEdit, onRefresh, user }) => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [processingId, setProcessingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("All");
@@ -104,16 +106,16 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, onRefresh, user
       // De helper 'verifyProduct' schrijft direct naar de nieuwe root
       const result = await verifyProduct(product.id, user, product);
       if (!result.success) {
-        alert(result.message);
+        notify(result.message);
       } else {
         if (typeof onRefresh === "function") {
           await onRefresh();
         }
-        alert("Product succesvol geverifieerd.");
+        notify("Product succesvol geverifieerd.");
       }
     } catch (error) {
       console.error("Verificatie fout:", error);
-      alert(`Verificatie mislukt: ${error?.message || "Onbekende fout"}`);
+      notify(`Verificatie mislukt: ${error?.message || "Onbekende fout"}`);
     } finally {
       setProcessingId(null);
     }

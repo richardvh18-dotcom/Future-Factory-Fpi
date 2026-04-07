@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Zap, ChevronRight, ChevronDown, ArrowLeft, ClipboardCheck, ScanBarcode, Trash2, FileText, AlertTriangle } from "lucide-react";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 const TerminalProductionView = ({
   activeWikkelingen = [],
@@ -17,6 +18,7 @@ const TerminalProductionView = ({
   scannerMode = true
 }) => {
   const { t } = useTranslation();
+  const { showConfirm } = useNotifications();
   const itemRefs = useRef({});
   const [collapsedGroups, setCollapsedGroups] = useState({});
 
@@ -240,11 +242,17 @@ const TerminalProductionView = ({
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      if (window.confirm(`Weet je zeker dat je lot ${prod.lotNumber} wilt annuleren? Dit kan niet ongedaan worden gemaakt.`)) {
-                        onCancelProduction(prod.id);
-                      }
+                      const confirmed = await showConfirm({
+                        title: "Productie annuleren",
+                        message: `Weet je zeker dat je lot ${prod.lotNumber} wilt annuleren? Dit kan niet ongedaan worden gemaakt.`,
+                        confirmText: "Annuleren",
+                        cancelText: "Terug",
+                        tone: "danger",
+                      });
+                      if (!confirmed) return;
+                      onCancelProduction(prod.id);
                     }}
                     className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Annuleer productie"

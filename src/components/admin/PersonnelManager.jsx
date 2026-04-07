@@ -47,6 +47,7 @@ import { PATHS, isValidPath } from "../../config/dbPaths";
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView.jsx";
 import PersonnelListView from "../personnel/PersonnelListView.jsx";
 import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * PersonnelManager V26.5 - Root Integrated Edition
@@ -57,6 +58,7 @@ import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
  */
 const PersonnelManager = ({ initialViewDate, initialTab }) => {
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const [personnel, setPersonnel] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
   const [structure, setStructure] = useState({ departments: [] });
@@ -353,7 +355,7 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
     }
 
     if (sourceData.length === 0)
-      return alert(t('personnel.noOccupancyFound', { day: isMonday ? t('common.friday') : t('common.yesterday') }) + (typeof targetDeptId === 'string' ? t('personnel.forThisDept') : "."));
+      return notify(t('personnel.noOccupancyFound', { day: isMonday ? t('common.friday') : t('common.yesterday') }) + (typeof targetDeptId === 'string' ? t('personnel.forThisDept') : "."));
 
     setIsCopying(true);
     try {
@@ -402,7 +404,7 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
       });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
-      alert(err.message);
+      notify(err.message);
     } finally {
       setIsCopying(false);
     }
@@ -412,7 +414,7 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
     e.preventDefault();
 
     if (isDuplicateNumber) {
-      alert(t('personnel.duplicateNumber', { number: personForm.employeeNumber }));
+      notify(t('personnel.duplicateNumber', { number: personForm.employeeNumber }));
       return;
     }
 
@@ -440,7 +442,7 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
       setStatus({ type: "success", msg: t('personnel.saved', "Medewerker opgeslagen") });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
-      alert(t('common.error', { message: err.message }));
+      notify(t('common.error', { message: err.message }));
     } finally {
       setSaving(false);
     }
@@ -744,14 +746,20 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
               onToggleDept={(id) => setListExpandedSections(prev => ({...prev, [id]: !prev[id]}))}
               onEdit={openEditPerson}
               onDelete={async (id) => {
-                if (window.confirm(t('common.deleteConfirm', "Verwijderen?"))) {
-                  await deleteDoc(doc(db, ...PATHS.PERSONNEL, id));
-                  await logActivity(
-                    auth.currentUser?.uid,
-                    "PERSONNEL_DELETE",
-                    `Personeelsrecord verwijderd: ${id}`
-                  );
-                }
+                const confirmed = await showConfirm({
+                  title: t('personnel.deleteTitle', 'Medewerker verwijderen'),
+                  message: t('common.deleteConfirm', "Verwijderen?"),
+                  confirmText: t('common.delete', 'Verwijderen'),
+                  cancelText: t('common.cancel', 'Annuleren'),
+                  tone: 'danger',
+                });
+                if (!confirmed) return;
+                await deleteDoc(doc(db, ...PATHS.PERSONNEL, id));
+                await logActivity(
+                  auth.currentUser?.uid,
+                  "PERSONNEL_DELETE",
+                  `Personeelsrecord verwijderd: ${id}`
+                );
               }}
             />
           )}

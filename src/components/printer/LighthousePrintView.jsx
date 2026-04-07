@@ -5,6 +5,7 @@ import {
   getBarcodeUrl,
 } from "../../utils/labelHelpers";
 import InternalQrImage from "../../utils/InternalQrImage";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * LighthousePrintView
@@ -12,6 +13,7 @@ import InternalQrImage from "../../utils/InternalQrImage";
  * Genereert een pixel-perfect HTML/CSS label en print via de browser dialoog.
  */
 const LighthousePrintView = ({ label, data, onClose }) => {
+  const { notify } = useNotifications();
   const [printing, setPrinting] = useState(false);
   const previewRef = useRef(null);
 
@@ -21,7 +23,7 @@ const LighthousePrintView = ({ label, data, onClose }) => {
     const printWindow = window.open("", "_blank", "width=800,height=600");
 
     if (!printWindow) {
-      alert("Popup geblokkeerd. Sta popups toe om te kunnen printen.");
+      notify("Popup geblokkeerd. Sta popups toe om te kunnen printen.");
       setPrinting(false);
       return;
     }

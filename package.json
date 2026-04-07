@@ -60,6 +60,8 @@
     "prepare": "husky install",
     "prevalidate": "node scripts/cleanup-duplicates.js",
     "repair:lossen": "node scripts/repair-lossen-routing.cjs",
+    "import:planning:auto": "node scripts/auto-planning-import.cjs --watch --dir ./imports/planning",
+    "import:planning:once": "node scripts/auto-planning-import.cjs --dir ./imports/planning",
     "validate": "npm run lint && npm run type-check && npm run build",
     "validate:strict": "npm run lint:strict && npm run type-check && npm run build",
     "type-check": "tsc --noEmit",

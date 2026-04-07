@@ -11,12 +11,14 @@ import {
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * NotificationRulesView - Configure automated notifications
  * Triggers notifications based on system events
  */
 const NotificationRulesView = () => {
+  const { showConfirm , notify} = useNotifications();
   const [rules, setRules] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
@@ -215,7 +217,7 @@ const NotificationRulesView = () => {
   // Add new rule
   const addRule = async () => {
     if (!newRule.name) {
-      alert("Geef de regel een naam");
+      notify("Geef de regel een naam");
       return;
     }
 
@@ -242,14 +244,21 @@ const NotificationRulesView = () => {
 
   // Delete rule
   const deleteRule = async (ruleId) => {
-    if (confirm("Weet je zeker dat je deze regel wilt verwijderen?")) {
-      await deleteDoc(doc(db, ...PATHS.NOTIFICATION_RULES, ruleId));
-      await logActivity(
-        auth.currentUser?.uid,
-        "NOTIFICATION_RULE_DELETE",
-        `Notificatieregel verwijderd: ${ruleId}`
-      );
-    }
+    const confirmed = await showConfirm({
+      title: "Notificatieregel verwijderen",
+      message: "Weet je zeker dat je deze regel wilt verwijderen?",
+      confirmText: "Verwijderen",
+      cancelText: "Annuleren",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    await deleteDoc(doc(db, ...PATHS.NOTIFICATION_RULES, ruleId));
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_RULE_DELETE",
+      `Notificatieregel verwijderd: ${ruleId}`
+    );
   };
 
   // Toggle rule

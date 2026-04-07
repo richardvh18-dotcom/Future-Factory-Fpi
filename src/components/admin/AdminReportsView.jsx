@@ -23,18 +23,27 @@ import {
 } from "lucide-react";
 import { collection, query, getDocs, limit, doc, getDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import { getArchiveItemsPath, getReadPaths } from "../../config/dbPaths";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import { normalizeMachine } from "../../utils/hubHelpers";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * AdminReportsView - Centrale Rapportage Module
  * Biedt diverse rapportages voor productie, kwaliteit, efficiency en prestaties
  */
-const AdminReportsView = () => {
+const AdminReportsView = ({ dataSourceMode = "current" }) => {
   const { t } = useTranslation();
+  const usePilotReadData = dataSourceMode === "pilot-read";
+  const readDb = db;
+  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
+  const getArchiveItemsPathForSource = (year) =>
+    usePilotReadData
+      ? ["future-factory", "production", "archive", String(year), "items"]
+      : getArchiveItemsPath(year);
   
   // State
+  const { notify } = useNotifications();
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [dateRange, setDateRange] = useState("week"); // 'today', 'week', 'month', 'custom'
@@ -61,7 +70,7 @@ const AdminReportsView = () => {
   useEffect(() => {
     const loadFactoryDepartments = async () => {
       try {
-        const configRef = doc(db, ...PATHS.FACTORY_CONFIG);
+        const configRef = doc(readDb, ...readPaths.FACTORY_CONFIG);
         const configSnap = await getDoc(configRef);
         if (!configSnap.exists()) {
           setFactoryDepartments([]);
@@ -78,7 +87,7 @@ const AdminReportsView = () => {
     };
 
     loadFactoryDepartments();
-  }, []);
+  }, [readDb, readPaths]);
 
   const factoryDepartmentMeta = useMemo(() => {
     const normalizeDeptLabel = (value) =>
@@ -413,14 +422,18 @@ const AdminReportsView = () => {
 
   const getItemDate = (item) => {
     const candidates = [
-      item?.createdAt,
-      item?.updatedAt,
-      item?.timestamp,
-      item?.date,
       item?.timestamps?.finished,
       item?.timestamps?.completed,
       item?.timestamps?.eindinspectie_start,
+      item?.timestamps?.bm01_start,
+      item?.timestamps?.nabewerking_end,
+      item?.timestamps?.lossen_end,
+      item?.timestamps?.wikkelen_end,
       item?.timestamps?.station_start,
+      item?.updatedAt,
+      item?.timestamp,
+      item?.date,
+      item?.createdAt,
     ];
     for (const value of candidates) {
       if (!value) continue;
@@ -611,7 +624,7 @@ const AdminReportsView = () => {
   const fetchTrackingProductsInRange = async () => {
     const { startDate, endDate } = getDateRange();
 
-    const trackingQuery = query(collection(db, ...PATHS.TRACKING), limit(3000));
+    const trackingQuery = query(collection(readDb, ...readPaths.TRACKING), limit(3000));
     const trackingSnap = await getDocs(trackingQuery);
     const products = trackingSnap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
@@ -896,7 +909,7 @@ const AdminReportsView = () => {
     const { startDate, endDate } = getDateRange();
 
     try {
-      const trackingQuery = query(collection(db, ...PATHS.TRACKING), limit(3000));
+      const trackingQuery = query(collection(readDb, ...readPaths.TRACKING), limit(3000));
       const trackingSnap = await getDocs(trackingQuery);
       const products = trackingSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -965,7 +978,7 @@ const AdminReportsView = () => {
     try {
       // Fetch occupancy data
       const occupancyQuery = query(
-        collection(db, ...PATHS.OCCUPANCY),
+        collection(readDb, ...readPaths.OCCUPANCY),
         limit(500)
       );
       const occupancySnap = await getDocs(occupancyQuery);
@@ -1026,7 +1039,7 @@ const AdminReportsView = () => {
   // Fetch personnel data
   const fetchPersonnelData = async () => {
     try {
-      const personnelQuery = query(collection(db, ...PATHS.PERSONNEL), limit(200));
+      const personnelQuery = query(collection(readDb, ...readPaths.PERSONNEL), limit(200));
       const personnelSnap = await getDocs(personnelQuery);
       const personnel = personnelSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
@@ -1066,8 +1079,8 @@ const AdminReportsView = () => {
 
     try {
       const [hoursSnap, occSnap] = await Promise.all([
-        getDocs(query(collection(db, ...PATHS.EFFICIENCY_HOURS), limit(3000))),
-        getDocs(query(collection(db, ...PATHS.OCCUPANCY), limit(3000))),
+        getDocs(query(collection(readDb, ...readPaths.EFFICIENCY_HOURS), limit(3000))),
+        getDocs(query(collection(readDb, ...readPaths.OCCUPANCY), limit(3000))),
       ]);
 
       const normalizeHours = (value) => {
@@ -1132,7 +1145,7 @@ const AdminReportsView = () => {
     const { startDate, endDate } = getDateRange();
 
     try {
-      const trackingSnap = await getDocs(query(collection(db, ...PATHS.TRACKING), limit(4000)));
+      const trackingSnap = await getDocs(query(collection(readDb, ...readPaths.TRACKING), limit(4000)));
       const products = trackingSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((p) => {
@@ -1202,11 +1215,11 @@ const AdminReportsView = () => {
       for (let y = yearStart; y <= yearEnd; y++) years.push(y);
 
       const [trackingSnap, ...archiveSnaps] = await Promise.all([
-        getDocs(query(collection(db, ...PATHS.TRACKING), limit(4000))),
+        getDocs(query(collection(readDb, ...readPaths.TRACKING), limit(4000))),
         ...years.map((year) =>
           getDocs(
             query(
-              collection(db, "future-factory", "production", "archive", String(year), "items"),
+              collection(readDb, ...getArchiveItemsPathForSource(year)),
               limit(4000)
             )
           )
@@ -1286,11 +1299,11 @@ const AdminReportsView = () => {
       for (let y = yearStart; y <= yearEnd; y++) years.push(y);
 
       const [trackingSnap, ...archiveSnaps] = await Promise.all([
-        getDocs(query(collection(db, ...PATHS.TRACKING), limit(4000))),
+        getDocs(query(collection(readDb, ...readPaths.TRACKING), limit(4000))),
         ...years.map((year) =>
           getDocs(
             query(
-              collection(db, "future-factory", "production", "archive", String(year), "items"),
+              collection(readDb, ...getArchiveItemsPathForSource(year)),
               limit(4000)
             )
           )
@@ -1544,7 +1557,7 @@ const AdminReportsView = () => {
       setReportData(data);
     } catch (error) {
       console.error("Error generating report:", error);
-      alert("Fout bij het genereren van rapport. Zie console voor details.");
+      notify("Fout bij het genereren van rapport. Zie console voor details.");
     } finally {
       setLoading(false);
     }
@@ -1613,7 +1626,7 @@ const AdminReportsView = () => {
 
     const printWindow = window.open("", "_blank", "width=1024,height=768");
     if (!printWindow) {
-      alert("Pop-up geblokkeerd. Sta pop-ups toe voor PDF export.");
+      notify("Pop-up geblokkeerd. Sta pop-ups toe voor PDF export.");
       return;
     }
     printWindow.document.open();
@@ -1699,11 +1712,18 @@ const AdminReportsView = () => {
     }
   }, [reportData, selectedReport, offeredDepartmentFilter, offeredWorkstationFilter]);
 
+  const sourceBadge = (
+    <div className={`mb-4 inline-flex items-center rounded-xl border px-3 py-1.5 text-[11px] font-black uppercase tracking-widest ${usePilotReadData ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-300 bg-slate-100 text-slate-700"}`}>
+      Databron: {usePilotReadData ? "Pilot DB (Read Only)" : "Huidige DB"}
+    </div>
+  );
+
   // Render category selection
   if (!selectedCategory) {
     return (
       <div className="h-full overflow-y-auto bg-slate-50 p-8">
         <div className="max-w-7xl mx-auto">
+          {sourceBadge}
           <div className="mb-8">
             <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight mb-2">
               {t("reports.title", "Rapportage Centre")}
@@ -1745,6 +1765,7 @@ const AdminReportsView = () => {
     return (
       <div className="h-full overflow-y-auto bg-slate-50 p-8">
         <div className="max-w-7xl mx-auto">
+          {sourceBadge}
           <button
             onClick={() => setSelectedCategory(null)}
             className="mb-6 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
@@ -1816,6 +1837,7 @@ const AdminReportsView = () => {
       {/* Header */}
       <div className="bg-white border-b border-slate-200 p-6 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto">
+          {sourceBadge}
           <button
             onClick={() => setSelectedReport(null)}
             className="mb-4 px-4 py-2 bg-slate-100 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors"

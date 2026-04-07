@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const MobileScanner = ({ onScan, onClose }) => {
+  const { notify } = useNotifications();
   const [scannerLoaded, setScannerLoaded] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const videoRef = useRef(null);
@@ -71,7 +73,7 @@ const MobileScanner = ({ onScan, onClose }) => {
       }
     } catch (error) {
       console.error("Camera error:", error);
-      alert("Kan camera niet starten. Controleer permissies.");
+      notify("Kan camera niet starten. Controleer permissies.");
       onClose();
     }
   };

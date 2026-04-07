@@ -14,14 +14,18 @@ import {
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { PATHS, getArchiveItemsPath } from '../../config/dbPaths';
+import { getArchiveItemsPath, getReadPaths } from '../../config/dbPaths';
 import { calculateDuration, formatMinutes } from '../../utils/efficiencyCalculator';
 
 /**
  * AiPredictionView
  * Analyseert historische productiedata om trends, afwijkingen en nieuwe standaardtijden te voorspellen.
  */
-const AiPredictionView = ({ onClose }) => {
+const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
+  const usePilotReadData = dataSourceMode === 'pilot-read';
+  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
+  const MIN_VALID_DURATION = 1;
+  const MAX_VALID_DURATION = 10080;
   const [loading, setLoading] = useState(true);
   const [trackingData, setTrackingData] = useState([]);
   const [archivedData, setArchivedData] = useState([]);
@@ -29,29 +33,213 @@ const AiPredictionView = ({ onClose }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedProduct, setSelectedProduct] = useState(null);
 
+  const toDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate) return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const d = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  const getHistoryTimestampBy = (log, matcher) => {
+    if (!Array.isArray(log?.history)) return null;
+    const row = log.history.find((h) => matcher(h || {}));
+    return toDateValue(row?.timestamp);
+  };
+
+  const hasHistoryMatch = (log, matcher) => {
+    if (!Array.isArray(log?.history)) return false;
+    return log.history.some((h) => matcher(h || {}));
+  };
+
+  const getProductKey = (log) => {
+    return log.itemCode || log.productId || log.item || log.productCode || log.partNumber || '';
+  };
+
+  const isCompletedLike = (log) => {
+    const statusText = String(log?.status || '').toLowerCase();
+    const stepText = String(log?.currentStep || log?.currentStation || '').toLowerCase();
+    const hasFinishTimestamp = Boolean(log?.timestamps?.finished || log?.timestamps?.completed);
+    const hasCompletionHistory = hasHistoryMatch(log, (h) => {
+      const action = String(h?.action || '').toLowerCase();
+      const details = String(h?.details || '').toLowerCase();
+      const station = String(h?.station || '').toLowerCase();
+
+      return (
+        action.includes('completed') ||
+        action.includes('gereed') ||
+        action.includes('afgerond') ||
+        details.includes('verwerking afgerond') ||
+        details.includes('gereed') ||
+        station === 'bm01'
+      );
+    });
+
+    return (
+      Boolean(log?._archived) ||
+      statusText === 'completed' ||
+      statusText === 'shipped' ||
+      statusText.includes('gereed') ||
+      statusText.includes('afgerond') ||
+      statusText.includes('verzonden') ||
+      stepText === 'finished' ||
+      stepText.includes('gereed') ||
+      hasFinishTimestamp ||
+      hasCompletionHistory
+    );
+  };
+
+  const getLogStartDate = (log) => {
+    return (
+      toDateValue(log?.timestamps?.wikkelen_start) ||
+      toDateValue(log?.timestamps?.station_start) ||
+      toDateValue(log?.timestamps?.started) ||
+      getHistoryTimestampBy(log, (h) => String(h?.action || '').toLowerCase().includes('start')) ||
+      toDateValue(log?.createdAt) ||
+      toDateValue(log?.startTime) ||
+      toDateValue(log?.startedAt) ||
+      new Date()
+    );
+  };
+
+  const getLogDuration = (log) => {
+    const ts = log?.timestamps || {};
+
+    const stationStart = toDateValue(ts.station_start || ts.started || log?.startTime || log?.startedAt);
+    const stationEnd = toDateValue(ts.finished || ts.completed || log?.endTime || log?.completedAt || log?.updatedAt);
+    if (stationStart && stationEnd) {
+      const duration = calculateDuration(stationStart, stationEnd);
+      if (Number.isFinite(duration) && duration > 0) return duration;
+    }
+
+    const wikkelenStart =
+      toDateValue(ts.wikkelen_start) ||
+      getHistoryTimestampBy(log, (h) => String(h?.action || '').toLowerCase().includes('start wikkelen')) ||
+      getHistoryTimestampBy(log, (h) => String(h?.action || '').toLowerCase().includes('start')) ||
+      toDateValue(log?.createdAt);
+    const wikkelenEnd =
+      toDateValue(ts.wikkelen_end) ||
+      getHistoryTimestampBy(log, (h) => String(h?.details || '').toLowerCase().includes('wikkelen naar lossen'));
+    const lossenStart =
+      toDateValue(ts.lossen_start) ||
+      getHistoryTimestampBy(log, (h) => String(h?.details || '').toLowerCase().includes('wikkelen naar lossen'));
+    const lossenEnd =
+      toDateValue(ts.lossen_end) ||
+      getHistoryTimestampBy(log, (h) => String(h?.details || '').toLowerCase().includes('lossen naar nabewerking'));
+    const nabewerkingStart =
+      toDateValue(ts.nabewerking_start) ||
+      getHistoryTimestampBy(log, (h) => String(h?.details || '').toLowerCase().includes('lossen naar nabewerking'));
+    const nabewerkingEnd =
+      toDateValue(ts.nabewerking_end) ||
+      toDateValue(ts.bm01_start) ||
+      getHistoryTimestampBy(log, (h) => String(h?.details || '').toLowerCase().includes('verwerking afgerond')) ||
+      getHistoryTimestampBy(log, (h) => String(h?.station || '').toUpperCase() === 'BM01') ||
+      toDateValue(ts.finished) ||
+      toDateValue(ts.completed) ||
+      toDateValue(log?.updatedAt);
+
+    const addDuration = (startValue, endValue) => {
+      const start = toDateValue(startValue);
+      const end = toDateValue(endValue);
+      if (!start || !end) return 0;
+      const duration = calculateDuration(start, end);
+      return Number.isFinite(duration) && duration > 0 ? duration : 0;
+    };
+
+    const total =
+      addDuration(wikkelenStart, wikkelenEnd) +
+      addDuration(lossenStart, lossenEnd) +
+      addDuration(nabewerkingStart, nabewerkingEnd) +
+      addDuration(ts.station_start, ts.finished || ts.completed || log?.endTime || log?.completedAt || log?.updatedAt);
+
+    if (total > 0) return total;
+
+    const historyStart = getHistoryTimestampBy(log, (h) => String(h?.action || '').toLowerCase().includes('start'));
+    const historyEnd =
+      getHistoryTimestampBy(log, (h) => {
+        const action = String(h?.action || '').toLowerCase();
+        const details = String(h?.details || '').toLowerCase();
+        return (
+          action.includes('completed') ||
+          action.includes('gereed') ||
+          action.includes('afgerond') ||
+          details.includes('verwerking afgerond')
+        );
+      }) ||
+      toDateValue(ts.finished) ||
+      toDateValue(ts.completed) ||
+      toDateValue(log?.updatedAt);
+
+    if (historyStart && historyEnd) {
+      const historyDuration = calculateDuration(historyStart, historyEnd);
+      if (Number.isFinite(historyDuration) && historyDuration > 0) return historyDuration;
+    }
+
+    return 0;
+  };
+
+  const getAnalysisCandidate = (log) => {
+    const productKey = getProductKey(log);
+    if (!productKey) {
+      return { included: false, reason: 'missingProductKey' };
+    }
+
+    if (!isCompletedLike(log)) {
+      return { included: false, reason: 'notCompleted', productKey };
+    }
+
+    const duration = getLogDuration(log);
+    if (duration < MIN_VALID_DURATION) {
+      return { included: false, reason: 'tooShort', productKey, duration };
+    }
+
+    if (duration > MAX_VALID_DURATION) {
+      return { included: false, reason: 'tooLong', productKey, duration };
+    }
+
+    return {
+      included: true,
+      productKey,
+      duration,
+      start: getLogStartDate(log),
+      itemName: log.item || log.description || 'Onbekend',
+      operator: log.operator || log.processedBy || log.user || 'Onbekend',
+    };
+  };
+
   useEffect(() => {
-    const unsubTracking = onSnapshot(collection(db, ...PATHS.TRACKING), (snap) => {
+    if (!readPaths || !readPaths.TRACKING || !readPaths.EFFICIENCY_HOURS) return;
+
+    setLoading(true);
+
+    const unsubTracking = onSnapshot(collection(db, ...readPaths.TRACKING), (snap) => {
       setTrackingData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // Haal ook het archief van het huidige jaar op voor een complete analyse
+    // Neem meerdere archiefjaren mee voor bruikbare AI trenddata.
     const currentYear = new Date().getFullYear();
-    const archiveRef = collection(db, ...getArchiveItemsPath(currentYear));
-    const unsubArchive = onSnapshot(archiveRef, (snap) => {
-      setArchivedData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const archiveYears = [currentYear, currentYear - 1, currentYear - 2];
+    const archiveBuckets = {};
 
-    const unsubStandards = onSnapshot(collection(db, ...PATHS.EFFICIENCY_HOURS), (snap) => {
+    const archiveUnsubs = archiveYears.map((year) =>
+      onSnapshot(collection(db, ...getArchiveItemsPath(year)), (snap) => {
+        archiveBuckets[year] = snap.docs.map(d => ({ id: d.id, ...d.data(), _archived: true, _archiveYear: year }));
+        const merged = Object.values(archiveBuckets).flat();
+        setArchivedData(merged);
+      })
+    );
+
+    const unsubStandards = onSnapshot(collection(db, ...readPaths.EFFICIENCY_HOURS), (snap) => {
       setStandards(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
     setLoading(false);
     return () => {
       unsubTracking();
-      unsubArchive();
+      archiveUnsubs.forEach((fn) => fn && fn());
       unsubStandards();
     };
-  }, []);
+  }, [readPaths]);
 
   const analysis = useMemo(() => {
     const allData = [...trackingData, ...archivedData];
@@ -60,30 +248,20 @@ const AiPredictionView = ({ onClose }) => {
     const productGroups = {};
 
     allData.forEach(log => {
-      if (!log.itemCode || !log.timestamps?.station_start) return;
-      
-      const isCompleted = log.status === 'completed' || log.status === 'shipped' || log.currentStep === 'Finished';
-      if (!isCompleted) return;
+      const candidate = getAnalysisCandidate(log);
+      if (!candidate.included) return;
 
-      const start = log.timestamps.station_start.toDate ? log.timestamps.station_start.toDate() : new Date(log.timestamps.station_start);
-      const end = log.timestamps.finished?.toDate ? log.timestamps.finished.toDate() : 
-                  (log.updatedAt?.toDate ? log.updatedAt.toDate() : new Date());
-      
-      const duration = calculateDuration(start, end);
-      
-      if (duration < 1 || duration > 600) return;
-
-      if (!productGroups[log.itemCode]) {
-        productGroups[log.itemCode] = {
+      if (!productGroups[candidate.productKey]) {
+        productGroups[candidate.productKey] = {
           logs: [],
-          item: log.item || "Onbekend"
+          item: candidate.itemName
         };
       }
       
-      productGroups[log.itemCode].logs.push({
-        date: start,
-        duration: duration,
-        operator: log.operator || "Onbekend"
+      productGroups[candidate.productKey].logs.push({
+        date: candidate.start,
+        duration: candidate.duration,
+        operator: candidate.operator
       });
     });
 
@@ -135,6 +313,62 @@ const AiPredictionView = ({ onClose }) => {
     }).filter(Boolean).sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
 
   }, [trackingData, archivedData, standards]);
+
+  const ingestionStats = useMemo(() => {
+    const allData = [...trackingData, ...archivedData];
+
+    let withProductKey = 0;
+    let completedLike = 0;
+    let validDuration = 0;
+    let missingProductKey = 0;
+    let missingCompletion = 0;
+    let tooShortDuration = 0;
+    let tooLongDuration = 0;
+
+    allData.forEach((log) => {
+      const productKey = getProductKey(log);
+      if (!productKey) {
+        missingProductKey += 1;
+        return;
+      }
+      withProductKey += 1;
+
+      if (!isCompletedLike(log)) {
+        missingCompletion += 1;
+        return;
+      }
+      completedLike += 1;
+
+      const duration = getLogDuration(log);
+      if (duration < MIN_VALID_DURATION) {
+        tooShortDuration += 1;
+        return;
+      }
+
+      if (duration > MAX_VALID_DURATION) {
+        tooLongDuration += 1;
+        return;
+      }
+
+      validDuration += 1;
+    });
+
+    return {
+      mode: usePilotReadData ? 'pilot-read' : 'current',
+      tracking: trackingData.length,
+      archived: archivedData.length,
+      standards: standards.length,
+      totalCandidates: allData.length,
+      withProductKey,
+      completedLike,
+      validDuration,
+      missingProductKey,
+      missingCompletion,
+      tooShortDuration,
+      tooLongDuration,
+      analyzedProducts: analysis.length,
+    };
+  }, [trackingData, archivedData, standards, analysis, usePilotReadData, MIN_VALID_DURATION, MAX_VALID_DURATION]);
 
   const filteredAnalysis = useMemo(() => {
     if (!searchTerm) return analysis;
@@ -207,6 +441,29 @@ const AiPredictionView = ({ onClose }) => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+        <div className="text-[10px] font-black uppercase tracking-widest text-blue-700">AI Ingestie Diagnose</div>
+        <div className="mt-2 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs font-bold text-slate-700">
+          <div>Bron: <span className="text-blue-700">{ingestionStats.mode}</span></div>
+          <div>Tracking: {ingestionStats.tracking}</div>
+          <div>Archief: {ingestionStats.archived}</div>
+          <div>Standaarden: {ingestionStats.standards}</div>
+          <div>Kandidaten: {ingestionStats.totalCandidates}</div>
+        </div>
+        <div className="mt-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-bold text-slate-600">
+          <div>Met Productcode: {ingestionStats.withProductKey}</div>
+          <div>Afgerond/Gereed: {ingestionStats.completedLike}</div>
+          <div>Geldige Duur: {ingestionStats.validDuration}</div>
+          <div>Geanalyseerde Producten: {ingestionStats.analyzedProducts}</div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px] font-semibold text-slate-500">
+          <div>Zonder Productcode: {ingestionStats.missingProductKey}</div>
+          <div>Niet Afgerond: {ingestionStats.missingCompletion}</div>
+          <div>Te Kort: {ingestionStats.tooShortDuration}</div>
+          <div>Te Lang: {ingestionStats.tooLongDuration}</div>
         </div>
       </div>
 

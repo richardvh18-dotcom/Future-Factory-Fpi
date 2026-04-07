@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
+import { useNotifications } from "../../../contexts/NotificationContext";
 import {
   Ruler,
   Plus,
@@ -39,6 +40,7 @@ import {
  */
 const AdminDrillingView = () => {
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const [drillData, setDrillData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -111,7 +113,7 @@ const AdminDrillingView = () => {
         thread: "M16",
       });
     } catch (err) {
-      alert("Opslaan mislukt: " + err.message);
+      notify("Opslaan mislukt: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -131,15 +133,19 @@ const AdminDrillingView = () => {
       );
       setEditingId(null);
     } catch (err) {
-      alert(err.message);
+      notify(err.message);
     }
   };
 
   const handleDelete = async (id) => {
-    if (
-      !window.confirm(`Boorpatroon ${id} definitief verwijderen uit de root?`)
-    )
-      return;
+    const confirmed = await showConfirm({
+      title: t('adminDrilling.deleteTitle', 'Boorpatroon verwijderen'),
+      message: `Boorpatroon ${id} definitief verwijderen uit de root?`,
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDoc(doc(db, ...PATHS.BORE_DIMENSIONS, id));
       await logActivity(
@@ -148,7 +154,7 @@ const AdminDrillingView = () => {
         `Boorpatroon verwijderd: ${id}`
       );
     } catch (err) {
-      alert(err.message);
+      notify(err.message);
     }
   };
 

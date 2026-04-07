@@ -24,7 +24,7 @@ const StatusBadge = ({ status }) => {
 };
 
 const PrintQueueAdminView = () => {
-  const { showSuccess, showError } = useNotifications();
+  const { showError, showConfirm } = useNotifications();
   const [printJobs, setPrintJobs] = useState([]);
   const [listeners, setListeners] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,7 +48,14 @@ const PrintQueueAdminView = () => {
   }, []);
 
   const handleReprint = async (jobId) => {
-    if (!window.confirm("Weet u zeker dat u deze taak opnieuw wilt printen?")) return;
+    const confirmed = await showConfirm({
+      title: 'Taak opnieuw printen',
+      message: 'Weet u zeker dat u deze taak opnieuw wilt printen?',
+      confirmText: 'Opnieuw printen',
+      cancelText: 'Annuleren',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
     try {
       const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
       await updateDoc(jobRef, { status: 'pending', retries: (printJobs.find(j => j.id === jobId)?.retries || 0) + 1 });
@@ -57,7 +64,6 @@ const PrintQueueAdminView = () => {
         'PRINT_REQUEUE',
         `Printtaak opnieuw in wachtrij: ${jobId}`
       );
-      showSuccess("Taak opnieuw in wachtrij geplaatst");
     } catch (e) {
       console.error(e);
       showError("Fout bij opnieuw printen");
@@ -65,7 +71,14 @@ const PrintQueueAdminView = () => {
   };
 
   const handleDelete = async (jobId) => {
-    if (!window.confirm("Weet u zeker dat u deze taak permanent wilt verwijderen?")) return;
+    const confirmed = await showConfirm({
+      title: 'Printtaak verwijderen',
+      message: 'Weet u zeker dat u deze taak permanent wilt verwijderen?',
+      confirmText: 'Verwijderen',
+      cancelText: 'Annuleren',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
       await deleteDoc(jobRef);
@@ -74,7 +87,6 @@ const PrintQueueAdminView = () => {
         'PRINT_QUEUE_DELETE',
         `Printtaak verwijderd: ${jobId}`
       );
-      showSuccess("Taak verwijderd");
     } catch (e) {
       console.error(e);
       showError("Fout bij verwijderen");

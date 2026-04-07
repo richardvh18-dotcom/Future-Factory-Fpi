@@ -27,6 +27,7 @@ import {
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * AiTrainingView V6.1 - Root Path Edition
@@ -34,6 +35,7 @@ import { PATHS } from "../../config/dbPaths";
  */
 const AiTrainingView = () => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
@@ -112,10 +114,10 @@ const AiTrainingView = () => {
       });
       
       await Promise.all(promises);
-      alert(t('ai.training.migrate_done', { count: updated }));
+      notify(t('ai.training.migrate_done', { count: updated }));
     } catch (e) {
       console.error(e);
-      alert(t('ai.training.migrate_error', { message: e.message }));
+      notify(t('ai.training.migrate_error', { message: e.message }));
     }
   };
 

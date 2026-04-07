@@ -1,3 +1,4 @@
+import { useNotifications } from '../../../contexts/NotificationContext';
 import React, { useState, useEffect } from "react";
 import {
   Package,
@@ -23,6 +24,7 @@ const MatrixView = ({
   setMatrixData,
   setHasUnsavedChanges,
 }) => {
+  const { notify } = useNotifications();
   const [selectedConnection, setSelectedConnection] = useState("");
   const [selectedType, setSelectedType] = useState("");
 
@@ -100,7 +102,7 @@ const MatrixView = ({
         setTimeout(() => setShowCopyConfirm(false), 3000);
         if (setHasUnsavedChanges) setHasUnsavedChanges(true);
       } else {
-        alert(
+        notify(
           `Geen bron-data gevonden voor '${copySource}' onder verbinding '${storageKey}'.`
         );
       }

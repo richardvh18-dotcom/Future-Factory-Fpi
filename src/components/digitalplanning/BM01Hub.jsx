@@ -13,6 +13,7 @@ import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveRejectedItemsPath, getArchiveItemsPath } from "../../config/dbPaths";
 import InternalQrImage from "../../utils/InternalQrImage";
 import PlanningSidebar from "./PlanningSidebar";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const QR_CODE_OK_CONFIRMATION = 'FPI-ACTION-APPROVE-OK';
 
@@ -28,6 +29,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     const { t } = useTranslation();
     const { user } = useAdminAuth();
   // AANGEPAST: Standaard view op 'inspectie' (Aan te bieden)
+  const { notify } = useNotifications();
   const [activeTab, setActiveTab] = useState("inspectie");
     const [selectedOrderId, setSelectedOrderId] = useState(null);
     const [selectedSidebarEntry, setSelectedSidebarEntry] = useState(null);
@@ -94,7 +96,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                 // Debug: log gevonden product
                 console.debug('[BM01] Product gevonden en popup geopend:', found);
             } else {
-                alert(`Item ${code} niet gevonden in de lijst 'Aan te bieden'.`);
+                notify(`Item ${code} niet gevonden in de lijst 'Aan te bieden'.`);
                 setScanInput("");
                 setSelectedProduct(null);
             }
@@ -717,7 +719,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                     frame.srcdoc = html;
             } catch (err) {
                     console.error("Print fout:", err);
-                    alert("Kon QR-overzicht niet printen. Probeer opnieuw.");
+                    notify("Kon QR-overzicht niet printen. Probeer opnieuw.");
             }
     };
 
@@ -763,7 +765,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
           }));
       } catch (err) {
           console.error("Fout bij opslaan notitie:", err);
-          alert("Kon rapport niet opslaan: " + err.message);
+          notify("Kon rapport niet opslaan: " + err.message);
       }
   };
 

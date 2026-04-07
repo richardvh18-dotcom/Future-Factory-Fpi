@@ -55,6 +55,7 @@ const TeamleaderHub = React.memo(({
   departmentName = "Algemeen",
   allowedMachines = [],
   title = "Teamleader Hub",
+  dataSourceMode = "current",
 }) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
@@ -87,7 +88,7 @@ const TeamleaderHub = React.memo(({
   const [showAiPrediction, setShowAiPrediction] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSyncingDrawings, setIsSyncingDrawings] = useState(false);
-  const { showSuccess, showInfo, showWarning } = useNotifications();
+  const { showSuccess, showInfo, showWarning, showConfirm , notify} = useNotifications();
 
   // Modals state
   const [activeKpi, setActiveKpi] = useState(null);
@@ -1141,7 +1142,7 @@ const TeamleaderHub = React.memo(({
 
   const handleExport = () => {
     if (dataStore.length === 0) {
-      alert("Geen data om te exporteren.");
+      notify("Geen data om te exporteren.");
       return;
     }
     const headers = ["Order", "Item", "Item Code", "Machine", "Plan", "Gereed", "Status", "Datum", "Afdeling"];
@@ -1187,13 +1188,13 @@ const TeamleaderHub = React.memo(({
 
   const handlePlannerExcelExport = () => {
     if (dataStore.length === 0) {
-      alert("Geen data om te exporteren.");
+      notify("Geen data om te exporteren.");
       return;
     }
 
     const filtered = dataStore.filter((o) => normalizeMachine(o.machine || "") !== "BH18");
     if (filtered.length === 0) {
-      alert("Geen exportdata beschikbaar buiten BH18.");
+      notify("Geen exportdata beschikbaar buiten BH18.");
       return;
     }
 
@@ -1287,10 +1288,17 @@ const TeamleaderHub = React.memo(({
     );
 
     if (yesterdayData.length === 0) {
-      alert("Geen bezetting van gisteren gevonden voor deze afdeling.");
+      notify("Geen bezetting van gisteren gevonden voor deze afdeling.");
       return;
     }
-    if (!window.confirm(`Wil je ${yesterdayData.length} toewijzingen van gisteren kopiëren naar vandaag?`)) return;
+    const copyConfirmed = await showConfirm({
+      title: "Bezetting kopieren",
+      message: `Wil je ${yesterdayData.length} toewijzingen van gisteren kopieren naar vandaag?`,
+      confirmText: "Kopieren",
+      cancelText: "Annuleren",
+      tone: "warning",
+    });
+    if (!copyConfirmed) return;
 
     setIsCopying(true);
     try {
@@ -1308,7 +1316,7 @@ const TeamleaderHub = React.memo(({
       );
     } catch (err) {
       console.error("Fout bij kopiëren:", err);
-      alert("Fout bij kopiëren: " + err.message);
+      notify("Fout bij kopiëren: " + err.message);
     } finally {
       setIsCopying(false);
     }
@@ -1321,10 +1329,17 @@ const TeamleaderHub = React.memo(({
     );
 
     if (todayData.length === 0) {
-      alert("Geen bezetting gevonden voor vandaag om te wissen.");
+      notify("Geen bezetting gevonden voor vandaag om te wissen.");
       return;
     }
-    if (!window.confirm(`Weet je zeker dat je de bezetting van VANDAAG (${todayData.length} items) voor deze afdeling wilt wissen?`)) return;
+    const clearConfirmed = await showConfirm({
+      title: "Bezetting wissen",
+      message: `Weet je zeker dat je de bezetting van VANDAAG (${todayData.length} items) voor deze afdeling wilt wissen?`,
+      confirmText: "Wissen",
+      cancelText: "Annuleren",
+      tone: "danger",
+    });
+    if (!clearConfirmed) return;
 
     setIsClearing(true);
     try {
@@ -1341,7 +1356,7 @@ const TeamleaderHub = React.memo(({
       );
     } catch (err) {
       console.error("Fout bij wissen:", err);
-      alert("Fout bij wissen: " + err.message);
+      notify("Fout bij wissen: " + err.message);
     } finally {
       setIsClearing(false);
     }
@@ -1384,17 +1399,17 @@ const TeamleaderHub = React.memo(({
         "LOT_MANUAL_MOVE",
         `Teamleader verplaatsing: lot ${lotNumber} -> ${newStation}`
       );
-      alert(`Product ${lotNumber} verplaatst naar ${newStation}`);
+      notify(`Product ${lotNumber} verplaatst naar ${newStation}`);
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
-      alert("Fout bij verplaatsen: " + err.message);
+      notify("Fout bij verplaatsen: " + err.message);
     }
   };
 
   const handleCreateOrder = async (e) => {
     e.preventDefault();
     if (!newOrderData.orderId || !newOrderData.item || !newOrderData.machine || !newOrderData.plan) {
-      alert("Vul alle velden in.");
+      notify("Vul alle velden in.");
       return;
     }
     setCreatingOrder(true);
@@ -1418,7 +1433,7 @@ const TeamleaderHub = React.memo(({
       setNewOrderData({ orderId: "", item: "", machine: "", plan: "" });
     } catch (error) {
       console.error("Error creating order:", error);
-      alert("Fout bij aanmaken order: " + error.message);
+      notify("Fout bij aanmaken order: " + error.message);
     } finally {
       setCreatingOrder(false);
     }
@@ -1586,7 +1601,7 @@ const TeamleaderHub = React.memo(({
             </div>
           ) : activeTab === "efficiency" ? (
             showAiPrediction ? (
-              <AiPredictionView onClose={() => setShowAiPrediction(false)} />
+              <AiPredictionView onClose={() => setShowAiPrediction(false)} dataSourceMode={dataSourceMode} />
             ) : (
               <TeamleaderEfficiencyView departmentName={departmentFilter !== "ALL" ? departmentFilter : departmentName} lockDepartment={fixedScope !== "all"} />
             )

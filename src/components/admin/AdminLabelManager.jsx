@@ -4,6 +4,7 @@ import { BoxSelect, PenTool, Settings, LayoutGrid, Edit2, Search, Trash2 } from 
 import { collection, onSnapshot, deleteDoc, doc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { useNotifications } from "../../contexts/NotificationContext";
 import AdminLabelDesigner from "./AdminLabelDesigner";
 import AdminLabelLogic from "./AdminLabelLogic";
 import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";
@@ -21,6 +22,7 @@ const LABEL_FOLDER_OPTIONS = [
 
 const AdminLabelManager = ({ onNavigate }) => {
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const genericFolderLabel = t('common.generic', 'Generiek');
   const [activeTab, setActiveTab] = useState("designer");
   const [savedLabels, setSavedLabels] = useState([]);
@@ -117,7 +119,14 @@ const AdminLabelManager = ({ onNavigate }) => {
       ? `${t('adminLabelDesigner.confirmDelete')}\n\n${label.name}`
       : t('adminLabelDesigner.confirmDelete');
 
-    if (!window.confirm(confirmMessage)) return;
+    const confirmed = await showConfirm({
+      title: t('adminLabelDesigner.deleteTitle', 'Template verwijderen'),
+      message: confirmMessage,
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
 
     setDeletingTemplateId(label.id);
     try {
@@ -132,7 +141,7 @@ const AdminLabelManager = ({ onNavigate }) => {
       }
     } catch (e) {
       console.error("Delete template error:", e);
-      alert(t('adminLabelDesigner.deleteError'));
+      notify(t('adminLabelDesigner.deleteError'));
     } finally {
       setDeletingTemplateId(null);
     }

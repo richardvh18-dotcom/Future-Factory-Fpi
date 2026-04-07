@@ -23,6 +23,7 @@ import {
   Lightbulb
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 const TRIGGER_OPTIONS = [
   { value: "project", label: "Project Nummer" },
@@ -43,6 +44,7 @@ const TRIGGER_OPTIONS = [
 
 const AdminLabelLogic = () => {
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const [rules, setRules] = useState([]);
   const [selectedRule, setSelectedRule] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -89,8 +91,17 @@ const AdminLabelLogic = () => {
     setTestInputs({});
   };
 
-  const handleLoadExample = () => {
-    if (variables.length > 0 && !window.confirm(t('admin.confirmClearExample'))) return;
+  const handleLoadExample = async () => {
+    if (variables.length > 0) {
+      const confirmed = await showConfirm({
+        title: t('adminLabelLogic.loadExampleTitle', 'Voorbeeld laden'),
+        message: t('admin.confirmClearExample'),
+        confirmText: t('common.continue', 'Doorgaan'),
+        cancelText: t('common.cancel', 'Annuleren'),
+        tone: 'warning',
+      });
+      if (!confirmed) return;
+    }
     
     setSelectedRule({ id: "new_example" });
     setFormCode("A1S1");
@@ -172,7 +183,7 @@ const AdminLabelLogic = () => {
   };
 
   const handleSave = async () => {
-    if (!formCode) return alert(t('admin.productCodeRequired'));
+    if (!formCode) return notify(t('admin.productCodeRequired'));
     
     const id = formCode.toUpperCase();
     const data = {
@@ -184,15 +195,22 @@ const AdminLabelLogic = () => {
     try {
       await setDoc(doc(db, ...PATHS.LABEL_LOGIC, id), data);
       await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label logic saved: ${id}`);
-      alert(t('admin.logicSaved'));
+      notify(t('admin.logicSaved'));
     } catch (e) {
       console.error(e);
-      alert(t('admin.saveError', { message: e.message }));
+      notify(t('admin.saveError', { message: e.message }));
     }
   };
 
   const handleDelete = async (id) => {
-    if(!window.confirm(t('common.areYouSure'))) return;
+    const confirmed = await showConfirm({
+      title: t('adminLabelLogic.deleteRuleTitle', 'Regel verwijderen'),
+      message: t('common.areYouSure'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     await deleteDoc(doc(db, ...PATHS.LABEL_LOGIC, id));
     await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Label logic deleted: ${id}`);
     if (selectedRule?.id === id) setSelectedRule(null);

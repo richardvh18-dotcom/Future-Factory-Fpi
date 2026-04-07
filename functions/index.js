@@ -1,13 +1,608 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const XLSX = require('xlsx');
 
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
+const db = admin.firestore();
+
+const BASE = 'future-factory';
+const PLANNING_COLLECTION = `${BASE}/production/digital_planning`;
+const EFFICIENCY_COLLECTION = `${BASE}/production/efficiency_hours`;
+const IMPORT_RUNS_COLLECTION = `${BASE}/integrations/import_runs`;
+const STORAGE_IMPORT_FOLDER = 'imports/planning/';
+const ALLOWED_IMPORT_EXTENSIONS = ['.xlsx', '.xlsm', '.xls'];
+
+const clean = (val) => String(val || '').trim();
+
+const parseNum = (val) => {
+  if (val === null || val === undefined || val === '') return 0;
+  const s = String(val).replace(/\s/g, '').replace(',', '.');
+  const n = Number.parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const normalizeMachine = (val) => {
+  let str = clean(val).toUpperCase();
+  if (str === 'BM18') str = 'BH18';
+  if (str === '40BM18') str = '40BH18';
+  return str || '-';
+};
+
+const normalizeMachineForFilter = (val) => {
+  const normalized = normalizeMachine(val);
+  return normalized.startsWith('40') ? normalized.slice(2) : normalized;
+};
+
+const parseMachineSelectionInput = (value) => {
+  if (!value) return new Set();
+
+  const rawList = Array.isArray(value)
+    ? value
+    : String(value)
+      .split(/[;,\s]+/)
+      .filter(Boolean);
+
+  return new Set(
+    rawList
+      .map((entry) => normalizeMachineForFilter(entry))
+      .filter((entry) => entry && entry !== '-')
+  );
+};
+
+const getConfiguredAllowedMachines = () => {
+  const configValue = functions.config()?.integration?.allowed_machines;
+  const envValue = process.env.IMPORT_ALLOWED_MACHINES;
+  return parseMachineSelectionInput(configValue || envValue);
+};
+
+const isSupportedImportFileName = (name) => {
+  const lower = String(name || '').toLowerCase();
+  return ALLOWED_IMPORT_EXTENSIONS.some((ext) => lower.endsWith(ext));
+};
+
+const toSafeDocId = (value) =>
+  String(value || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 500);
+
+const isStatusAllowed = (status) => {
+  const s = clean(status).toLowerCase();
+  if (s.includes('production completed') || s.includes('completed')) return false;
+  const allowed = ['released', 'planned', 'active', 'created', 'vrijgegeven', 'aangemaakt', 'actief'];
+  return allowed.some((keyword) => s.includes(keyword));
+};
+
+const getIsoWeek = (dateLike) => {
+  const date = new Date(dateLike);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  return Math.ceil((((utc - yearStart) / 86400000) + 1) / 7);
+};
+
+const classifyByWc = (wc) => {
+  const upper = String(wc || '').toUpperCase();
+  if (upper.includes('BM01') || upper.includes('BA01')) return 'qc';
+  if (upper.includes('NABEWERK') || upper.includes('NABEW')) return 'post';
+  return null;
+};
+
+const classifyReferenceOperation = (refOp, wc) => {
+  const wcBucket = classifyByWc(wc);
+  if (wcBucket) return wcBucket;
+
+  const digits = Number.parseInt(String(refOp || '').replace(/\D/g, ''), 10);
+  if (Number.isNaN(digits)) return 'production';
+  const opCode = digits % 100;
+  if (opCode === 60) return 'qc';
+  if (opCode === 30) return 'post';
+  return 'production';
+};
+
+const getSplitPlannedHours = (operations, fallbackTotalHours = 0) => {
+  const split = { productionHours: 0, postHours: 0, qcHours: 0 };
+  const entries = Object.entries(operations || {});
+
+  if (!entries.length) {
+    split.productionHours = parseNum(fallbackTotalHours);
+    return split;
+  }
+
+  entries.forEach(([refOp, values]) => {
+    const planned = parseNum(values?.planned);
+    const bucket = classifyReferenceOperation(refOp, values?.wc);
+    if (bucket === 'qc') split.qcHours += planned;
+    else if (bucket === 'post') split.postHours += planned;
+    else split.productionHours += planned;
+  });
+
+  if (split.productionHours === 0 && split.postHours === 0 && split.qcHours === 0) {
+    split.productionHours = parseNum(fallbackTotalHours);
+  }
+
+  return split;
+};
+
+const buildReferenceOperationSummary = (operations = {}) => {
+  const byCode = {};
+
+  Object.entries(operations).forEach(([refOp, values]) => {
+    const planned = parseNum(values?.planned);
+    const actual = parseNum(values?.actual);
+    const wc = normalizeMachine(values?.wc || '');
+
+    byCode[refOp] = {
+      plannedHours: planned,
+      actualHours: actual,
+      workCenter: wc,
+      bucket: classifyReferenceOperation(refOp, wc),
+    };
+  });
+
+  return byCode;
+};
+
+const findColumnIndex = (headers, names) =>
+  headers.findIndex((h) => names.some((n) => h.includes(n)));
+
+const processRawLNDump = (rawRows) => {
+  const headerIdx = rawRows.findIndex((row) =>
+    row.some((cell) => clean(cell).toLowerCase() === 'production order')
+  );
+
+  if (headerIdx === -1) {
+    throw new Error("Kolom 'Production Order' niet gevonden in Excel bestand");
+  }
+
+  const headers = rawRows[headerIdx].map((h) => clean(h).toLowerCase());
+  const dataRows = rawRows.slice(headerIdx + 1);
+
+  const idx = {
+    order: findColumnIndex(headers, ['production order']),
+    delivery: findColumnIndex(headers, ['planned delivery date']),
+    machine: findColumnIndex(headers, ['work center']),
+    status: findColumnIndex(headers, ['order status']),
+    item: findColumnIndex(headers, ['item', 'artikel']),
+    desc: findColumnIndex(headers, ['item description', 'omschrijving']),
+    project: findColumnIndex(headers, ['project']),
+    projectDesc: findColumnIndex(headers, ['project description', 'project desc']),
+    qty: findColumnIndex(headers, ['quantity ordered', 'aantal']),
+    plannedHours: findColumnIndex(headers, ['production time', 'labor hours']),
+    actualHours: findColumnIndex(headers, ['spent production time']),
+    refOp: findColumnIndex(headers, ['reference operation']),
+    drawing: findColumnIndex(headers, ['drawing number', 'tekening']),
+    notes: findColumnIndex(headers, ['production order text', 'po text', 'po-text', 'po note', 'opmerking']),
+    special: findColumnIndex(headers, ['special instructions', 'special instruction', 'extra code', 'extra-code']),
+    todo: findColumnIndex(headers, ['to do qty']),
+    creation: findColumnIndex(headers, ['order creation date']),
+  };
+
+  const orderMap = new Map();
+
+  dataRows.forEach((row) => {
+    const orderId = clean(row[idx.order]);
+    if (!orderId || orderId === '0') return;
+
+    const refOp = clean(row[idx.refOp]);
+    const pTime = parseNum(row[idx.plannedHours]);
+    const aTime = parseNum(row[idx.actualHours]);
+    const rawStatus = clean(row[idx.status]);
+    const rowMachine = normalizeMachine(row[idx.machine]);
+    const rowStatusAllowed = isStatusAllowed(rawStatus);
+
+    if (!orderMap.has(orderId)) {
+      orderMap.set(orderId, {
+        id: orderId,
+        orderId,
+        machine: rowMachine,
+        itemCode: clean(row[idx.item]),
+        item: clean(row[idx.desc]),
+        itemDescription: clean(row[idx.desc]),
+        project: clean(row[idx.project]),
+        projectDesc: clean(row[idx.projectDesc]),
+        notes: clean(row[idx.notes]),
+        extraCode: clean(row[idx.special]),
+        quantity: parseNum(row[idx.qty]),
+        toDoQty: parseNum(row[idx.todo]),
+        plannedDeliveryDate: row[idx.delivery],
+        orderCreationDate: clean(row[idx.creation]),
+        orderStatus: rawStatus,
+        drawing: clean(row[idx.drawing]),
+        isValidForImport: rowStatusAllowed,
+        status: 'waiting',
+        plan: parseNum(row[idx.todo]) || parseNum(row[idx.qty]) || 0,
+        totalPlannedHours: 0,
+        totalActualHours: 0,
+        operations: {},
+        sourceType: 'LN Webhook Import',
+      });
+    }
+
+    const order = orderMap.get(orderId);
+
+    if ((order.machine === '-' || !order.machine) && rowMachine !== '-') {
+      order.machine = rowMachine;
+    }
+    if (!rowStatusAllowed) order.isValidForImport = false;
+    if (!order.orderStatus && rawStatus) order.orderStatus = rawStatus;
+    if (!order.orderCreationDate) order.orderCreationDate = clean(row[idx.creation]);
+    if ((!order.extraCode || order.extraCode === '-') && clean(row[idx.special])) {
+      order.extraCode = clean(row[idx.special]);
+    }
+    if (!order.notes) order.notes = clean(row[idx.notes]);
+    if (!order.project) order.project = clean(row[idx.project]);
+    if (!order.projectDesc) order.projectDesc = clean(row[idx.projectDesc]);
+    if (!order.drawing) order.drawing = clean(row[idx.drawing]);
+
+    order.totalPlannedHours += pTime;
+    order.totalActualHours += aTime;
+
+    if (refOp) {
+      order.operations[refOp] = {
+        planned: (order.operations[refOp]?.planned || 0) + pTime,
+        actual: (order.operations[refOp]?.actual || 0) + aTime,
+        wc: order.operations[refOp]?.wc || normalizeMachine(row[idx.machine] || ''),
+      };
+    }
+  });
+
+  return Array.from(orderMap.values()).map((order) => {
+    let deliveryDate = order.plannedDeliveryDate || null;
+    let weekNumber = order.weekNumber || null;
+
+    if (deliveryDate) {
+      const d = deliveryDate instanceof Date ? deliveryDate : new Date(deliveryDate);
+      if (!Number.isNaN(d.getTime())) {
+        deliveryDate = d.toISOString();
+        weekNumber = getIsoWeek(d);
+      } else {
+        deliveryDate = null;
+      }
+    }
+
+    return {
+      ...order,
+      deliveryDate,
+      weekNumber,
+    };
+  });
+};
+
+const pickBestSheetName = (sheetNames = []) => {
+  if (!sheetNames.length) return null;
+  const preferred = sheetNames.find((n) => {
+    const lower = String(n || '').toLowerCase();
+    return lower.includes('data') || lower.includes('format') || lower === '40bm01';
+  });
+  return preferred || sheetNames[0];
+};
+
+const parseOrdersFromBuffer = (buffer) => {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const sheetName = pickBestSheetName(workbook.SheetNames);
+  if (!sheetName) throw new Error('Geen sheet gevonden in workbook');
+  const sheet = workbook.Sheets[sheetName];
+  const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  return processRawLNDump(rawRows).filter((order) => order.isValidForImport);
+};
+
+const importOrdersToFirestore = async (orders, sourceMeta = {}, options = {}) => {
+  const normalizedOptions =
+    typeof options === 'boolean'
+      ? { overwrite: options }
+      : (options || {});
+  const overwrite = Boolean(normalizedOptions.overwrite);
+  const allowedMachines = parseMachineSelectionInput(normalizedOptions.allowedMachines);
+
+  if (!orders.length) {
+    return { imported: 0, skipped: 0, skippedByMachine: 0 };
+  }
+
+  const machineFiltered = allowedMachines.size
+    ? orders.filter((order) => allowedMachines.has(normalizeMachineForFilter(order.machine)))
+    : orders;
+  const skippedByMachine = orders.length - machineFiltered.length;
+
+  let existingIds = new Set();
+  if (!overwrite) {
+    const planningSnap = await db.collection(PLANNING_COLLECTION).get();
+    existingIds = new Set(planningSnap.docs.map((d) => d.id));
+  }
+
+  const toImport = overwrite ? machineFiltered : machineFiltered.filter((o) => !existingIds.has(o.id));
+  const skippedExisting = machineFiltered.length - toImport.length;
+  const skipped = skippedByMachine + skippedExisting;
+
+  if (!toImport.length) {
+    return { imported: 0, skipped, skippedByMachine };
+  }
+
+  const CHUNK = 350;
+  let imported = 0;
+
+  for (let i = 0; i < toImport.length; i += CHUNK) {
+    const chunk = toImport.slice(i, i + CHUNK);
+    const batch = db.batch();
+
+    chunk.forEach((item) => {
+      const normalizedItem = item.item || item.itemDescription || '';
+      const normalizedItemDescription = item.itemDescription || item.item || '';
+      const { productionHours, postHours, qcHours } = getSplitPlannedHours(item.operations, item.totalPlannedHours || 0);
+      const operationByCode = buildReferenceOperationSummary(item.operations);
+
+      const planningPayload = {
+        ...item,
+        item: normalizedItem,
+        itemDescription: normalizedItemDescription,
+        plannedHoursBH: productionHours,
+        plannedHoursNabewerken: postHours,
+        plannedHoursBM01: qcHours,
+        plannedMinutesBH: productionHours * 60,
+        plannedMinutesNabewerken: postHours * 60,
+        plannedMinutesBM01: qcHours * 60,
+        referenceOperationTimes: operationByCode,
+        planningHidden: false,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        autoImportedAt: admin.firestore.FieldValue.serverTimestamp(),
+        autoImportSource: sourceMeta,
+      };
+      delete planningPayload.isValidForImport;
+
+      const productionMinutes = productionHours * 60;
+      const postProcessingMinutes = postHours * 60;
+      const qcMinutes = qcHours * 60;
+      const standardMinutes = productionMinutes + postProcessingMinutes;
+      const actualMinutes = (item.totalActualHours || 0) * 60;
+      const qty = item.quantity || item.toDoQty || 1;
+
+      const efficiencyPayload = {
+        orderId: item.id,
+        itemCode: item.itemCode || '',
+        itemDescription: normalizedItemDescription,
+        machine: item.machine || '',
+        standardTimeTotal: standardMinutes,
+        productionTimeTotal: productionMinutes,
+        actualTimeTotal: actualMinutes,
+        qcTimeTotal: qcMinutes,
+        postProcessingTimeTotal: postProcessingMinutes,
+        quantity: qty,
+        minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
+        status: 'active',
+        source: 'webhook_import',
+        sourceFile: sourceMeta.fileName || '',
+        lastSync: new Date().toISOString(),
+      };
+
+      batch.set(db.collection(PLANNING_COLLECTION).doc(item.id), planningPayload, { merge: true });
+      batch.set(db.collection(EFFICIENCY_COLLECTION).doc(item.id), efficiencyPayload, { merge: true });
+    });
+
+    await batch.commit();
+    imported += chunk.length;
+  }
+
+  return { imported, skipped, skippedByMachine };
+};
+
 // Sample HTTP function
 exports.helloWorld = functions.https.onRequest((request, response) => {
   response.send('Hello from Firebase!');
+});
+
+/**
+ * Power Automate Import API
+ * POST /importPlanningFromWebhook
+ *
+ * Body:
+ * {
+ *   fileUrl: string,
+ *   fileName?: string,
+ *   provider?: string,
+ *   fileModifiedAt?: string,
+ *   idempotencyKey?: string,
+ *   overwrite?: boolean,
+ *   allowedMachines?: string[] | string // bijv ["BH12", "BH18"]
+ * }
+ */
+exports.importPlanningFromWebhook = functions.https.onRequest(async (req, res) => {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+  }
+
+  try {
+    const configToken =
+      functions.config()?.power_automate?.import_token ||
+      functions.config()?.integration?.import_token ||
+      functions.config()?.zapier?.import_token;
+    const envToken =
+      process.env.POWER_AUTOMATE_IMPORT_TOKEN ||
+      process.env.INTEGRATION_IMPORT_TOKEN ||
+      process.env.ZAPIER_IMPORT_TOKEN;
+    const expectedToken = configToken || envToken;
+    const providedToken = req.get('x-import-token') || req.body?.token;
+
+    if (!expectedToken || providedToken !== expectedToken) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
+
+    const fileUrl = clean(req.body?.fileUrl);
+    const fileName = clean(req.body?.fileName);
+    const provider = clean(req.body?.provider) || 'power_automate';
+    const fileModifiedAt = clean(req.body?.fileModifiedAt);
+    const overwrite = Boolean(req.body?.overwrite);
+    const allowedMachines = parseMachineSelectionInput(req.body?.allowedMachines);
+    const idempotencyKey = clean(req.body?.idempotencyKey || `${fileName}-${fileModifiedAt}`);
+
+    if (!fileUrl) {
+      return res.status(422).json({ ok: false, error: 'fileUrl is required' });
+    }
+
+    if (!idempotencyKey) {
+      return res.status(422).json({ ok: false, error: 'idempotencyKey is required' });
+    }
+
+    const runRef = db.collection(IMPORT_RUNS_COLLECTION).doc(idempotencyKey);
+    const existingRun = await runRef.get();
+    if (existingRun.exists) {
+      return res.status(409).json({
+        ok: true,
+        duplicate: true,
+        message: 'Import already processed for this idempotencyKey',
+      });
+    }
+
+    await runRef.set({
+      status: 'started',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      fileName,
+      provider,
+      fileModifiedAt,
+      fileUrl,
+      overwrite,
+      allowedMachines: Array.from(allowedMachines),
+    });
+
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error(`Kon bestand niet downloaden (${response.status})`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+    const orders = parseOrdersFromBuffer(fileBuffer);
+
+    const sourceMeta = {
+      source: provider || 'power_automate',
+      provider,
+      fileName,
+      fileModifiedAt,
+      idempotencyKey,
+      allowedMachines: Array.from(allowedMachines),
+    };
+
+    const result = await importOrdersToFirestore(orders, sourceMeta, {
+      overwrite,
+      allowedMachines,
+    });
+
+    await runRef.set(
+      {
+        status: 'completed',
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        ordersFound: orders.length,
+        imported: result.imported,
+        skipped: result.skipped,
+        skippedByMachine: result.skippedByMachine,
+      },
+      { merge: true }
+    );
+
+    return res.status(200).json({
+      ok: true,
+      imported: result.imported,
+      skipped: result.skipped,
+      skippedByMachine: result.skippedByMachine,
+      ordersFound: orders.length,
+      idempotencyKey,
+      allowedMachines: Array.from(allowedMachines),
+    });
+  } catch (error) {
+    console.error('importPlanningFromWebhook error:', error);
+    return res.status(500).json({
+      ok: false,
+      error: 'Import failed',
+      details: error?.message || 'Unknown error',
+    });
+  }
+});
+
+/**
+ * Firebase Storage trigger import (geen Power Automate nodig).
+ * Upload een LN Excel bestand naar: imports/planning/
+ */
+exports.importPlanningFromStorage = functions.storage.object().onFinalize(async (object) => {
+  const objectName = String(object?.name || '');
+  const bucketName = String(object?.bucket || '');
+
+  if (!objectName || !bucketName) return null;
+  if (!objectName.toLowerCase().startsWith(STORAGE_IMPORT_FOLDER)) return null;
+  if (!isSupportedImportFileName(objectName)) return null;
+
+  const idempotencyKey = toSafeDocId(
+    `storage-${bucketName}-${objectName}-${object.generation || object.updated || ''}`
+  );
+  const runRef = db.collection(IMPORT_RUNS_COLLECTION).doc(idempotencyKey);
+  const existingRun = await runRef.get();
+  if (existingRun.exists) {
+    console.log('Storage import duplicate skipped:', objectName);
+    return null;
+  }
+
+  await runRef.set({
+    status: 'started',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    provider: 'firebase_storage',
+    trigger: 'storage_finalize',
+    fileName: objectName,
+    fileModifiedAt: object.updated || null,
+    bucket: bucketName,
+    generation: object.generation || null,
+  });
+
+  try {
+    const allowedMachines = getConfiguredAllowedMachines();
+    const fileRef = admin.storage().bucket(bucketName).file(objectName);
+    const [fileBuffer] = await fileRef.download();
+    const orders = parseOrdersFromBuffer(fileBuffer);
+
+    const sourceMeta = {
+      source: 'storage_trigger',
+      provider: 'firebase_storage',
+      fileName: objectName,
+      fileModifiedAt: object.updated || '',
+      idempotencyKey,
+      bucket: bucketName,
+      generation: object.generation || '',
+      allowedMachines: Array.from(allowedMachines),
+    };
+
+    const result = await importOrdersToFirestore(orders, sourceMeta, {
+      overwrite: false,
+      allowedMachines,
+    });
+
+    await runRef.set(
+      {
+        status: 'completed',
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        ordersFound: orders.length,
+        imported: result.imported,
+        skipped: result.skipped,
+        skippedByMachine: result.skippedByMachine,
+      },
+      { merge: true }
+    );
+
+    console.log('Storage import completed:', objectName, result);
+    return null;
+  } catch (error) {
+    console.error('importPlanningFromStorage error:', error);
+    await runRef.set(
+      {
+        status: 'failed',
+        failedAt: admin.firestore.FieldValue.serverTimestamp(),
+        error: error?.message || 'Unknown error',
+      },
+      { merge: true }
+    );
+    return null;
+  }
 });
 
 /**

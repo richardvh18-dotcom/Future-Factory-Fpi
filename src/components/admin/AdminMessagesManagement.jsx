@@ -28,6 +28,7 @@ import {
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * AdminMessagesManagement V1.0
@@ -36,6 +37,7 @@ import { useAdminAuth } from "../../hooks/useAdminAuth";
 const AdminMessagesManagement = () => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
+  const { showConfirm } = useNotifications();
   const [activeTab, setActiveTab] = useState("groups"); // 'groups', 'settings', 'notifications'
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -134,8 +136,14 @@ const AdminMessagesManagement = () => {
 
   // Delete Group
   const handleDeleteGroup = async (groupId) => {
-    if (!window.confirm(t('adminMessages.deleteGroupConfirm')))
-      return;
+    const confirmed = await showConfirm({
+      title: t('adminMessages.deleteGroupTitle', 'Groep verwijderen'),
+      message: t('adminMessages.deleteGroupConfirm'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
 
     setSaving(true);
     try {

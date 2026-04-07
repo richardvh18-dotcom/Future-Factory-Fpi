@@ -34,6 +34,7 @@ import { useLabelPreview } from "../../../hooks/useLabelPreview";
 import ConfirmationModal from "./ConfirmationModal";
 import { formatDateTimeSafe, toDateSafe } from "../../../utils/dateUtils";
 import { queuePrintJob } from "../../../services/printService";
+import { useNotifications } from '../../../contexts/NotificationContext';
 
 /**
  * ProductDossierModal: Toont proces-stappen, kwaliteitsmetingen en order-info.
@@ -47,6 +48,7 @@ const ProductDossierModal = ({
   onAddNote,
   onMoveLot,
 }) => {
+  const { notify } = useNotifications();
   const [newNote, setNewNote] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
@@ -308,10 +310,10 @@ const ProductDossierModal = ({
               setCatalogProduct({ id: vSnap.docs[0].id, ...vSnap.docs[0].data() });
               setShowDetailModal(true);
             } else {
-              alert("Geen product gevonden in catalogus met deze tekening.");
+              notify("Geen product gevonden in catalogus met deze tekening.");
             }
           } else {
-            alert("Geen product gevonden in catalogus met deze tekening.");
+            notify("Geen product gevonden in catalogus met deze tekening.");
           }
         }
       }
@@ -508,7 +510,7 @@ const ProductDossierModal = ({
   const handleReprintLabel = async () => {
     const zplToReprint = String(effectiveLabelZPL || "").trim();
     if (!zplToReprint) {
-      alert("Geen labeldata gevonden om te herprinten.");
+      notify("Geen labeldata gevonden om te herprinten.");
       return;
     }
 
@@ -545,10 +547,10 @@ const ProductDossierModal = ({
         `Herprint aangevraagd: order ${displayOrderId}, lot ${product.lotNumber || product.id || "-"}, printer ${targetPrinter.id}, aantal ${quantity}`
       );
 
-      alert(`${quantity} herprint(s) naar wachtrij gestuurd (${targetPrinter.name || targetPrinter.id}) via station BM01.`);
+      notify(`${quantity} herprint(s) naar wachtrij gestuurd (${targetPrinter.name || targetPrinter.id}) via station BM01.`);
     } catch (e) {
       console.error("Herprint mislukt:", e);
-      alert(`Herprint mislukt: ${e.message}`);
+      notify(`Herprint mislukt: ${e.message}`);
     } finally {
       setIsReprinting(false);
     }

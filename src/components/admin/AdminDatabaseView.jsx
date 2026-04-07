@@ -14,6 +14,7 @@ import {
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import { ref, listAll, getDownloadURL } from "firebase/storage";
 import { callGemini } from "../../utils/helpers";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * AdminDatabaseView V4.1 - Root-Ready Forensic Edition
@@ -23,6 +24,7 @@ import { callGemini } from "../../utils/helpers";
  */
 const AdminDatabaseView = () => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [selectedKey, setSelectedKey] = useState("PRODUCTS");
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -230,7 +232,7 @@ const AdminDatabaseView = () => {
       );
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
     } catch (error) {
-      alert(t('common.deleteFailed') + ': ' + error.message);
+      notify(t('common.deleteFailed') + ': ' + error.message);
     }
   };
 

@@ -14,11 +14,13 @@ import {
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { PATHS } from "../../config/dbPaths";
 import LoanPersonnelModal from "../digitalplanning/modals/LoanPersonnelModal";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * Add/Edit Modal Component (Intern)
  */
 const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments, users = [] }) => {
+  const { notify } = useNotifications();
   const [activeTab, setActiveTab] = useState("profile");
   const [formData, setFormData] = useState({
     name: "",
@@ -590,7 +592,7 @@ const PersonnelOccupancyView = ({
       setEditingPerson(null);
     } catch (err) {
       console.error("Fout bij opslaan medewerker:", err);
-      alert("Er ging iets mis bij het opslaan.");
+      notify("Er ging iets mis bij het opslaan.");
     }
   };
 
@@ -604,7 +606,7 @@ const PersonnelOccupancyView = ({
       );
     } catch (err) {
       console.error("Verwijderen bezetting mislukt:", err);
-      alert("Kon bezetting niet verwijderen");
+      notify("Kon bezetting niet verwijderen");
     }
   };
 
@@ -1009,7 +1011,7 @@ const PersonnelOccupancyView = ({
                       setLoanModalOpen(true);
                       setEditAssignmentModalOpen(false);
                     } else {
-                      alert("Persoonsgegevens niet gevonden.");
+                      notify("Persoonsgegevens niet gevonden.");
                     }
                   }}
                   className="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-indigo-100 border-2 border-indigo-100 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
@@ -1032,7 +1034,7 @@ const PersonnelOccupancyView = ({
                     setEditAssignmentModalOpen(false);
                   } catch (err) {
                     console.error("Update failed", err);
-                    alert("Kon uren niet opslaan");
+                    notify("Kon uren niet opslaan");
                   }
                 }} 
                 className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
@@ -1113,7 +1115,7 @@ const PersonnelOccupancyView = ({
                           );
                         } catch (err) {
                           console.error("Achteraf uren opslaan mislukt", err);
-                          alert("Kon uren niet opslaan");
+                          notify("Kon uren niet opslaan");
                         }
                       }}
                       className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"

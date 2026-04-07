@@ -28,12 +28,14 @@ import {
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { aiService } from "../../services/aiService";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * FlashcardManager V1.0
  * Admin interface voor het maken en beheren van flashcards en het bekijken van resultaten.
  */
 const FlashcardManager = () => {
+  const { notify } = useNotifications();
   const [flashcards, setFlashcards] = useState([]);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -89,7 +91,7 @@ const FlashcardManager = () => {
 
   const handleSaveCard = async () => {
     if (!newCard.front.trim() || !newCard.back.trim()) {
-      alert("Voer zowel een vraag als antwoord in.");
+      notify("Voer zowel een vraag als antwoord in.");
       return;
     }
 
@@ -114,7 +116,7 @@ const FlashcardManager = () => {
       setNewCard({ front: "", back: "", category: "products", difficulty: "medium" });
     } catch (error) {
       console.error("Error saving card:", error);
-      alert("Kon kaart niet opslaan.");
+      notify("Kon kaart niet opslaan.");
     } finally {
       setSaving(false);
     }
@@ -224,7 +226,7 @@ const FlashcardManager = () => {
 
     } catch (error) {
       console.error("Error generating suggestions:", error);
-      alert("Kon geen suggesties genereren: " + error.message);
+      notify("Kon geen suggesties genereren: " + error.message);
     } finally {
       setGenerating(false);
     }
@@ -253,7 +255,7 @@ const FlashcardManager = () => {
       setSuggestions(prev => prev.filter(s => s !== suggestion));
     } catch (error) {
       console.error("Error accepting suggestion:", error);
-      alert("Kon kaart niet opslaan.");
+      notify("Kon kaart niet opslaan.");
     }
   };
 

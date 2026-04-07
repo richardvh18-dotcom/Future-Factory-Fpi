@@ -21,6 +21,7 @@ import { getISOWeekInfo, getStationMachineCode } from '../../utils/lotLogic';
 import { queuePrintJob } from '../../services/printService';
 import { requestUsbDevice, printRawUsbToDevice, isUsbDirectSupported as usbDirectSupported } from '../../utils/usbPrintService';
 import AutoScaledLabelPreview from './AutoScaledLabelPreview';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const stationNameFromValue = (stationValue) => {
   if (!stationValue) return '';
@@ -224,7 +225,7 @@ const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printer
 
       if (deviceToUse) {
         await printRawUsb(deviceToUse, zpl);
-        alert(`Label voor ${order} direct geprint via USB!`);
+        notify(`Label voor ${order} direct geprint via USB!`);
         return;
       }
 
@@ -250,13 +251,13 @@ const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printer
             source: 'temp_order_labels'
           }
         );
-        alert(`Label voor ${order} naar de wachtrij gestuurd: ${activeQueuePrinter.name}`);
+        notify(`Label voor ${order} naar de wachtrij gestuurd: ${activeQueuePrinter.name}`);
         return;
       }
 
       throw new Error('Geen directe USB printer gekoppeld en geen wachtrijprinter geconfigureerd.');
     } catch (e) {
-      alert("Print Fout: " + e.message);
+      notify("Print Fout: " + e.message);
     }
   };
   const [orderStr, setOrderStr] = useState("");
@@ -578,7 +579,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!station) {
-      alert("Geen station beschikbaar in factory config.");
+      notify("Geen station beschikbaar in factory config.");
       return;
     }
     setLoading(true);
@@ -610,10 +611,10 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
       });
 
       await onPrintBatch(zplBatch, lots.length);
-      alert(`${parsedCount} lotnummer(s) direct geprint via USB!`);
+      notify(`${parsedCount} lotnummer(s) direct geprint via USB!`);
     } catch(err) {
       console.error(err);
-      alert("Fout bij genereren: " + err.message);
+      notify("Fout bij genereren: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -732,6 +733,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
 const PrintQueueAdminView = () => {
   const { role } = useAdminAuth();
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const canManage = ['admin', 'teamleader', 'planner'].includes(role);
 
   const [printJobs, setPrintJobs] = useState([]);
@@ -1005,7 +1007,14 @@ const PrintQueueAdminView = () => {
   };
 
   const handleReprint = async (jobId) => {
-    if (!window.confirm("Weet u zeker dat u deze taak opnieuw wilt printen?")) return;
+    const confirmed = await showConfirm({
+      title: 'Taak opnieuw printen',
+      message: 'Weet u zeker dat u deze taak opnieuw wilt printen?',
+      confirmText: 'Opnieuw printen',
+      cancelText: 'Annuleren',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
     const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
     await updateDoc(jobRef, { 
       status: 'pending', 
@@ -1024,7 +1033,14 @@ const PrintQueueAdminView = () => {
   };
 
   const handleDelete = async (jobId) => {
-    if (!window.confirm("Weet u zeker dat u deze taak permanent wilt verwijderen?")) return;
+    const confirmed = await showConfirm({
+      title: 'Printtaak verwijderen',
+      message: 'Weet u zeker dat u deze taak permanent wilt verwijderen?',
+      confirmText: 'Verwijderen',
+      cancelText: 'Annuleren',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
     await deleteDoc(jobRef);
     await logActivity(
@@ -1142,7 +1158,7 @@ const PrintQueueAdminView = () => {
       await printRawUsb(usbDevice, zpl);
       setReprintSearch("");
       setReprintResult(null);
-      alert("Label geprint!");
+      notify("Label geprint!");
     } catch (err) {
       setError("Print fout: " + err.message);
     } finally {
@@ -1412,7 +1428,7 @@ const PrintQueueAdminView = () => {
                         onClick={async () => {
                           setIsProcessing(true);
                           try { await handlePrintJob(job); } 
-                          catch(e) { alert(e.message); }
+                          catch(e) { setError(e.message); }
                           finally { setIsProcessing(false); }
                         }} 
                         disabled={!usbDevice || isProcessing || !canManage} 

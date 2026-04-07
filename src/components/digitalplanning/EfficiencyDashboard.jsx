@@ -10,28 +10,250 @@ import {
   BrainCircuit,
   History
 } from 'lucide-react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { PATHS, getEfficiencyArchivePath } from '../../config/dbPaths';
+import { getReadPaths, getEfficiencyArchivePath, getPlanningArchivePath } from '../../config/dbPaths';
+import { format as formatDate, getISOWeek, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 import { calculateDuration, formatMinutes, getEfficiencyColor } from '../../utils/efficiencyCalculator';
 import AiPredictionView from './AiPredictionView';
 
-const EfficiencyDashboard = () => {
+const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
   const { t } = useTranslation();
+  const usePilotReadData = dataSourceMode === 'pilot-read';
+  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
   const [standards, setStandards] = useState([]);
   const [tracking, setTracking] = useState([]);
+  const [planningOrders, setPlanningOrders] = useState([]);
   const [, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('active'); // 'active', 'all'
+  const [filterStatus, setFilterStatus] = useState('all'); // 'active', 'all'
   const [departmentFilter, setDepartmentFilter] = useState('ALL'); // Nieuw: Afdeling filter
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive'
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [periodMode, setPeriodMode] = useState('week');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showAiAnalysis, setShowAiAnalysis] = useState(false);
+  const [factoryConfig, setFactoryConfig] = useState({ departments: [] });
+
+  const toDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate) return value.toDate();
+    const d = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  const getTrackingDurationMinutes = (log) => {
+    const start = toDateValue(
+      log?.timestamps?.station_start ||
+      log?.timestamps?.started ||
+      log?.startTime ||
+      log?.startedAt
+    );
+    if (start) {
+      const end = toDateValue(
+        log?.timestamps?.finished ||
+        log?.timestamps?.completed ||
+        log?.endTime ||
+        log?.completedAt ||
+        log?.updatedAt
+      ) || new Date();
+
+      const minutes = calculateDuration(start, end);
+      if (Number.isFinite(minutes) && minutes > 0) return minutes;
+    }
+
+    const ts = log?.timestamps || {};
+    let total = 0;
+
+    const addRange = (startValue, endValue) => {
+      const s = toDateValue(startValue);
+      const e = toDateValue(endValue);
+      if (!s || !e) return;
+      const diff = calculateDuration(s, e);
+      if (Number.isFinite(diff) && diff > 0) total += diff;
+    };
+
+    // Product-flow paden uit tracked_products
+    addRange(ts.wikkelen_start || log?.createdAt, ts.wikkelen_end);
+    addRange(ts.lossen_start, ts.lossen_end);
+    addRange(ts.nabewerking_start, ts.nabewerking_end || new Date());
+    addRange(ts.station_start, ts.finished || ts.completed || new Date());
+
+    // Fallback op history-start als timestampvelden incompleet zijn.
+    if (total <= 0 && Array.isArray(log?.history)) {
+      const startHistory = log.history.find((h) => String(h?.action || '').toLowerCase().includes('start'));
+      const startFromHistory = toDateValue(startHistory?.timestamp);
+      const bestEnd = toDateValue(ts.wikkelen_end || ts.lossen_end || ts.nabewerking_end || log?.updatedAt);
+      if (startFromHistory && bestEnd) {
+        const diff = calculateDuration(startFromHistory, bestEnd);
+        if (Number.isFinite(diff) && diff > 0) total += diff;
+      }
+    }
+
+    return total > 0 ? total : 0;
+  };
+
+  const resolveDepartmentNameFromId = (departmentId) => {
+    if (!departmentId) return '';
+    const idLower = String(departmentId).trim().toLowerCase();
+    const dept = (factoryConfig.departments || []).find(
+      (d) => String(d?.id || '').trim().toLowerCase() === idLower
+    );
+    return dept?.name || '';
+  };
+
+  const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+  const parseNumber = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  const inferDepartmentFromMachine = (machine) => {
+    const m = String(machine || '').trim().toUpperCase();
+    if (m.startsWith('BH')) return 'Fittings';
+    if (m.startsWith('BA')) return 'Pipes';
+    if (m.startsWith('BM')) return 'Spools';
+    return '';
+  };
+
+  const getOrderActualMinutes = (orderLike) => {
+    if (!orderLike) return 0;
+
+    const hoursCandidates = [
+      orderLike.totalActualHours,
+      orderLike.actualHours,
+      orderLike.spentProductionTime,
+      orderLike.hoursWorked,
+      orderLike.productionHours,
+    ];
+
+    for (const candidate of hoursCandidates) {
+      const hours = parseNumber(candidate);
+      if (hours > 0) return hours * 60;
+    }
+
+    const minuteCandidates = [
+      orderLike.actualMinutes,
+      orderLike.totalActualMinutes,
+      orderLike.spentMinutes,
+      orderLike.productionMinutes,
+    ];
+
+    for (const candidate of minuteCandidates) {
+      const minutes = parseNumber(candidate);
+      if (minutes > 0) return minutes;
+    }
+
+    return 0;
+  };
+
+  const getOrderSplitMinutes = (orderLike) => {
+    if (!orderLike) {
+      return {
+        productionMinutes: 0,
+        postMinutes: 0,
+        qcMinutes: 0,
+      };
+    }
+
+    const productionMinutes = parseNumber(orderLike.plannedMinutesBH) || (parseNumber(orderLike.plannedHoursBH) * 60);
+    const postMinutes = parseNumber(orderLike.plannedMinutesNabewerken) || (parseNumber(orderLike.plannedHoursNabewerken) * 60);
+    const qcMinutes = parseNumber(orderLike.plannedMinutesBM01) || (parseNumber(orderLike.plannedHoursBM01) * 60);
+
+    return {
+      productionMinutes,
+      postMinutes,
+      qcMinutes,
+    };
+  };
+
+  const getLogActivityDates = (log) => {
+    const ts = log?.timestamps || {};
+    const historyDates = Array.isArray(log?.history)
+      ? log.history.map((h) => toDateValue(h?.timestamp)).filter(Boolean)
+      : [];
+
+    return [
+      ts.wikkelen_start,
+      ts.lossen_start,
+      ts.nabewerking_start,
+      ts.bm01_start,
+      ts.station_start,
+      ts.started,
+      ts.wikkelen_end,
+      ts.lossen_end,
+      ts.nabewerking_end,
+      ts.finished,
+      ts.completed,
+      log?.startedAt,
+      log?.startTime,
+      log?.createdAt,
+      log?.updatedAt,
+      ...historyDates,
+    ]
+      .map((value) => toDateValue(value))
+      .filter(Boolean);
+  };
+
+  const getRangeForPeriod = () => {
+    const dayStart = startOfDay(selectedDate);
+    const dayEnd = endOfDay(selectedDate);
+    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 });
+    const monthStart = startOfMonth(selectedDate);
+    const monthEnd = endOfMonth(selectedDate);
+
+    if (periodMode === 'day') return { start: dayStart, end: dayEnd };
+    if (periodMode === 'month') return { start: monthStart, end: monthEnd };
+    return { start: weekStart, end: weekEnd };
+  };
+
+  const navigatePrevious = () => {
+    setSelectedDate((prev) => (
+      periodMode === 'day'
+        ? subDays(prev, 1)
+        : periodMode === 'month'
+          ? subMonths(prev, 1)
+          : subWeeks(prev, 1)
+    ));
+  };
+
+  const navigateNext = () => {
+    setSelectedDate((prev) => (
+      periodMode === 'day'
+        ? addDays(prev, 1)
+        : periodMode === 'month'
+          ? addMonths(prev, 1)
+          : addWeeks(prev, 1)
+    ));
+  };
+
+  const jumpToToday = () => setSelectedDate(new Date());
+
+  const matchesDepartmentFilter = (row) => {
+    if (departmentFilter === 'ALL') return true;
+
+    const filter = normalizeText(departmentFilter);
+    const candidates = [
+      row.department,
+      row.departmentName,
+      row.departmentId,
+      inferDepartmentFromMachine(row.machine),
+      resolveDepartmentNameFromId(row.departmentId),
+    ]
+      .map(normalizeText)
+      .filter(Boolean);
+
+    return candidates.some((candidate) =>
+      candidate === filter || candidate.includes(filter) || filter.includes(candidate)
+    );
+  };
 
   useEffect(() => {
     setLoading(true);
 
-    if (!PATHS || !PATHS.EFFICIENCY_HOURS) {
+    if (!readPaths || !readPaths.EFFICIENCY_HOURS || !readPaths.TRACKING) {
       setLoading(false);
       return;
     }
@@ -39,7 +261,7 @@ const EfficiencyDashboard = () => {
     // 1. Haal de standaarden op (Targets uit Infor LN import)
     // Wissel tussen actuele collectie en archief op basis van viewMode
     const collectionPath = viewMode === 'active' 
-      ? PATHS.EFFICIENCY_HOURS
+      ? readPaths.EFFICIENCY_HOURS
       : getEfficiencyArchivePath(selectedYear);
 
     const standardsRef = collection(db, ...collectionPath);
@@ -50,10 +272,27 @@ const EfficiencyDashboard = () => {
 
     // 2. Haal de werkelijke tracking data op (Actuals van de vloer)
     // We gebruiken de tracking collectie waar operators hun start/stop tijden loggen
-    const trackingRef = collection(db, ...PATHS.TRACKING);
+    const trackingRef = collection(db, ...readPaths.TRACKING);
     const unsubTracking = onSnapshot(trackingRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTracking(data);
+    });
+
+    const planningCollectionPath = viewMode === 'active'
+      ? readPaths.PLANNING
+      : getPlanningArchivePath(selectedYear);
+
+    const planningRef = collection(db, ...planningCollectionPath);
+    const unsubPlanning = onSnapshot(planningRef, (snapshot) => {
+      const data = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
+      setPlanningOrders(data);
+    });
+
+    const configRef = doc(db, ...readPaths.FACTORY_CONFIG);
+    const unsubFactory = onSnapshot(configRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setFactoryConfig(docSnap.data() || { departments: [] });
+      }
     });
 
     setLoading(false);
@@ -61,25 +300,36 @@ const EfficiencyDashboard = () => {
     return () => {
       unsubStandards();
       unsubTracking();
+      unsubPlanning();
+      unsubFactory();
     };
-  }, [viewMode, selectedYear]);
+  }, [viewMode, selectedYear, readPaths]);
 
   const dashboardData = useMemo(() => {
+    const orderById = new Map();
+    planningOrders.forEach((order) => {
+      const orderId = String(order.orderId || '').trim();
+      const docId = String(order.id || '').trim();
+      if (orderId) orderById.set(orderId, order);
+      if (docId && !orderById.has(docId)) orderById.set(docId, order);
+    });
+
+    const periodRange = getRangeForPeriod();
+
     // 1. AI Learning: Bouw een kennisbank op van historische tijden per product
     const productKnowledgeBase = {};
     
     tracking.forEach(log => {
-      if ((log.status === 'completed' || log.status === 'shipped') && log.itemCode && log.timestamps?.station_start) {
-        const start = log.timestamps.station_start.toDate ? log.timestamps.station_start.toDate() : new Date(log.timestamps.station_start);
-        const end = log.timestamps.completed?.toDate ? log.timestamps.completed.toDate() : new Date();
-        const duration = calculateDuration(start, end);
+      if ((log.status === 'completed' || log.status === 'shipped') && (log.itemCode || log.item)) {
+        const duration = getTrackingDurationMinutes(log);
         
         if (duration > 0) {
-          if (!productKnowledgeBase[log.itemCode]) {
-            productKnowledgeBase[log.itemCode] = { totalTime: 0, count: 0 };
+          const key = log.itemCode || log.item;
+          if (!productKnowledgeBase[key]) {
+            productKnowledgeBase[key] = { totalTime: 0, count: 0 };
           }
-          productKnowledgeBase[log.itemCode].totalTime += duration;
-          productKnowledgeBase[log.itemCode].count += 1;
+          productKnowledgeBase[key].totalTime += duration;
+          productKnowledgeBase[key].count += 1;
         }
       }
     });
@@ -87,10 +337,12 @@ const EfficiencyDashboard = () => {
     // Combineer standaarden met werkelijke data
     let processed = standards.map(std => {
       const itemCode = std.itemCode || std.productId || "Onbekend";
+      const stdOrderId = String(std.orderId || std.id || '').trim();
+      const planningOrder = orderById.get(stdOrderId);
       // Vind alle tracking records voor deze order
       // We matchen op orderId (string comparison voor veiligheid)
       const relatedLogs = tracking.filter(t => 
-        String(t.orderId || t.orderNumber) === String(std.orderId)
+        String(t.orderId || t.orderNumber) === stdOrderId
       );
 
       // Bereken totaal bestede tijd en voortgang
@@ -98,16 +350,7 @@ const EfficiencyDashboard = () => {
       let producedQty = 0;
       
       relatedLogs.forEach(log => {
-        // Tijd berekening
-        if (log.timestamps?.station_start) {
-          const start = log.timestamps.station_start.toDate ? log.timestamps.station_start.toDate() : new Date(log.timestamps.station_start);
-          // Als nog niet klaar, reken tot nu (live view)
-          const end = log.timestamps.completed?.toDate ? log.timestamps.completed.toDate() : 
-                      (log.timestamps.finished?.toDate ? log.timestamps.finished.toDate() : new Date());
-          
-          const duration = calculateDuration(start, end);
-          actualMinutes += duration;
-        }
+        actualMinutes += getTrackingDurationMinutes(log);
 
         // Aantal berekening (alleen voltooide items tellen)
         if (log.status === 'completed' || log.status === 'shipped') {
@@ -115,15 +358,34 @@ const EfficiencyDashboard = () => {
         }
       });
 
-      const targetTotal = std.standardTimeTotal || 0;
-      const qcTotal = std.qcTimeTotal || 0;
-      const prodTotal = std.productionTimeTotal || 0;
-      const postTotal = std.postProcessingTimeTotal || 0;
+      if (actualMinutes <= 0) {
+        actualMinutes = Math.max(
+          getOrderActualMinutes(std),
+          getOrderActualMinutes(planningOrder)
+        );
+      }
+
+      const splitFromOrder = getOrderSplitMinutes(planningOrder);
+      const prodTotal = Number(std.productionTimeTotal || 0) > 0
+        ? Number(std.productionTimeTotal || 0)
+        : splitFromOrder.productionMinutes;
+      const postTotal = Number(std.postProcessingTimeTotal || 0) > 0
+        ? Number(std.postProcessingTimeTotal || 0)
+        : splitFromOrder.postMinutes;
+      const qcTotal = Number(std.qcTimeTotal || 0) > 0
+        ? Number(std.qcTimeTotal || 0)
+        : splitFromOrder.qcMinutes;
+      const targetTotal = Number(std.standardTimeTotal || 0) > 0
+        ? Number(std.standardTimeTotal || 0)
+        : (prodTotal + postTotal);
       
       // Efficiency Formule: (Verdiende Tijd / Werkelijke Tijd) * 100
       // We gebruiken 'Earned Value' (Geproduceerd * Norm) zodat de score ook klopt
       // voor orders die halverwege instromen (ramp-up fase).
-      const normPerUnit = std.minutesPerUnit || 0;
+      const stdQty = Number(std.quantity || planningOrder?.quantity || planningOrder?.plan || 0);
+      const normPerUnit = Number(std.minutesPerUnit || 0) > 0
+        ? Number(std.minutesPerUnit || 0)
+        : (stdQty > 0 ? targetTotal / stdQty : 0);
       const earnedMinutes = producedQty * normPerUnit;
 
       let efficiency = 0;
@@ -140,6 +402,24 @@ const EfficiencyDashboard = () => {
       const history = productKnowledgeBase[itemCode];
       const aiAveragePerUnit = history ? (history.totalTime / history.count) : normPerUnit;
       const aiPredictedTotal = aiAveragePerUnit * (std.quantity || 1);
+      const firstLog = relatedLogs[0] || {};
+      const departmentId = std.departmentId || planningOrder?.departmentId || firstLog.departmentId || firstLog.deptId || null;
+      const machine = planningOrder?.machine || std.machine || firstLog.machine || firstLog.currentStation;
+      const departmentName = std.department || std.departmentName || planningOrder?.department || firstLog.department || inferDepartmentFromMachine(machine) || resolveDepartmentNameFromId(departmentId) || 'Overig';
+
+      const eventDates = [
+        ...relatedLogs.flatMap((log) => getLogActivityDates(log)),
+        toDateValue(std?.createdAt),
+        toDateValue(std?.updatedAt),
+        toDateValue(planningOrder?.plannedDate),
+        toDateValue(planningOrder?.createdAt),
+        toDateValue(planningOrder?.updatedAt),
+      ].filter(Boolean);
+
+      const inSelectedPeriod =
+        viewMode === 'archive'
+          ? true
+          : eventDates.some((d) => isWithinInterval(d, periodRange));
 
       return {
         ...std,
@@ -153,18 +433,105 @@ const EfficiencyDashboard = () => {
         postProcessingTimeTotal: postTotal,
         aiPredictedTotal, // De voorspelde tijd op basis van historie
         aiConfidence: history ? Math.min(100, history.count * 10) : 0, // Hoe zeker is de AI? (meer data = meer zekerheid)
-        department: std.department || 'Overig'
+        departmentId,
+        departmentName,
+        department: departmentName,
+        machine,
+        inSelectedPeriod,
       };
     });
+
+    // Fallback: toon ook orders die wel tracking hebben maar (nog) geen efficiency import.
+    const knownOrderIds = new Set(
+      standards
+        .map((std) => String(std.orderId || std.id || '').trim())
+        .filter(Boolean)
+    );
+    const trackingByOrder = {};
+
+    tracking.forEach((log) => {
+      const orderId = String(log.orderId || log.orderNumber || '').trim();
+      if (!orderId || knownOrderIds.has(orderId)) return;
+      if (!trackingByOrder[orderId]) trackingByOrder[orderId] = [];
+      trackingByOrder[orderId].push(log);
+    });
+
+    const fallbackRows = Object.entries(trackingByOrder).map(([orderId, relatedLogs]) => {
+      let actualMinutes = 0;
+      let producedQty = 0;
+      const planningOrder = orderById.get(orderId);
+
+      relatedLogs.forEach((log) => {
+        actualMinutes += getTrackingDurationMinutes(log);
+
+        if (log.status === 'completed' || log.status === 'shipped') {
+          producedQty += 1;
+        }
+      });
+
+      if (actualMinutes <= 0) {
+        actualMinutes = getOrderActualMinutes(planningOrder);
+      }
+
+      const first = relatedLogs[0] || {};
+      const departmentId = planningOrder?.departmentId || first.departmentId || first.deptId || null;
+      const machine = planningOrder?.machine || first.machine || first.currentStation;
+      const departmentName = planningOrder?.department || first.department || inferDepartmentFromMachine(machine) || resolveDepartmentNameFromId(departmentId) || 'Overig';
+      const inferredMinutesPerUnit = producedQty > 0 && actualMinutes > 0
+        ? actualMinutes / producedQty
+        : 0;
+
+      const eventDates = [
+        ...relatedLogs.flatMap((log) => getLogActivityDates(log)),
+        toDateValue(planningOrder?.plannedDate),
+        toDateValue(planningOrder?.createdAt),
+        toDateValue(planningOrder?.updatedAt),
+      ].filter(Boolean);
+
+      const inSelectedPeriod =
+        viewMode === 'archive'
+          ? true
+          : eventDates.some((d) => isWithinInterval(d, periodRange));
+
+      return {
+        id: orderId,
+        orderId,
+        itemCode: first.itemCode || first.item || 'Onbekend',
+        item: first.item || first.itemCode || 'Tracking order',
+        quantity: planningOrder?.quantity || first.quantity || producedQty || 0,
+        status: planningOrder?.status || first.status || 'in_progress',
+        minutesPerUnit: inferredMinutesPerUnit,
+        standardTimeTotal: actualMinutes,
+        productionTimeTotal: 0,
+        postProcessingTimeTotal: 0,
+        qcTimeTotal: 0,
+        actualMinutes,
+        producedQty,
+        efficiency: actualMinutes > 0 ? 100 : 0,
+        isOverrun: false,
+        logsCount: relatedLogs.length,
+        aiPredictedTotal: actualMinutes,
+        aiConfidence: 0,
+        departmentId,
+        departmentName,
+        department: departmentName,
+        machine,
+        inSelectedPeriod,
+      };
+    });
+
+    processed = [...processed, ...fallbackRows];
+
+    if (viewMode === 'active') {
+      processed = processed.filter((i) => i.inSelectedPeriod);
+    }
 
     // Filteren
     if (filterStatus === 'active' && viewMode === 'active') {
       processed = processed.filter(i => i.status !== 'completed' && i.status !== 'completed_in_ln');
     }
 
-    if (departmentFilter !== 'ALL') {
-      processed = processed.filter(i => (i.department || "").toUpperCase() === departmentFilter);
-    }
+    processed = processed.filter((i) => matchesDepartmentFilter(i));
 
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
@@ -197,10 +564,10 @@ const EfficiencyDashboard = () => {
         totalActual
       }
     };
-  }, [standards, tracking, filterStatus, searchTerm, viewMode, departmentFilter]);
+  }, [standards, tracking, planningOrders, filterStatus, searchTerm, viewMode, departmentFilter, factoryConfig, selectedDate, periodMode]);
 
   if (showAiAnalysis) {
-    return <AiPredictionView onClose={() => setShowAiAnalysis(false)} />;
+    return <AiPredictionView onClose={() => setShowAiAnalysis(false)} dataSourceMode={dataSourceMode} />;
   }
 
   return (
@@ -313,10 +680,52 @@ const EfficiencyDashboard = () => {
           )}
 
           {viewMode === 'active' && (
-            <div className="flex bg-slate-100 rounded-lg p-1">
-              <button onClick={() => setFilterStatus('active')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${filterStatus === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>{t('efficiency_dashboard.filter_open')}</button>
-              <button onClick={() => setFilterStatus('all')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${filterStatus === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>{t('efficiency_dashboard.filter_all')}</button>
-            </div>
+            <>
+              <div className="flex bg-slate-100 rounded-lg p-1">
+                <button onClick={() => setFilterStatus('active')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${filterStatus === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>{t('efficiency_dashboard.filter_open')}</button>
+                <button onClick={() => setFilterStatus('all')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${filterStatus === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>{t('efficiency_dashboard.filter_all')}</button>
+              </div>
+
+              <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                <button
+                  onClick={() => setPeriodMode('day')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-bold ${periodMode === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  Dag
+                </button>
+                <button
+                  onClick={() => setPeriodMode('week')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-bold ${periodMode === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  Week
+                </button>
+                <button
+                  onClick={() => setPeriodMode('month')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-bold ${periodMode === 'month' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  Maand
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button onClick={navigatePrevious} className="px-2 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold">
+                  Vorige
+                </button>
+                <span className="text-xs font-bold text-slate-600 min-w-[150px] text-center">
+                  {periodMode === 'day'
+                    ? formatDate(selectedDate, 'dd-MM-yyyy')
+                    : periodMode === 'month'
+                      ? formatDate(selectedDate, 'MMMM yyyy')
+                      : `Week ${getISOWeek(selectedDate)} - ${formatDate(selectedDate, 'yyyy')}`}
+                </span>
+                <button onClick={navigateNext} className="px-2 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold">
+                  Volgende
+                </button>
+                <button onClick={jumpToToday} className="px-2 py-1.5 rounded-md bg-blue-500 text-white text-xs font-bold">
+                  Vandaag
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>

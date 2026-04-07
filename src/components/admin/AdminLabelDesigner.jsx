@@ -56,6 +56,7 @@ import {
 } from "../../utils/labelHelpers";
 import { generatePrintData, downloadZPL } from "../../utils/zplHelper";
 import { getDriver } from "../../utils/printerDrivers";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const PIXELS_PER_MM = 3.78;
 const CSS_PIXELS_PER_POINT = 96 / 72;
@@ -160,6 +161,7 @@ const LABEL_FOLDER_OPTIONS = [
  */
 const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [labelName, setLabelName] = useState(t('adminLabelDesigner.newLabel'));
   const [selectedSizeKey, setSelectedSizeKey] = useState("Standard");
   const [labelWidth, setLabelWidth] = useState(LABEL_SIZES.Standard.width);
@@ -374,11 +376,11 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
         if (labelTags.includes(tagToDelete)) {
             setLabelTags(labelTags.filter(t => t !== tagToDelete));
         }
-        alert(`Tag '${tagToDelete}' is verwijderd van ${count} templates.`);
+        notify(`Tag '${tagToDelete}' is verwijderd van ${count} templates.`);
       }
     } catch (e) {
       console.error("Tag delete error:", e);
-      alert("Fout bij verwijderen tag: " + e.message);
+      notify("Fout bij verwijderen tag: " + e.message);
     } finally {
       setIsLoading(false);
     }
@@ -764,7 +766,7 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
   // 5. Opslaan
   const saveLabel = async (nameOverride = null, tagsOverride = null) => {
     const nameToUse = nameOverride || labelName;
-    if (!nameToUse.trim()) return alert(t('adminLabelDesigner.enterLabelName'));
+    if (!nameToUse.trim()) return notify(t('adminLabelDesigner.enterLabelName'));
     setIsLoading(true);
     try {
       const labelId = nameToUse.trim().replace(/[^a-zA-Z0-9-_]/g, "_").toLowerCase();
@@ -801,13 +803,13 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
       if (nameOverride) {
           setLabelName(nameToUse);
           if (tagsOverride !== null) setLabelTags(tagsOverride);
-          alert(t('adminLabelDesigner.labelSavedAs', { name: nameToUse }));
+          notify(t('adminLabelDesigner.labelSavedAs', { name: nameToUse }));
       } else {
-          alert(t('adminLabelDesigner.labelSaved'));
+          notify(t('adminLabelDesigner.labelSaved'));
       }
     } catch (e) {
       console.error("Save error:", e);
-      alert(t('adminLabelDesigner.saveError') + e.message);
+      notify(t('adminLabelDesigner.saveError') + e.message);
     } finally {
       setIsLoading(false);
     }

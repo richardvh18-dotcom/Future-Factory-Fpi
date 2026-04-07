@@ -21,6 +21,7 @@ import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimest
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { executeRuleWithLogging } from "../../utils/automationEngine";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * AutomationRulesView - "When X happens, then Y" automation engine
@@ -28,6 +29,7 @@ import { executeRuleWithLogging } from "../../utils/automationEngine";
  */
 const AutomationRulesView = () => {
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const [rules, setRules] = useState([]);
   const [executions, setExecutions] = useState([]);
   const [showAddRule, setShowAddRule] = useState(false);
@@ -82,7 +84,7 @@ const AutomationRulesView = () => {
   // Add or Update automation rule
   const saveRule = async () => {
     if (!newRule.name) {
-      alert(t("planning.automationRules.alerts.ruleNameRequired", "Geef de regel een naam"));
+      notify(t("planning.automationRules.alerts.ruleNameRequired", "Geef de regel een naam"));
       return;
     }
 
@@ -139,14 +141,21 @@ const AutomationRulesView = () => {
 
   // Delete rule
   const deleteRule = async (ruleId) => {
-    if (confirm(t("planning.automationRules.alerts.confirmDelete", "Weet je zeker dat je deze automation regel wilt verwijderen?"))) {
-      await deleteDoc(doc(db, ...PATHS.AUTOMATION_RULES, ruleId));
-      await logActivity(
-        auth.currentUser?.uid,
-        "AUTOMATION_RULE_DELETE",
-        `Automationregel verwijderd: ${ruleId}`
-      );
-    }
+    const confirmed = await showConfirm({
+      title: t("planning.automationRules.alerts.deleteTitle", "Automationregel verwijderen"),
+      message: t("planning.automationRules.alerts.confirmDelete", "Weet je zeker dat je deze automation regel wilt verwijderen?"),
+      confirmText: t("common.delete", "Verwijderen"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    await deleteDoc(doc(db, ...PATHS.AUTOMATION_RULES, ruleId));
+    await logActivity(
+      auth.currentUser?.uid,
+      "AUTOMATION_RULE_DELETE",
+      `Automationregel verwijderd: ${ruleId}`
+    );
   };
 
   // Toggle rule
@@ -169,17 +178,17 @@ const AutomationRulesView = () => {
       const result = await executeRuleWithLogging(rule);
       
       if (result.skipped) {
-        alert(`⏸️ ${result.message}`);
+        notify(`⏸️ ${result.message}`);
       } else if (result.error) {
-        alert(`❌ ${t("planning.automationRules.alerts.error", "Fout")}: ${result.error}`);
+        notify(`❌ ${t("planning.automationRules.alerts.error", "Fout")}: ${result.error}`);
       } else if (result.triggered) {
-        alert(`✅ ${t("planning.automationRules.alerts.ruleExecuted", "Regel uitgevoerd!")}\n\n${result.message || t("planning.automationRules.alerts.actionSuccess", "Actie succesvol uitgevoerd")}`);
+        notify(`✅ ${t("planning.automationRules.alerts.ruleExecuted", "Regel uitgevoerd!")}\n\n${result.message || t("planning.automationRules.alerts.actionSuccess", "Actie succesvol uitgevoerd")}`);
       } else {
-        alert(`ℹ️ ${t("planning.automationRules.alerts.triggerNotActivated", "Trigger niet geactiveerd")}\n\n${result.message || t("planning.automationRules.alerts.conditionsNotMet", "Condities niet voldaan")}`);
+        notify(`ℹ️ ${t("planning.automationRules.alerts.triggerNotActivated", "Trigger niet geactiveerd")}\n\n${result.message || t("planning.automationRules.alerts.conditionsNotMet", "Condities niet voldaan")}`);
       }
     } catch (error) {
       console.error("Test error:", error);
-      alert(`❌ ${t("planning.automationRules.alerts.executionFailed", "Fout bij uitvoeren")}: ${error.message}`);
+      notify(`❌ ${t("planning.automationRules.alerts.executionFailed", "Fout bij uitvoeren")}: ${error.message}`);
     } finally {
       setIsTesting(false);
     }
@@ -271,9 +280,14 @@ const AutomationRulesView = () => {
 
   // Import standaard rules (gemigreerd van oude modules)
   const importDefaultRules = async () => {
-    if (!confirm(t("planning.automationRules.alerts.confirmImportDefaults", "Dit importeert vooraf geconfigureerde automation rules gebaseerd op de oude hardcoded logica. Doorgaan?"))) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: t("planning.automationRules.alerts.importTitle", "Standaardregels importeren"),
+      message: t("planning.automationRules.alerts.confirmImportDefaults", "Dit importeert vooraf geconfigureerde automation rules gebaseerd op de oude hardcoded logica. Doorgaan?"),
+      confirmText: t("common.continue", "Doorgaan"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "warning",
+    });
+    if (!confirmed) return;
 
     setIsImporting(true);
     
@@ -414,10 +428,10 @@ const AutomationRulesView = () => {
         "AUTOMATION_RULES_IMPORT",
         `${defaultRules.length} standaard automationregels geimporteerd`
       );
-      alert(`✅ ${t("planning.automationRules.alerts.defaultsImported", "{{count}} standaard automation rules geïmporteerd!", { count: defaultRules.length })}`);
+      notify(`✅ ${t("planning.automationRules.alerts.defaultsImported", "{{count}} standaard automation rules geïmporteerd!", { count: defaultRules.length })}`);
     } catch (error) {
       console.error("Import error:", error);
-      alert(`❌ ${t("planning.automationRules.alerts.importFailed", "Fout bij importeren")}: ${error.message}`);
+      notify(`❌ ${t("planning.automationRules.alerts.importFailed", "Fout bij importeren")}: ${error.message}`);
     } finally {
       setIsImporting(false);
     }

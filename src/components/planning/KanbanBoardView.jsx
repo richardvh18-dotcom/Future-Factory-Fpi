@@ -11,12 +11,14 @@ import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { format } from "date-fns";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * KanbanBoardView - Order Workflow Visualization
  * Statussen: Gepland → In Productie → Controle → Verzonden
  */
 const KanbanBoardView = () => {
+  const { notify } = useNotifications();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -90,7 +92,7 @@ const KanbanBoardView = () => {
     const destOrders = orders.filter(o => o.status === destination.droppableId);
     
     if (destColumn.wipLimit && destOrders.length >= destColumn.wipLimit) {
-      alert(`⚠️ WIP Limiet bereikt! Max ${destColumn.wipLimit} orders in ${destColumn.title}`);
+      notify(`⚠️ WIP Limiet bereikt! Max ${destColumn.wipLimit} orders in ${destColumn.title}`);
       return;
     }
 
@@ -116,7 +118,7 @@ const KanbanBoardView = () => {
       ));
     } catch (error) {
       console.error("Error updating order status:", error);
-      alert("Fout bij het verplaatsen van order");
+      notify("Fout bij het verplaatsen van order");
     }
   };
 

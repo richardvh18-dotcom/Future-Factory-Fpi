@@ -40,12 +40,14 @@ import StatusBadge from "./common/StatusBadge";
 import { getISOWeek, addWeeks, subWeeks } from "date-fns";
 import { filterLabelsByProduct, processLabelData, resolveLabelContent } from "../../utils/labelHelpers";
 import { generatePrintData } from "../../utils/zplHelper";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
 
 const MazakView = ({ stationId = "Mazak", products = [] }) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
+  const { notify } = useNotifications();
   const [items, setItems] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -441,10 +443,10 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
         setBulkSeriesProducts([]);
         setActiveTab("process"); // Spring direct naar gereedmelden
       }
-      alert(`${itemsToPrint.length} label(s) succesvol naar de print wachtrij verstuurd!`);
+      notify(`${itemsToPrint.length} label(s) succesvol naar de print wachtrij verstuurd!`);
     } catch (err) {
       console.error("Fout bij printen:", err);
-      alert("Er is een fout opgetreden bij het printen.");
+      notify("Er is een fout opgetreden bij het printen.");
     } finally {
       setPrinting(false);
     }
@@ -582,7 +584,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
 
     if (code === QR_CODE_OK_CONFIRMATION && selectedProduct) {
       if (activeTab === "inbox") {
-        alert("Dit item moet eerst geprint worden voordat het goedgekeurd kan worden.");
+        notify("Dit item moet eerst geprint worden voordat het goedgekeurd kan worden.");
         setScanInput("");
         return;
       }
@@ -602,7 +604,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
       setSelectedProduct(found);
       setScanInput("");
     } else {
-      alert(t("lossen.item_not_found", { code }) || `Item ${code} niet gevonden`);
+      notify(t("lossen.item_not_found", { code }) || `Item ${code} niet gevonden`);
       setScanInput("");
       setSelectedProduct(null);
     }

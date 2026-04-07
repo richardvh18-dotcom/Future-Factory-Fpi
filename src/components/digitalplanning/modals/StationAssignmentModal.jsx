@@ -21,12 +21,14 @@ import {
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 /**
  * StationAssignmentModal
  * Toewijzen van personeel aan werkstations
  */
 const StationAssignmentModal = ({ stationId, onClose, department }) => {
+  const { showConfirm } = useNotifications();
   const [personnel, setPersonnel] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [selectedOperator, setSelectedOperator] = useState("");
@@ -147,7 +149,14 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
   };
 
   const handleRemove = async (assignmentId) => {
-    if (!window.confirm("Verwijderen?")) return;
+    const confirmed = await showConfirm({
+      title: "Toewijzing verwijderen",
+      message: "Verwijderen?",
+      confirmText: "Verwijderen",
+      cancelText: "Annuleren",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     try {
       await deleteDoc(doc(db, ...PATHS.OCCUPANCY, assignmentId));

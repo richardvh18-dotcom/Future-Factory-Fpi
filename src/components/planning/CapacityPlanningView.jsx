@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Users,
@@ -23,9 +23,13 @@ import {
   LayoutDashboard,
   BarChart2
 } from "lucide-react";
-import { collection, onSnapshot, doc } from "firebase/firestore";
+import { collection, onSnapshot, doc, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import {
+  getPlanningArchivePath,
+  getPilotPlanningReadPathCandidates,
+  getReadPaths,
+} from "../../config/dbPaths";
 import { getISOWeek, startOfISOWeek, endOfISOWeek, format, subWeeks, addWeeks, startOfYear, endOfYear } from "date-fns";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import CapacityImportModal from "../digitalplanning/modals/CapacityImportModal";
@@ -40,12 +44,17 @@ import { normalizeMachine } from "../../utils/hubHelpers";
  * Vergelijkt beschikbare productie-uren met geplande uren
  * Toont het verschil tussen capaciteit en demand
  */
-const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNavigate }) => {
+const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNavigate, dataSourceMode = "current" }) => {
   const { t } = useTranslation();
   const { user, role, isAdmin } = useAdminAuth();
+  const usePilotReadData = dataSourceMode === "pilot-read";
+  const readDb = db;
+  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
   const [loading, setLoading] = useState(true);
   const [occupancy, setOccupancy] = useState([]);
   const [planningOrders, setPlanningOrders] = useState([]);
+  const [activePlanningOrders, setActivePlanningOrders] = useState([]);
+  const [archivedPlanningOrders, setArchivedPlanningOrders] = useState([]);
   const [timeStandards, setTimeStandards] = useState([]);
   const [efficiencyData, setEfficiencyData] = useState({});
   const [selectedWeek, setSelectedWeek] = useState(new Date());
@@ -58,6 +67,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
   const [showImportModal, setShowImportModal] = useState(false);
   const [showMissingStandards, setShowMissingStandards] = useState(false);
   const [activeTab, setActiveTab] = useState("capacity");
+  const planningBucketsRef = useRef({});
 
   // Auto-filter voor teamleaders
   const isTeamleader = role === "teamleader";
@@ -103,6 +113,17 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       periodLabel = `Week ${currentWeek}`;
   }
 
+  const archivePlanningYears = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const minYear = Math.min(2020, selectedYear || nowYear, comparisonYear || nowYear);
+    const maxYear = Math.max(nowYear, selectedYear || nowYear, comparisonYear || nowYear);
+    const years = [];
+    for (let year = minYear; year <= maxYear; year += 1) {
+      years.push(year);
+    }
+    return years;
+  }, [selectedYear, comparisonYear]);
+
   // Helper functie voor department matching via departmentId
   const matchesDepartment = (departmentId, filterDepartmentName) => {
     if (!filterDepartmentName || filterDepartmentName.trim().toLowerCase() === "alles") return true;
@@ -132,9 +153,9 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
   // Load departments from factory structure
   useEffect(() => {
-    if (!PATHS || !PATHS.FACTORY_CONFIG) return;
+    if (!readPaths || !readPaths.FACTORY_CONFIG) return;
 
-    const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
+    const docRef = doc(readDb, ...readPaths.FACTORY_CONFIG);
     const unsub = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -146,7 +167,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       }
     });
     return () => unsub();
-  }, []);
+  }, [readDb, readPaths]);
 
   // Auto-filter voor teamleaders op hun afdeling
   useEffect(() => {
@@ -184,7 +205,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
   }, [initialDepartment, departments]);
 
   useEffect(() => {
-    if (!PATHS || !PATHS.PLANNING) {
+    if (!readPaths || !readPaths.PLANNING) {
       console.error("PATHS configuration missing in CapacityPlanningView");
       setLoading(false);
       return;
@@ -194,24 +215,52 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
     // Load occupancy data
     const unsubOcc = onSnapshot(
-      collection(db, ...PATHS.OCCUPANCY),
+      collection(readDb, ...readPaths.OCCUPANCY),
       (snapshot) => {
         setOccupancy(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }
     );
 
-    // Load planning orders
-    const unsubPlanning = onSnapshot(
-      collection(db, ...PATHS.PLANNING),
-      (snapshot) => {
-        setPlanningOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setLoading(false);
-      }
-    );
+    // Load planning orders (pilot mode supports multiple read-path candidates).
+    const planningPaths = usePilotReadData
+      ? getPilotPlanningReadPathCandidates()
+      : [readPaths.PLANNING];
+
+    const mergePlanningBuckets = () => {
+      const mergedMap = new Map();
+      Object.values(planningBucketsRef.current).forEach((rows) => {
+        (rows || []).forEach((row, idx) => {
+          const key = String(row.id || row.orderId || `${row.machine || ""}-${row.item || ""}-${idx}`);
+          if (!mergedMap.has(key)) mergedMap.set(key, row);
+        });
+      });
+      setActivePlanningOrders(Array.from(mergedMap.values()));
+    };
+
+    const planningUnsubs = planningPaths.map((pathArr) => {
+      const bucketKey = pathArr.join("/");
+      return onSnapshot(
+        collection(readDb, ...pathArr),
+        (snapshot) => {
+          planningBucketsRef.current[bucketKey] = snapshot.docs.map((docEntry) => ({
+            id: docEntry.id,
+            ...docEntry.data(),
+          }));
+          mergePlanningBuckets();
+          setLoading(false);
+        },
+        (error) => {
+          console.warn(`Planning listener failed for ${bucketKey}:`, error);
+          planningBucketsRef.current[bucketKey] = [];
+          mergePlanningBuckets();
+          setLoading(false);
+        }
+      );
+    });
 
     // Load time standards
     const unsubStandards = onSnapshot(
-      collection(db, ...PATHS.PRODUCTION_STANDARDS),
+      collection(readDb, ...readPaths.PRODUCTION_STANDARDS),
       (snapshot) => {
         setTimeStandards(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }
@@ -219,17 +268,70 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
     return () => {
       unsubOcc();
-      unsubPlanning();
+      planningUnsubs.forEach((fn) => fn && fn());
       unsubStandards();
     };
-  }, []);
+  }, [readDb, readPaths, usePilotReadData]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadArchivePlanning = async () => {
+      try {
+        const archiveBuckets = await Promise.all(
+          archivePlanningYears.map(async (year) => {
+            const snapshot = await getDocs(
+              query(collection(readDb, ...getPlanningArchivePath(year)), limit(8000))
+            );
+            return { year, snapshot };
+          })
+        );
+
+        if (cancelled) return;
+
+        const rows = archiveBuckets.flatMap(({ year, snapshot }) =>
+          snapshot.docs.map((entry) => ({
+            id: entry.id,
+            ...entry.data(),
+            _archiveYear: year,
+            _archived: true,
+          }))
+        );
+
+        setArchivedPlanningOrders(rows);
+      } catch (error) {
+        console.warn("Archive planning load failed:", error);
+        if (!cancelled) setArchivedPlanningOrders([]);
+      }
+    };
+
+    loadArchivePlanning();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [readDb, archivePlanningYears]);
+
+  useEffect(() => {
+    const deduped = new Map();
+
+    // First archived, then active so active records win on key collisions.
+    [...archivedPlanningOrders, ...activePlanningOrders].forEach((order, index) => {
+      const key =
+        String(order.orderId || order.id || "").trim() ||
+        `fallback-${order.machine || ""}-${order.item || ""}-${order.plannedDate || order.date || index}`;
+      deduped.set(key, order);
+    });
+
+    setPlanningOrders(Array.from(deduped.values()));
+  }, [activePlanningOrders, archivedPlanningOrders]);
 
   // Load efficiency/imported hours
   useEffect(() => {
-    if (!PATHS || !PATHS.EFFICIENCY_HOURS) return;
+    if (!readPaths || !readPaths.EFFICIENCY_HOURS) return;
 
     const unsubEfficiency = onSnapshot(
-      collection(db, ...PATHS.EFFICIENCY_HOURS),
+      collection(readDb, ...readPaths.EFFICIENCY_HOURS),
       (snapshot) => {
         const data = {};
         snapshot.docs.forEach((doc) => {
@@ -239,7 +341,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       }
     );
     return () => unsubEfficiency();
-  }, []);
+  }, [readDb, readPaths]);
 
   // Bereken beschikbare capaciteit
   const capacityMetrics = useMemo(() => {
@@ -847,6 +949,11 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      <div className="px-4 pt-4">
+        <div className={`inline-flex items-center rounded-xl border px-3 py-1.5 text-[11px] font-black uppercase tracking-widest ${usePilotReadData ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-300 bg-slate-100 text-slate-700"}`}>
+          Databron: {usePilotReadData ? "Pilot DB (Read Only)" : "Huidige DB"}
+        </div>
+      </div>
       {/* White Toolbar Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex flex-col xl:flex-row justify-between items-center gap-4 shrink-0 z-30 shadow-sm">
         
@@ -1557,9 +1664,9 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       </div>
       )}
       
-      {activeTab === "efficiency" && <EfficiencyDashboard />}
-      {activeTab === "gantt" && <GanttChartView />}
-      {activeTab === "timetracking" && <TimeTrackingView />}
+      {activeTab === "efficiency" && <EfficiencyDashboard dataSourceMode={dataSourceMode} />}
+      {activeTab === "gantt" && <GanttChartView dataSourceMode={dataSourceMode} />}
+      {activeTab === "timetracking" && <TimeTrackingView dataSourceMode={dataSourceMode} />}
       {activeTab === "heatmap" && <WorkloadHeatmapView />}
     </div>
     </div>

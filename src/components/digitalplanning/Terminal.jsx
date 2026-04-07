@@ -40,6 +40,7 @@ import TerminalManualInput from "./terminal/TerminalManualInput";
 import MalOptimizationPanel from "./MalOptimizationPanel";
 import MazakView from "./MazakView";
 import RepairModal from "./modals/RepairModal";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
 
@@ -69,6 +70,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || normalizedStationId.includes("BM01");
 
   // State management
+  const { notify } = useNotifications();
   const [activeTab, setActiveTab] = useState("planning");
   const [allOrders, setAllOrders] = useState([]);
   const [allTracked, setAllTracked] = useState([]);
@@ -538,7 +540,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         const isWikkelenStep = (selectedWikkeling?.currentStep || "").toLowerCase() === "wikkelen";
 
         if (!isBH18) {
-          alert("OK-QR is op dit station niet beschikbaar. Gebruik deze alleen op BH18 (Wikkelen) en in Nabewerken/BM01.");
+          notify("OK-QR is op dit station niet beschikbaar. Gebruik deze alleen op BH18 (Wikkelen) en in Nabewerken/BM01.");
           setScanInput("");
           setTimeout(() => {
             scanInputRef.current?.focus();
@@ -552,7 +554,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
           setReleaseAutoApproveToken(Date.now());
           setScanInput("");
         } else {
-          alert("Selecteer eerst een actief BH18-item in stap Wikkelen voordat je de OK-QR scant.");
+          notify("Selecteer eerst een actief BH18-item in stap Wikkelen voordat je de OK-QR scant.");
           setScanInput("");
           setTimeout(() => {
             scanInputRef.current?.focus();
@@ -573,7 +575,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       const conflictOnScannedLot = lotConflictMeta[normalizedCode]?.hasConflict;
 
       if (lotMatches.length > 1 && conflictOnScannedLot) {
-        alert(`Lot ${code} bestaat meerdere keren met verschillend product/order. Kies handmatig het juiste item in de lijst.`);
+        notify(`Lot ${code} bestaat meerdere keren met verschillend product/order. Kies handmatig het juiste item in de lijst.`);
         setScanInput("");
         setTimeout(() => {
           scanInputRef.current?.focus();
@@ -585,7 +587,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         setSelectedTrackedId(found.id);
         setScanInput("");
       } else {
-        alert(`Item ${code} niet gevonden in actieve wikkelingen.`);
+        notify(`Item ${code} niet gevonden in actieve wikkelingen.`);
         setScanInput("");
       }
       // Na scan altijd weer focus op het scanveld
@@ -646,7 +648,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
           return;
         }
       }
-      alert(t("digitalplanning.terminal.product_not_found"));
+      notify(t("digitalplanning.terminal.product_not_found"));
     } catch (err) {
       console.error("Fout bij laden product:", err);
     }

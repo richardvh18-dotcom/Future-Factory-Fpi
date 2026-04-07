@@ -44,6 +44,7 @@ import {
 } from "firebase/firestore";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * AdminUsersView V7.0 - Dynamic Role & Access Controller
@@ -53,6 +54,7 @@ import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth"
  */
 const AdminUsersView = () => {
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const [users, setUsers] = useState([]);
   const [accountRequests, setAccountRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -510,7 +512,7 @@ const AdminUsersView = () => {
 
   // Role Management Handlers
   const handleAddRole = async () => {
-      if (!newRole.id || !newRole.label) return alert("ID en Label zijn verplicht");
+      if (!newRole.id || !newRole.label) return notify("ID en Label zijn verplicht");
       const roleId = newRole.id.toLowerCase().replace(/\s+/g, "_");
       
       try {
@@ -528,7 +530,14 @@ const AdminUsersView = () => {
   };
 
   const handleDeleteRole = async (roleId) => {
-      if (!window.confirm("Rol verwijderen?")) return;
+      const confirmed = await showConfirm({
+        title: "Rol verwijderen",
+        message: "Rol verwijderen?",
+        confirmText: "Verwijderen",
+        cancelText: "Annuleren",
+        tone: "danger",
+      });
+      if (!confirmed) return;
       try {
           await deleteDoc(doc(db, "future-factory", "settings", "roles", roleId));
       } catch (e) {
@@ -562,7 +571,14 @@ const AdminUsersView = () => {
 
   // Reset wachtwoord voor gebruiker (via Firebase Auth Admin SDK zou beter zijn, maar we gebruiken email reset)
   const handleResetPassword = async (userEmail) => {
-    if (!window.confirm(`Wachtwoord reset link sturen naar ${userEmail}?`)) {
+    const confirmed = await showConfirm({
+      title: "Wachtwoord reset",
+      message: `Wachtwoord reset link sturen naar ${userEmail}?`,
+      confirmText: "Versturen",
+      cancelText: "Annuleren",
+      tone: "warning",
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -700,19 +716,21 @@ const AdminUsersView = () => {
       setTimeout(() => setStatus(null), 3000);
       setIsEditing(false);
     } catch (err) {
-      alert("Update mislukt: " + err.message);
+      notify("Update mislukt: " + err.message);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (userId) => {
-    if (
-      !window.confirm(
-        "Account permanent verwijderen uit de root? Dit blokkeert direct alle toegang."
-      )
-    )
-      return;
+    const confirmed = await showConfirm({
+      title: "Gebruiker verwijderen",
+      message: "Account permanent verwijderen uit de root? Dit blokkeert direct alle toegang.",
+      confirmText: "Verwijderen",
+      cancelText: "Annuleren",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       const userRef = doc(db, ...PATHS.USERS, userId);
       await deleteDoc(userRef);
@@ -720,7 +738,7 @@ const AdminUsersView = () => {
       setStatus({ type: "success", msg: "Gebruiker verwijderd" });
       setTimeout(() => setStatus(null), 3000);
     } catch (err) {
-      alert(err.message);
+      notify(err.message);
     }
   };
 

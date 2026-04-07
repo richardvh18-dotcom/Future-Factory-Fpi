@@ -18,6 +18,7 @@ import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const QR_CODE_OK_CONFIRMATION = 'FPI-ACTION-APPROVE-OK';
 
@@ -61,6 +62,7 @@ const shouldGoToCentralLossen = (item) => {
 const LossenView = ({ stationId, appId, products = [] }) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
+  const { notify } = useNotifications();
   const [items, setItems] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,7 +117,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, productToProcess);
         } else {
           // Voor Lossen: GEEN auto-release, want meting is verplicht.
-          alert("Let op: Voor Lossen is een meting verplicht. Vul de meetwaarden in op het scherm in plaats van de OK-QR te scannen.");
+          notify("Let op: Voor Lossen is een meting verplicht. Vul de meetwaarden in op het scherm in plaats van de OK-QR te scannen.");
         }
         return;
       }
@@ -129,7 +131,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         handleItemClick(found);
         setScanInput("");
       } else {
-        alert(t('lossen.item_not_found', { code }) || `Item ${code} niet gevonden`);
+        notify(t('lossen.item_not_found', { code }) || `Item ${code} niet gevonden`);
         setScanInput("");
         setSelectedProduct(null);
       }

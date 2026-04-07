@@ -20,6 +20,7 @@ import AutoLogoutWarning from "./components/AutoLogoutWarning";
 // Notification System
 import { NotificationProvider } from "./contexts/NotificationContext";
 import ToastContainer from "./components/notifications/ToastContainer";
+import ConfirmDialog from "./components/notifications/ConfirmDialog";
 
 // Hooks
 import { useAdminAuth } from "./hooks/useAdminAuth";
@@ -149,44 +150,35 @@ const App = () => {
 
   // Check for specialized bootstrapping view (Orphaned Admin)
   const bootstrapAdminUid = import.meta.env.VITE_BOOTSTRAP_ADMIN_UID;
+  let content;
+
   if (user?.uid === bootstrapAdminUid && role === "guest") {
     console.log("🔧 Bootstrap admin mode");
-    return <GodModeBootstrap />;
-  }
-
-
-  // Fallback: Afmeldpagina tonen als user null is en niet loading, behalve op /login
-  if (!user && !authLoading) {
+    content = <GodModeBootstrap />;
+  } else if (!user && !authLoading) {
     console.log("🚫 No user, showing logged out view");
     const path = window.location.pathname;
     if (path === "/login") {
       console.log("📝 Showing login view");
-      return <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
+      content = <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
+    } else {
+      content = <LoggedOutView />;
     }
-    return <LoggedOutView />;
-  }
-
-  if (role === "guest") {
+  } else if (role === "guest") {
     console.log("👤 Guest role, showing login");
-    return <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
-  }
-
-  // Force password change voor nieuwe gebruikers
-  if (requiresPasswordChange) {
+    content = <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
+  } else if (requiresPasswordChange) {
     console.log("🔑 Password change required");
-    return (
+    content = (
       <ForcePasswordChangeView 
         user={user} 
         onComplete={() => setRequiresPasswordChange(false)} 
       />
     );
-  }
-
-  console.log("✅ Rendering main app");
-  return (
-    <NotificationProvider>
+  } else {
+    console.log("✅ Rendering main app");
+    content = (
       <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
-        <ToastContainer />
         <Header
           user={user}
           searchQuery={searchQuery}
@@ -240,7 +232,6 @@ const App = () => {
           </main>
         </div>
 
-        {/* Auto-logout waarschuwing */}
         {showWarning && (
           <AutoLogoutWarning 
             remainingTime={remainingTime} 
@@ -248,6 +239,14 @@ const App = () => {
           />
         )}
       </div>
+    );
+  }
+
+  return (
+    <NotificationProvider>
+      <ToastContainer />
+      <ConfirmDialog />
+      {content}
     </NotificationProvider>
   );
 };

@@ -94,7 +94,7 @@ const ProductionStartModal = ({
   stationId = "",
   existingProducts = [],
 }) => {
-  const { showSuccess, showError } = useNotifications();
+  const { showSuccess, showError , notify} = useNotifications();
   const [mode, setMode] = useState("manual"); // Standaard manueel voor pilot
   const [lotNumber, setLotNumber] = useState("");
   const [stringCount, setStringCount] = useState("1");
@@ -149,6 +149,23 @@ const ProductionStartModal = ({
     [order, generalSettings?.flangeSeriesRules, toolingMolds, stationId, relatedItemCodes]
   );
   const isFlangeOrder = !!flangeSeriesInfo?.isFlange;
+  const normalizedStation = String(stationId || "").toUpperCase().trim();
+  const normalizedStationNoPrefix = normalizedStation.startsWith("40")
+    ? normalizedStation.slice(2)
+    : normalizedStation;
+  const isBh11OrBh15Station = normalizedStationNoPrefix === "BH11" || normalizedStationNoPrefix === "BH15";
+  const hasFlInArticle = /\bFL(?:ENS|ANGE)?\b/.test(
+    [
+      order?.item,
+      order?.itemDescription,
+      order?.description,
+      order?.article,
+      order?.itemCode,
+    ]
+      .map((value) => String(value || "").toUpperCase())
+      .join(" ")
+  );
+  const shouldUseFlangeLabelFlow = isFlangeOrder || (isBh11OrBh15Station && hasFlInArticle);
 
   const sanitizePositiveIntInput = (value) => {
     const digitsOnly = String(value ?? "").replace(/\D/g, "");
@@ -327,7 +344,7 @@ const ProductionStartModal = ({
       try {
         if (availableLabels.length > 0) {
           // FL-orders moeten altijd een klein voorbeeldlabel gebruiken.
-          if (isFlangeOrder) {
+          if (shouldUseFlangeLabelFlow) {
             const smallFlangeLabel = availableLabels.find(
               (l) => l.name?.toLowerCase().includes("smal") || Number(l.height) < 45
             ) || availableLabels[0];
@@ -374,7 +391,7 @@ const ProductionStartModal = ({
       }
     };
     setDefaultLabel();
-  }, [isOpen, order, availableLabels, loadingLabels, stationId, isFlangeOrder, selectedLabelId]);
+  }, [isOpen, order, availableLabels, loadingLabels, stationId, shouldUseFlangeLabelFlow, selectedLabelId]);
   
   // 1b. Operators ophalen voor dit station
   useEffect(() => {
@@ -852,7 +869,7 @@ const ProductionStartModal = ({
     scannerLikeLotInputRef.current = false;
 
     if (!isManualMode && !isFlangeOrder && !selectedLabel) {
-      alert("Selecteer eerst een label formaat.");
+      notify("Selecteer eerst een label formaat.");
       return;
     }
 
@@ -1002,7 +1019,7 @@ const ProductionStartModal = ({
           }
         } catch (printError) {
           console.error(printError);
-          alert(`Order gestart, maar printen mislukte: ${printError.message}`);
+          notify(`Order gestart, maar printen mislukte: ${printError.message}`);
           showError(`Order gestart, maar printen mislukte: ${printError.message}`);
         }
       }
@@ -1032,7 +1049,7 @@ const ProductionStartModal = ({
           }
         } catch (printError) {
           console.error(printError);
-          alert(`Order gestart, maar string-lot printen mislukte: ${printError.message}`);
+          notify(`Order gestart, maar string-lot printen mislukte: ${printError.message}`);
           showError(`Order gestart, maar string-lot printen mislukte: ${printError.message}`);
         }
       }

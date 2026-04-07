@@ -9,8 +9,10 @@ import {
 } from "lucide-react";
 import { db } from "../../../config/firebase";
 import { processInforUpdate } from "../../../utils/infor_sync_service";
+import { useNotifications } from '../../../contexts/NotificationContext';
 
 const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
+  const { notify } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [stats, setStats] = useState(null);
@@ -37,7 +39,7 @@ const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
         const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
         if (!rawData || rawData.length < 2) {
-          alert("Bestand lijkt leeg of ongeldig.");
+          notify("Bestand lijkt leeg of ongeldig.");
           setLoading(false);
           return;
         }
@@ -53,7 +55,7 @@ const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
 
       } catch (err) {
         console.error("Import error:", err);
-        alert("Fout bij verwerken bestand: " + err.message);
+        notify("Fout bij verwerken bestand: " + err.message);
       } finally {
         setLoading(false);
         setProcessing(false);

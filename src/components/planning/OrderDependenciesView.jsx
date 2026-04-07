@@ -12,12 +12,14 @@ import {
 import { collection, onSnapshot, doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * OrderDependenciesView - Manage order dependencies and critical path
  * Shows which orders block others and calculates critical path
  */
 const OrderDependenciesView = () => {
+  const { notify } = useNotifications();
   const [orders, setOrders] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showAddDependency, setShowAddDependency] = useState(false);
@@ -137,7 +139,7 @@ const OrderDependenciesView = () => {
 
     // Check for circular dependencies
     if (wouldCreateCircular(selectedOrder.id, potentialDependency)) {
-      alert("⚠️ Dit zou een circulaire dependency cre\u00ebren!");
+      notify("⚠️ Dit zou een circulaire dependency cre\u00ebren!");
       return;
     }
 

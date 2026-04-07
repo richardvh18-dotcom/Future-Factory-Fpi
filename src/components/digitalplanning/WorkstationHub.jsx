@@ -164,7 +164,7 @@ const resolveShiftKeyFromPerson = (person) => {
 const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const { t } = useTranslation();
   const { user: currentUser } = useAdminAuth();
-  const { showSuccess, showError, showInfo, showWarning } = useNotifications();
+  const { showSuccess, showError, showInfo, showWarning, requestBrowserPermission, showConfirm , notify} = useNotifications();
   const navigate = useNavigate();
 
   const [selectedStation, setSelectedStation] = useState(
@@ -273,21 +273,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
   // Helper functies voor iPad/Mobile support
   const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) return;
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      showSuccess("Notificaties zijn ingeschakeld!");
-    } else {
-      showWarning("Notificaties niet toegestaan. Controleer je browserinstellingen.");
-    }
+    await requestBrowserPermission();
   };
 
   const showInstallInstructions = () => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     if (isIOS) {
-      alert("Installeren op iPad:\n\n1. Tik op de 'Deel' knop (vierkant met pijl omhoog)\n2. Scroll omlaag en kies 'Zet op beginscherm'");
+      showInfo("1. Tik op de 'Deel' knop (vierkant met pijl omhoog)\n2. Scroll omlaag en kies 'Zet op beginscherm'", "Installeren op iPad");
     } else {
-      alert("Gebruik het menu van je browser om de app te installeren (Toevoegen aan startscherm).");
+      showInfo("Gebruik het menu van je browser om de app te installeren via 'Toevoegen aan startscherm'.", "App installeren");
     }
   };
 
@@ -1311,7 +1305,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           });
         }
 
-        alert(
+        notify(
           `Let op: Er zijn ${overflowItems.length} producten meer gemaakt dan gepland.`
         );
       }
@@ -1817,7 +1811,14 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     const product = rawProducts.find(p => p.id === productId);
     if (!product) return;
 
-    if (!window.confirm(t("digitalplanning.workstation.confirm_cancel", { lot: product.lotNumber, defaultValue: `Weet je zeker dat je lot ${product.lotNumber} wilt annuleren?` }))) return;
+    const cancelConfirmed = await showConfirm({
+      title: t("digitalplanning.workstation.cancel_title", "Productie annuleren"),
+      message: t("digitalplanning.workstation.confirm_cancel", { lot: product.lotNumber, defaultValue: `Weet je zeker dat je lot ${product.lotNumber} wilt annuleren?` }),
+      confirmText: t("common.delete", "Verwijderen"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "danger",
+    });
+    if (!cancelConfirmed) return;
 
     try {
       const cancelledLot = String(product.lotNumber || "").trim();

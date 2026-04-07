@@ -51,7 +51,7 @@ import { useTranslation } from "react-i18next";
 const AdminMessagesView = ({ user: propUser }) => {
   const { t } = useTranslation();
   const { user: authUser, isAdmin } = useAdminAuth();
-  const { showSuccess, showError } = useNotifications();
+  const { showSuccess, showError, showConfirm } = useNotifications();
   const user = propUser || authUser;
   
   // Live user profile sync om instellingen (zoals receivesCrashReports) direct toe te passen
@@ -200,8 +200,14 @@ const AdminMessagesView = ({ user: propUser }) => {
   };
 
   const handleDelete = async (thread) => {
-    if (!window.confirm(t('adminMessagesView.deleteConversationConfirm')))
-      return;
+    const confirmed = await showConfirm({
+      title: t('adminMessagesView.deleteConversationTitle', 'Conversatie verwijderen'),
+      message: t('adminMessagesView.deleteConversationConfirm'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await Promise.all(thread.messages.map(msg => 
         deleteDoc(doc(db, ...PATHS.MESSAGES, msg.id))

@@ -1,3 +1,4 @@
+import { useNotifications } from '../../contexts/NotificationContext';
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from 'react-i18next';
 import {
@@ -23,7 +24,14 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
-import { PATHS, ACTIVE_SITE } from "../../config/dbPaths";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+import {
+  PATHS,
+  ACTIVE_SITE,
+  getPathString,
+  getReadPaths,
+  setAdminDataSourceMode as setGlobalAdminDataSourceMode,
+} from "../../config/dbPaths";
 
 // Handige presets voor snelle branding
 const PRESET_LOGOS = [
@@ -53,11 +61,15 @@ const PRESET_LOGOS = [
  */
 const AdminSettingsView = () => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
+  const { role } = useAdminAuth();
+  const canManageDataSourceSwitch = String(role || "").toLowerCase() === "admin";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(null);
   const [activeTab, setActiveTab] = useState("general");
   const [uploadedLogos, setUploadedLogos] = useState([]);
+  const [lockedAdminDataSourceMode, setLockedAdminDataSourceMode] = useState("current");
   const fileInputRef = useRef(null);
 
   const [settings, setSettings] = useState({
@@ -65,8 +77,12 @@ const AdminSettingsView = () => {
     logoUrl: "",
     themeColor: "blue",
     maintenanceMode: false,
+    adminDataSourceMode: "current",
     uploadedLogos: [], // Array om alle geüploade logo's bij te houden
   });
+
+  const isPilotReadMode = settings.adminDataSourceMode === "pilot-read";
+  const activeReadPaths = getReadPaths(isPilotReadMode);
 
   // 1. Live Sync met de Root
   useEffect(() => {
@@ -77,11 +93,19 @@ const AdminSettingsView = () => {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
+          const nextMode = data.adminDataSourceMode === "pilot-read" ? "pilot-read" : "current";
+          setLockedAdminDataSourceMode(nextMode);
           setSettings((prev) => ({
             ...prev,
             ...data,
+            adminDataSourceMode: nextMode,
           }));
           setUploadedLogos(data.uploadedLogos || []);
+
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem("adminDataSourceMode", nextMode);
+          }
+          setGlobalAdminDataSourceMode(nextMode);
         }
         setLoading(false);
       },
@@ -104,6 +128,9 @@ const AdminSettingsView = () => {
         docRef,
         {
           ...settings,
+          adminDataSourceMode: canManageDataSourceSwitch
+            ? (settings.adminDataSourceMode === "pilot-read" ? "pilot-read" : "current")
+            : lockedAdminDataSourceMode,
           lastUpdated: serverTimestamp(),
           updatedBy: "Admin Hub",
         },
@@ -111,6 +138,16 @@ const AdminSettingsView = () => {
       );
 
       await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", "General settings updated");
+
+      if (typeof window !== "undefined") {
+        const effectiveMode = canManageDataSourceSwitch
+          ? (settings.adminDataSourceMode || "current")
+          : lockedAdminDataSourceMode;
+        window.localStorage.setItem("adminDataSourceMode", effectiveMode);
+      }
+      setGlobalAdminDataSourceMode(
+        canManageDataSourceSwitch ? (settings.adminDataSourceMode || "current") : lockedAdminDataSourceMode
+      );
 
       setStatus({ type: "success", msg: "Systeeminstellingen gepubliceerd!" });
       setTimeout(() => setStatus(null), 3000);
@@ -128,7 +165,7 @@ const AdminSettingsView = () => {
     if (!file) return;
 
     if (file.size > 500 * 1024) {
-      alert("Bestand te groot (max 500KB).");
+      notify("Bestand te groot (max 500KB).");
       return;
     }
 
@@ -301,6 +338,54 @@ const AdminSettingsView = () => {
               <p className="text-[10px] text-slate-500 font-medium">
                 Product- en malbeheer staat nu onder Product & Data Management in de tegel "Mallen & Gereedschappen".
               </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-black text-slate-800">Admin Data Bron</h4>
+                  <p className="text-[10px] text-slate-500 font-medium mt-1">
+                    Schakelt read-only databron voor rapportages en berekeningen.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={!canManageDataSourceSwitch}
+                  onClick={() =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      adminDataSourceMode:
+                        prev.adminDataSourceMode === "pilot-read" ? "current" : "pilot-read",
+                    }))
+                  }
+                  className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-colors ${
+                    isPilotReadMode
+                      ? "bg-amber-50 text-amber-800 border-amber-300"
+                      : "bg-slate-100 text-slate-700 border-slate-300"
+                  } ${!canManageDataSourceSwitch ? "opacity-60 cursor-not-allowed" : ""}`}
+                >
+                  {isPilotReadMode ? "Pilot DB (Read Only)" : "Huidige DB"}
+                </button>
+              </div>
+
+              {!canManageDataSourceSwitch && (
+                <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                  Alleen admins mogen deze databron-switch wijzigen.
+                </p>
+              )}
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Gekoppelde paden</p>
+                <p className="mt-2 text-[10px] font-mono text-slate-600 break-all">
+                  PLANNING: /{getPathString(activeReadPaths.PLANNING)}
+                </p>
+                <p className="mt-1 text-[10px] font-mono text-slate-600 break-all">
+                  TRACKING: /{getPathString(activeReadPaths.TRACKING)}
+                </p>
+                <p className="mt-1 text-[10px] font-mono text-slate-600 break-all">
+                  EFFICIENCY: /{getPathString(activeReadPaths.EFFICIENCY_HOURS)}
+                </p>
+              </div>
             </div>
             
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">

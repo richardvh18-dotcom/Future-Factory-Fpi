@@ -4,6 +4,7 @@ import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { format, parse } from "date-fns";
+import { useNotifications } from '../../../contexts/NotificationContext';
 
 /**
  * LoanPersonnelModal - Personeel uitlenen aan andere afdelingen (V2)
@@ -11,6 +12,7 @@ import { format, parse } from "date-fns";
  * - Uitgeleende persoon krijgt de shift-tijden van de doelafdeling
  */
 const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
+  const { notify } = useNotifications();
   const [targetDepartment, setTargetDepartment] = useState("");
   const [targetStation, setTargetStation] = useState("");
   const [targetShift, setTargetShift] = useState("");
@@ -68,7 +70,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
     try {
       const selectedShiftData = availableShifts.find(s => s.id === targetShift);
       if (!selectedShiftData) {
-        alert("Selecteer een geldige shift.");
+        notify("Selecteer een geldige shift.");
         setSaving(false);
         return;
       }
@@ -102,7 +104,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
       onClose();
     } catch (error) {
       console.error("Fout bij uitlenen personeel:", error);
-      alert("Er is een fout opgetreden bij het uitlenen van personeel.");
+      notify("Er is een fout opgetreden bij het uitlenen van personeel.");
     } finally {
       setSaving(false);
     }

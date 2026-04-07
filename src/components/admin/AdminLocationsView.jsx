@@ -25,6 +25,7 @@ import {
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { STANDARD_DIAMETERS } from "../../data/constants";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * AdminLocationsView V4.0 - Root Sync Edition
@@ -33,6 +34,7 @@ import { STANDARD_DIAMETERS } from "../../data/constants";
  */
 const AdminLocationsView = ({ canEdit = false }) => {
   const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const [moffen, setMoffen] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -114,17 +116,21 @@ const AdminLocationsView = ({ canEdit = false }) => {
       setEditingId(null);
     } catch (err) {
       console.error("Opslagfout:", err);
-      alert("Kon gegevens niet opslaan.");
+      notify("Kon gegevens niet opslaan.");
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (
-      !window.confirm(t('adminLocations.confirmDelete'))
-    )
-      return;
+    const confirmed = await showConfirm({
+      title: t('adminLocations.deleteTitle', 'Locatie verwijderen'),
+      message: t('adminLocations.confirmDelete'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDoc(doc(db, ...PATHS.INVENTORY, id));
       await logActivity(
@@ -133,7 +139,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
         `Gereedschap ${id} verwijderd.`
       );
     } catch (err) {
-      alert(err.message);
+      notify(err.message);
     }
   };
 

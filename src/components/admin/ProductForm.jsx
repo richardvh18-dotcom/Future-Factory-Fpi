@@ -30,6 +30,7 @@ import {
   CONNECTION_TYPES,
   VERIFICATION_STATUS,
 } from "../../data/constants";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 // Helper functies voor naamgeving en paden (buiten component om re-renders te voorkomen)
 const getTypeAbbr = (t) => {
@@ -119,6 +120,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     productRange,
     generalConfig,
   } = useSettingsData(user);
+  const { notify } = useNotifications();
   const [saving, setSaving] = useState(false);
   const isAdminUser = String(user?.role || "").toLowerCase() === "admin";
 
@@ -581,7 +583,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!normalizedFormType || !generatedProductName || !formData.dn || !formData.pn) {
-      alert(t('productForm.fill_required'));
+      notify(t('productForm.fill_required'));
       return;
     }
 
@@ -746,9 +748,9 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     } catch (err) {
       console.error("Save failed:", err);
       if (err.code === 'storage/unauthorized') {
-        alert(t('productForm.storage_unauthorized'));
+        notify(t('productForm.storage_unauthorized'));
       } else {
-        alert(t('productForm.save_error') + err.message);
+        notify(t('productForm.save_error') + err.message);
       }
     } finally {
       setSaving(false);

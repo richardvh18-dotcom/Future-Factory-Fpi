@@ -1,5 +1,415 @@
 # 📝 FPi Future Factory - Pilot Handover & Development Summary
 
+### Hervatpunt (opgeslagen op verzoek)
+
+**Datum:** 5 april 2026 | **Branch:** `pilot-dev`
+
+**Eerstvolgende actie bij hervatten:**
+- "Als je wilt, pak ik nu direct de resterende 16 confirm-locaties volledig af in één laatste migratiebatch. Daarna kan ik ook de top 5 alert-bestanden stiller maken zodat alleen fouten nog popup tonen."
+
+**Status:** Geparkeerd als eerste vervolgactie voor de volgende sessie.
+
+**Actueel hervatpunt (na sessie 40):**
+- Time Tracking toont nu orderniveau met doorklik naar lotdetails; eerstvolgende stap is laatste validatie van stationvolgorde en tijdsgrenzen (Wikkelen -> Lossen -> Nabewerken -> Eindinspectie/BM01) op concrete archieforders.
+
+**Actueel hervatpunt (na sessie 41):**
+- AI Analyse toont nu ingestie-diagnose en Teamleader gebruikt dezelfde `dataSourceMode` als Efficiency; eerstvolgende stap is live de 8 diagnosewaarden noteren (bron, tracking, archief, standaarden, kandidaten, met productcode, afgerond/gereed, geldige duur) en daarna laatste AI-filtertuning doen.
+
+**Actueel hervatpunt (na sessie 42):**
+- AI Analyse gebruikt nu bredere afgerond-detectie, sterkere duurfallbacks en extra uitvalredenen in diagnose; eerstvolgende stap is live in de UI de nieuwe 12 diagnosewaarden noteren en bepalen of `Te Lang` nog te streng is voor pilotdata.
+
+**Actueel hervatpunt (na sessie 43):**
+- Planning-import slaat nu Reference Operation code-tijden ook op orderniveau op (Produceren/Nabewerken/Eindinspectie), en Efficiency leest die als fallback; eerstvolgende stap is 1 live LN-import draaien en per order valideren dat de drie tijdblokken zichtbaar en correct gescheiden zijn.
+
+**Opgeslagen punt (op verzoek):**
+- Bevestigd vastgelegd: bij import van Reference Operations worden code-tijden per order opgeslagen zodat Efficiency het verschil tussen Produceren, Nabewerken en Eindinspectie foutloos kan oppakken.
+
+**Actueel hervatpunt (na sessie 44):**
+- Time Tracking toont nu per station `daadwerkelijk / gepland`; kolom `Gepland` gebruikt nu primair het totaal van alle Reference Operations van de order.
+
+**Actueel hervatpunt (na sessie 45):**
+- Automatische planning-import is toegevoegd via map-watcher (`imports/planning`): nieuw/gewijzigd Excel-bestand start nu automatisch de import naar planning + efficiency.
+
+**Actueel hervatpunt (na sessie 46):**
+- Power Automate kan nu direct integreren via een beveiligde API endpoint (`importPlanningFromWebhook`) in Firebase Functions met idempotency en Excel URL import.
+
+**Actueel hervatpunt (na sessie 47):**
+- Firebase import is nu ook zonder Power Automate account operationeel via Storage-trigger (`importPlanningFromStorage`): upload naar `imports/planning/` start automatisch import naar planning + efficiency met idempotency en optionele machinefilter.
+
+### Update sessie 47 (Firebase Storage trigger + server-side machinefilter)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Firebase-kant volledig kant-en-klaar maken zonder afhankelijkheid van Power Automate account.
+
+**Wat is gedaan:**
+- Nieuwe Firebase Storage trigger toegevoegd: `importPlanningFromStorage`.
+- Trigger start automatisch bij upload van `.xlsx/.xlsm/.xls` in `imports/planning/`.
+- Idempotency op opslagbestanden toegevoegd via import-run document in `future-factory/integrations/import_runs`.
+- Webhook endpoint uitgebreid met `allowedMachines` ondersteuning (bijv. `BH12,BH18` of array).
+- Server-side importlogica filtert nu optioneel op geselecteerde machines vóór Firestore write.
+
+**Aangepaste bestanden:**
+- `functions/index.js`
+
+**Validatie:**
+- `node --check functions/index.js` succesvol.
+
+**Openstaand / eerstvolgende stap:**
+1. Deploy Firebase Functions.
+2. (Optioneel) Standaard hybride filter zetten via `integration.allowed_machines`.
+3. Testen door 1 LN Excel-bestand te uploaden naar Storage pad `imports/planning/`.
+
+### Update sessie 46 (Power Automate API endpoint voor directe import)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Directe Power Automate-integratie mogelijk maken via API, zonder lokale watcher afhankelijkheid.
+
+**Wat is gedaan:**
+- Nieuwe Firebase HTTPS functie toegevoegd: `importPlanningFromWebhook`.
+- Endpoint ondersteunt:
+    - token-validatie via `X-Import-Token`
+    - `fileUrl` download van Excel
+    - parsing en import naar planning + efficiency
+    - idempotency via `idempotencyKey`
+    - duplicate bescherming (`409 duplicate`)
+- Import-run logging toegevoegd in `future-factory/integrations/import_runs`.
+
+**Benodigde request body (kern):**
+- `fileUrl` (verplicht)
+- `fileName`
+- `provider`
+- `fileModifiedAt`
+- `idempotencyKey`
+- `overwrite` (optioneel)
+
+**Aangepaste bestanden:**
+- `functions/index.js`
+- `functions/package.json`
+
+**Validatie:**
+- `node --check functions/index.js` succesvol.
+- File-errors: geen fouten.
+
+**Openstaand / eerstvolgende stap:**
+1. In Firebase Functions config token zetten (`power_automate.import_token` of `integration.import_token`).
+2. Functions deployen.
+3. Power Automate HTTP-stap koppelen aan de nieuwe endpoint URL.
+
+### Update sessie 45 (Auto-import watcher voor planning)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Handmatige importstap verminderen door import automatisch te starten zodra een Excel-bestand in een vaste directory wordt geplaatst of geupdate.
+
+**Wat is gedaan:**
+- Nieuw script `scripts/auto-planning-import.cjs` toegevoegd.
+- Script scant of monitort map `imports/planning` op `.xlsx/.xlsm/.xls`.
+- Bij nieuwe of gewijzigde bestanden wordt automatisch dezelfde LN-consolidatielogica uitgevoerd:
+    - planning update (`future-factory/production/digital_planning`)
+    - efficiency update (`future-factory/production/efficiency_hours`)
+    - Reference Operation splits + orderniveau stationvelden blijven behouden.
+- Statebestand `.auto-planning-import-state.json` voorkomt dubbele imports van ongewijzigde bestanden.
+
+**Nieuwe npm scripts:**
+- `import:planning:auto` (watch mode)
+- `import:planning:once` (eenmalige scan)
+
+**Aangepaste bestanden:**
+- `scripts/auto-planning-import.cjs`
+- `package.json`
+
+**Validatie:**
+- Syntaxcheck script: OK (`node --check`).
+- File-errors: geen fouten.
+
+**Openstaand / eerstvolgende stap:**
+1. Lokale credentials valideren (`gcloud auth application-default login`).
+2. Watcher starten en testbestand in `imports/planning` plaatsen.
+3. In Firestore controleren of import bij bestandswijziging opnieuw triggert.
+
+### Update sessie 44 (Time Tracking: stationtijden als daadwerkelijk/gepland)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- In Time Tracking per station direct zichtbaar maken: werkelijke uren versus ingeplande uren.
+- Voor kolom `Gepland` de totale geplande orderuren nemen uit alle Reference Operations samen.
+
+**Wat is gedaan:**
+- In `TimeTrackingView` is operation-classificatie toegevoegd (`production` / `post` / `qc`) op basis van work center + reference op code.
+- Geplande stationuren worden nu per order afgeleid uit `order.operations` (som van alle Reference Operations).
+- Tabelweergave aangepast naar `daadwerkelijk / gepland` voor:
+    - Wikkelen
+    - Lossen
+    - Nabewerken
+    - Eindinspectie
+- Kolom `Gepland` gebruikt nu eerst het ordertotaal uit Reference Operations; daarna pas fallback op bestaande totalen/efficiency-data.
+
+**Aangepast bestand:**
+- `src/components/planning/TimeTrackingView.jsx`
+
+**Validatie:**
+- File-errors: geen fouten.
+- Productiebuild succesvol: `npm run build` (exit code 0).
+
+**Openstaand / eerstvolgende stap:**
+1. Live controleren op 2-3 orders met meerdere Reference Operations of `Gepland` exact overeenkomt met LN totaalsom.
+2. Bevestigen dat `Lossen` gepland momenteel bewust `0.0h` kan zijn (geen aparte reference op bucket), tenzij gewenst om anders te modelleren.
+
+### Update sessie 43 (Reference Operation code-tijden op order + efficiency fallback)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Bij import van Reference Operations de code-uren niet alleen in efficiency-docs bewaren, maar ook direct op het order opslaan zodat downstream schermen (o.a. Efficiency/Capacity/Terminal) foutloos Produceren vs Nabewerken vs Eindinspectie kunnen onderscheiden.
+
+**Wat is gedaan:**
+- **PlanningImportModal uitgebreid:**
+    - Per order worden nu expliciet opgeslagen:
+        - `plannedHoursBH` / `plannedMinutesBH` (Produceren)
+        - `plannedHoursNabewerken` / `plannedMinutesNabewerken` (Nabewerken)
+        - `plannedHoursBM01` / `plannedMinutesBM01` (Eindinspectie)
+    - Nieuwe `referenceOperationTimes` map toegevoegd met per Reference Operation:
+        - geplande uren
+        - werkelijke uren
+        - work center
+        - bucket (`production` / `post` / `qc`)
+
+- **EfficiencyDashboard fallback verbeterd:**
+    - Als `productionTimeTotal` / `postProcessingTimeTotal` / `qcTimeTotal` in efficiency-data ontbreken of 0 zijn, worden nu automatisch de orderniveau splitvelden gebruikt.
+    - `standardTimeTotal` en `minutesPerUnit` krijgen dezelfde fallback zodat efficiencyberekening en stageweergave consistent blijven.
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+- `src/components/digitalplanning/EfficiencyDashboard.jsx`
+
+**Validatie:**
+- File-errors gecontroleerd op beide bestanden: geen fouten.
+- Productiebuild succesvol: `npm run build` (exit code 0).
+
+**Openstaand / eerstvolgende stap:**
+1. Een echte LN-import draaien en een order met meerdere Reference Operations controleren.
+2. Valideren dat `plannedHoursBH`, `plannedHoursNabewerken` en `plannedHoursBM01` op de order gevuld zijn.
+3. In Efficiency controleren dat dezelfde order drie gescheiden tijdblokken toont (Prod/Post/QC), ook wanneer efficiency-doc deels onvolledig is.
+
+### Update sessie 42 (AI ingestiefilter tuning + fijnere diagnose)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De lage AI-analysecijfers verder terugbrengen naar echte data-uitvalredenen in plaats van te strikte filterlogica.
+
+**Wat is gedaan:**
+- **AI afgerond-detectie verbreed:** `AiPredictionView` accepteert nu naast `completed/shipped` ook archiefrecords, gereed/afgerond-statussen en completion-signalen uit history-events.
+- **Duurfallbacks versterkt:** naast directe `station_start -> finished/completed` duur wordt nu ook de gecombineerde stationrange en een history-start/eind fallback gebruikt wanneer tussenstappen incompleet zijn.
+- **Diagnose verfijnd:** het diagnoseblok toont nu extra uitvalredenen:
+    - zonder productcode
+    - niet afgerond
+    - te kort
+    - te lang
+- **Analysepijplijn geharmoniseerd:** kandidaatselectie en diagnose gebruiken nu dezelfde helperlogica, zodat de UI-cijfers en de echte AI-analyse niet uit elkaar lopen.
+
+**Aangepast bestand:**
+- `src/components/digitalplanning/AiPredictionView.jsx`
+
+**Validatie:**
+- File-errors gecontroleerd op het gewijzigde bestand: geen fouten.
+- Productiebuild succesvol: `npm run build` (exit code 0).
+- Vite devserver actief op poort `3000` voor livecontrole.
+
+**Openstaand / eerstvolgende stap:**
+1. In de UI de 12 diagnosewaarden noteren voor zowel Efficiency als Teamleader flow.
+2. Specifiek controleren of `Te Lang` records echte outliers zijn of dat de bovengrens van `10080` minuten voor pilotdata moet worden verruimd.
+3. Alleen als de aantallen daarna nog te laag blijven: completion-detectie uitbreiden met extra stationspecifieke eindsignalen uit ruwe history-data.
+
+### Update sessie 41 (AI smoketest + bronmodusfix Teamleader)
+
+**Datum:** 6 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Verifiëren waarom AI Voorspellingen weinig data toont.
+- Zekerstellen dat Teamleader-AI dezelfde databronmodus gebruikt als de rest van Digital Planning.
+
+**Wat is gedaan:**
+- **Runtime smoketest uitgevoerd op Firestore paden** (tracking, efficiency_hours en archive/items voor huidige + 2 vorige jaren).
+- **Belangrijke bevinding:** alle directe terminal-reads gaven `PERMISSION_DENIED` (insufficient permissions). Daardoor kon geen harde server-side count vanuit CLI worden opgehaald.
+- **Functionele fix in TeamleaderHub:** `AiPredictionView` krijgt nu expliciet `dataSourceMode` door in de efficiency-tab, zodat de AI-view niet stilzwijgend op default `current` blijft staan.
+- **Diagnoselaag in AI-view toegevoegd:** blok `AI Ingestie Diagnose` toont live in de UI:
+    - bronmodus (`pilot-read` of `current`)
+    - aantallen tracking/archief/standaarden
+    - kandidaten in pipeline
+    - records met productcode
+    - afgerond/gereed
+    - records met geldige duur
+    - geanalyseerde producten
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+- `src/components/digitalplanning/AiPredictionView.jsx`
+
+**Validatie:**
+- File-errors gecontroleerd op beide gewijzigde bestanden: geen fouten.
+- Productiebuild succesvol: `npm run build` (exit code 0).
+
+**Openstaand / eerstvolgende stap:**
+1. In UI de diagnosewaarden van AI-view uitlezen voor zowel Efficiency als Teamleader flow.
+2. Op basis van die waarden gericht bijsturen (completion-detectie, duurgrenzen of productkey-fallbacks).
+3. Na stabilisatie diagnoseblok eventueel achter featureflag zetten of weer verwijderen.
+
+### Update sessie 40 (Order popup + lotdetail in Time Tracking)
+
+**Datum:** 5 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Inzichtelijk maken wat er onder 1 orderregel valt in Order Time Analysis.
+- Per lot tonen hoe stationtijden zijn opgebouwd.
+
+**Wat is gedaan:**
+- **Orderniveau bevestigd:** Order Time Analysis groepeert op `orderId`.
+- **Nieuwe order popup toegevoegd:**
+    - In de orderkolom staat nu `Bekijk lots (N)`.
+    - Popup toont alle lots binnen de gekozen order.
+    - Per lot zichtbaar:
+        - lotnummer
+        - machine
+        - status
+        - Wikkelen
+        - Lossen
+        - Wacht L->N
+        - Nabewerking
+        - totaaluren
+        - start/eindtijden per stap
+
+- **Technische opbouw verbeterd:**
+    - Lotmetrics gecentraliseerd via helperfuncties zodat zowel ordertotaal als popup dezelfde bronberekening gebruiken.
+    - History en timestamp parsing gedeeld toegepast om inconsistenties tussen formaten beter op te vangen.
+
+**Belangrijke observatie:**
+- Buildvalidatie op deze wijziging liet geen bestandsfouten zien.
+- In deze omgeving werd de volledige productiebuild soms laat afgebroken met exitcode 143, terwijl de compilefase zelf succesvol doorloopt.
+
+**Openstaand / eerstvolgende stap:**
+1. Kolomvolgorde en stapdefinitie volledig afronden op procesvolgorde: Wikkelen, Lossen, Nabewerken, Eindinspectie (BM01).
+2. Eventueel `Wacht L->N` verplaatsen naar detailniveau als afgeleide KPI i.p.v. hoofdkolom.
+3. Productie Output vraag nog expliciet afronden: bevestigen en eventueel bijstellen of huidige orders in die KPI volledig worden meegeteld.
+
+**Validatie:**
+- Relevante code gecompileerd zonder file errors.
+- Devserver beschikbaar op poort 3000 voor livecontrole.
+
+### Update sessie 39 (Pilot bronkoppeling + Efficiency/Time Tracking analyse hersteld)
+
+**Datum:** 5 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Pilot read-only databron consistent doortrekken in rapportage- en analyseviews.
+- Efficiency en Time Tracking laten rekenen op echte productiedata, inclusief archiefrecords en history-events.
+
+**Wat is gedaan:**
+- **Pilot/current bronkoppeling voltooid:**
+    - `EfficiencyDashboard`, `TimeTrackingView` en `GanttChartView` gebruiken nu dezelfde `dataSourceMode` als `CapacityPlanningView`.
+    - Gantt is in `pilot-read` modus read-only gemaakt; drag/write naar planning is dan geblokkeerd.
+
+- **EfficiencyDashboard hersteld:**
+    - Leest nu bronafhankelijk uit pilot/current paden.
+    - Default filter staat op `all` zodat afgeronde productie niet direct wegvalt.
+    - Fallback toegevoegd voor orders met tracking maar zonder efficiency-import.
+    - Departmentfilter robuuster gemaakt via `department`, `departmentId`, factory config en machine-afleiding (`BH` → Fittings, `BA` → Pipes, `BM` → Spools).
+    - Bestede tijd leest nu niet alleen tracking start/stop, maar ook order/productvelden zoals `actualHours`, `totalActualHours`, `productionMinutes`.
+    - Bij archiefmodus wordt nu ook planning-archief gekoppeld voor betere ordercontext.
+
+- **Time Tracking fors uitgebreid:**
+    - `Dag`, `Week` en `Maand` mode toegevoegd, inclusief `Vorige`, `Volgende`, `Vandaag` navigatie.
+    - Onnodige statusfilters verwijderd (`Verzendklaar`, `Verzonden`).
+    - Orders worden nu meegenomen op basis van **echte productie-activiteit** in `tracked_products`, niet alleen op `plannedDate`.
+    - Archiefitems uit `production/archive/{year}/items` worden meegelezen zodat gereedgemelde producten ook in analyse verschijnen.
+    - Stationanalyse toegevoegd per order:
+        - `Wikkelen`
+        - `Lossen`
+        - `Wacht L→N`
+        - `Nabewerking`
+    - Compacte totalenbalk boven de tabel toegevoegd voor dezelfde stations.
+
+- **History-gebaseerde stapgrenzen toegevoegd:**
+    - Voor records waar timestamps incompleet of inconsistent zijn, worden stationovergangen nu afgeleid uit history-events zoals:
+        - `Start Wikkelen`
+        - `Doorgestuurd van Wikkelen naar Lossen`
+        - `Doorgestuurd van Lossen naar Nabewerking`
+        - `Verwerking afgerond`
+    - Dit was nodig voor archiefproducten waar bijvoorbeeld `wikkelen_start` of `nabewerking_end` niet expliciet aanwezig is.
+
+**Belangrijke bevinding:**
+- Sommige records tonen verschillende timestamp-formaten:
+    - ISO-string in UTC, bv. `2026-03-31T09:44:30.861Z`
+    - Firestore timestamp in lokale tijd, bv. `31 March 2026 at 13:47:45 UTC+2`
+- Deze lijken anders, maar zijn na conversie vergelijkbaar. Toch blijven er edge cases waarbij history leidend moet zijn in plaats van losse timestampvelden.
+
+**Openstaand / eerstvolgende stap:**
+1. Eén of twee concrete archieforders live nalopen in de UI en vergelijken met ruwe history-data.
+2. Indien nodig een uitklapregel of debugdetail per order toevoegen met exacte start/eindtijden per station.
+3. Daarna pas finetunen van UX/presentatie; eerst de stationberekening 100% betrouwbaar maken.
+
+**Validatie:**
+- Herhaaldelijk `npm run build` uitgevoerd na elke grote wijziging: succesvol.
+- Vite devserver gestart op poort `3000` voor live verificatie.
+
+### Update sessie 37 (Hervatting confirm-flow + stille alerts)
+
+**Datum:** 5 april 2026 | **Branch:** `pilot-dev`
+
+**Doel bij hervatten:**
+- De resterende `confirm`-locaties volledig migreren in 1 laatste batch.
+- Daarna de top 5 alert-zware bestanden stiller maken, zodat popups alleen nog voor echte fouten worden gebruikt.
+
+**Concreet uitvoerplan (volgende sessie):**
+1. Openstaande `confirm`-aanroepen inventariseren (globale zoekactie).
+2. Migrate in 1 batch naar centrale, consistente confirm-helper.
+3. Per aangepast scherm een korte smoke-test uitvoeren op operatorflow (OK/Cancel paden).
+4. Top 5 bestanden met meeste `alert()` calls refactoren naar stille UX (toast/statusmelding) met fout-only popup fallback.
+5. Eindcontrole: build + snelle regressie op kritieke stations (Lossen, Mazak, BM01).
+
+**Acceptatiecriteria:**
+- Geen losse, inconsistente confirm-patronen meer op bekende openstaande locaties.
+- Geen overmatige blokkerende alerts bij normale operator-acties.
+- Foutmeldingen blijven zichtbaar en ondubbelzinnig.
+- Build blijft groen.
+
+**Notitie:**
+- Dit is bewust opgesplitst in twee batches (confirm eerst, alerts daarna) om regressierisico laag te houden tijdens pilotwerk.
+
+### Update sessie 38 (Volledige notificatie-opschoning afgerond)
+
+**Datum:** 5 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Alle blokkerende browser-popups (`alert()`) en tijdelijke globale alert-varianten uit de appcode verwijderen.
+- Notificaties uniform laten lopen via het bestaande NotificationContext-systeem.
+
+**Wat is gedaan:**
+- Alle directe `alert()` calls in `src` gemigreerd.
+- Tijdelijke globale varianten (`window.__APP_ALERT__`, daarna `window.appAlert`, daarna `window.notify`) stapsgewijs uitgefaseerd.
+- In componenten met notificatiecontext zijn meldingen lokaal gestandaardiseerd naar `notify(...)` via `useNotifications()`.
+- Confirm-flow bleef intact via `showConfirm(...)` op plaatsen waar gebruikersbevestiging nodig is.
+
+**Eindstatus (gemeten):**
+- `alert(` in `src`: **0**
+- `window.__APP_ALERT__(` in `src`: **0**
+- `window.appAlert(` in `src`: **0**
+- `window.notify(` in `src`: **0**
+
+**Validatie:**
+- Type/compile checks op gewijzigde kernbestanden zonder fouten.
+- Volledige productiebuild (`npm run build`) succesvol afgerond na de laatste migratie.
+
+**Resultaat:**
+- Notificaties zijn nu consistent, niet-blokkerend en centraal beheerd.
+- Codebase is leesbaarder en schoner voor vervolgwerk (verdere semantische tuning per scherm kan later zonder technische debt op alert-niveau).
+
 ### Update sessie 36 (Mazak Print Preview Fix)
 
 **Datum:** 5 april 2026 | **Branch:** `pilot-dev`
@@ -1255,3 +1665,54 @@ Made changes.
 **Validatie:**
 
 - `npx eslint src/components/digitalplanning/modals/ProductionStartModal.jsx` succesvol (geen output / geen fouten).
+
+---
+
+### Update sessie 48 (Opslagpunt: Gantt planning verbeteringen + Firebase importpad)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Conversatie opslaan zodat later direct kan worden hervat op de nieuwste Gantt- en importverbeteringen.
+
+**Wat is afgerond in deze sessie:**
+
+1. **Importintegratie richting Power Automate/Firebase afgerond voorbereid**
+- Webhook blijft beschikbaar via `importPlanningFromWebhook` (Power Automate-first, backward compatible met oude tokenkeys).
+- Nieuwe Firebase Storage trigger toegevoegd: `importPlanningFromStorage`.
+- Upload van Excel naar `imports/planning/` start nu automatisch import.
+- Import ondersteunt server-side machinefilter (`allowedMachines`, incl. config `integration.allowed_machines`).
+
+2. **Planning-import UI hybride sturing toegevoegd**
+- In `PlanningImportModal` is hybride importselectie toegevoegd (bijv. BH12/BH18).
+- Selectie wordt opgeslagen in localStorage.
+- Selectie bepaalt ook echt welke orders worden geïmporteerd.
+
+3. **Gantt planning sterk uitgebreid (klassieke Gantt-ervaring)**
+- Orders tonen nu van **startdatum t/m leverdatum**.
+- Orders die deels in beeld vallen blijven zichtbaar.
+- Machinekolom blijft vast; balken lopen niet meer onder de machinekolom.
+- Muis "vastpakken" voor horizontaal pannen toegevoegd (ook op dag/datum-balk).
+- `Shift + muiswiel` en trackpad horizontaal scrollen toegevoegd.
+- Afdelingfilter verbeterd (normalisatie `40BHxx` vs `BHxx`).
+- Machines zijn inklapbaar per regel + knoppen "Alles inklappen/uitklappen".
+- Nieuwe **All View** toegevoegd:
+    - volledige planningrange over alle orders
+    - dynamische dagbreedte
+    - maximaal 35 dagen tegelijk zichtbaar op het scherm
+    - horizontaal door de rest scrollen.
+- Statuslegend opgeschoond: `Verzendklaar` en `Verzonden` verwijderd.
+
+**Belangrijk hervatpunt (eerstvolgende stap):**
+1. Live UI-check op echte planningdata (specifiek All View + leverdatumtrajecten).
+2. Indien gewenst: auto-scroll naar "vandaag" bij openen van All View toevoegen.
+3. Firebase deploy + storage upload-test draaien voor end-to-end import zonder Power Automate account.
+
+**Aangepaste kernbestanden in deze sessie:**
+- `functions/index.js`
+- `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+- `src/components/planning/GanttChartView.jsx`
+
+**Validatie:**
+- `node --check functions/index.js` succesvol.
+- Meerdere keren `npm run build` succesvol na wijzigingen.

@@ -33,6 +33,7 @@ import { db, auth, logActivity } from "../config/firebase";
 import { updatePassword, updateProfile } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import RoleSwitcher from "./admin/RoleSwitcher";
+import { useNotifications } from '../contexts/NotificationContext';
 
 /**
  * ProfileView V2.1 - Robuuste Identiteit Guard
@@ -45,6 +46,7 @@ const ProfileView = () => {
   const navigate = useNavigate();
 
   // Lokale states voor formulier
+  const { notify } = useNotifications();
   const [displayName, setDisplayName] = useState("");
   const [preferences, setPreferences] = useState({
     emailNotifications: false,
@@ -149,7 +151,7 @@ const ProfileView = () => {
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error(err);
-      alert("Kon wijzigingen niet opslaan: " + err.message);
+      notify("Kon wijzigingen niet opslaan: " + err.message);
     } finally {
       setSaving(false);
     }

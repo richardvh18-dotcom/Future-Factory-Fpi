@@ -32,6 +32,7 @@ import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { formatMinutes } from "../../utils/efficiencyCalculator";
 import { analyzeAndUpdateStandards } from "../../utils/autoLearningService";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * ProductionTimeStandardsManager
@@ -39,6 +40,7 @@ import { analyzeAndUpdateStandards } from "../../utils/autoLearningService";
  */
 const ProductionTimeStandardsManager = () => {
   const { t } = useTranslation();
+  const { showConfirm } = useNotifications();
   const [standards, setStandards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -179,7 +181,14 @@ const ProductionTimeStandardsManager = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(t('productionStandards.confirm_delete', "Weet je zeker dat je deze standaard wilt verwijderen?"))) return;
+    const confirmed = await showConfirm({
+      title: t('productionStandards.deleteTitle', 'Standaard verwijderen'),
+      message: t('productionStandards.confirm_delete', "Weet je zeker dat je deze standaard wilt verwijderen?"),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     
     try {
       await deleteDoc(doc(db, ...PATHS.PRODUCTION_STANDARDS, id));

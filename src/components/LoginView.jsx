@@ -1,3 +1,4 @@
+import { useNotifications } from '../contexts/NotificationContext';
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -29,6 +30,7 @@ import AccountRequestModal from "./AccountRequestModal";
 const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { notify } = useNotifications();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -68,7 +70,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
     // 🔥 EMERGENCY GOD MODE BYPASS 🔥
     if (email === "god@mode.local" && password === "master2026") {
       console.log("🔥 EMERGENCY GOD MODE ACTIVATED");
-      alert(`⚠️ ${t('login.emergency_title', 'Emergency Mode')}: ${t('login.emergency_desc', 'Bypassing authentication')}`);
+      notify(`⚠️ ${t('login.emergency_title', 'Emergency Mode')}: ${t('login.emergency_desc', 'Bypassing authentication')}`);
       // We kunnen hier niet direct inloggen zonder Firebase Auth
       // Maar we kunnen wel debugging info tonen
       console.log("Master Admin UID uit .env:", import.meta.env.VITE_MASTER_ADMIN_UID);
@@ -272,7 +274,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                 <div className="flex justify-end mt-1">
                   <button
                     type="button"
-                    onClick={() => alert(t('login.reset_contact_admin', 'Contact the administrator to reset your password.'))}
+                    onClick={() => notify(t('login.reset_contact_admin', 'Contact the administrator to reset your password.'))}
                     className="text-[10px] font-bold text-cyan-200/60 hover:text-cyan-200 transition-colors"
                   >
                     {t('login.forgot_password', 'Forgot password?')}

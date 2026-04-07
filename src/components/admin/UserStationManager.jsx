@@ -4,9 +4,11 @@ import { db, auth, logActivity } from '../../config/firebase';
 import { PATHS } from '../../config/dbPaths';
 import { User, Check, Save, X, Shield, Loader2, MapPin, Briefcase } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const UserStationManager = () => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [users, setUsers] = useState([]);
   const [allStations, setAllStations] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -91,7 +93,7 @@ const UserStationManager = () => {
       // Optioneel: Toon succes melding
     } catch (error) {
       console.error("Fout bij opslaan:", error);
-      alert(t('adminUserStation.saveError', { message: error.message }));
+      notify(t('adminUserStation.saveError', { message: error.message }));
     }
   };
 

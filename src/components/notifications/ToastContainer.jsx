@@ -3,7 +3,7 @@ import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-react';
 import { useNotifications } from '../../contexts/NotificationContext';
 
 const ToastContainer = () => {
-  const { toasts, removeToast } = useNotifications();
+  const { activeToast, queuedCount, removeToast } = useNotifications();
 
   const getIcon = (type) => {
     switch (type) {
@@ -16,20 +16,6 @@ const ToastContainer = () => {
       case 'info':
       default:
         return <Info className="w-5 h-5" />;
-    }
-  };
-
-  const getColors = (type) => {
-    switch (type) {
-      case 'success':
-        return 'bg-emerald-50 border-emerald-200 text-emerald-800';
-      case 'error':
-        return 'bg-rose-50 border-rose-200 text-rose-800';
-      case 'warning':
-        return 'bg-amber-50 border-amber-200 text-amber-800';
-      case 'info':
-      default:
-        return 'bg-blue-50 border-blue-200 text-blue-800';
     }
   };
 
@@ -47,52 +33,102 @@ const ToastContainer = () => {
     }
   };
 
-  if (toasts.length === 0) return null;
+  const getSurface = (type) => {
+    switch (type) {
+      case 'success':
+        return 'border-emerald-300/70 bg-[linear-gradient(135deg,rgba(236,253,245,0.98),rgba(209,250,229,0.94))] text-emerald-950 shadow-emerald-200/70';
+      case 'error':
+        return 'border-rose-300/70 bg-[linear-gradient(135deg,rgba(255,241,242,0.98),rgba(255,228,230,0.94))] text-rose-950 shadow-rose-200/70';
+      case 'warning':
+        return 'border-amber-300/70 bg-[linear-gradient(135deg,rgba(255,251,235,0.98),rgba(254,243,199,0.94))] text-amber-950 shadow-amber-200/70';
+      case 'info':
+      default:
+        return 'border-sky-300/70 bg-[linear-gradient(135deg,rgba(239,246,255,0.98),rgba(224,242,254,0.94))] text-slate-950 shadow-sky-200/70';
+    }
+  };
+
+  const getAccent = (type) => {
+    switch (type) {
+      case 'success':
+        return 'from-emerald-500 via-emerald-400 to-lime-300';
+      case 'error':
+        return 'from-rose-600 via-rose-500 to-orange-300';
+      case 'warning':
+        return 'from-amber-500 via-yellow-400 to-orange-300';
+      case 'info':
+      default:
+        return 'from-sky-600 via-cyan-500 to-emerald-300';
+    }
+  };
+
+  if (!activeToast) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-md w-full pointer-events-none">
-      {toasts.map((toast, index) => (
-        <div
-          key={toast.id}
-          className={`
-            pointer-events-auto
-            flex items-start gap-3 p-4 rounded-xl border-2 shadow-2xl
-            backdrop-blur-sm
-            animate-in slide-in-from-right-5 fade-in
-            ${getColors(toast.type)}
-          `}
-          style={{
-            animationDelay: `${index * 50}ms`,
-            animationDuration: '300ms',
-          }}
-        >
-          {/* Icon */}
-          <div className={`flex-shrink-0 ${getIconColors(toast.type)}`}>
-            {getIcon(toast.type)}
+    <div className="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
+      <div className="absolute inset-0 bg-slate-950/10 backdrop-blur-[1px]" />
+
+      <div
+        key={activeToast.id}
+        className={`pointer-events-auto relative w-full max-w-2xl overflow-hidden rounded-[26px] border shadow-[0_30px_75px_-30px_rgba(15,23,42,0.55)] backdrop-blur-xl animate-in ${getSurface(activeToast.type)}`}
+      >
+        <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${getAccent(activeToast.type)}`} />
+
+        <div className="flex items-start gap-4 px-4 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
+          <div className={`mt-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white/75 shadow-inner ${getIconColors(activeToast.type)}`}>
+            {getIcon(activeToast.type)}
           </div>
 
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <h4 className="text-sm font-black uppercase tracking-wide mb-1">
-              {toast.title}
-            </h4>
-            {toast.message && (
-              <p className="text-xs font-medium opacity-90 line-clamp-3">
-                {toast.message}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-800 sm:text-xs">
+                {activeToast.title}
+              </h4>
+              {activeToast.count > 1 && (
+                <span className="inline-flex items-center rounded-full bg-black/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-700">
+                  {activeToast.count}x
+                </span>
+              )}
+              {queuedCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 shadow-sm">
+                  +{queuedCount} in rij
+                </span>
+              )}
+            </div>
+
+            {activeToast.message && (
+              <p className="mt-2 whitespace-pre-line pr-2 text-sm font-medium leading-6 text-slate-700 sm:text-[15px]">
+                {activeToast.message}
+              </p>
+            )}
+
+            {queuedCount > 0 && (
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Meldingen worden netjes achter elkaar getoond.
               </p>
             )}
           </div>
 
-          {/* Close Button */}
           <button
-            onClick={() => removeToast(toast.id)}
-            className="flex-shrink-0 p-1 hover:bg-black/5 rounded-lg transition-colors"
+            onClick={() => removeToast(activeToast.id)}
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-black/10 bg-white/70 text-slate-500 transition-colors hover:bg-white hover:text-slate-900"
             aria-label="Sluiten"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
-      ))}
+
+        <div className="px-4 pb-4 sm:px-6 sm:pb-5">
+          <div className="h-1.5 overflow-hidden rounded-full bg-black/10">
+            <div
+              className={`h-full rounded-full bg-gradient-to-r ${getAccent(activeToast.type)}`}
+              style={{
+                width: '100%',
+                animation: `shrink-width ${activeToast.duration}ms linear forwards`,
+              }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,3 +1,4 @@
+import { useNotifications } from '../../contexts/NotificationContext';
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -22,6 +23,7 @@ import { useProductsData } from "../../hooks/useProductsData";
  */
 const AdminProductManager = ({ user }) => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [view, setView] = useState("list"); // 'list' of 'form'
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -58,7 +60,7 @@ const AdminProductManager = ({ user }) => {
       if (refresh) await refresh();
     } catch (error) {
       console.error("Delete Error:", error);
-      alert(t('adminProductManager.delete_failed') + error.message);
+      notify(t('adminProductManager.delete_failed') + error.message);
     } finally {
       setActionLoading(false);
     }
@@ -71,7 +73,7 @@ const AdminProductManager = ({ user }) => {
       if (refresh) await refresh();
     } catch (error) {
       console.error("Save Error:", error);
-      alert(t('adminProductManager.save_failed') + error.message);
+      notify(t('adminProductManager.save_failed') + error.message);
     } finally {
       setActionLoading(false);
     }

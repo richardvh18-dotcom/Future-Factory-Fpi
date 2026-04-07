@@ -35,6 +35,7 @@ import { db, auth, logActivity } from "../../config/firebase";
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, parse, isValid } from "date-fns";
 import { nl } from "date-fns/locale";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 const WEEK_INPUT_FORMAT = "RRRR-'W'II";
 
@@ -46,6 +47,7 @@ const WEEK_INPUT_FORMAT = "RRRR-'W'II";
 const AdminLogView = () => {
   const { t } = useTranslation();
   const { isAdmin } = useAdminAuth();
+  const { showConfirm , notify} = useNotifications();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("ALL");
@@ -190,7 +192,7 @@ const AdminLogView = () => {
       setHasMore(snapshot.docs.length === PAGE_SIZE);
     } catch (err) {
       console.error("Load more error:", err);
-      alert(t('adminLogView.loadMoreError', 'Fout bij laden van meer logs.'));
+      notify(t('adminLogView.loadMoreError', 'Fout bij laden van meer logs.'));
     } finally {
       setLoadingMore(false);
     }
@@ -287,12 +289,19 @@ const AdminLogView = () => {
       doc.save(`audit_log_${format(new Date(), "yyyyMMdd")}.pdf`);
     } catch (err) {
       console.error("PDF generation failed:", err);
-      alert(t('adminLogView.pdfError'));
+      notify(t('adminLogView.pdfError'));
     }
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm(t('adminLogView.confirmClearAll'))) return;
+    const confirmed = await showConfirm({
+      title: t('adminLogView.clearAllTitle', 'Alle logs wissen'),
+      message: t('adminLogView.confirmClearAll'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setIsClearing(true);
     try {
       const batch = writeBatch(db);
@@ -304,7 +313,7 @@ const AdminLogView = () => {
       await logActivity(auth.currentUser?.uid, "LOGS_CLEARED", "All logs cleared");
     } catch (err) {
       console.error("Clear error:", err);
-      alert(t('adminLogView.clearError'));
+      notify(t('adminLogView.clearError'));
     } finally {
       setIsClearing(false);
     }
@@ -319,7 +328,14 @@ const AdminLogView = () => {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysNum);
 
-    if (!window.confirm(t('adminLogView.confirmArchive', { date: format(cutoffDate, "dd-MM-yyyy") }))) return;
+    const archiveConfirmed = await showConfirm({
+      title: t('adminLogView.archiveTitle', 'Logs archiveren'),
+      message: t('adminLogView.confirmArchive', { date: format(cutoffDate, "dd-MM-yyyy") }),
+      confirmText: t('common.continue', 'Doorgaan'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'warning',
+    });
+    if (!archiveConfirmed) return;
 
     setIsClearing(true);
     try {
@@ -331,7 +347,7 @@ const AdminLogView = () => {
       const snapshot = await getDocs(q);
 
       if (snapshot.empty) {
-        alert(t('adminLogView.noLogsToArchive'));
+        notify(t('adminLogView.noLogsToArchive'));
         setIsClearing(false);
         return;
       }
@@ -356,18 +372,25 @@ const AdminLogView = () => {
         processed += chunk.length;
       }
 
-      alert(t('adminLogView.archiveSuccess', { count: processed }));
+      notify(t('adminLogView.archiveSuccess', { count: processed }));
       await logActivity(auth.currentUser?.uid, "LOGS_ARCHIVED", `Archived ${processed} logs`);
     } catch (err) {
       console.error("Archive error:", err);
-      alert(t('adminLogView.archiveError') + err.message);
+      notify(t('adminLogView.archiveError') + err.message);
     } finally {
       setIsClearing(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(t('adminLogView.confirmDelete'))) return;
+    const confirmed = await showConfirm({
+      title: t('adminLogView.deleteLogTitle', 'Log verwijderen'),
+      message: t('adminLogView.confirmDelete'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDoc(doc(db, ...LOG_PATH, id));
       await logActivity(auth.currentUser?.uid, "LOG_DELETE", `Log deleted: ${id}`);
@@ -385,7 +408,7 @@ const AdminLogView = () => {
       setEditingId(null);
     } catch (err) {
       console.error("Update error:", err);
-      alert(t('adminLogView.updateFailed'));
+      notify(t('adminLogView.updateFailed'));
     }
   };
 

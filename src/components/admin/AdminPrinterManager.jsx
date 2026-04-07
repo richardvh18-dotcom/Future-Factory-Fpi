@@ -795,7 +795,7 @@ const CalibrationModal = ({ printer, onClose, onPrint, onApply }) => {
 
 const AdminPrinterManager = () => {
   const { t } = useTranslation();
-  const { showSuccess, showError, showInfo } = useNotifications();
+  const { showSuccess, showError, showInfo, showConfirm } = useNotifications();
   const [activeTab, setActiveTab] = useState("config"); // 'config' | 'queue-stations' | 'queue'
   const [printers, setPrinters] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -927,7 +927,6 @@ const AdminPrinterManager = () => {
         updatedAt: serverTimestamp(),
       });
       await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Queue stations updated for printer ${selectedQueuePrinterId} (${nextStations.length})`);
-      showSuccess("Queue stations opgeslagen.");
     } catch (err) {
       console.error("Queue stations save error:", err);
       showError("Opslaan queue stations mislukt: " + err.message);
@@ -1015,7 +1014,14 @@ const AdminPrinterManager = () => {
   });
 
   const handleDelete = async (id) => {
-    if (!window.confirm(t('adminPrinterManager.confirmDeletePrinter'))) return;
+    const confirmed = await showConfirm({
+      title: t('adminPrinterManager.deletePrinterTitle', 'Printer verwijderen'),
+      message: t('adminPrinterManager.confirmDeletePrinter'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDoc(doc(db, ...PATHS.PRINTERS, id));
       await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", `Printer deleted: ${id}`);

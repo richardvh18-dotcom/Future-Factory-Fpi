@@ -55,7 +55,7 @@ const OrderDetail = React.memo(({
 }) => {
   const { t } = useTranslation();
   const { user, role } = useAdminAuth();
-  const { showSuccess, showError } = useNotifications();
+  const { showSuccess, showError, showConfirm , notify} = useNotifications();
   const [viewingJourney, setViewingJourney] = useState(null);
   const [viewingDossier, setViewingDossier] = useState(null);
   const [viewingDrawing, setViewingDrawing] = useState(null);
@@ -178,7 +178,14 @@ const OrderDetail = React.memo(({
 
   const handleRetrieveOrder = async () => {
     if (!order) return;
-    if (!window.confirm(t("digitalplanning.order_detail.confirm_retrieve", `Weet je zeker dat je deze order wilt terughalen van ${order.delegatedTo || 'andere afdeling'}?`))) return;
+    const retrieveConfirmed = await showConfirm({
+      title: t("digitalplanning.order_detail.retrieve_title", "Order terughalen"),
+      message: t("digitalplanning.order_detail.confirm_retrieve", `Weet je zeker dat je deze order wilt terughalen van ${order.delegatedTo || 'andere afdeling'}?`),
+      confirmText: t("common.continue", "Doorgaan"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "warning",
+    });
+    if (!retrieveConfirmed) return;
 
     try {
       const orderRef = doc(db, ...PATHS.PLANNING, order.id);
@@ -679,10 +686,10 @@ const OrderDetail = React.memo(({
                       // 2. Legacy fallback via findDrawingForProduct
                       const drawing = await findDrawingForProduct(p.itemCode || p.item || "");
                       if (drawing) setViewingDrawing(drawing);
-                      else alert(t("digitalplanning.order_detail.no_drawing"));
+                      else notify(t("digitalplanning.order_detail.no_drawing"));
                     } catch (err) {
                       console.error("Fout bij laden tekening:", err);
-                      alert(t("digitalplanning.order_detail.no_drawing"));
+                      notify(t("digitalplanning.order_detail.no_drawing"));
                     } finally {
                       setDrawingLoading(false);
                     }
@@ -719,11 +726,17 @@ const OrderDetail = React.memo(({
                   </button>
                 {isManager && onMoveLot && p.inspection?.status === "Tijdelijke afkeur" && (
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      if (window.confirm(t("digitalplanning.order_detail.move_confirm", { lot: p.lotNumber }))) {
-                        onMoveLot(p.lotNumber, "BH31");
-                      }
+                      const moveConfirmed = await showConfirm({
+                        title: t("digitalplanning.order_detail.move_confirm_title", "Product verplaatsen"),
+                        message: t("digitalplanning.order_detail.move_confirm", { lot: p.lotNumber }),
+                        confirmText: t("common.continue", "Doorgaan"),
+                        cancelText: t("common.cancel", "Annuleren"),
+                        tone: "warning",
+                      });
+                      if (!moveConfirmed) return;
+                      onMoveLot(p.lotNumber, "BH31");
                     }}
                     className={`p-2 rounded-xl transition-all ${isLongReject ? "text-red-600 hover:text-red-800 hover:bg-red-50" : "text-orange-500 hover:text-orange-700 hover:bg-orange-50"}`}
                     title={isLongReject ? t("digitalplanning.order_detail.reject_long", { days: daysInReject }) : t("digitalplanning.order_detail.to_repair")}

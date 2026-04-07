@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight, Send, FileText, ListChecks, CheckCircle2, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const RoadmapViewer = () => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [activeTab, setActiveTab] = useState("roadmap");
   const [expandedPhase, setExpandedPhase] = useState("8");
   const [newIdea, setNewIdea] = useState("");
@@ -219,7 +221,7 @@ const RoadmapViewer = () => {
 
   const handleSubmitIdea = () => {
     if (!newIdea.trim()) return;
-    alert(t('roadmap.idea_saved', "✅ Idee opgeslagen!"));
+    notify(t('roadmap.idea_saved', "✅ Idee opgeslagen!"));
     setNewIdea("");
   };
 

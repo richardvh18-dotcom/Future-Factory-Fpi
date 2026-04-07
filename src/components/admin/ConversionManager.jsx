@@ -31,6 +31,7 @@ import { manualSyncDrawings } from "../../utils/manualSyncDrawings";
 import { doc, setDoc, deleteDoc, serverTimestamp, collection, query, where, limit, getDocs, writeBatch } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * ConversionManager V6.0 - Root Integrated
@@ -38,6 +39,7 @@ import { PATHS } from "../../config/dbPaths";
  * Locatie: /future-factory/settings/conversions/mapping/records/
  */
 export default function ConversionManager() {
+  const { showConfirm , notify} = useNotifications();
   const [activeTab, setActiveTab] = useState("upload");
 
   // Upload State
@@ -170,7 +172,7 @@ export default function ConversionManager() {
       validateAndSetData(parsedData);
     } catch (err) {
       console.error(err);
-      alert("Fout bij lezen bestand: " + err.message);
+      notify("Fout bij lezen bestand: " + err.message);
       setStatus("error");
     }
   };
@@ -196,7 +198,7 @@ export default function ConversionManager() {
       });
       validateAndSetData(allData);
     } catch (err) {
-      alert("Fout bij laden tabbladen: " + err.message);
+      notify("Fout bij laden tabbladen: " + err.message);
       resetUpload();
     }
   };
@@ -244,13 +246,13 @@ export default function ConversionManager() {
 
       await logActivity(auth.currentUser?.uid, "MATRIX_UPDATE", `Batch import conversion matrix: ${total} records`);
       setStatus("done");
-      alert(
+      notify(
         `Import voltooid! ${total} records naar de root geschreven.`
       );
       resetUpload();
     } catch (error) {
       console.error(error);
-      alert("Fout tijdens uploaden: " + error.message);
+      notify("Fout tijdens uploaden: " + error.message);
       setStatus("error");
     } finally {
       setUploading(false);
@@ -389,7 +391,7 @@ export default function ConversionManager() {
       const snapshot = await getDocs(colRef);
       
       if (snapshot.size === 0) {
-        alert("Database is al leeg.");
+        notify("Database is al leeg.");
         setUploading(false);
         return;
       }
@@ -403,13 +405,13 @@ export default function ConversionManager() {
         await batch.commit();
       }
 
-      alert("Alle items zijn verwijderd.");
+      notify("Alle items zijn verwijderd.");
       setConversions([]);
       setLastDoc(null);
       loadInitialConversions();
     } catch (err) {
       console.error(err);
-      alert("Fout bij verwijderen: " + err.message);
+      notify("Fout bij verwijderen: " + err.message);
     } finally {
       setUploading(false);
     }
@@ -441,21 +443,27 @@ export default function ConversionManager() {
       setIsCreating(false);
       loadInitialConversions();
     } catch (err) {
-      alert("Opslaan mislukt: " + err.message);
+      notify("Opslaan mislukt: " + err.message);
     } finally {
       setUploading(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(`Koppeling ${id} permanent wissen uit de root?`))
-      return;
+    const confirmed = await showConfirm({
+      title: 'Koppeling verwijderen',
+      message: `Koppeling ${id} permanent wissen uit de root?`,
+      confirmText: 'Verwijderen',
+      cancelText: 'Annuleren',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDoc(doc(db, ...PATHS.CONVERSION_MATRIX, id));
       await logActivity(auth.currentUser?.uid, "MATRIX_UPDATE", `Conversion record deleted: ${id}`);
       setConversions((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
-      alert("Fout bij verwijderen: " + err.message);
+      notify("Fout bij verwijderen: " + err.message);
     }
   };
 

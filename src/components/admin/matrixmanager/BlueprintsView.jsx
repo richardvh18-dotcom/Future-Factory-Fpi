@@ -1,3 +1,4 @@
+import { useNotifications } from '../../../contexts/NotificationContext';
 import React, { useState, useMemo, useRef } from "react";
 import {
   Layers,
@@ -28,6 +29,7 @@ const BlueprintsView = ({
   libraryData,
   setHasUnsavedChanges,
 }) => {
+  const { notify } = useNotifications();
   const [selectedBlueprintKey, setSelectedBlueprintKey] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({ BORINGEN: true });
   const [searchTerm, setSearchTerm] = useState("");
@@ -138,7 +140,7 @@ const BlueprintsView = ({
 
     const sourceFields = blueprints[copySourceKey].fields || [];
     if (sourceFields.length === 0) {
-      alert("Deze bron bevat geen velden.");
+      notify("Deze bron bevat geen velden.");
       return;
     }
 
@@ -172,12 +174,12 @@ const BlueprintsView = ({
   const handleSaveToLocalState = () => {
     const key = designMode === "bore"
       ? (() => {
-      if (!newBlueprint.boreType) return alert("Selecteer een Boring Type.");
+      if (!newBlueprint.boreType) return notify("Selecteer een Boring Type.");
       return `BORE_${newBlueprint.boreType}`;
     })()
       : (() => {
         if (!newBlueprint.productType || !newBlueprint.connectionType) {
-          return alert("Selecteer Product Type en Mof.");
+          return notify("Selecteer Product Type en Mof.");
         }
         return `${newBlueprint.productType}_${newBlueprint.connectionType}${
         newBlueprint.extraCode && newBlueprint.extraCode !== "-"

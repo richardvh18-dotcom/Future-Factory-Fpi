@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
 import { formatDateTimeSafe } from "../../../utils/dateUtils";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 /**
  * DrillDownModal V2.0 - Industrial Performance Edition
@@ -33,6 +34,7 @@ const DrillDownModal = React.memo(({
   isManager,
   onDeleteLot,
 }) => {
+  const { showConfirm } = useNotifications();
   const [expandedId, setExpandedId] = useState(null);
   const [internalSearch, setInternalSearch] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(40);
@@ -166,10 +168,17 @@ const DrillDownModal = React.memo(({
                       </div>
                       {isManager && item.lotNumber && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            if (window.confirm("Dit record permanent wissen?"))
-                              onDeleteLot?.(item.lotNumber);
+                            const confirmed = await showConfirm({
+                              title: "Record verwijderen",
+                              message: "Dit record permanent wissen?",
+                              confirmText: "Verwijderen",
+                              cancelText: "Annuleren",
+                              tone: "danger",
+                            });
+                            if (!confirmed) return;
+                            onDeleteLot?.(item.lotNumber);
                           }}
                           className="p-3 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
                         >

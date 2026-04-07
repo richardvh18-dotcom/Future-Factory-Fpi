@@ -32,6 +32,7 @@ import ProductMoveModal from "../digitalplanning/ProductMoveModal";
 import { getStepForStation } from "../../utils/workstationLogic";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import StatusBadge from "../digitalplanning/common/StatusBadge";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * Mobile Inspector - Floor manager companion app
@@ -41,6 +42,7 @@ import StatusBadge from "../digitalplanning/common/StatusBadge";
 const ShopFloorMobileApp = () => {
   const { t } = useTranslation();
   const { user, role } = useAdminAuth();
+  const { notify } = useNotifications();
   const [machines, setMachines] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
   const [downtimeReports, setDowntimeReports] = useState([]);
@@ -328,10 +330,10 @@ const ShopFloorMobileApp = () => {
       );
       
       setProductToMove(null);
-      alert(`Product ${lotNumber} verplaatst naar ${newStation}`);
+      notify(`Product ${lotNumber} verplaatst naar ${newStation}`);
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
-      alert("Fout bij verplaatsen: " + err.message);
+      notify("Fout bij verplaatsen: " + err.message);
     }
   };
 
@@ -530,10 +532,10 @@ const ShopFloorMobileApp = () => {
       setShowIssueModal(false);
       setIssueDescription("");
       setIssueType(null);
-      alert(t("planning.shopFloor.issueSent", "Melding succesvol verstuurd"));
+      notify(t("planning.shopFloor.issueSent", "Melding succesvol verstuurd"));
     } catch (error) {
       console.error("Error reporting issue:", error);
-      alert(t("planning.shopFloor.issueSendError", "Fout bij versturen melding."));
+      notify(t("planning.shopFloor.issueSendError", "Fout bij versturen melding."));
     }
   };
 

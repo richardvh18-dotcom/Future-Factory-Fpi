@@ -5,6 +5,7 @@ import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, 
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS, getArchiveRejectedItemsPath } from "../../../config/dbPaths";
 import { REJECTION_REASONS, resolvePostLossenStation } from "../../../utils/workstationLogic";
+import { useNotifications } from '../../../contexts/NotificationContext';
 
 const PILOT_ALLOW_INCOMPLETE_LOSSEN_MEASUREMENTS = true;
 
@@ -50,6 +51,7 @@ const getLossenRoute = (itemText) => {
  */
 const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, autoApproveTrigger = 0, forceLossenMode = false }) => {
   const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [loading, setLoading] = useState(false);
   const lastAutoApproveRef = useRef(0);
   
@@ -173,7 +175,7 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
       status === "approved";
 
     if (selectedTargets.length === 0) {
-      alert("Selecteer minimaal 1 lotnummer.");
+      notify("Selecteer minimaal 1 lotnummer.");
       return;
     }
 
@@ -364,7 +366,7 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
       onClose();
     } catch (error) {
       console.error("Fout:", error);
-      alert(error.message);
+      notify(error.message);
     } finally {
       setLoading(false);
     }

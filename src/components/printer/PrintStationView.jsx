@@ -514,7 +514,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!station) {
-      alert("Geen station beschikbaar in factory config.");
+      notify("Geen station beschikbaar in factory config.");
       return;
     }
     setLoading(true);
@@ -546,9 +546,9 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
       });
 
       await onPrintBatch(zplBatch, lots.length);
-      alert(`${parsedCount} lotnummer(s) direct geprint via USB!`);
+      notify(`${parsedCount} lotnummer(s) direct geprint via USB!`);
     } catch (err) {
-      alert("Fout bij genereren: " + err.message);
+      notify("Fout bij genereren: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -672,7 +672,7 @@ const PrintStationView = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [productData, setProductData] = useState(null);
   const [error, setError] = useState('');
-  const { showSuccess, showError } = useNotifications();
+  const { showSuccess, showError , notify} = useNotifications();
 
   const [selectedLabelId, setSelectedLabelId] = useState('');
   const [showTempModal, setShowTempModal] = useState(false);

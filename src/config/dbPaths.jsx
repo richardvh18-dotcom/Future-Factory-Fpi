@@ -6,15 +6,30 @@
 const BASE = "future-factory";
 const ARTIFACT_APP_ID = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 const USE_ARTIFACTS_PATHS = typeof __app_id !== "undefined";
-const PLANNING_PATH = USE_ARTIFACTS_PATHS
-  ? ["artifacts", ARTIFACT_APP_ID, "public", "data", "digital_planning"]
-  : [BASE, "production", "data", "digital_planning", "orders"];
-const TRACKING_PATH = USE_ARTIFACTS_PATHS
-  ? ["artifacts", ARTIFACT_APP_ID, "public", "data", "tracked_products"]
-  : [BASE, "production", "tracked_products"];
-const EFFICIENCY_HOURS_PATH = USE_ARTIFACTS_PATHS
-  ? ["artifacts", ARTIFACT_APP_ID, "public", "data", "efficiency_hours"]
-  : [BASE, "production", "efficiency_hours"];
+const FUTURE_PLANNING_PATH = [BASE, "production", "data", "digital_planning", "orders"];
+const FUTURE_PLANNING_PATH_LEGACY = [BASE, "production", "digital_planning"];
+const PILOT_PLANNING_PATH_PRIMARY = [BASE, "production", "digital_planning"];
+const PILOT_PLANNING_PATH_FALLBACK = [BASE, "production", "data", "digital_planning", "orders"];
+const FUTURE_TRACKING_PATH = [BASE, "production", "tracked_products"];
+const FUTURE_EFFICIENCY_HOURS_PATH = [BASE, "production", "efficiency_hours"];
+const ARTIFACT_PLANNING_PATH = ["artifacts", ARTIFACT_APP_ID, "public", "data", "digital_planning"];
+const ARTIFACT_TRACKING_PATH = ["artifacts", ARTIFACT_APP_ID, "public", "data", "tracked_products"];
+const ARTIFACT_EFFICIENCY_HOURS_PATH = ["artifacts", ARTIFACT_APP_ID, "public", "data", "efficiency_hours"];
+
+let ADMIN_DATA_SOURCE_MODE = "current";
+
+const shouldUseArtifactsPaths = () =>
+  USE_ARTIFACTS_PATHS && ADMIN_DATA_SOURCE_MODE !== "pilot-read";
+
+let PLANNING_PATH = shouldUseArtifactsPaths()
+  ? ARTIFACT_PLANNING_PATH
+  : FUTURE_PLANNING_PATH;
+let TRACKING_PATH = shouldUseArtifactsPaths()
+  ? ARTIFACT_TRACKING_PATH
+  : FUTURE_TRACKING_PATH;
+let EFFICIENCY_HOURS_PATH = shouldUseArtifactsPaths()
+  ? ARTIFACT_EFFICIENCY_HOURS_PATH
+  : FUTURE_EFFICIENCY_HOURS_PATH;
 
 export const ACTIVE_SITE = BASE;
 
@@ -82,6 +97,67 @@ export const PATHS = {
   SCENARIOS: [BASE, "planning", "scenarios"],
 };
 
+const refreshRuntimeDataPaths = () => {
+  PLANNING_PATH = ADMIN_DATA_SOURCE_MODE === "pilot-read"
+    ? PILOT_PLANNING_PATH_PRIMARY
+    : (shouldUseArtifactsPaths() ? ARTIFACT_PLANNING_PATH : FUTURE_PLANNING_PATH);
+  TRACKING_PATH = shouldUseArtifactsPaths()
+    ? ARTIFACT_TRACKING_PATH
+    : FUTURE_TRACKING_PATH;
+  EFFICIENCY_HOURS_PATH = shouldUseArtifactsPaths()
+    ? ARTIFACT_EFFICIENCY_HOURS_PATH
+    : FUTURE_EFFICIENCY_HOURS_PATH;
+
+  PATHS.PLANNING = PLANNING_PATH;
+  PATHS.TRACKING = TRACKING_PATH;
+  PATHS.EFFICIENCY_HOURS = EFFICIENCY_HOURS_PATH;
+};
+
+export const setAdminDataSourceMode = (mode = "current") => {
+  ADMIN_DATA_SOURCE_MODE = mode === "pilot-read" ? "pilot-read" : "current";
+  refreshRuntimeDataPaths();
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("admin-data-source-mode-changed", {
+        detail: { mode: ADMIN_DATA_SOURCE_MODE },
+      })
+    );
+  }
+};
+
+export const getAdminDataSourceMode = () => ADMIN_DATA_SOURCE_MODE;
+
+export const isPilotReadDataSource = () => ADMIN_DATA_SOURCE_MODE === "pilot-read";
+
+// Fixed read-only paths to the pilot/live production collections.
+const PILOT_PLANNING_PATH = PILOT_PLANNING_PATH_PRIMARY;
+const PILOT_TRACKING_PATH = [BASE, "production", "tracked_products"];
+const PILOT_EFFICIENCY_HOURS_PATH = [BASE, "production", "efficiency_hours"];
+
+export const PILOT_READ_PATHS = {
+  ...PATHS,
+  PLANNING: PILOT_PLANNING_PATH,
+  TRACKING: PILOT_TRACKING_PATH,
+  EFFICIENCY_HOURS: PILOT_EFFICIENCY_HOURS_PATH,
+};
+
+export const getReadPaths = (usePilotRead = false) =>
+  usePilotRead ? PILOT_READ_PATHS : PATHS;
+
+export const getPilotPlanningReadPathCandidates = () => [
+  PILOT_PLANNING_PATH_PRIMARY,
+  PILOT_PLANNING_PATH_FALLBACK,
+  FUTURE_PLANNING_PATH_LEGACY,
+  FUTURE_PLANNING_PATH,
+];
+
+// Initialiseer runtime-data bron op basis van persistente admin instelling.
+if (typeof window !== "undefined") {
+  const savedMode = window.localStorage.getItem("adminDataSourceMode");
+  setAdminDataSourceMode(savedMode === "pilot-read" ? "pilot-read" : "current");
+}
+
 /**
  * isValidPath - Controleert of een pad-sleutel geldig is
  */
@@ -110,7 +186,7 @@ export const getPathString = (pathArray) =>
  * @param {number|string} year - Het jaar van het archief
  */
 export const getArchiveItemsPath = (year) => {
-  if (USE_ARTIFACTS_PATHS) {
+  if (shouldUseArtifactsPaths()) {
     return ["artifacts", ARTIFACT_APP_ID, "public", "data", "archive", String(year), "items"];
   }
   return [BASE, "production", "archive", String(year), "items"];
@@ -121,7 +197,7 @@ export const getArchiveItemsPath = (year) => {
  * @param {number|string} year - Het jaar van het archief
  */
 export const getArchiveRejectedItemsPath = (year) => {
-  if (USE_ARTIFACTS_PATHS) {
+  if (shouldUseArtifactsPaths()) {
     return ["artifacts", ARTIFACT_APP_ID, "public", "data", "archive", String(year), "rejected"];
   }
   return [BASE, "production", "archive", String(year), "rejected"];

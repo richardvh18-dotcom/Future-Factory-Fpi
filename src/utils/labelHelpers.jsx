@@ -558,7 +558,19 @@ export const filterLabelsByProduct = (labels, product, options = {}) => {
   
   // 1. Normaliseer product data naar tags (Set voor unieke waarden)
   const productTags = new Set();
-  const desc = String(product.itemCode || product.productId || product.description || product.item || "").toUpperCase();
+  const desc = [
+    product.itemCode,
+    product.productId,
+    product.description,
+    product.item,
+    product.itemDescription,
+    product.article,
+    product.articleDescription,
+    product.extraCode,
+  ]
+    .map((value) => String(value || "").toUpperCase().trim())
+    .filter(Boolean)
+    .join(" ");
   const type = String(product.productType || product.type || "").toUpperCase();
   
   // Basis tags uit type

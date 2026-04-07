@@ -35,6 +35,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrderIds, setSelectedOrderIds] = useState(new Set());
   const [selectedWeekCutoff, setSelectedWeekCutoff] = useState("");
+  const [hybridImportEnabled, setHybridImportEnabled] = useState(false);
+  const [hybridMachines, setHybridMachines] = useState([]);
   const [, setDebugLogs] = useState([]);
 
   const fileInputRef = useRef(null);
@@ -57,6 +59,12 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   };
 
   const clean = (val) => String(val || "").trim();
+
+  const normalizeMachineCodeForFilter = (machineCode) => {
+    const raw = clean(machineCode).toUpperCase();
+    if (!raw) return "-";
+    return raw.startsWith("40") ? raw.slice(2) : raw;
+  };
 
   const parseNum = (val) => {
     if (val === null || val === undefined || val === "") return 0;
@@ -182,6 +190,26 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     }
 
     return split;
+  };
+
+  const buildReferenceOperationSummary = (operations = {}) => {
+    const byCode = {};
+
+    Object.entries(operations).forEach(([refOp, values]) => {
+      const planned = Number(values?.planned || 0);
+      const actual = Number(values?.actual || 0);
+      const wc = normalizeMachine(values?.wc || "");
+      const bucket = classifyReferenceOperation(refOp, wc);
+
+      byCode[refOp] = {
+        plannedHours: planned,
+        actualHours: actual,
+        workCenter: wc,
+        bucket,
+      };
+    });
+
+    return byCode;
   };
 
   // LOGICA: Aggregatie van Operations per unieke Productie Order inclusief Creation Date
@@ -411,6 +439,59 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   }, [availableWeeks]);
 
   const availableMachines = useMemo(() => ["All", ...Array.from(new Set(validOrders.map(d => d.machine))).sort()], [validOrders]);
+  const availableHybridMachines = useMemo(
+    () => Array.from(new Set(validOrders.map((d) => normalizeMachineCodeForFilter(d.machine)).filter(Boolean))).sort(),
+    [validOrders]
+  );
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("planningImportHybridConfig");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setHybridImportEnabled(Boolean(parsed?.enabled));
+      setHybridMachines(Array.isArray(parsed?.machines) ? parsed.machines.map((m) => normalizeMachineCodeForFilter(m)) : []);
+    } catch {
+      // Geen opgeslagen voorkeuren of ongeldige JSON.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "planningImportHybridConfig",
+        JSON.stringify({
+          enabled: hybridImportEnabled,
+          machines: hybridMachines,
+        })
+      );
+    } catch {
+      // Storage kan uitstaan in sommige browsers/profielen.
+    }
+  }, [hybridImportEnabled, hybridMachines]);
+
+  useEffect(() => {
+    setHybridMachines((prev) => prev.filter((machine) => availableHybridMachines.includes(machine)));
+  }, [availableHybridMachines]);
+
+  const isAllowedByHybridMachineFilter = (order) => {
+    if (!hybridImportEnabled) return true;
+    if (!hybridMachines.length) return false;
+    return hybridMachines.includes(normalizeMachineCodeForFilter(order.machine));
+  };
+
+  const toggleHybridMachine = (machineCode) => {
+    setHybridMachines((prev) => {
+      if (prev.includes(machineCode)) return prev.filter((m) => m !== machineCode);
+      return [...prev, machineCode].sort();
+    });
+  };
+
+  const selectHybridMachines = (machines) => {
+    const unique = Array.from(new Set(machines.map((m) => normalizeMachineCodeForFilter(m)))).filter((m) => availableHybridMachines.includes(m));
+    setHybridMachines(unique.sort());
+  };
+
   const displayData = useMemo(() => {
     let rows = [...validOrders];
 
@@ -434,9 +515,16 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
     return rows;
   }, [validOrders, machineFilter, machineGroupFilter, statusFilter, existingIds]);
+
+  const importCandidates = useMemo(() => {
+    let rows = validOrders.filter((d) => importMode === "overwrite" || !existingIds.has(d.id));
+    rows = rows.filter((d) => isAllowedByHybridMachineFilter(d));
+    return rows;
+  }, [validOrders, importMode, existingIds, hybridImportEnabled, hybridMachines]);
+
   const importableCount = useMemo(
-    () => validOrders.filter((d) => importMode === "overwrite" || !existingIds.has(d.id)).length,
-    [validOrders, importMode, existingIds]
+    () => importCandidates.length,
+    [importCandidates]
   );
   const deliveryBuckets = useMemo(() => {
     return displayData.reduce(
@@ -492,7 +580,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const startImport = async () => {
     setImporting(true);
     try {
-      const toImport = validOrders.filter((d) => importMode === "overwrite" || !existingIds.has(d.id));
+      const toImport = importCandidates;
 
       // Schrijf in chunks van 400 (Firestore batch limiet is 500)
       const CHUNK = 400;
@@ -504,6 +592,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           delete dbData.isValidForImport;
           const normalizedItem = dbData.item || dbData.itemDescription || "";
           const normalizedItemDescription = dbData.itemDescription || dbData.item || "";
+          const { productionHours, postHours, qcHours } = getSplitPlannedHours(item.operations, item.totalPlannedHours || 0);
+          const operationByCode = buildReferenceOperationSummary(item.operations);
+
           // Planning order
           batch.set(
             doc(db, ...PATHS.PLANNING, item.id),
@@ -511,13 +602,20 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
               ...dbData,
               item: normalizedItem,
               itemDescription: normalizedItemDescription,
+              // Houd station-specifieke importuren op orderniveau voor planning/efficiency fallback.
+              plannedHoursBH: productionHours,
+              plannedHoursNabewerken: postHours,
+              plannedHoursBM01: qcHours,
+              plannedMinutesBH: productionHours * 60,
+              plannedMinutesNabewerken: postHours * 60,
+              plannedMinutesBM01: qcHours * 60,
+              referenceOperationTimes: operationByCode,
               planningHidden: !selectedOrderIds.has(item.id),
               updatedAt: serverTimestamp()
             },
             { merge: true }
           );
           // Efficiency record: totalPlannedHours → standardTimeTotal (in minuten)
-          const { productionHours, postHours, qcHours } = getSplitPlannedHours(item.operations, item.totalPlannedHours || 0);
           const productionMinutes = productionHours * 60;
           const postProcessingMinutes = postHours * 60;
           const qcMinutes = qcHours * 60;
@@ -665,6 +763,64 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                       Alles verborgen
                     </button>
                   </div>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 rounded-3xl p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Hybride Import</p>
+                      <p className="text-xs font-bold text-amber-900">Beperk import tot gekozen workcenters (bijv. BH12/BH18).</p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-xs font-black text-amber-900 uppercase tracking-widest cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hybridImportEnabled}
+                        onChange={(e) => setHybridImportEnabled(e.target.checked)}
+                        className="h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                      />
+                      Alleen geselecteerde machines importeren
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => selectHybridMachines(["BH12", "BH18"])}
+                      className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-100"
+                    >
+                      BH12 + BH18
+                    </button>
+                    <button
+                      onClick={() => selectHybridMachines(availableHybridMachines)}
+                      className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-100"
+                    >
+                      Alles selecteren
+                    </button>
+                    <button
+                      onClick={() => setHybridMachines([])}
+                      className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-100"
+                    >
+                      Leegmaken
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
+                    {availableHybridMachines.map((machineCode) => {
+                      const selected = hybridMachines.includes(machineCode);
+                      return (
+                        <button
+                          key={machineCode}
+                          onClick={() => toggleHybridMachine(machineCode)}
+                          className={`px-3 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest border transition-all ${selected ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-800 border-amber-300 hover:bg-amber-100"}`}
+                        >
+                          {machineCode}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {hybridImportEnabled && hybridMachines.length === 0 && (
+                    <p className="text-[11px] font-bold text-red-700">Hybride import staat aan, maar er zijn nog geen machines geselecteerd. Resultaat: 0 imports.</p>
+                  )}
                 </div>
 
                 <div className="border border-slate-100 rounded-[2.5rem] overflow-hidden bg-white shadow-sm flex-1 min-h-0 overflow-y-auto">
