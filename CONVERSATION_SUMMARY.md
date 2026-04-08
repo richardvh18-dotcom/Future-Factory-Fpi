@@ -1,5 +1,137 @@
 # 📝 FPi Future Factory - Pilot Handover & Development Summary
 
+### Update sessie 51 (i18n vervolg digitalplanning - hervatpunt opgeslagen)
+
+**Datum:** 8 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Vertalingen opschonen in productieflow en daarna verbreden naar zoveel mogelijk onderdelen in `src/components/digitalplanning`.
+- Mixed language in Duitse modus beperken (Nederlands/Engels door elkaar).
+
+**Wat is afgerond in deze batch:**
+- Grote i18n-pass uitgevoerd op o.a. Terminal-flow, Lossen, Mazak en meerdere hubs/modals.
+- Veel hardcoded zichtbare UI-teksten vervangen door `t(...)` calls met fallback.
+- Extra componenten meegenomen: o.a. `WorkstationHub`, `StationDetailModal`, `TeamleaderHub`.
+- Meerdere tussentijdse validaties gedaan op aangepaste bestanden: geen fouten in gecontroleerde files.
+
+**Openstaand (bewust geparkeerd als eerstvolgende stap):**
+1. Resterende hardcoded tekst in overgebleven digitalplanning-files volledig uitfaseren.
+2. Missende sleuteldekking in taalbestanden (met focus op `de.js`) aanvullen om fallback-lekkage te verminderen.
+3. Na afronding een laatste volledige sweep + errorcheck uitvoeren en restlijst rapporteren.
+
+**Hervatpunt voor volgende sessie:**
+- Start met een nieuwe scan op `src/components/digitalplanning` voor resterende zichtbare literals en notification-strings.
+- Werk daarna per bestand in batches: scan -> patch -> errorcheck.
+
+### Update sessie 50 (Teamleader KPI-filters + planning UX + plak-import fallback)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Teamleader KPI's corrigeren zodat weekwaarden en prioriteit logisch kloppen.
+- Volledige lijst (Teamleader/Planner) visueel gelijk trekken met workstation planning (CST/EMT + selectie-kleur).
+- Tijdelijke plak-import in huidige `PlanningImportModal` activeren zolang LN-import nog finetuning nodig heeft.
+
+**Wat is gedaan:**
+- **Planningstatus Teamleader opgeschoond (Open/Lopend only)**
+    - In Teamleader `gepland`-berekeningen en planninglijst wordt nu alleen nog gewerkt met open/lopende statussen.
+    - `Gereed`/`Completed` orders worden niet meer meegenomen in planning KPI/lijst.
+
+- **KPI modal weeknavigatie toegevoegd (Gereed + Afkeur)**
+    - In drilldown (`TraceModal`) kun je nu per week terug/vooruit bladeren.
+    - Knoppen: vorige week, volgende week (tot huidige week), en reset naar deze week.
+
+- **KPI-tegels terug op actuele week gezet**
+    - Na eerste wijziging telden tegels historie mee; dit is hersteld.
+    - `Gereed`, `Afkeur` en `Tijdelijke afkeur` KPI's tonen nu alleen huidige ISO-week.
+
+- **KPI Prio gefixt voor afgeronde orders**
+    - Prioriteits-KPI sluit nu afgeronde/gereed/rejected trackingitems uit.
+    - Orders met alleen historische tijdelijke afkeur maar inmiddels gereed komen niet meer in Prio.
+
+- **CST/EMT badges + gekleurde orderkaartjes in Volledige Lijst**
+    - Zelfde type-detectie als workstation planning toegepast in `PlanningSidebar`.
+    - `EMT`: lichtblauwe tint + EMT badge.
+    - `CST`: lichtgrijze tint + CST badge.
+
+- **Selected tegelkleur van blauw naar groen**
+    - Selectiestijl in planninglijsten is nu groen (rand/achtergrond/tekstaccent) i.p.v. blauw.
+
+- **PlanningImportModal: plakmodus toegevoegd en als default gezet**
+    - Nieuwe tijdelijke flow: Excel-data direct plakken in textarea.
+    - `Plak Excel Data` staat standaard geselecteerd; bestand-upload blijft beschikbaar.
+
+- **Plak-import robuuster gemaakt (fallbacks)**
+    - Naast LN raw (`Production Order`) wordt nu ook tabulaire plakdata geaccepteerd.
+    - Extra herstel voor platte Office-plakblokken:
+        - header-herkenning op meerdere patronen,
+        - machine-hint injectie als machinekolom ontbreekt,
+        - forward-fill van lege datum/week velden,
+        - fallback parser als hoofdparser niets vindt.
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+- `src/components/digitalplanning/modals/TraceModal.jsx`
+- `src/components/digitalplanning/PlanningSidebar.jsx`
+- `src/components/digitalplanning/terminal/TerminalPlanningView.jsx`
+- `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+
+**Validatie:**
+- `get_errors` op alle aangepaste bestanden: **geen fouten**.
+
+**Actueel hervatpunt:**
+- Teamleader KPI's en planninglijst zijn functioneel gecorrigeerd (weekfilters + prio + statusfiltering).
+- UI-verbeteringen voor Volledige Lijst staan live (CST/EMT badges + groene selectie).
+- Tijdelijke plak-import staat aan als default; eerstvolgende stap is 1 echte LN-plaktest valideren met 2-3 voorbeeldorders en daarna pas de definitieve LN-only flow harden.
+
+### Update sessie 49 (Gereed-tab UX + archief + code-opschoning)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Gereed-tab bruikbaarder maken op de vloer (leesbaarheid + zoeken + scrollgedrag).
+- 5 dagen historie als **werkdagen** interpreteren (weekend niet meetellen).
+- Archiefitems uit `future-factory/production/archive/{year}/items` ook tonen.
+- Grote Terminal-code verder opschonen en duplicatie verminderen.
+
+**Wat is gedaan:**
+- **BH18 gereed-tab geactiveerd in Terminal**
+    - `GEREED_TAB_SOURCE_STATIONS` uitgebreid met `BH18`, zodat BH18 nu `Planning / Wikkelen / Gereed` toont i.p.v. `Lossen`.
+
+- **Gereed-tab UX verbeterd**
+    - Zoekbalk toegevoegd met filter op **product + order + lotnummer**.
+    - Zoekbalk vastgezet bovenaan (sticky gedrag): bij lange lijst blijft zoeken zichtbaar.
+    - Orderkaartjes groter gemaakt met duidelijkere hiërarchie:
+        - productnaam prominent,
+        - itemcode op een eigen regel eronder,
+        - badges voor order/lot,
+        - tijdstempel van doorgang naar Lossen.
+
+- **Historie op werkdagen gezet**
+    - `subDays(5)` vervangen door werkdaglogica (ma-vr), weekend telt niet mee.
+
+- **Archief daadwerkelijk meegenomen**
+    - Gereed-overzicht combineert live tracking + archiefitems.
+    - Deduplicatie op item/lot, sortering op meest recente timestamp.
+
+- **Refactor / onderhoudbaarheid**
+    - Nieuwe gedeelde component: `src/components/digitalplanning/terminal/TerminalGereedTab.jsx`.
+    - `Terminal.jsx` opgeschoond en gereed-tab inline code verwijderd.
+    - `GereedView.jsx` omgezet naar dunne wrapper rond dezelfde gedeelde component, zodat zowel Terminal-flow als WorkstationHub-flow exact dezelfde Gereed-logica/UI gebruiken.
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/Terminal.jsx`
+- `src/components/digitalplanning/GereedView.jsx`
+- `src/components/digitalplanning/terminal/TerminalGereedTab.jsx` (nieuw)
+- `src/components/digitalplanning/WorkstationHub.jsx` (eerder in deze keten, voor tab-routing)
+
+**Validatie:**
+- `get_errors` op alle betrokken bestanden: **geen fouten**.
+
+**Actueel hervatpunt:**
+- Gereed-tab is functioneel afgerond (BH18 + archief + werkdagen + sticky search + grotere kaarten + gedeelde component).
+- Volgende logische stap is alleen nog optioneel: live vloer-validatie met 1-2 recente BH18 lots om te checken of alle verwachte archiefitems in dezelfde volgorde zichtbaar zijn.
+
 ### Hervatpunt (opgeslagen op verzoek)
 
 **Datum:** 5 april 2026 | **Branch:** `pilot-dev`
@@ -35,6 +167,60 @@
 
 **Actueel hervatpunt (na sessie 47):**
 - Firebase import is nu ook zonder Power Automate account operationeel via Storage-trigger (`importPlanningFromStorage`): upload naar `imports/planning/` start automatisch import naar planning + efficiency met idempotency en optionele machinefilter.
+
+**Actueel hervatpunt (na sessie 48):**
+- LOSSEN 12/18 heeft directe stationroutering en operator auto-loginflow (BH12/BH15/BH17/BH18) met anti-dubbeluren (`isSecondary`), terwijl de LOSSEN 12/18 planning-view actief staat als volledige planning met machinefilters (`Alle/BH12/BH15/BH17/BH18`).
+- Laatste foutieve BH18-meeneemfilter in `LossenView` is weer teruggedraaid; volgende stap is live-validatie op de vloer met concrete lots (BH18-tab vs LOSSEN 12/18 view).
+
+### Update sessie 48 (LOSSEN 12/18 routing, tabs, auto-login en gerichte rollback)
+
+**Datum:** 7 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- LOSSEN 12/18 functioneel gelijkzetten aan de gewenste werkvloerflow:
+    - directe routering vanaf BH12/BH15/BH17
+    - BH18 behoudt diameter-routing
+    - operator-overzicht en planningondersteuning voor lossers
+    - geen dubbele urentelling bij auto-koppeling
+
+**Wat is gedaan:**
+- `WorkstationHub.jsx`
+    - `LOSSEN_1218_SOURCE_STATIONS = {BH12, BH15, BH17}` en stationnaam `LOSSEN 12/18` doorgevoerd in routering.
+    - `getLossenRoute()` gebruikt objectvorm (`{ mode, station }`) en schrijft doelstation expliciet weg.
+    - Operator check-in uitgebreid met auto-koppeling naar LOSSEN 12/18 voor BH12/BH15/BH17/BH18 via secondary occupancy-record.
+    - Uren-dubbeling geblokkeerd door secondary-records met `isSecondary` op 0 uur af te sluiten (zowel handmatig switchen als auto-checkout).
+
+- `ProductReleaseModal.jsx`
+    - Lossen-routering gelijkgetrokken met `WorkstationHub`: BH12/BH15/BH17 direct naar `LOSSEN 12/18`, BH18 via bestaande diameterregels.
+
+- `Terminal.jsx`
+    - LOSSEN 12/18 uit simple view gehaald zodat tabs mogelijk zijn.
+    - Standaardtab voor LOSSEN 12/18 op `Lossen` gezet.
+    - Planning-view voor LOSSEN 12/18 opgeleverd als volledige planningweergave met machinefilters (`Alle/BH12/BH15/BH17/BH18`).
+    - Tijdens rollback-correctie is alleen de foutieve tussenvariant verwijderd; gewenste planningvariant staat nu actief.
+
+- `LossenView.jsx`
+    - Centrale filtering aangepast op LOSSEN vs LOSSEN 12/18 origins.
+    - Laatste extra BH18-forceblok (die ook Wikkelen-items in LOSSEN 12/18 trok) is uiteindelijk teruggedraaid op verzoek.
+
+**Belangrijke correcties tijdens sessie:**
+- Runtime crash in `Terminal.jsx` opgelost (referentievolgorde `filteredOrders`/`lossenFilteredOrders`).
+- Daarna rollback verfijnd: niet alles terug, alleen de foutieve laatste filtering; gewenste planning-view hersteld.
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/WorkstationHub.jsx`
+- `src/components/digitalplanning/Terminal.jsx`
+- `src/components/digitalplanning/LossenView.jsx`
+- `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+
+**Validatie:**
+- `get_errors` op aangepaste bestanden: geen fouten.
+- ESLint op aangepaste bestanden: clean (laatste run zonder output).
+
+**Openstaand / eerstvolgende stap:**
+1. Live op pilotvloer valideren met 1 BH12, 1 BH17 en 1 BH18 lot.
+2. Controlepunt per lot: doelstation na release, zichtbaarheid in LOSSEN-tab, zichtbaarheid in LOSSEN 12/18 planning, en occupancy-uren (geen dubbeltelling).
+3. Indien BH18-weergave in LOSSEN 12/18 toch nog afwijkend is: alleen filterregels in `LossenView.jsx` finetunen, zonder Terminal-planning opnieuw te wijzigen.
 
 ### Update sessie 47 (Firebase Storage trigger + server-side machinefilter)
 
