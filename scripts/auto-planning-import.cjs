@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+EL9AEMS0CR0B50BCCBB0#!/usr/bin/env node
 
 /**
  * Auto Planning Import watcher

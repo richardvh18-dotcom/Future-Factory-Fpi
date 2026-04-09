@@ -33,6 +33,15 @@ export const normalizeMachine = (m) => {
   return normalized;
 };
 
+export const getStartedCounterField = (stationName) => {
+  const normalized = normalizeMachine(stationName || "");
+  const fallback = String(stationName || "").trim().replace(/\s+/g, "");
+  const keySource = normalized || fallback;
+  if (!keySource) return "";
+  const safeKey = keySource.replace(/[^a-zA-Z0-9]/g, "_");
+  return `started_${safeKey}`;
+};
+
 export const formatDate = (ts) => {
   if (!ts) return "-";
   const d = ts.toDate ? ts.toDate() : new Date(ts);

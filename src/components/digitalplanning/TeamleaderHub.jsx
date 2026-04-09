@@ -20,12 +20,12 @@ import {
 } from "lucide-react";
 import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, getDoc, limit, increment } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
-import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek } from "date-fns";
+import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek, addWeeks } from "date-fns";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import * as XLSX from "xlsx";
 
 // Helpers & Modals
-import { normalizeMachine, PIPE_MACHINES } from "../../utils/hubHelpers";
+  import { normalizeMachine, PIPE_MACHINES, FITTING_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
 import StationDetailModal from "./modals/StationDetailModal";
 import TraceModal from "./modals/TraceModal";
 import PlanningImportModal from "./modals/PlanningImportModal";
@@ -63,12 +63,14 @@ const TeamleaderHub = React.memo(({
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const currentWeek = getISOWeek(new Date());
+  const currentYear = new Date().getFullYear();
 
   const [activeTab, setActiveTab] = useState("dashboard");
   const [rawOrders, setRawOrders] = useState([]);
   const [rawProducts, setRawProducts] = useState([]);
   const [bezetting, setBezetting] = useState([]);
   const [archivedProducts, setArchivedProducts] = useState([]);
+  const [archivedHistoryProducts, setArchivedHistoryProducts] = useState([]);
   const [factoryConfig, setFactoryConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState(null);
@@ -94,6 +96,7 @@ const TeamleaderHub = React.memo(({
   const [activeKpi, setActiveKpi] = useState(null);
   const [lastKpi, setLastKpi] = useState(null);
   const [modalTitle, setModalTitle] = useState("");
+  const [kpiWeekOffset, setKpiWeekOffset] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
   const [viewingDossier, setViewingDossier] = useState(null);
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
@@ -204,7 +207,8 @@ const TeamleaderHub = React.memo(({
       const start = startOfISOWeek(now);
       const end = endOfISOWeek(now);
       const year = now.getFullYear();
-      const unsubArchive = onSnapshot(
+
+      const unsubArchiveWeek = onSnapshot(
         query(
           collection(db, ...getArchiveItemsPath(year)),
           where("timestamps.finished", ">=", start),
@@ -215,7 +219,46 @@ const TeamleaderHub = React.memo(({
         },
         (err) => console.warn("Archive Sync Error (Week Stats):", err.code)
       );
-      unsubs.push(unsubArchive);
+      unsubs.push(unsubArchiveWeek);
+
+      const minArchiveDate = subDays(now, 365);
+      const archiveDataByYear = {};
+
+      const syncArchiveHistory = () => {
+        if (!isMounted) return;
+        const combined = Object.values(archiveDataByYear)
+          .flatMap((items) => items || [])
+          .sort((a, b) => {
+            const aMs =
+              a?.timestamps?.finished?.toMillis?.() ||
+              a?.updatedAt?.toMillis?.() ||
+              new Date(a?.updatedAt || 0).getTime() ||
+              0;
+            const bMs =
+              b?.timestamps?.finished?.toMillis?.() ||
+              b?.updatedAt?.toMillis?.() ||
+              new Date(b?.updatedAt || 0).getTime() ||
+              0;
+            return bMs - aMs;
+          });
+        setArchivedHistoryProducts(combined);
+      };
+
+      [now.getFullYear(), now.getFullYear() - 1].forEach((historyYear) => {
+        const unsubArchiveYear = onSnapshot(
+          query(
+            collection(db, ...getArchiveItemsPath(historyYear)),
+            where("timestamps.finished", ">=", minArchiveDate)
+          ),
+          (snap) => {
+            if (!isMounted) return;
+            archiveDataByYear[historyYear] = snap.docs.map((d) => ({ id: `${historyYear}_${d.id}`, ...d.data() }));
+            syncArchiveHistory();
+          },
+          (err) => console.warn("Archive Sync Error (KPI History):", historyYear, err.code)
+        );
+        unsubs.push(unsubArchiveYear);
+      });
 
       // Token refresh in background (optional, for edge cases)
       if (!auth.currentUser && user) {
@@ -311,17 +354,63 @@ const TeamleaderHub = React.memo(({
 
   // 2. Genereer genormaliseerde lijst voor filtering
   const effectiveAllowedNorms = useMemo(() => {
-     return effectiveStations
+     const baseNorms = effectiveStations
         .map(s => normalizeMachine(s.name))
         .filter(n => n && n !== "TEAMLEADER" && n !== "ALGEMEEN");
-  }, [effectiveStations]);
+
+     if (safeScope === "fittings") {
+       const fittingNorms = FITTING_MACHINES
+         .map((stationName) => normalizeMachine(stationName))
+         .filter(Boolean);
+       return Array.from(new Set([...baseNorms, ...fittingNorms]));
+     }
+
+     return baseNorms;
+  }, [effectiveStations, safeScope]);
+
+  const orderProgressMeta = useMemo(() => {
+    const perOrder = new Map();
+
+    rawProducts.forEach((product) => {
+      const orderId = String(product?.orderId || "").trim();
+      if (!orderId) return;
+
+      const machineNorm = normalizeMachine(product?.machine || "");
+      const originNorm = normalizeMachine(product?.originMachine || "");
+      const currentNorm = normalizeMachine(product?.currentStation || "");
+      const lastNorm = normalizeMachine(product?.lastStation || "");
+
+      const inScope =
+        effectiveAllowedNorms.length === 0 ||
+        [machineNorm, originNorm, currentNorm, lastNorm].some((value) =>
+          value ? effectiveAllowedNorms.includes(value) : false
+        );
+
+      if (!inScope) return;
+
+      const existing = perOrder.get(orderId) || {
+        trackedInScopeCount: 0,
+        trackedLots: new Set(),
+      };
+
+      existing.trackedInScopeCount += 1;
+      const lotNumber = String(product?.lotNumber || product?.id || "").trim();
+      if (lotNumber) existing.trackedLots.add(lotNumber);
+      perOrder.set(orderId, existing);
+    });
+
+    return perOrder;
+  }, [rawProducts, effectiveAllowedNorms]);
 
   const dataStore = useMemo(() => {
     if (!rawOrders) return [];
 
-    return rawOrders
+      return rawOrders
       .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
       .filter((o) => {
+          const orderId = String(o?.orderId || "").trim();
+          const progressMeta = orderProgressMeta.get(orderId);
+
         // Order moet bij juiste afdeling horen
         if (targetSlug !== "all") {
           const dept = (o.department || "").toLowerCase();
@@ -355,15 +444,24 @@ const TeamleaderHub = React.memo(({
           }
 
           if (o.normMachine) {
-            return effectiveAllowedNorms.includes(o.normMachine);
+              if (effectiveAllowedNorms.includes(o.normMachine)) return true;
           }
+
+            const hasStartedInScope = effectiveAllowedNorms.some((stationNorm) => {
+              const startedField = getStartedCounterField(stationNorm);
+              return startedField ? Number(o?.[startedField] || 0) > 0 : false;
+            });
+            if (hasStartedInScope) return true;
+
+            if ((progressMeta?.trackedInScopeCount || 0) > 0) return true;
+
           // Als order GEEN machine heeft (backlog), toon hem wel (zodat planning niet 0 is)
-          return true;
+            return !o.normMachine;
         }
         // Als er geen stations bekend zijn (en scope is niet 'all'), toon niets om vervuiling te voorkomen
         return false;
       });
-  }, [rawOrders, effectiveAllowedNorms, fixedScope, targetSlug, departmentFilter]);
+  }, [rawOrders, effectiveAllowedNorms, fixedScope, targetSlug, departmentFilter, orderProgressMeta]);
 
   const selectedOrder = useMemo(() => {
     if (!selectedOrderId) return null;
@@ -383,6 +481,45 @@ const TeamleaderHub = React.memo(({
   }, [selectedSidebarEntry, selectedOrderId]);
 
   const canManageOverproduction = fixedScope === "all" && ["planner", "admin", "teamleader"].includes(user?.role);
+
+  const normalizeOrderStatus = (status) =>
+    String(status || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+  const isOpenOrRunningOrder = (order) => {
+    const normalized = normalizeOrderStatus(order?.status);
+    return [
+      "open",
+      "planned",
+      "pending",
+      "todo",
+      "to_do",
+      "te_doen",
+      "in_progress",
+      "in_behandeling",
+      "active",
+      "processing",
+      "running",
+      "lopend",
+    ].includes(normalized);
+  };
+
+  const isEventInCurrentWeek = (value) => {
+    if (!value) return false;
+    const eventDate = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
+    if (!Number.isFinite(eventDate?.getTime?.())) return false;
+    return getISOWeek(eventDate) === currentWeek && eventDate.getFullYear() === currentYear;
+  };
+
+  const isInAllowedScope = (product) => {
+    if (effectiveAllowedNorms.length === 0) return true;
+    const m1 = normalizeMachine(product?.machine || "");
+    const m2 = normalizeMachine(product?.originMachine || "");
+    const m3 = normalizeMachine(product?.currentStation || "");
+    return [m1, m2, m3].some((value) => value && effectiveAllowedNorms.includes(value));
+  };
 
   const overproductionGroups = useMemo(() => {
     const unresolved = rawProducts.filter((product) => {
@@ -474,19 +611,19 @@ const TeamleaderHub = React.memo(({
 
     const targetOrderId = String(overproductionTargetOrderId || "").trim();
     if (!targetOrderId) {
-      showWarning("Vul eerst een nieuw ordernummer in.");
+      showWarning(t('teamleader.fill_new_order_first', 'Enter a new order number first.'));
       return;
     }
 
     const targetOrder = rawOrders.find((order) => String(order.orderId || "").trim().toUpperCase() === targetOrderId.toUpperCase());
     if (!targetOrder?.id) {
-      showWarning(`Order ${targetOrderId} is nog niet zichtbaar in planning. Importeer of sync eerst de LN-order.`);
+      showWarning(t('teamleader.order_not_visible_yet', 'Order {{orderId}} is not visible in planning yet. Import or sync the LN order first.', { orderId: targetOrderId }));
       return;
     }
 
     const route = resolveOverproductionRoute(targetOrder, selectedOverproductionGroup, overproductionManualStation);
     if (!route.station) {
-      showWarning("Kies eerst het doelstation voor deze pipe-overproductie.");
+      showWarning(t('teamleader.choose_target_station_pipe_overproduction', 'Choose the target station first for this pipe overproduction.'));
       return;
     }
 
@@ -507,7 +644,10 @@ const TeamleaderHub = React.memo(({
           overproductionResolvedBy: user?.email || "planner",
           overproductionAssignedOrderId: targetOrder.orderId,
           overproductionRoutingStation: route.station,
-          note: `Overproductie gekoppeld aan order ${targetOrder.orderId} en doorgestuurd naar ${route.station}`,
+          note: t('teamleader.overproduction_linked_note', 'Overproduction linked to order {{orderId}} and forwarded to {{station}}', {
+            orderId: targetOrder.orderId,
+            station: route.station,
+          }),
           "timestamps.overproduction_assigned": serverTimestamp(),
           "timestamps.routing_override": nowIso,
         });
@@ -538,8 +678,15 @@ const TeamleaderHub = React.memo(({
         to: user?.email?.toLowerCase() || "admin",
         from: "SYSTEM",
         senderId: "system-auto",
-        subject: `Overproductie gekoppeld: ${targetOrder.orderId}`,
-        content: `${selectedOverproductionGroup.count} extra producten uit ${selectedOverproductionGroup.originalOrderId} zijn gekoppeld aan ${targetOrder.orderId} en doorgestuurd naar ${route.station}.`,
+        subject: t('teamleader.overproduction_linked_subject', 'Overproduction linked: {{orderId}}', {
+          orderId: targetOrder.orderId,
+        }),
+        content: t('teamleader.overproduction_linked_content', '{{count}} extra products from {{sourceOrderId}} have been linked to {{targetOrderId}} and forwarded to {{station}}.', {
+          count: selectedOverproductionGroup.count,
+          sourceOrderId: selectedOverproductionGroup.originalOrderId,
+          targetOrderId: targetOrder.orderId,
+          station: route.station,
+        }),
         timestamp: serverTimestamp(),
         read: false,
         archived: false,
@@ -550,16 +697,24 @@ const TeamleaderHub = React.memo(({
       await logActivity(
         user?.uid || "system",
         "OVERPRODUCTION_ASSIGN",
-        `Overproductie gekoppeld: ${selectedOverproductionGroup.count} stuks van ${selectedOverproductionGroup.originalOrderId} -> ${targetOrder.orderId}, station ${route.station}`
+        t('teamleader.overproduction_linked_log', 'Overproduction linked: {{count}} pieces from {{sourceOrderId}} -> {{targetOrderId}}, station {{station}}', {
+          count: selectedOverproductionGroup.count,
+          sourceOrderId: selectedOverproductionGroup.originalOrderId,
+          targetOrderId: targetOrder.orderId,
+          station: route.station,
+        })
       );
 
-      showSuccess(`Overproductie gekoppeld aan ${targetOrder.orderId} en doorgestuurd naar ${route.station}.`);
+      showSuccess(t('teamleader.overproduction_linked_success', 'Overproduction linked to {{orderId}} and forwarded to {{station}}.', {
+        orderId: targetOrder.orderId,
+        station: route.station,
+      }));
       setSelectedOverproductionGroup(null);
       setOverproductionTargetOrderId("");
       setOverproductionManualStation("");
     } catch (err) {
-      console.error("Fout bij koppelen overproductie:", err);
-      showWarning(`Koppelen mislukt: ${err.message}`);
+      console.error(t('teamleader.overproduction_link_error', 'Error linking overproduction:'), err);
+      showWarning(t('teamleader.overproduction_link_failed', 'Linking failed: {{message}}', { message: err.message }));
     } finally {
       setAssigningOverproduction(false);
     }
@@ -753,7 +908,31 @@ const TeamleaderHub = React.memo(({
     return "normal";
   };
 
-  const isPriorityOrder = (order) => getPriorityLevel(order) !== "normal";
+  const hasActiveTrackingForOrder = (orderId) => {
+    const normalizedOrderId = String(orderId || "").trim();
+    if (!normalizedOrderId) return true;
+
+    const relatedProducts = rawProducts.filter(
+      (product) => String(product?.orderId || "").trim() === normalizedOrderId
+    );
+
+    // Als er geen trackingregels zijn, val terug op orderstatus-only gedrag.
+    if (relatedProducts.length === 0) return true;
+
+    return relatedProducts.some((product) => {
+      const status = String(product?.status || "").toUpperCase();
+      const step = String(product?.currentStep || "").toUpperCase();
+      const isFinished = ["COMPLETED", "FINISHED", "GEREED"].includes(status) || step === "FINISHED";
+      const isRejected = ["REJECTED", "AFKEUR"].includes(status) || step === "REJECTED";
+      return !isFinished && !isRejected;
+    });
+  };
+
+  const isPriorityOrder = (order) => {
+    if (getPriorityLevel(order) === "normal") return false;
+    if (!isOpenOrRunningOrder(order)) return false;
+    return hasActiveTrackingForOrder(order?.orderId);
+  };
 
   // Dashboard Data Berekening
   const metrics = useMemo(() => {
@@ -878,24 +1057,15 @@ const TeamleaderHub = React.memo(({
     });
 
     return {
-      plannedOrdersCount: dataStore.filter((o) => !['cancelled', 'rejected', 'REJECTED'].includes(o.status)).length,
+      plannedOrdersCount: dataStore.filter((o) => isOpenOrRunningOrder(o)).length,
       totalPlanned: dataStore
-        .filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status))
+        .filter((o) => isOpenOrRunningOrder(o))
         .reduce((acc, o) => acc + Number(o.plan ?? o.toDoQty ?? o.quantity ?? 0), 0),
       
-      activeCount: rawProducts.filter((p) => {
-        if (!validOrderIds.has(p.orderId)) return false;
-        
-        // STRICT FILTER OP MACHINE
-        if (effectiveAllowedNorms.length > 0) {
-            const m1 = normalizeMachine(p.machine || "");
-            const m2 = normalizeMachine(p.originMachine || "");
-            const m3 = normalizeMachine(p.currentStation || "");
-            
-            if (!effectiveAllowedNorms.includes(m1) && !effectiveAllowedNorms.includes(m2) && !effectiveAllowedNorms.includes(m3)) {
-                return false;
-            }
-        }
+        activeCount: rawProducts.filter((p) => {
+          const linkedToVisibleOrder = validOrderIds.has(p.orderId);
+          const inAllowedScope = isInAllowedScope(p);
+          if (!linkedToVisibleOrder && !inAllowedScope) return false;
 
         const status = p.status || "";
         const step = p.currentStep || "";
@@ -938,14 +1108,34 @@ const TeamleaderHub = React.memo(({
 
         const status = p.status || "";
         const step = p.currentStep || "";
-        return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
+        const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
+        if (!isRejected) return false;
+
+        const rejectedAt =
+          p?.inspection?.timestamp ||
+          p?.timestamps?.rejected ||
+          p?.updatedAt ||
+          p?.lastUpdated ||
+          p?.createdAt ||
+          null;
+
+        return isEventInCurrentWeek(rejectedAt);
       }).length,
 
       priorityCount: dataStore.filter((o) => isPriorityOrder(o)).length,
 
       tempRejectedCount: rawProducts.filter((p) => {
         if (!validOrderIds.has(p.orderId)) return false;
-        return p.inspection?.status === "Tijdelijke afkeur";
+        if (p.inspection?.status !== "Tijdelijke afkeur") return false;
+
+        const tempRejectedAt =
+          p?.inspection?.timestamp ||
+          p?.updatedAt ||
+          p?.lastUpdated ||
+          p?.createdAt ||
+          null;
+
+        return isEventInCurrentWeek(tempRejectedAt);
       }).length,
 
       ...(() => {
@@ -1038,12 +1228,14 @@ const TeamleaderHub = React.memo(({
     let data = [];
 
     if (activeKpi === "gepland") {
-      data = dataStore.filter(o => !['cancelled', 'rejected', 'REJECTED'].includes(o.status));
+      data = dataStore.filter((o) => isOpenOrRunningOrder(o));
     }
     
     else if (activeKpi === "in_proces") {
       data = rawProducts.filter((p) => {
-         if (!validOrderIds.has(p.orderId)) return false;
+           const linkedToVisibleOrder = validOrderIds.has(p.orderId);
+           const inAllowedScope = isInAllowedScope(p);
+           if (!linkedToVisibleOrder && !inAllowedScope) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
          const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
@@ -1059,7 +1251,7 @@ const TeamleaderHub = React.memo(({
          const step = p.currentStep || "";
          return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
       });
-      const archivedList = archivedProducts.filter(p => validOrderIds.has(p.orderId));
+      const archivedList = archivedHistoryProducts.filter(p => validOrderIds.has(p.orderId));
       data = [...activeList, ...archivedList];
     }
     
@@ -1110,16 +1302,61 @@ const TeamleaderHub = React.memo(({
         });
     }
 
-    // Clean up machine names (remove _INBOX)
-    return data.map(item => ({
+    const isWeekNavigatedKpi = activeKpi === "gereed" || activeKpi === "afkeur";
+    const selectedWeekDate = addWeeks(new Date(), kpiWeekOffset);
+    const selectedWeekStart = startOfISOWeek(selectedWeekDate);
+    const selectedWeekEnd = endOfISOWeek(selectedWeekDate);
+
+    const getItemDateForKpi = (item) => {
+      const candidates =
+        activeKpi === "gereed"
+          ? [
+              item?.timestamps?.finished,
+              item?.timestamps?.completed,
+              item?.updatedAt,
+              item?.lastUpdated,
+              item?.createdAt,
+            ]
+          : [
+              item?.inspection?.timestamp,
+              item?.timestamps?.rejected,
+              item?.updatedAt,
+              item?.lastUpdated,
+              item?.createdAt,
+            ];
+
+      for (const value of candidates) {
+        if (!value) continue;
+        if (typeof value?.toDate === "function") {
+          const date = value.toDate();
+          if (Number.isFinite(date.getTime())) return date;
+        }
+        const date = new Date(value);
+        if (Number.isFinite(date.getTime())) return date;
+      }
+      return null;
+    };
+
+    let normalizedData = data.map(item => ({
         ...item,
         machine: item.machine ? item.machine.replace("_INBOX", "") : item.machine,
         currentStation: item.currentStation ? item.currentStation.replace("_INBOX", "") : item.currentStation
     }));
-  }, [activeKpi, dataStore, rawProducts, archivedProducts, bezetting]);
+
+    if (isWeekNavigatedKpi) {
+      normalizedData = normalizedData.filter((item) => {
+        const eventDate = getItemDateForKpi(item);
+        if (!eventDate) return false;
+        return eventDate >= selectedWeekStart && eventDate <= selectedWeekEnd;
+      });
+    }
+
+    return normalizedData;
+  }, [activeKpi, dataStore, rawProducts, archivedHistoryProducts, bezetting, kpiWeekOffset]);
 
   const handleKpiClick = (kpiId, label) => {
     setModalTitle(label);
+    setKpiWeekOffset(0);
     setActiveKpi(kpiId);
   };
 
@@ -1486,10 +1723,10 @@ const TeamleaderHub = React.memo(({
                 onChange={(e) => setDepartmentFilter(e.target.value)}
                 className="bg-slate-100 border-none text-slate-700 text-sm rounded-xl focus:ring-blue-500 block p-2.5 font-bold outline-none cursor-pointer hover:bg-slate-200 transition-colors"
               >
-                <option value="ALL">Alle Afdelingen</option>
-                <option value="FITTINGS">Fittings</option>
-                <option value="PIPES">Pipes</option>
-                <option value="SPOOLS">Spools</option>
+                <option value="ALL">{t('teamleader.all_departments', 'All Departments')}</option>
+                <option value="FITTINGS">{t('teamleader.department_fittings', 'Fittings')}</option>
+                <option value="PIPES">{t('teamleader.department_pipes', 'Pipes')}</option>
+                <option value="SPOOLS">{t('teamleader.department_spools', 'Spools')}</option>
               </select>
             )}
 
@@ -1522,14 +1759,14 @@ const TeamleaderHub = React.memo(({
                 onClick={() => setShowAiPrediction(!showAiPrediction)} 
                 className={`px-4 py-2 ${showAiPrediction ? 'bg-purple-700' : 'bg-purple-600'} text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap hover:bg-purple-700`}
               >
-                <BrainCircuit size={16} /> <span className="hidden sm:inline">AI Analyse</span>
+                <BrainCircuit size={16} /> <span className="hidden sm:inline">{t('teamleader.ai_analysis', 'AI Analyse')}</span>
               </button>
             )}
             <button onClick={handlePlannerExcelExport} className="p-2 bg-white border border-slate-200 text-emerald-700 rounded-xl shadow-sm hover:bg-emerald-50 transition-all" title={t('teamleader.export_planner_excel', 'Exporteer Planner Excel')}><Table size={20} /></button>
             <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title={t('teamleader.export_csv', 'Exporteer CSV')}><Download size={20} /></button>
             <button onClick={() => setShowAddOrderModal(true)} className="px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><Plus size={16} /> <span className="hidden sm:inline">{t('teamleader.new_order', 'Nieuwe Order')}</span></button>
             <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">{t('teamleader.import', 'Import')}</span></button>
-            <button onClick={handleDrawingSync} disabled={isSyncingDrawings} className="p-2 bg-white border border-slate-200 text-purple-600 rounded-xl shadow-sm hover:bg-purple-50 transition-all disabled:opacity-50" title="Sync Tekeningen"><RefreshCw size={20} className={isSyncingDrawings ? 'animate-spin' : ''} /></button>
+            <button onClick={handleDrawingSync} disabled={isSyncingDrawings} className="p-2 bg-white border border-slate-200 text-purple-600 rounded-xl shadow-sm hover:bg-purple-50 transition-all disabled:opacity-50" title={t('teamleader.sync_drawings', 'Sync tekeningen')}><RefreshCw size={20} className={isSyncingDrawings ? 'animate-spin' : ''} /></button>
           </div>
 
           {/* Mobile Menu Button */}
@@ -1543,7 +1780,7 @@ const TeamleaderHub = React.memo(({
 
             {isMobileMenuOpen && (
               <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 p-2 flex flex-col gap-1 z-50 animate-in slide-in-from-top-2">
-                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">Navigatie</div>
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">{t('teamleader.navigation', 'Navigatie')}</div>
                 <button onClick={() => { setActiveTab("dashboard"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "dashboard" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_dashboard', 'Dashboard')}</button>
                 <button onClick={() => { setActiveTab("planning"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full flex items-center justify-between ${activeTab === "planning" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>
                   <span>{t('teamleader.tab_full_list', 'Volledige Lijst')}</span>
@@ -1558,18 +1795,18 @@ const TeamleaderHub = React.memo(({
                 <button onClick={() => { setActiveTab("gantt"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "gantt" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
                 
                 <div className="h-px bg-slate-100 my-1"></div>
-                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">Acties</div>
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">{t('teamleader.actions', 'Acties')}</div>
                 
                 {activeTab === "efficiency" && (
                   <button onClick={() => { setShowAiPrediction(!showAiPrediction); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-purple-600 hover:bg-purple-50 flex items-center gap-2">
-                    <BrainCircuit size={16} /> AI Analyse
+                    <BrainCircuit size={16} /> {t('teamleader.ai_analysis', 'AI Analyse')}
                   </button>
                 )}
                 <button onClick={() => { setShowAddOrderModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-emerald-600 hover:bg-emerald-50 flex items-center gap-2"><Plus size={16} /> {t('teamleader.new_order', 'Nieuwe Order')}</button>
                 <button onClick={() => { setShowImportModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-blue-600 hover:bg-blue-50 flex items-center gap-2"><FileSpreadsheet size={16} /> {t('teamleader.import', 'Import')}</button>
                 <button onClick={() => { handlePlannerExcelExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"><Table size={16} /> {t('teamleader.export_planner_excel', 'Exporteer Planner Excel')}</button>
                 <button onClick={() => { handleExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-slate-600 hover:bg-slate-50 flex items-center gap-2"><Download size={16} /> {t('teamleader.export_csv', 'Exporteer CSV')}</button>
-                <button onClick={() => { handleDrawingSync(); setIsMobileMenuOpen(false); }} disabled={isSyncingDrawings} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-purple-600 hover:bg-purple-50 flex items-center gap-2 disabled:opacity-50"><RefreshCw size={16} className={isSyncingDrawings ? 'animate-spin' : ''} /> Sync Tekeningen</button>
+                <button onClick={() => { handleDrawingSync(); setIsMobileMenuOpen(false); }} disabled={isSyncingDrawings} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-purple-600 hover:bg-purple-50 flex items-center gap-2 disabled:opacity-50"><RefreshCw size={16} className={isSyncingDrawings ? 'animate-spin' : ''} /> {t('teamleader.sync_drawings', 'Sync tekeningen')}</button>
               </div>
             )}
           </div>
@@ -1586,9 +1823,9 @@ const TeamleaderHub = React.memo(({
                 <button
                   onClick={handleOpenExtendedPersonnel}
                   className="px-4 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all flex items-center gap-2 shadow-sm"
-                  title="Open uitgebreide Personeel & Bezetting in Admin Hub"
+                  title={t('teamleader.open_extended_personnel_admin', 'Open uitgebreide Personeel & Bezetting in Admin Hub')}
                 >
-                  <Link2 size={14} /> Uitgebreide Personeel Module
+                  <Link2 size={14} /> {t('teamleader.extended_personnel_module', 'Uitgebreide Personeel Module')}
                 </button>
               </div>
               <PersonnelOccupancyView
@@ -1615,10 +1852,10 @@ const TeamleaderHub = React.memo(({
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-600 flex items-center gap-2">
-                          <AlertTriangle size={14} /> Overproductie
+                          <AlertTriangle size={14} /> {t('teamleader.overproduction', 'Overproduction')}
                         </p>
-                        <h3 className="text-lg font-black text-slate-900 italic mt-2">Openstaande extra producten</h3>
-                        <p className="text-xs font-bold text-slate-500 mt-1">Koppel extras aan een nieuw LN-ordernummer en stuur ze direct door naar de juiste vervolgstap.</p>
+                        <h3 className="text-lg font-black text-slate-900 italic mt-2">{t('teamleader.pending_extra_products', 'Open pending extra products')}</h3>
+                        <p className="text-xs font-bold text-slate-500 mt-1">{t('teamleader.link_extras_help', 'Koppel extras aan een nieuw LN-ordernummer en stuur ze direct door naar de juiste vervolgstap.')}</p>
                       </div>
                       <div className="px-3 py-2 rounded-2xl bg-white border border-amber-200 text-amber-700 text-sm font-black min-w-[3rem] text-center">
                         {overproductionGroups.length}
@@ -1628,7 +1865,7 @@ const TeamleaderHub = React.memo(({
                     <div className="mt-4 space-y-3 max-h-[18rem] overflow-y-auto custom-scrollbar pr-1">
                       {overproductionGroups.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-amber-200 bg-white/70 px-4 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest text-center">
-                          Geen openstaande overproductie
+                          {t('teamleader.no_pending_overproduction', 'Geen openstaande overproductie')}
                         </div>
                       ) : (
                         overproductionGroups.map((group) => {
@@ -1643,7 +1880,7 @@ const TeamleaderHub = React.memo(({
                                 <div>
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-sm font-black text-slate-900">{group.originalOrderId}</span>
-                                    <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest">{group.count} extra</span>
+                                    <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest">{t('teamleader.extra_count', '{{count}} extra', { count: group.count })}</span>
                                   </div>
                                   <p className="text-xs font-bold text-slate-600 mt-1 truncate">{group.item || "Onbekend product"}</p>
                                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-2">Bron: {group.originMachine || "-"} · Route: {sampleRoute.station || "Handmatig"}</p>
@@ -1686,7 +1923,9 @@ const TeamleaderHub = React.memo(({
                   <div className="h-full flex flex-col p-8 lg:p-10 text-left overflow-y-auto">
                     <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-6">
                       <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">History / Archief</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">{t('teamleader.history_archive', 'History / Archief')}</p>
+                        
+                        
                         <h3 className="text-2xl font-black text-slate-900 italic tracking-tight mt-1">{selectedSidebarEntry.orderId || selectedSidebarEntry.id || '-'}</h3>
                         <p className="text-sm font-bold text-slate-500 mt-1">{selectedSidebarEntry.item || selectedSidebarEntry.itemDescription || '-'}</p>
                       </div>
@@ -1694,21 +1933,21 @@ const TeamleaderHub = React.memo(({
                         onClick={() => { setSelectedOrderId(null); setSelectedSidebarEntry(null); }}
                         className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-200"
                       >
-                        Sluiten
+                        {t('common.close', 'Sluiten')}
                       </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Status</p>
-                        <p className="text-sm font-bold text-slate-800 mt-1">Voltooid (Archief)</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('digitalplanning.status', 'Status')}</p>
+                        <p className="text-sm font-bold text-slate-800 mt-1">{t('teamleader.completed_archive', 'Voltooid (Archief)')}</p>
                       </div>
                       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Machine</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('digitalplanning.machine', 'Machine')}</p>
                         <p className="text-sm font-bold text-slate-800 mt-1">{selectedSidebarEntry.machine || selectedSidebarEntry.originMachine || '-'}</p>
                       </div>
                       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 md:col-span-2">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Lotnummers</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('bm01.lot_number', 'Lotnummer')}s</p>
                         {Array.isArray(selectedSidebarEntry.lotNumbers) && selectedSidebarEntry.lotNumbers.length > 0 ? (
                           <div className="mt-2 space-y-2">
                             {selectedSidebarEntry.lotNumbers.map((lot) => (
@@ -1718,7 +1957,7 @@ const TeamleaderHub = React.memo(({
                                   onClick={() => handleOpenArchivedLotDossier(lot)}
                                   className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-blue-700"
                                 >
-                                  Open dossier
+                                  {t('digitalplanning.order_detail.view_dossier', 'Bekijk uitgebreid dossier')}
                                 </button>
                               </div>
                             ))}
@@ -1730,7 +1969,7 @@ const TeamleaderHub = React.memo(({
                               onClick={() => handleOpenArchivedLotDossier(selectedSidebarEntry.lotNumber)}
                               className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-blue-700"
                             >
-                              Open dossier
+                              {t('digitalplanning.order_detail.view_dossier', 'Bekijk uitgebreid dossier')}
                             </button>
                           </div>
                         )}
@@ -1754,41 +1993,41 @@ const TeamleaderHub = React.memo(({
       {showAddOrderModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white w-full max-w-md rounded-[30px] shadow-2xl p-8">
-            <h3 className="text-xl font-black text-slate-800 uppercase italic mb-6">Nieuwe Order</h3>
+            <h3 className="text-xl font-black text-slate-800 uppercase italic mb-6">{t('teamleader.new_order', 'Nieuwe Order')}</h3>
             <form onSubmit={handleCreateOrder} className="space-y-4">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Order Nummer</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('teamleader.order_number', 'Order Nummer')}</label>
                 <input 
                   type="text" 
                   value={newOrderData.orderId} 
                   onChange={e => setNewOrderData({...newOrderData, orderId: e.target.value})}
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
-                  placeholder="Bijv. TEST-PILOT-001"
+                  placeholder={t('teamleader.order_example_placeholder', 'Bijv. TEST-PILOT-001')}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Product</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('common.product', 'Product')}</label>
                 <input 
                   type="text" 
                   value={newOrderData.item} 
                   onChange={e => setNewOrderData({...newOrderData, item: e.target.value})}
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
-                  placeholder="Bijv. GRE-160-PN16"
+                  placeholder={t('teamleader.product_example_placeholder', 'Bijv. GRE-160-PN16')}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Machine</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('digitalplanning.machine', 'Machine')}</label>
                 <select 
                   value={newOrderData.machine} 
                   onChange={e => setNewOrderData({...newOrderData, machine: e.target.value})}
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
                 >
-                  <option value="">Selecteer Machine...</option>
+                  <option value="">{t('teamleader.select_machine', 'Selecteer Machine...')}</option>
                   {effectiveStations.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Aantal</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('digitalplanning.order_detail.amount', 'Aantal')}</label>
                 <input 
                   type="number" 
                   value={newOrderData.plan} 
@@ -1797,8 +2036,9 @@ const TeamleaderHub = React.memo(({
                 />
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setShowAddOrderModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs">Annuleren</button>
-                <button type="submit" disabled={creatingOrder} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-emerald-700">{creatingOrder ? "..." : "Aanmaken"}</button>
+                <button type="button" onClick={() => setShowAddOrderModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs">{t('common.cancel', 'Annuleren')}</button>
+                
+                <button type="submit" disabled={creatingOrder} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-emerald-700">{creatingOrder ? "..." : t('teamleader.create', 'Aanmaken')}</button>
               </div>
             </form>
           </div>
@@ -1809,9 +2049,20 @@ const TeamleaderHub = React.memo(({
       
       <TraceModal 
         isOpen={!!activeKpi} 
-        onClose={() => { setActiveKpi(null); setLastKpi(null); }} 
+        onClose={() => { setActiveKpi(null); setLastKpi(null); setKpiWeekOffset(0); }} 
         title={modalTitle} 
         data={modalData} 
+        weekNavigation={
+          activeKpi === "gereed" || activeKpi === "afkeur"
+            ? {
+                label: `Week ${getISOWeek(addWeeks(new Date(), kpiWeekOffset))} (${format(startOfISOWeek(addWeeks(new Date(), kpiWeekOffset)), "dd-MM")} t/m ${format(endOfISOWeek(addWeeks(new Date(), kpiWeekOffset)), "dd-MM")})`,
+                onPrevious: () => setKpiWeekOffset((prev) => prev - 1),
+                onNext: () => setKpiWeekOffset((prev) => Math.min(prev + 1, 0)),
+                canGoNext: kpiWeekOffset < 0,
+                onCurrentWeek: () => setKpiWeekOffset(0),
+              }
+            : null
+        }
         onRowClick={(item) => { 
             setLastKpi(activeKpi);
             setActiveKpi(null); 
@@ -1836,7 +2087,7 @@ const TeamleaderHub = React.memo(({
           <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl border border-slate-200 overflow-hidden">
             <div className="px-8 py-6 border-b border-slate-100 bg-amber-50/70 flex items-start justify-between gap-4">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-600 flex items-center gap-2"><Link2 size={14} /> Overproductie koppelen</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-600 flex items-center gap-2"><Link2 size={14} /> {t('teamleader.link_overproduction', 'Overproductie koppelen')}</p>
                 <h3 className="text-2xl font-black text-slate-900 italic mt-2">{selectedOverproductionGroup.originalOrderId}</h3>
                 <p className="text-sm font-bold text-slate-500 mt-1">{selectedOverproductionGroup.count} extra producten · {selectedOverproductionGroup.item || "Onbekend product"}</p>
               </div>
@@ -1847,7 +2098,7 @@ const TeamleaderHub = React.memo(({
 
             <div className="p-8 space-y-6">
               <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Lotnummers</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('bm01.lot_number', 'Lotnummer')}s</p>
                 <div className="flex flex-wrap gap-2">
                   {selectedOverproductionGroup.lotNumbers.map((lot) => (
                     <span key={lot} className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-black text-slate-700">{lot}</span>
@@ -1856,13 +2107,13 @@ const TeamleaderHub = React.memo(({
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Nieuw LN-ordernummer</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">{t('teamleader.new_ln_order_number', 'New LN order number')}</label>
                 <input
                   type="text"
                   value={overproductionTargetOrderId}
                   onChange={(e) => setOverproductionTargetOrderId(e.target.value.toUpperCase())}
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-800 outline-none focus:border-blue-500"
-                  placeholder="Bijv. 125874 of LN-NEW-001"
+                  placeholder={t('teamleader.overproduction_order_placeholder', 'Bijv. 125874 of LN-NEW-001')}
                 />
                 <div className="mt-3 space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-1">
                   {overproductionTargetCandidates.map((candidate) => (
@@ -1890,29 +2141,29 @@ const TeamleaderHub = React.memo(({
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Vervolgroute</p>
-                        <p className="text-sm font-black text-slate-900 mt-2">{route.station || "Nog bepalen"}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('teamleader.next_route', 'Next route')}</p>
+                        <p className="text-sm font-black text-slate-900 mt-2">{route.station || t('teamleader.to_be_determined', 'To be determined')}</p>
                         <p className="text-xs font-bold text-slate-500 mt-1">
                           {route.mode === "auto"
-                            ? "Deze order slaat Wikkelen en Lossen over en gaat direct naar het vervolgstation."
-                            : "Pipes zijn nog niet vastgelegd; kies handmatig het doelstation."}
+                            ? t('teamleader.auto_route_help', 'This order skips Winding and Unloading and goes directly to the next station.')
+                            : t('teamleader.manual_route_help', 'Pipes are not fixed yet; choose the target station manually.')}
                         </p>
                       </div>
                       <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-xs font-black uppercase tracking-widest text-slate-600">
-                        {route.mode === "auto" ? "Auto" : "Handmatig"}
+                        {route.mode === "auto" ? t('teamleader.auto', 'Auto') : t('teamleader.manual', 'Manual')}
                       </div>
                     </div>
 
                     {route.mode === "manual" && (
                       <div className="mt-4">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Doelstation pipes</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">{t('teamleader.target_station_pipes', 'Target station pipes')}</label>
                         <select
                           value={overproductionManualStation}
                           onChange={(e) => setOverproductionManualStation(e.target.value)}
                           className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
                         >
-                          <option value="">Kies station...</option>
-                          <option value="Nabewerking">Nabewerking</option>
+                          <option value="">{t('teamleader.choose_station', 'Choose station...')}</option>
+                          <option value="Nabewerking">{t('teamleader.station_finishing', 'Finishing')}</option>
                           <option value="Mazak">Mazak</option>
                           <option value="BM01">BM01</option>
                         </select>
@@ -1925,7 +2176,7 @@ const TeamleaderHub = React.memo(({
 
             <div className="px-8 py-5 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
               <button onClick={() => setSelectedOverproductionGroup(null)} className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-100">
-                Annuleren
+                {t('common.cancel', 'Annuleren')}
               </button>
               <button
                 onClick={handleAssignOverproduction}

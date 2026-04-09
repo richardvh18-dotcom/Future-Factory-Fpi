@@ -58,16 +58,29 @@ import { generatePrintData, downloadZPL } from "../../utils/zplHelper";
 import { getDriver } from "../../utils/printerDrivers";
 import { useNotifications } from '../../contexts/NotificationContext';
 
-const PIXELS_PER_MM = 3.78;
+/**
+ * CRITICAL DPI PARITY: designer moet dezelfde schaal gebruiken als preview
+ * zodat wat je ontwerpt exact overeenkomt met wat wordt geprint
+ */
 const CSS_PIXELS_PER_POINT = 96 / 72;
 const SNAP_THRESHOLD_MM = 1.5;
+const DEFAULT_PRINTER_DPI = 203;
+
+/**
+ * Berekent PIXELS_PER_MM voor gegeven printer-DPI
+ * Hiermee wordt designer gesynchroniseerd met print-output
+ */
+const getPixelsPerMm = (printerDpi = DEFAULT_PRINTER_DPI) => {
+  return (printerDpi || DEFAULT_PRINTER_DPI) / 25.4;
+};
+const PIXELS_PER_MM = getPixelsPerMm(DEFAULT_PRINTER_DPI);
 
 const getLongestPreviewLineLength = (value) => {
   const lines = String(value || "").split(/\r?\n/);
   return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
 };
 
-const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1) => {
+const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1, pixelsPerMm = 8.0) => {
   const explicitMaxLines = Number(element.maxLines);
   if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
     return Math.max(1, Math.floor(explicitMaxLines));
@@ -81,22 +94,22 @@ const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1)
 
   if (!blockHeightMm || !baseFontPx) return 1;
 
-  const blockHeightPx = blockHeightMm * PIXELS_PER_MM * zoom;
+  const blockHeightPx = blockHeightMm * pixelsPerMm * zoom;
   const estimatedLineHeightPx = Math.max(1, baseFontPx * 1.05);
   return Math.max(1, Math.floor((blockHeightPx * 0.92) / estimatedLineHeightPx));
 };
 
-const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
+const getPreviewTextStyle = (element, content, zoom, rotation = 0, pixelsPerMm = 8.0) => {
   const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
   const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
   const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
-  const maxLines = getResolvedPreviewMaxLines(element, baseFontPx, normalizedRotation, zoom);
+  const maxLines = getResolvedPreviewMaxLines(element, baseFontPx, normalizedRotation, zoom, pixelsPerMm);
 
   if (isVerticalRotation) {
     const runLengthMm = element.height || element.width || 0;
-    const runLengthPx = runLengthMm * PIXELS_PER_MM * zoom;
+    const runLengthPx = runLengthMm * pixelsPerMm * zoom;
     const lineBudgetMm = element.width || element.height || 0;
-    const lineBudgetPx = lineBudgetMm * PIXELS_PER_MM * zoom;
+    const lineBudgetPx = lineBudgetMm * pixelsPerMm * zoom;
 
     if (runLengthPx > 0) {
       const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
@@ -119,9 +132,9 @@ const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
   const effectiveWidthMm = isVerticalRotation
     ? (element.height || element.width || 0)
     : (element.width || 0);
-  const blockWidthPx = effectiveWidthMm * PIXELS_PER_MM * zoom;
+  const blockWidthPx = effectiveWidthMm * pixelsPerMm * zoom;
   const blockHeightPx = element.height
-    ? element.height * PIXELS_PER_MM * zoom
+    ? element.height * pixelsPerMm * zoom
     : null;
 
   if (!blockWidthPx) {
@@ -702,8 +715,9 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
     });
 
     const handleMouseMove = (moveEvent) => {
-      const deltaX = (moveEvent.clientX - startX) / zoom / PIXELS_PER_MM;
-      const deltaY = (moveEvent.clientY - startY) / zoom / PIXELS_PER_MM;
+      const pixelsPerMm = getPixelsPerMm(DEFAULT_PRINTER_DPI);
+      const deltaX = (moveEvent.clientX - startX) / zoom / pixelsPerMm;
+      const deltaY = (moveEvent.clientY - startY) / zoom / pixelsPerMm;
 
       const primaryEl = elements.find(e => e.id === id);
       const initialPrimary = initialPositions[id];

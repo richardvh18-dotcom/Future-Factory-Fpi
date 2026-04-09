@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   PlayCircle,
   Printer,
@@ -32,7 +33,15 @@ import LabelVisualPreview from "../../printer/LabelVisualPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
 import InternalQrImage from "../../../utils/InternalQrImage";
 
-const PIXELS_PER_MM = 3.78;
+/**
+ * DPI-aware PIXELS_PER_MM for print preview parity
+ * Must match zplHelper.js printer DPI conversions
+ */
+const getPixelsPerMm = (printerDpi = 203) => {
+  return (printerDpi || 203) / 25.4;
+};
+
+const DEFAULT_PRINTER_DPI = 203;
 const LOT_ARCHIVE_LOOKBACK_YEARS = 6;
 
 // Functie om ISO week en bijbehorend ISO jaar te berekenen
@@ -94,6 +103,7 @@ const ProductionStartModal = ({
   stationId = "",
   existingProducts = [],
 }) => {
+  const { t } = useTranslation();
   const { showSuccess, showError , notify} = useNotifications();
   const [mode, setMode] = useState("manual"); // Standaard manueel voor pilot
   const [lotNumber, setLotNumber] = useState("");
@@ -127,8 +137,6 @@ const ProductionStartModal = ({
     printerIp: "",
     printerId: ""
   });
-
-  const PRODUCT_TYPES = ["EST", "CST", "EWT", "EMT"]; // Veelvoorkomende types voor filtering
 
   const containerRef = useRef(null);
   const previewAreaRef = useRef(null);
@@ -777,14 +785,15 @@ const ProductionStartModal = ({
     if (!previewEl || !selectedLabel) return;
 
     const recalc = () => {
+      const pixelsPerMm = getPixelsPerMm(DEFAULT_PRINTER_DPI);
       const availableW = Math.max(120, previewEl.clientWidth - 24);
       const availableH = Math.max(120, previewEl.clientHeight - 24);
       const widthMm = Number.parseFloat(String(selectedLabel.width ?? "").replace(",", "."));
       const heightMm = Number.parseFloat(String(selectedLabel.height ?? "").replace(",", "."));
       const safeWidthMm = Number.isFinite(widthMm) && widthMm > 0 ? widthMm : 90;
       const safeHeightMm = Number.isFinite(heightMm) && heightMm > 0 ? heightMm : 55;
-      const labelW = safeWidthMm * PIXELS_PER_MM;
-      const labelH = safeHeightMm * PIXELS_PER_MM;
+      const labelW = safeWidthMm * pixelsPerMm;
+      const labelH = safeHeightMm * pixelsPerMm;
 
       if (labelW > 0 && labelH > 0) {
         // Houd preview altijd binnen het zichtbare vak (geen overflow buiten scherm)
@@ -831,7 +840,7 @@ const ProductionStartModal = ({
           lotInputRef.current?.focus();
         }, 100);
       } else if (value.trim().length >= expectedOrderId?.length) {
-        setOrderError("Ordernummer komt niet overeen!");
+        setOrderError(t("productionStartModal.errors.orderMismatch"));
       }
     }
   };
@@ -869,7 +878,7 @@ const ProductionStartModal = ({
     scannerLikeLotInputRef.current = false;
 
     if (!isManualMode && !isFlangeOrder && !selectedLabel) {
-      notify("Selecteer eerst een label formaat.");
+      notify(t("productionStartModal.notifications.selectLabelFirst"));
       return;
     }
 
@@ -902,14 +911,14 @@ const ProductionStartModal = ({
         // Failsafe: ook na counter-claim expliciet controleren op bestaand lot (tracking + archief).
         const autoStartSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
         if (!Number.isFinite(autoStartSeq)) {
-          throw new Error("Kan lotnummerreeks niet valideren.");
+          throw new Error(t("productionStartModal.errors.cannotValidateLotRange"));
         }
 
         for (let i = 0; i < totalToProduce; i++) {
           const candidateLot = `${String(effectiveLotNumber).slice(0, -4)}${String(autoStartSeq + i).padStart(4, "0")}`;
           const exists = await checkLotNumberExists(candidateLot);
           if (exists) {
-            throw new Error(`Lotnummer ${candidateLot} bestaat al (actief of archief). Probeer opnieuw.`);
+            throw new Error(t("productionStartModal.errors.lotAlreadyExistsRetry", { lot: candidateLot }));
           }
         }
 
@@ -925,21 +934,21 @@ const ProductionStartModal = ({
         // Manual mode moet ook altijd uniciteit afdwingen voor we starten.
         const manualExists = await checkLotNumberExists(effectiveLotNumber);
         if (manualExists) {
-          setLotError(`Lotnummer ${effectiveLotNumber} bestaat al (actief of archief).`);
-          throw new Error(`Lotnummer ${effectiveLotNumber} bestaat al (actief of archief).`);
+          setLotError(t("productionStartModal.errors.lotAlreadyExists", { lot: effectiveLotNumber }));
+          throw new Error(t("productionStartModal.errors.lotAlreadyExists", { lot: effectiveLotNumber }));
         }
 
         if (totalToProduce > 1) {
           const prefix = String(effectiveLotNumber || "").slice(0, -4);
           const startSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
           if (!prefix || !Number.isFinite(startSeq)) {
-            throw new Error("Voor een string-run moet het handmatige lotnummer eindigen op 4 cijfers (bijv. ...0001).");
+            throw new Error(t("productionStartModal.errors.manualLotMustEndWith4Digits"));
           }
           for (let i = 1; i < totalToProduce; i++) {
             const candidateLot = `${prefix}${String(startSeq + i).padStart(4, "0")}`;
             const exists = await checkLotNumberExists(candidateLot);
             if (exists) {
-              throw new Error(`Lotnummer ${candidateLot} bestaat al (actief of archief). Kies een ander start-lot.`);
+              throw new Error(t("productionStartModal.errors.lotAlreadyExistsChooseOther", { lot: candidateLot }));
             }
           }
         }
@@ -949,7 +958,7 @@ const ProductionStartModal = ({
         const prefix = String(effectiveLotNumber || "").slice(0, -4);
         const startSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
         if (!prefix || !Number.isFinite(startSeq)) {
-          throw new Error("Kan string-lotnummers niet opbouwen: start-lot moet eindigen op 4 cijfers.");
+          throw new Error(t("productionStartModal.errors.cannotBuildStringLots"));
         }
 
         lotBatchLots = Array.from({ length: totalToProduce }, (_, idx) => (
@@ -1004,7 +1013,7 @@ const ProductionStartModal = ({
                 quantity: labelsToPrint,
                 orderId: order.orderId,
                 lotNumber: effectiveLotNumber,
-                stationId: stationId || "Onbekend",
+                stationId: stationId || t("common.unknown"),
                 targetPrinterName: targetPrinter.name,
                 width: parseInt(selectedLabel.width),
                 height: parseInt(selectedLabel.height),
@@ -1013,14 +1022,14 @@ const ProductionStartModal = ({
               }
             );
             console.log("[ProductionStartModal] Queue print job created:", queueJobId, "printer:", targetPrinter.id);
-            showSuccess(`${labelsToPrint} label(s) naar de wachtrij gestuurd voor printer: ${targetPrinter.name}`);
+            showSuccess(t("productionStartModal.notifications.labelsQueued", { count: labelsToPrint, printer: targetPrinter.name }));
           } else {
-            showError(`Order gestart, maar geen printer geconfigureerd voor station '${stationId}' en er is geen standaard printer ingesteld. Ga naar Admin > Printer Beheer.`);
+            showError(t("productionStartModal.errors.noPrinterConfigured", { stationId }));
           }
         } catch (printError) {
           console.error(printError);
-          notify(`Order gestart, maar printen mislukte: ${printError.message}`);
-          showError(`Order gestart, maar printen mislukte: ${printError.message}`);
+          notify(t("productionStartModal.errors.printFailed", { message: printError.message }));
+          showError(t("productionStartModal.errors.printFailed", { message: printError.message }));
         }
       }
 
@@ -1035,7 +1044,7 @@ const ProductionStartModal = ({
                 quantity: lotBatchLots.length + 1,
                 orderId: order.orderId,
                 lotNumber: effectiveLotNumber,
-                stationId: stationId || "Onbekend",
+                stationId: stationId || t("common.unknown"),
                 targetPrinterName: targetPrinter.name,
                 isStringLotBatch: true,
                 includesOrderRow: true,
@@ -1043,19 +1052,19 @@ const ProductionStartModal = ({
               }
             );
             console.log("[ProductionStartModal] String lot batch queue job created:", queueJobId, "printer:", targetPrinter.id);
-            showSuccess(`String-lotnummers (${lotBatchLots.length} + orderregel) naar wachtrij gestuurd voor ${targetPrinter.name}.`);
+            showSuccess(t("productionStartModal.notifications.stringLotsQueued", { count: lotBatchLots.length, printer: targetPrinter.name }));
           } else {
-            showError(`Order gestart, maar geen printer geconfigureerd voor station '${stationId}' en er is geen standaard printer ingesteld. Ga naar Admin > Printer Beheer.`);
+            showError(t("productionStartModal.errors.noPrinterConfigured", { stationId }));
           }
         } catch (printError) {
           console.error(printError);
-          notify(`Order gestart, maar string-lot printen mislukte: ${printError.message}`);
-          showError(`Order gestart, maar string-lot printen mislukte: ${printError.message}`);
+          notify(t("productionStartModal.errors.stringLotPrintFailed", { message: printError.message }));
+          showError(t("productionStartModal.errors.stringLotPrintFailed", { message: printError.message }));
         }
       }
     } catch (e) {
       console.error(e);
-      showError(e.message || "Order starten mislukt.");
+      showError(e.message || t("productionStartModal.errors.startFailed"));
     } finally {
       setIsStarting(false);
     }
@@ -1149,7 +1158,7 @@ const ProductionStartModal = ({
           <div className="flex justify-between items-start mb-4">
             <div className="text-left">
               <h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">
-                Order Start
+                {t("productionStartModal.title", "Order starten")}
               </h2>
               <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 text-left italic">
                 {stationId}
@@ -1171,7 +1180,7 @@ const ProductionStartModal = ({
                   <FileText size={14} />
                 </div>
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                  Werkorder
+                  {t("productionStartModal.labels.workOrder", "Werkorder")}
                 </span>
               </div>
               <h3 className="text-xl font-black text-slate-900 tracking-tight leading-none italic">
@@ -1182,13 +1191,14 @@ const ProductionStartModal = ({
               </p>
               {order.drawing && (
                 <div className="mt-2">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Tekening</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t("productionStartModal.labels.drawing", "Tekening")}</span>
+                  
                   <p className="text-xs font-bold text-slate-700">{order.drawing}</p>
                 </div>
               )}
               {order.notes && (
                 <div className="mt-2 pt-2 border-t border-slate-100">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">PO Text / Opmerkingen</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t("productionStartModal.labels.poTextNotes", "PO-tekst / opmerkingen")}</span>
                   <p className="text-xs font-medium text-slate-600 italic">{order.notes}</p>
                 </div>
               )}
@@ -1197,7 +1207,7 @@ const ProductionStartModal = ({
             {/* Operator Selection */}
             <div className="space-y-1.5">
               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                Operator (Nr)
+                {t("productionStartModal.labels.operatorNumber", "Operator (nr)")}
               </label>
               {assignedOperators.length > 1 ? (
                 <div className="relative">
@@ -1206,7 +1216,7 @@ const ProductionStartModal = ({
                     onChange={(e) => setOperatorInput(e.target.value)}
                     className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-600 shadow-sm appearance-none cursor-pointer"
                   >
-                    <option value="">Kies operator...</option>
+                    <option value="">{t("productionStartModal.placeholders.chooseOperator")}</option>
                     {assignedOperators.map((op) => (
                       <option key={op.number} value={op.number}>
                         {op.number} - {op.name}
@@ -1223,7 +1233,7 @@ const ProductionStartModal = ({
                   value={operatorInput}
                   onChange={(e) => setOperatorInput(e.target.value)}
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-600 shadow-sm"
-                  placeholder="Personeelsnummer"
+                  placeholder={t("productionStartModal.placeholders.employeeNumber")}
                 />
               )}
             </div>
@@ -1238,7 +1248,7 @@ const ProductionStartModal = ({
                     : "text-slate-500"
                 }`}
               >
-                <RefreshCw size={12} /> Auto
+                <RefreshCw size={12} /> {t("productionStartModal.labels.auto", "Auto")}
               </button>
               <button
                 onClick={() => setMode("manual")}
@@ -1260,11 +1270,11 @@ const ProductionStartModal = ({
                     <QrCode size={48} />
                   </div>
                   <span className="text-[8px] font-black text-blue-400 uppercase tracking-[0.3em] block mb-1.5">
-                    Huidig Lotnummer
+                    {t("productionStartModal.labels.currentLotNumber", "Huidig lotnummer")}
                   </span>
                   <div className="flex justify-center items-center gap-2">
                     <div className={`text-2xl font-mono font-black ${lotError ? 'text-red-400' : 'text-white'} italic tracking-tighter`}>
-                      {lotNumber || "LADEN..."}
+                      {lotNumber || t("productionStartModal.labels.loading")}
                     </div>
                     {isCheckingLot && <Loader2 className="animate-spin text-white/50" size={16} />}
                   </div>
@@ -1272,7 +1282,7 @@ const ProductionStartModal = ({
                 </div>
                 <div className="space-y-1 text-left">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
-                    Totaal Aantal
+                    {t("productionStartModal.labels.totalQuantity", "Totaal aantal")}
                   </label>
                   <div className="flex items-center gap-3 bg-white p-3 rounded-xl border-2 border-slate-100 focus-within:border-blue-500 transition-all shadow-sm">
                     <Layers size={18} className="text-blue-500" />
@@ -1287,14 +1297,17 @@ const ProductionStartModal = ({
                   </div>
                   {isFlangeOrder && (
                     <p className="text-[10px] font-bold text-emerald-700 mt-1 ml-1">
-                      Flens-serie helper actief: {flangeSeriesInfo?.matchedTooling?.name || flangeSeriesInfo?.matchedTooling?.itemCode || flangeSeriesInfo?.matchedRule?.matcher || "standaard"} = {stringCount} per mal
+                      {t("productionStartModal.labels.flangeSeriesHelper", {
+                        tooling: flangeSeriesInfo?.matchedTooling?.name || flangeSeriesInfo?.matchedTooling?.itemCode || flangeSeriesInfo?.matchedRule?.matcher || t("productionStartModal.labels.defaultTooling"),
+                        count: stringCount,
+                      })}
                     </p>
                   )}
                 </div>
                 {!isFlangeOrder && (
                   <div className="space-y-1 text-left">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
-                      Aantal Labels Printen
+                      {t("productionStartModal.labels.labelsToPrint", "Aantal labels printen")}
                     </label>
                     <div className="flex items-center gap-3 bg-white p-3 rounded-xl border-2 border-slate-100 focus-within:border-blue-500 transition-all shadow-sm">
                       <Printer size={18} className="text-blue-500" />
@@ -1311,7 +1324,7 @@ const ProductionStartModal = ({
                 )}
                 {isFlangeOrder && (
                   <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-bold">
-                    Voor flenzen worden bij start geen labels geprint. Labelprint gebeurt later bij Mazak.
+                    {t("productionStartModal.labels.flangePrintLater", "Voor flenzen worden bij start geen labels geprint. Labelprint gebeurt later bij Mazak.")}
                   </div>
                 )}
               </div>
@@ -1319,7 +1332,7 @@ const ProductionStartModal = ({
               <div className="space-y-3 animate-in slide-in-from-top-2 text-left">
                 <div className="space-y-1 text-left">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
-                    Aantal in String
+                    {t("productionStartModal.labels.amountInString", "Aantal in string")}
                   </label>
                   <div className="flex items-center gap-3 bg-white p-3 rounded-xl border-2 border-slate-100 focus-within:border-blue-500 transition-all shadow-sm">
                     <Layers size={18} className="text-blue-500" />
@@ -1334,13 +1347,16 @@ const ProductionStartModal = ({
                   </div>
                   {isFlangeOrder && (
                     <p className="text-[10px] font-bold text-emerald-700 mt-1 ml-1">
-                      Mal-match actief: {flangeSeriesInfo?.matchedTooling?.name || flangeSeriesInfo?.matchedTooling?.itemCode || flangeSeriesInfo?.matchedRule?.matcher || "standaard"} = advies {flangeSeriesInfo?.cavityCount || 1}
+                      {t("productionStartModal.labels.moldMatchActive", {
+                        tooling: flangeSeriesInfo?.matchedTooling?.name || flangeSeriesInfo?.matchedTooling?.itemCode || flangeSeriesInfo?.matchedRule?.matcher || t("productionStartModal.labels.defaultTooling"),
+                        count: flangeSeriesInfo?.cavityCount || 1,
+                      })}
                     </p>
                   )}
                 </div>
                 <div className="space-y-1 text-left">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
-                    Ordernummer (scannen of invullen)
+                    {t("productionStartModal.labels.orderNumberScanOrFill", "Ordernummer (scannen of invullen)")}
                   </label>
                   <div className="relative">
                     <input
@@ -1372,7 +1388,7 @@ const ProductionStartModal = ({
                 </div>
                 <div className="space-y-1 text-left">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 block">
-                    Lotnummer (scannen of invullen)
+                    {t("productionStartModal.labels.lotNumberScanOrFill", "Lotnummer (scannen of invullen)")}
                   </label>
                   <div className="relative">
                     <input
@@ -1381,7 +1397,7 @@ const ProductionStartModal = ({
                       value={manualLotInput}
                       onChange={handleManualLotChange}
                       onKeyDown={handleManualLotKeyDown}
-                      placeholder="Handmatig Lot"
+                      placeholder={t("productionStartModal.placeholders.manualLot")}
                       disabled={!orderValidated}
                       className={`w-full p-3 bg-white border-2 rounded-2xl font-mono text-xl font-black uppercase outline-none shadow-sm text-center placeholder:text-slate-300 ${
                         lotError 
@@ -1412,16 +1428,16 @@ const ProductionStartModal = ({
             {/* Label selectie */}
             {!isManualMode && !isFlangeOrder && <div className="pt-3 border-t border-slate-200 text-left">
               <label className="text-[9px] font-black text-slate-400 uppercase block mb-1.5 ml-2 flex items-center gap-2">
-                Label Formaat
+                {t("productionStartModal.labels.labelFormat", "Labelformaat")}
               </label>
               {loadingLabels ? (
                 <div className="p-3 text-center text-xs text-slate-400 italic flex items-center justify-start gap-2">
-                  <Loader2 size={14} className="animate-spin" /> Labels laden...
+                  <Loader2 size={14} className="animate-spin" /> {t("productionStartModal.labels.loadingLabels")}
                 </div>
               ) : availableLabels.length === 0 ? (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 flex items-center gap-2">
                   <AlertTriangle size={16} />
-                  <span>Geen geschikte labels gevonden.</span>
+                  <span>{t("productionStartModal.labels.noSuitableLabels")}</span>
                 </div>
               ) : (
                 <div className="relative group">
@@ -1450,7 +1466,7 @@ const ProductionStartModal = ({
               onClick={onClose}
               className="flex-1 py-5 bg-white border-2 border-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-all"
             >
-              Annuleren
+              {t("common.cancel")}
             </button>
             <button
               onClick={handleStartProduction}
@@ -1466,7 +1482,7 @@ const ProductionStartModal = ({
               }`}
             >
               {isCheckingLot || isStarting ? <Loader2 className="animate-spin" size={20} /> : <PlayCircle size={20} />} 
-              {isStarting ? "Starten..." : (selectedOperatorName ? `Start (${operatorInput})` : "Order Starten")}
+              {isStarting ? t("productionStartModal.labels.starting") : (selectedOperatorName ? t("productionStartModal.labels.startWithOperator", { operator: operatorInput }) : t("productionStartModal.labels.startOrder"))}
             </button>
           </div>
         </div>
@@ -1477,13 +1493,13 @@ const ProductionStartModal = ({
           className="flex-1 min-w-0 bg-slate-900 p-6 flex flex-col items-center justify-between relative overflow-hidden text-left"
         >
           <div className="absolute top-4 left-4 text-[9px] font-black text-slate-500 uppercase tracking-[0.4em] flex items-center gap-2 text-left">
-            <Activity size={12} className="text-emerald-500" /> Etiket Preview
+            <Activity size={12} className="text-emerald-500" /> {t("productionStartModal.labels.labelPreview", "Etiket preview")}
           </div>
 
           <div ref={previewAreaRef} className="flex-1 flex items-center justify-center w-full min-h-0 py-4">
             {mode === "manual" && (!manualLotInput || !manualOrderInput) ? (
               <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] text-xs uppercase font-black tracking-widest italic">
-                Vul order en lot in...
+                {t("productionStartModal.labels.fillOrderAndLot")}
               </div>
             ) : (
               selectedLabel ? (
@@ -1495,7 +1511,7 @@ const ProductionStartModal = ({
                 />
               ) : (
                 <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] animate-pulse text-xs uppercase font-black tracking-widest italic">
-                  Ontwerp laden...
+                  {t("productionStartModal.labels.loadingDesign")}
                 </div>
               )
             )}
@@ -1505,10 +1521,12 @@ const ProductionStartModal = ({
             <div className="w-full max-w-2xl bg-black/25 border border-white/10 rounded-2xl p-4 mb-3 text-left">
               <div className="flex items-center justify-between gap-3 mb-3">
                 <p className="text-[10px] font-black text-emerald-300 uppercase tracking-widest">
-                  String Lot Preview (BH11/BH12)
+                  {t("productionStartModal.labels.stringLotPreview", "String lot-preview (BH11/BH12)")}
                 </p>
                 <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-                  {stringLotPreview.valid ? `${stringLotPreview.rows.length} lotregels + 1 orderregel` : "Wacht op geldig start-lot"}
+                  {stringLotPreview.valid
+                    ? t("productionStartModal.labels.stringLotRowsSummary", { count: stringLotPreview.rows.length })
+                    : t("productionStartModal.labels.waitingForValidStartLot")}
                 </p>
               </div>
 
@@ -1539,13 +1557,13 @@ const ProductionStartModal = ({
                       />
                     </div>
                     <span className="text-xs font-black tracking-wider text-emerald-900">
-                      ORDER {isManualMode ? (manualOrderInput || order.orderId) : order.orderId}
+                      {t("productionStartModal.labels.order", "Order")} {isManualMode ? (manualOrderInput || order.orderId) : order.orderId}
                     </span>
                   </div>
                 </div>
               ) : (
                 <p className="text-[11px] font-bold text-amber-200">
-                  Nog geen geldig start-lotnummer voor string preview.
+                  {t("productionStartModal.labels.noValidStartLotForPreview")}
                 </p>
               )}
             </div>
@@ -1556,12 +1574,12 @@ const ProductionStartModal = ({
             <div className="flex justify-center items-center px-1">
               <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                 <Database size={12} className="text-purple-400" />
-                Printen via Wachtrij
+                {t("productionStartModal.labels.printViaQueue")}
               </span>
             </div>
 
             <p className="text-[8px] text-slate-500 text-center font-bold uppercase tracking-tighter opacity-50">
-              Label wordt automatisch geprint bij starten
+              {t("productionStartModal.labels.labelAutoPrintedOnStart")}
             </p>
           </div>
         </div>}

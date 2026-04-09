@@ -1,11 +1,14 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 // Eenvoudige lijstweergave voor Nabewerking-producten
 const NabewerkenView = ({ producten }) => {
+  const { t } = useTranslation();
+
   if (!producten || producten.length === 0) {
     return (
       <div className="p-8 text-center text-gray-400 text-lg">
-        Geen producten voor Nabewerking gevonden.
+        {t("digitalplanning.nabewerking.empty_view", "Geen producten voor Nabewerking gevonden.")}
       </div>
     );
   }
@@ -14,12 +17,12 @@ const NabewerkenView = ({ producten }) => {
       <table className="min-w-full border text-xs">
         <thead>
           <tr className="bg-slate-100">
-            <th className="px-2 py-1 border">Lotnummer</th>
-            <th className="px-2 py-1 border">Order ID</th>
-            <th className="px-2 py-1 border">Item</th>
-            <th className="px-2 py-1 border">Status</th>
-            <th className="px-2 py-1 border">Stap</th>
-            <th className="px-2 py-1 border">Laatste update</th>
+            <th className="px-2 py-1 border">{t("digitalplanning.nabewerking.table_lot", "Lotnummer")}</th>
+            <th className="px-2 py-1 border">{t("digitalplanning.nabewerking.table_order", "Order ID")}</th>
+            <th className="px-2 py-1 border">{t("digitalplanning.nabewerking.table_item", "Item")}</th>
+            <th className="px-2 py-1 border">{t("digitalplanning.nabewerking.table_status", "Status")}</th>
+            <th className="px-2 py-1 border">{t("digitalplanning.nabewerking.table_step", "Stap")}</th>
+            <th className="px-2 py-1 border">{t("digitalplanning.nabewerking.table_updated", "Laatste update")}</th>
           </tr>
         </thead>
         <tbody>

@@ -1,5 +1,271 @@
 # 📝 FPi Future Factory - Pilot Handover & Development Summary
 
+### Update sessie 57 (Preview-branch sync uitgevoerd en gevalideerd)
+
+**Datum:** 9 april 2026 | **Bron:** `origin/FPiFF-may-build` | **Doelbranch:** `origin/preview-v2`
+
+**Doel:**
+- Handover-fixes voor Lossen/Nabewerking/Teamleader/BH18 één-op-één overzetten naar Preview.
+- Buildbaar opleveren op Preview-context inclusief alle noodzakelijke afhankelijkheden.
+
+**Uitvoering:**
+- Geïsoleerde worktree aangemaakt op preview:
+    - pad: `/workspaces/_sync/preview-sync`
+    - branch: `preview-handover-lossen-kpi-fixes`
+- Overgezet vanuit `origin/FPiFF-may-build`:
+    - `src/utils/hubHelpers.jsx`
+    - `src/components/digitalplanning/TeamleaderHub.jsx`
+    - `src/components/digitalplanning/WorkstationHub.jsx`
+    - `src/components/digitalplanning/Terminal.jsx`
+    - `src/components/digitalplanning/OrderDetail.jsx`
+    - `src/components/digitalplanning/LossenView.jsx`
+    - `src/components/digitalplanning/terminal/TerminalProductionView.jsx`
+    - `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+
+**Extra noodzakelijk voor Preview-compatibiliteit (build blockers opgelost):**
+- `src/utils/dateUtils.js` (ontbrak, maar wordt geïmporteerd door WorkstationHub)
+- `src/components/digitalplanning/Nabewerken.jsx` (ontbrak, import in WorkstationHub)
+- `src/components/digitalplanning/NabewerkenView.jsx` (ontbrak, import in WorkstationHub)
+- `src/config/dbPaths.jsx` (export `getArchiveItemsPath` nodig voor OrderDetail)
+
+**Validatie:**
+- `npm install` uitgevoerd in de preview-worktree.
+- `npm run build` uitgevoerd.
+- Resultaat: **succesvol** (`✓ built in 13.11s`).
+
+**Commit:**
+- hash: `0bb655e`
+- message: `Sync preview with may-build Lossen/BH18/Teamleader fixes`
+- wijzigingsset: 12 files changed, inclusief 3 nieuw aangemaakte bestanden op preview-context.
+
+**Status:**
+- Preview-sync staat klaar op branch `preview-handover-lossen-kpi-fixes` voor push/PR naar `preview-v2`.
+
+### Update sessie 56 (Preview handover sync: Lossen/Nabewerking/Teamleader + BH18 + scanner focus parity)
+
+**Datum:** 9 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Preview-handover fixes uit de overdracht toepassen zodat BH18/Volledige Lijst/KPI-gedrag gelijkloopt.
+- Start Aantal/To do corrigeren voor orders met al gestarte stuks.
+- Scanner-focus parity op Lossen/Terminal views gelijk trekken.
+
+**Wat is afgerond in deze batch:**
+- Gedeelde helper toegevoegd voor consistente started-veldnaam:
+    - `src/utils/hubHelpers.jsx`
+    - nieuwe export: `getStartedCounterField(stationName)`
+- Teamleader full-list en KPI-fallback uitgebreid:
+    - `src/components/digitalplanning/TeamleaderHub.jsx`
+    - fittings scope verruimd met downstream stations (`FITTING_MACHINES`)
+    - `orderProgressMeta` op basis van tracking toegevoegd
+    - orders blijven zichtbaar bij in-scope `started_*` voortgang of tracked activiteit
+    - KPI `activeCount` en modal `in_proces` tonen items bij `linkedToVisibleOrder OR inAllowedScope`
+- BH18 stationplanning filter verruimd:
+    - `src/components/digitalplanning/WorkstationHub.jsx`
+    - nieuwe `stationActivityByOrder` map op `originMachine/currentStation/lastStation/machine`
+    - order blijft zichtbaar bij resterend stationplan of stationactiviteit
+    - alle losse `started_${...}` opbouw vervangen door `getStartedCounterField(...)`
+- Terminal parity voor BH18/downstream zichtbaarheidslogica:
+    - `src/components/digitalplanning/Terminal.jsx`
+    - `stationCounterField` nu via helper
+    - `stationOrderMeta` toegevoegd op basis van `allTracked`
+    - `myOrders` houdt orders zichtbaar bij resterend plan of stationactiviteit
+- Orderdetail voortgangsweergave gecorrigeerd:
+    - `src/components/digitalplanning/OrderDetail.jsx`
+    - `Start Aantal` gebruikt nu maximum van:
+        - station-specifieke teller,
+        - som van alle `started_*` velden,
+        - live actieve trackingitems voor de order.
+- Temp-afkeur filterlogica voor Nabewerking hersteld:
+    - `src/components/digitalplanning/LossenView.jsx`
+    - definitieve afkeur blijft verborgen
+    - tijdelijke afkeur blijft zichtbaar op Nabewerking, blijft verborgen op overige stations
+- Scanner focus parity meegenomen:
+    - `src/components/digitalplanning/LossenView.jsx`
+    - `src/components/digitalplanning/Terminal.jsx`
+    - `src/components/digitalplanning/terminal/TerminalProductionView.jsx`
+    - klik op niet-interactieve pagina-elementen zet scanner-input focus terug.
+
+**Reeds aanwezig bevestigd (geen extra patch nodig):**
+- Lossen-context fix in releaseflow met `isLossenStep` stond al goed in:
+    - `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+
+**Validatie:**
+- Build uitgevoerd: `npm run build`
+- Resultaat: **succesvol** (`✓ built in 14.95s`)
+
+**Runtime/dev status:**
+- Vite devserver gestart op poort 3000 met host-binding (`0.0.0.0`).
+- Bereikbaar via:
+    - `http://localhost:3000/`
+    - `http://10.0.1.107:3000/`
+
+**Aanbevolen functionele check op Preview:**
+1. Order `N20024772` zichtbaar in BH18 planning, ook wanneer actuele machine downstream is.
+2. Teamleader `Volledige Lijst` zoekt/tonen op order en lot zonder verdwijnen van actieve gevallen.
+3. `Start Aantal / To do` toont geen `0 / 10` wanneer al 5 gestart zijn.
+4. Lossen Goed-flow blijft uit de oude loop `Wacht op Lossen -> Wacht op Lossen`.
+
+### Update sessie 55 (i18n vervolg digitalplanning - FITTINGS + MAZAK restlekken)
+
+**Datum:** 8 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Resterende zichtbare NL/EN strings in Duitse modus wegwerken in FITTINGS-station selector en MAZAK-view.
+- Zorgdragen dat ontbrekende namespaces/sleutels in `de.js` beschikbaar zijn zodat fallback verdwijnt.
+
+**Wat is afgerond in deze batch:**
+- FITTINGS selector probleem opgelost:
+    - ontbrekende `departmentSelector` sectie toegevoegd in `src/lang/de.js`.
+    - `select_instruction` staat nu in het Duits: `Wählen Sie einen Arbeitsplatz oder eine Verwaltungsoption`.
+- Badge/status lek opgelost voor Duitse modus:
+    - top-level `status` namespace toegevoegd in `src/lang/nl.js`, `src/lang/en.js`, `src/lang/de.js`.
+    - de labels uit `StatusBadge.jsx` (zoals `In Productie`, `Afkeur`, `Tijdelijke afkeur`, etc.) vertalen nu correct per taal.
+- Dossier/rechterpaneelteksten opgelost:
+    - `digitalplanning.order_detail` in `de.js` aangevuld (o.a. `view_dossier`, `view_drawing`, `delivery_date_aq`, `total_plan`, `start_production`, `project_details`, `administration`, `creation_date_ln`).
+    - bijbehorende nieuwe order_detail keys ook toegevoegd aan `src/lang/nl.js` en `src/lang/en.js` voor structuurconsistentie.
+- `MazakView.jsx` opgeschoond op zichtbare hardcoded strings:
+    - tabs/badges/acties (`Inbox / Printen`, `Gereedmelden`, `Herprint Label`, `Verwerken`)
+    - lijst/detail labels (`Van`, `Ordernummer`, `Wikkelmachine`, `Aantal`, `Onbekend`)
+    - week-divider status (`In Productie`) via `status.in_production`
+    - lege-staat teksten rechts (`Selecteer order ...`)
+- Nieuwe `mazak` namespace toegevoegd in alle taalbestanden:
+    - `src/lang/nl.js`
+    - `src/lang/en.js`
+    - `src/lang/de.js`
+  met de gebruikte MAZAK UI-sleutels zodat Duitse modus niet meer op NL fallback draait.
+- Validatie uitgevoerd op gewijzigde bestanden: **geen fouten**.
+
+**Openstaand (logische volgende batch):**
+1. Verdere sweep in `MazakView.jsx` op niet-zichtbare user-facing strings (toasts/logdetails/history-teksten) die nog NL kunnen bevatten in backend-notities.
+2. Extra scan op overige digitalplanning views voor laatste hardcoded literals in minder vaak gebruikte panelen.
+3. Snelle browsercheck in Duitse modus op BH18/MAZAK om visuele restlekken direct te vangen.
+
+**Hervatpunt voor volgende sessie:**
+- Start met een gerichte grep op `src/components/digitalplanning/MazakView.jsx` en `src/components/digitalplanning/TeamleaderHub.jsx` voor resterende hardcoded user-facing tekst (vooral notificaties en activity-details).
+
+### Update sessie 54 (i18n vervolg digitalplanning - Duitse lekkage batch 3)
+
+**Datum:** 8 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De volgende zichtbare restteksten in Duitse modus wegwerken na batch 53.
+- Focus verlegd naar modals/views en TeamleaderHub-hoofdflow waar nog Nederlandse labels of ontbrekende Duitse sleutels zaten.
+
+**Wat is afgerond in deze batch:**
+- `StationDetailModal.jsx` verder geïnternationaliseerd:
+    - statuskop, planningbadges, historie- en planningsleegstaat
+    - labels zoals `Uit vorige week`, `Prioriteit / Verplaatst`, `Herstel`, `{{count}} gereed`
+- `TraceModal.jsx` gekoppeld aan `useTranslation()` voor zichtbare UI:
+    - header totalen
+    - weeknavigatieknoppen
+    - zoekplaceholder
+    - leegstaat
+    - tabelheaders
+    - order/no-description labels
+    - sluitknop
+- Nieuwe sleutelgroepen toegevoegd in taalbestanden:
+    - `digitalplanning.station_detail`
+    - `digitalplanning.trace_modal`
+    - `digitalplanning.active_production`
+- `ActiveProductionView.jsx` opgeschoond op zichtbare literals:
+    - `Nu Actief`, `Order Rij`, `Serie gereed`, `Tijdelijke Afkeur`, `Reden`, `Reminder verstuurd`, `Geen activiteit`, `Slimme Suggesties`, `Combineer Orders?`
+- `TeamleaderHub.jsx` verder opgeschoond op zichtbare rauwe tekst en Duitse fallback-problemen:
+    - afdelingsfilter (`Alle Afdelingen`, `Fittings`, `Pipes`, `Spools`) via `t(...)`
+    - overproductiekaart labels en vervolgroute-teksten via `t(...)`
+    - nieuwe LN-ordernummerlabel en handmatige doelstationkeuze via `t(...)`
+    - overproductie-toast-, success- en message-strings via `t(...)`
+- `src/lang/de.js` uitgebreid met een gerichte top-level `teamleader`-subset voor de sleutels die TeamleaderHub zichtbaar gebruikt.
+- `src/lang/nl.js` en `src/lang/en.js` aangevuld zodat dezelfde Teamleader-sleutelset in alle drie de talen beschikbaar is.
+- Validatie uitgevoerd op alle aangepaste bestanden: **geen fouten**.
+
+**Openstaand (nieuwe eerstvolgende batch):**
+1. Resterende TeamleaderHub-meldingen buiten deze overproductieflow nalopen, zoals sync-notificaties en eventuele overige toasts/logregels.
+2. Nieuwe sweep op overige digitalplanning-views voor resterende hardcoded tekst of `t(..., "fallback")` zonder Duitse sleutel.
+3. Browsermatige controle in Duitse modus doen op TeamleaderHub, StationDetailModal, TraceModal en ActiveProductionView om laatste zichtbare reststrings gericht weg te werken.
+
+**Hervatpunt voor volgende sessie:**
+- Start met een gerichte scan op `TeamleaderHub.jsx` voor de laatste runtimemeldingen en niet-zichtbare maar user-facing toasts.
+- Daarna vervolgbatch op overige views die nog fallback in Duits kunnen tonen.
+
+### Update sessie 53 (i18n vervolg digitalplanning - Duitse lekkage batch 2)
+
+**Datum:** 8 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Duitse modus verder opschonen waar nog Nederlandse/Engelse fallback zichtbaar bleef.
+- Eerst de grootste oorzaak aanpakken: missende `de.js` sleuteldekking in hub/dashboard/terminal.
+- Daarna de duidelijk zichtbare hardcoded AI-analyseweergave naar i18n omzetten.
+
+**Wat is afgerond in deze batch:**
+- `src/lang/de.js` uitgebreid met ontbrekende digitalplanning-dekking voor:
+    - `digitalplanning.terminal`
+    - `digitalplanning.hub`
+    - `digitalplanning.dashboard`
+    - top-level `planner`
+    - aanvullende basislabels zoals `machine`, `status`, `products`, `na`
+- Hardcoded titel in `DigitalPlanningHub.jsx` vervangen:
+    - `"Pipe Producties"` -> `t("digitalplanning.hub.pipe_title")`
+- `AiPredictionView.jsx` volledig gekoppeld aan `useTranslation()` voor zichtbare UI:
+    - titel/subtitel
+    - KPI-kaarten
+    - ingestie-diagnose labels
+    - zoekplaceholder
+    - tabelheaders
+    - confidence/trend/advies labels
+    - detailmodal inclusief AI-adviesblok
+- Nieuwe vertaalsleutels toegevoegd voor `digitalplanning.ai_prediction` in:
+    - `src/lang/nl.js`
+    - `src/lang/en.js`
+    - `src/lang/de.js`
+- `digitalplanning.terminal` structuur in `src/lang/nl.js` en `src/lang/en.js` gelijkgetrokken met de uitgebreide Duitse variant, zodat verdere i18n-sweeps minder fallback-lek geven.
+- Validatie uitgevoerd op alle aangepaste bestanden: **geen fouten**.
+
+**Openstaand (nieuwe eerstvolgende batch):**
+1. Nieuwe sweep op resterende grotere views met zichtbare literals, met name `TeamleaderHub.jsx`, `ActiveProductionView.jsx` en overige terminal/modals waar nog fallback-strings in `t(...)` zitten.
+2. Duitse dekking nalopen voor eventuele extra namespaces buiten `digitalplanning.*` die in planner/teamleader-flow gebruikt worden.
+3. Eventueel browsermatige controle in Duitse modus doen op hub, dashboard, terminaltabs en AI-view om laatste zichtbare restteksten gericht op te ruimen.
+
+**Hervatpunt voor volgende sessie:**
+- Start met een scan op `src/components/digitalplanning` voor resterende zichtbare literals en `t(..., "fallback")` combinaties die nog niet door sleutelwaarden in `de.js` worden afgevangen.
+- Beste vervolgbatch: `TeamleaderHub.jsx`, `ActiveProductionView.jsx`, `StationDetailModal.jsx`, `TraceModal.jsx`.
+
+### Update sessie 52 (i18n vervolg digitalplanning - batch 1 resterende zichtbare literals)
+
+**Datum:** 8 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Hervatpunt van sessie 51 oppakken met een gerichte sweep op resterende zichtbare hardcoded teksten in `src/components/digitalplanning`.
+- Missende sleuteldekking aanvullen, met nadruk op `de.js`, zodat Duitse modus minder vaak terugvalt op NL/EN.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe i18n-pass uitgevoerd op compacte, zichtbare digitalplanning-componenten:
+    - `MalOptimizationPanel.jsx`
+    - `RepairModal.jsx`
+    - `NabewerkenView.jsx`
+    - `Nabewerken.jsx`
+    - `PlanningImportModal.jsx` (kern-UI + meldingen)
+- Zichtbare headings, labels, knoppen, placeholders, badges en meerdere importmeldingen vervangen door `t(...)` calls met fallback.
+- Nieuwe sleutelgroepen toegevoegd in taalbestanden:
+    - `digitalplanning.optimization`
+    - `digitalplanning.repair`
+    - `digitalplanning.nabewerking`
+    - `digitalplanning.planning_import`
+- Dekking expliciet aangevuld in:
+    - `src/lang/nl.js`
+    - `src/lang/en.js`
+    - `src/lang/de.js`
+- Validatie uitgevoerd op alle aangepaste bestanden: **geen fouten**.
+
+**Openstaand (nieuwe eerstvolgende batch):**
+1. Resterende grotere digitalplanning-bestanden verder uitfaseren op zichtbare literals, met focus op modals/hubs waar nog veel UI-tekst zit.
+2. `PlanningImportModal.jsx` desgewenst nog verder opschonen op niet-kritische logregels en secundaire helpteksten.
+3. Na nog 1-2 batches een nieuwe volledige sweep + errorcheck uitvoeren en restlijst rapporteren.
+
+**Hervatpunt voor volgende sessie:**
+- Start met een nieuwe scan op `src/components/digitalplanning/modals` en de grotere hub/views voor resterende zichtbare literals.
+- Waarschijnlijk beste vervolgbatch: `StationDetailModal`, `TraceModal`, aanvullende Terminal/Mazak reststrings en eventuele overgebleven importmeldingen.
+
 ### Update sessie 51 (i18n vervolg digitalplanning - hervatpunt opgeslagen)
 
 **Datum:** 8 april 2026 | **Branch:** `pilot-dev`

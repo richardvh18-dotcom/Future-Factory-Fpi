@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { 
   ChevronLeft, 
   ChevronRight,
@@ -27,6 +28,7 @@ import { nl } from "date-fns/locale";
  * Shows orders on a timeline per machine/department
  */
 const GanttChartView = ({ dataSourceMode = "current" }) => {
+  const { t } = useTranslation();
   const usePilotReadData = dataSourceMode === "pilot-read";
   const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
   const [orders, setOrders] = useState([]);
@@ -498,10 +500,10 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-black text-slate-800">
-              Gantt <span className="text-blue-600">Planning</span>
+              {t("planning.gantt.titlePrefix")} <span className="text-blue-600">{t("planning.gantt.titleAccent")}</span>
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              Visuele timeline van orderplanning per machine
+              {t("planning.gantt.subtitle")}
             </p>
           </div>
 
@@ -532,7 +534,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
-                1 Week
+                {t("planning.gantt.rangeWeek")}
               </button>
               <button
                 onClick={() => {
@@ -545,7 +547,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
-                2 Weken
+                {t("planning.gantt.rangeTwoWeeks")}
               </button>
               <button
                 onClick={() => {
@@ -558,7 +560,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
-                1 Maand
+                {t("planning.gantt.rangeMonth")}
               </button>
               <button
                 onClick={() => setViewMode("all")}
@@ -568,7 +570,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
-                All View
+                {t("planning.gantt.rangeAllView")}
               </button>
             </div>
 
@@ -578,19 +580,19 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                 onClick={() => setDayWidth(60)}
                 className={`px-2 py-1 rounded text-[10px] font-bold ${dayWidth === 60 ? "bg-white text-blue-600" : "text-slate-600"}`}
               >
-                Compact
+                {t("planning.gantt.zoomCompact")}
               </button>
               <button
                 onClick={() => setDayWidth(80)}
                 className={`px-2 py-1 rounded text-[10px] font-bold ${dayWidth === 80 ? "bg-white text-blue-600" : "text-slate-600"}`}
               >
-                Normaal
+                {t("planning.gantt.zoomNormal")}
               </button>
               <button
                 onClick={() => setDayWidth(120)}
                 className={`px-2 py-1 rounded text-[10px] font-bold ${dayWidth === 120 ? "bg-white text-blue-600" : "text-slate-600"}`}
               >
-                Detail
+                {t("planning.gantt.zoomDetail")}
               </button>
             </div>
 
@@ -600,13 +602,13 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                 onClick={expandAllMachines}
                 className="px-2 py-1 rounded text-[10px] font-bold text-slate-700 hover:bg-white"
               >
-                Alles uitklappen
+                {t("planning.gantt.expandAll")}
               </button>
               <button
                 onClick={collapseAllMachines}
                 className="px-2 py-1 rounded text-[10px] font-bold text-slate-700 hover:bg-white"
               >
-                Alles inklappen
+                {t("planning.gantt.collapseAll")}
               </button>
             </div>
 
@@ -622,7 +624,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                 onClick={goToToday}
                 className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-bold transition-colors"
               >
-                Vandaag
+                {t("planning.gantt.today")}
               </button>
               <button
                 onClick={goToNextWeek}
@@ -634,7 +636,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
 
             {viewMode === "all" && (
               <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-lg">
-                Zichtbaar: {Math.min(35, visibleDaysCount)} dagen (max 35)
+                {t("planning.gantt.visibleDays", { count: Math.min(35, visibleDaysCount), max: 35 })}
               </div>
             )}
           </div>
@@ -654,7 +656,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
             <div className="flex border-b-2 border-slate-200 bg-slate-50">
               {/* Machine Column */}
               <div className="w-48 flex-shrink-0 p-4 border-r-2 border-slate-200 font-bold text-sm text-slate-700 sticky left-0 z-20 bg-slate-50">
-                Machine
+                {t("planning.gantt.machine")}
               </div>
 
               {/* Days */}
@@ -704,7 +706,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                         <div>
                           <div className="font-bold text-sm text-slate-800">{machine}</div>
                           <div className="text-xs text-slate-500 mt-1">
-                            {machineOrders.length} orders
+                            {t("planning.gantt.ordersCount", { count: machineOrders.length })}
                           </div>
                         </div>
                         <span className="text-slate-500">
@@ -761,16 +763,16 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                             {/* Tooltip on hover */}
                             <div className="hidden group-hover:block absolute bottom-full left-0 mb-2 bg-slate-900 text-white p-3 rounded-lg shadow-xl z-10 whitespace-nowrap text-xs">
                               <div className="font-bold mb-1">{order.orderId || order.item}</div>
-                              <div>Item: {order.itemCode || order.extraCode}</div>
-                              <div>Aantal: {order.plan} stuks</div>
+                              <div>{t("planning.gantt.tooltipItem")}: {order.itemCode || order.extraCode}</div>
+                              <div>{t("planning.gantt.tooltipQuantity")}: {order.plan} {t("planning.gantt.pieces")}</div>
                               <div>
-                                Tijd: {Math.round(_totalHours * 10) / 10}u
+                                {t("planning.gantt.tooltipTime")}: {Math.round(_totalHours * 10) / 10}u
                                 {_isEfficiencyBased && <span className="text-emerald-300 ml-1 font-bold">(LN)</span>}
                               </div>
-                              <div>Machine: {order.machine}</div>
-                              {_startDate && <div>Van: {format(_startDate, 'dd-MM-yyyy')}</div>}
-                              {_endDate && <div>Tot: {format(_endDate, 'dd-MM-yyyy')}</div>}
-                              <div>Doorlooptijd: {_leadWeeks} week(en)</div>
+                              <div>{t("planning.gantt.tooltipMachine")}: {order.machine}</div>
+                              {_startDate && <div>{t("planning.gantt.tooltipFrom")}: {format(_startDate, 'dd-MM-yyyy')}</div>}
+                              {_endDate && <div>{t("planning.gantt.tooltipTo")}: {format(_endDate, 'dd-MM-yyyy')}</div>}
+                              <div>{t("planning.gantt.tooltipLeadTime")}: {_leadWeeks} {t("planning.gantt.weeks")}</div>
                             </div>
                           </div>
                         );
@@ -787,11 +789,11 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
       {/* Legend */}
       <div className="mt-6 bg-white rounded-2xl p-4 shadow-sm border-2 border-slate-200">
         <div className="flex items-center gap-6">
-          <span className="text-sm font-bold text-slate-700">Status:</span>
+          <span className="text-sm font-bold text-slate-700">{t("planning.gantt.status")}</span>
           {[
-            { status: "planned", label: "Gepland", color: "bg-blue-500" },
-            { status: "in_production", label: "In Productie", color: "bg-orange-500" },
-            { status: "quality_check", label: "Controle", color: "bg-purple-500" }
+            { status: "planned", label: t("planning.gantt.statusPlanned"), color: "bg-blue-500" },
+            { status: "in_production", label: t("planning.gantt.statusInProduction"), color: "bg-orange-500" },
+            { status: "quality_check", label: t("planning.gantt.statusQualityCheck"), color: "bg-purple-500" }
           ].map(item => (
             <div key={item.status} className="flex items-center gap-2">
               <div className={`w-4 h-4 ${item.color} rounded`} />

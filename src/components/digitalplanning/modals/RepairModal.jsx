@@ -1,19 +1,22 @@
 import React, { useState } from "react";
 import { X, Wrench, Save, Loader2, CheckSquare } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
-const REPAIR_ACTIONS = [
-  "Nieuw etiket/volgnummer",
-  "Opgedikt",
-  "Binnenkant gerepareerd",
-  "Cosmetische reparatie",
-  "Flens vlakken",
-  "Lektest herhaald"
+const getRepairActions = (t) => [
+  t("digitalplanning.repair.action_new_label", "Nieuw etiket/volgnummer"),
+  t("digitalplanning.repair.action_thickened", "Opgedikt"),
+  t("digitalplanning.repair.action_inner_repair", "Binnenkant gerepareerd"),
+  t("digitalplanning.repair.action_cosmetic", "Cosmetische reparatie"),
+  t("digitalplanning.repair.action_flange_flat", "Flens vlakken"),
+  t("digitalplanning.repair.action_leaktest", "Lektest herhaald"),
 ];
 
 const RepairModal = ({ product, onClose, onConfirm }) => {
+  const { t } = useTranslation();
   const [selectedActions, setSelectedActions] = useState([]);
   const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const repairActions = getRepairActions(t);
 
   const toggleAction = (action) => {
     setSelectedActions(prev => 
@@ -36,7 +39,7 @@ const RepairModal = ({ product, onClose, onConfirm }) => {
               <Wrench size={24} />
             </div>
             <div>
-              <h3 className="font-black text-slate-800 uppercase text-lg italic tracking-tight">Reparatie Uitvoeren</h3>
+              <h3 className="font-black text-slate-800 uppercase text-lg italic tracking-tight">{t("digitalplanning.repair.title", "Reparatie Uitvoeren")}</h3>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{product.lotNumber}</p>
             </div>
           </div>
@@ -45,9 +48,9 @@ const RepairModal = ({ product, onClose, onConfirm }) => {
 
         <div className="p-6 space-y-6">
           <div>
-            <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block">Uitgevoerde Acties</label>
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block">{t("digitalplanning.repair.actions_label", "Uitgevoerde Acties")}</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {REPAIR_ACTIONS.map(action => (
+              {repairActions.map(action => (
                 <button
                   key={action}
                   onClick={() => toggleAction(action)}
@@ -67,25 +70,25 @@ const RepairModal = ({ product, onClose, onConfirm }) => {
           </div>
 
           <div>
-            <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Toelichting</label>
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">{t("digitalplanning.repair.notes_label", "Toelichting")}</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-medium text-slate-700 outline-none focus:border-orange-500 transition-all min-h-[100px]"
-              placeholder="Beschrijf de reparatie..."
+              placeholder={t("digitalplanning.repair.notes_placeholder", "Beschrijf de reparatie...")}
             />
           </div>
         </div>
 
         <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-          <button onClick={onClose} className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition-colors text-xs uppercase tracking-wider">Annuleren</button>
+          <button onClick={onClose} className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition-colors text-xs uppercase tracking-wider">{t("digitalplanning.repair.cancel", "Annuleren")}</button>
           <button 
             onClick={handleSave}
             disabled={isSaving}
             className="px-8 py-3 bg-slate-900 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50"
           >
             {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-            Gereed & Naar BM01
+            {t("digitalplanning.repair.ready_bm01", "Gereed & Naar BM01")}
           </button>
         </div>
       </div>

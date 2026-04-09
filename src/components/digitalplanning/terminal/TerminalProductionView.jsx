@@ -124,6 +124,27 @@ const TerminalProductionView = ({
       });
     }
   }, [selectedTrackedId]);
+
+  useEffect(() => {
+    if (!scannerMode) return;
+
+    const focusScanner = () => {
+      scanInputRef?.current?.focus();
+    };
+
+    const handleDocumentClick = (event) => {
+      const target = event?.target;
+      if (!target) return;
+      if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) {
+        return;
+      }
+      focusScanner();
+    };
+
+    focusScanner();
+    document.addEventListener("click", handleDocumentClick);
+    return () => document.removeEventListener("click", handleDocumentClick);
+  }, [scannerMode, scanInputRef]);
   
   return (
     <>
@@ -163,7 +184,7 @@ const TerminalProductionView = ({
               onChange={(e) => setScanInput(e.target.value)}
               inputMode={scannerMode ? "none" : "text"}
               onKeyDown={onScan}
-              placeholder="Scan lotnummer..."
+              placeholder={t("digitalplanning.terminal.scan_lot_placeholder", "Scan lotnummer...")}
               className="w-full pl-14 pr-4 py-4 bg-white border-2 border-orange-100 focus:border-orange-500 focus:ring-2 focus:ring-orange-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
             />
           </div>
@@ -171,7 +192,7 @@ const TerminalProductionView = ({
 
         <div className="flex justify-between items-center mb-6 px-2 text-left">
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-            <Zap size={16} className="text-orange-500" /> Actieve Wikkelingen
+            <Zap size={16} className="text-orange-500" /> {t("digitalplanning.terminal.active_winding", "Actieve wikkelingen")}
           </h3>
           <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[10px] font-black">{activeWikkelingen.length}</span>
         </div>
@@ -191,8 +212,8 @@ const TerminalProductionView = ({
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h4 className="font-black italic leading-none mb-1">Order {prod.orderId}</h4>
-                      <p className="text-[10px] font-bold text-orange-700 uppercase">Serie {prod.seriesCount} stuks</p>
+                      <h4 className="font-black italic leading-none mb-1">{t("productionStartModal.labels.order", "Order")} {prod.orderId}</h4>
+                      <p className="text-[10px] font-bold text-orange-700 uppercase">{t("digitalplanning.terminal.series_count", "Serie {{count}} stuks", { count: prod.seriesCount })}</p>
                     </div>
                     <button
                       onClick={() =>
@@ -204,11 +225,11 @@ const TerminalProductionView = ({
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-orange-200 text-orange-700 text-[10px] font-black uppercase"
                     >
                       {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                      {isCollapsed ? "Uitklappen" : "Inklappen"}
+                      {isCollapsed ? t("digitalplanning.terminal.expand", "Uitklappen") : t("digitalplanning.terminal.collapse", "Inklappen")}
                     </button>
                   </div>
                   <p className="mt-2 text-[10px] font-bold text-orange-700/80 uppercase tracking-wide">
-                    Selecteer voor gereedmelden in rechterpaneel
+                    {t("digitalplanning.terminal.select_for_complete_right_panel", "Selecteer voor gereedmelden in rechterpaneel")}
                   </p>
                 </div>
               );
@@ -231,10 +252,10 @@ const TerminalProductionView = ({
                   <div className="p-3 bg-orange-50 text-orange-600 rounded-2xl text-left"><Zap size={20} /></div>
                   <div className="text-left text-left">
                     <h4 className="font-black italic leading-none mb-1">{prod.lotNumber}</h4>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Order: {prod.orderId}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">{t("productionStartModal.labels.order", "Order")}: {prod.orderId}</p>
                     {hasLotConflict && (
                       <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-1">
-                        <AlertTriangle size={12} /> Lot conflict
+                        <AlertTriangle size={12} /> {t("digitalplanning.terminal.lot_conflict", "Lotconflict")}
                       </p>
                     )}
                   </div>
@@ -245,17 +266,17 @@ const TerminalProductionView = ({
                     onClick={async (e) => {
                       e.stopPropagation();
                       const confirmed = await showConfirm({
-                        title: "Productie annuleren",
-                        message: `Weet je zeker dat je lot ${prod.lotNumber} wilt annuleren? Dit kan niet ongedaan worden gemaakt.`,
-                        confirmText: "Annuleren",
-                        cancelText: "Terug",
+                        title: t("digitalplanning.terminal.cancel_production_title", "Productie annuleren"),
+                        message: t("digitalplanning.terminal.cancel_production_message", "Weet je zeker dat je lot {{lot}} wilt annuleren? Dit kan niet ongedaan worden gemaakt.", { lot: prod.lotNumber }),
+                        confirmText: t("digitalplanning.terminal.cancel_production_confirm", "Annuleren"),
+                        cancelText: t("common.back", "Terug"),
                         tone: "danger",
                       });
                       if (!confirmed) return;
                       onCancelProduction(prod.id);
                     }}
                     className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Annuleer productie"
+                    title={t("digitalplanning.terminal.cancel_production", "Annuleer productie")}
                   >
                     <Trash2 size={20} />
                   </button>
@@ -275,7 +296,7 @@ const TerminalProductionView = ({
             <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-orange-500/20 relative overflow-hidden shadow-xl text-left">
               <button onClick={() => onSelectTracked(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
               <div className="text-left flex-1">
-                <span className="text-[8px] font-black text-orange-400 uppercase block mb-1 text-left">Dossier</span>
+                <span className="text-[8px] font-black text-orange-400 uppercase block mb-1 text-left">{t("digitalplanning.terminal.dossier", "Dossier")}</span>
                 <h2 className="text-3xl font-black italic leading-none text-left">{selectedWikkeling.lotNumber}</h2>
               </div>
               <div className="p-3 bg-orange-600 rounded-2xl shadow-lg animate-pulse"><Zap size={24} /></div>
@@ -283,7 +304,7 @@ const TerminalProductionView = ({
             
             {selectedWikkeling.notes && (
               <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
-                <h4 className="text-xs font-black text-amber-800 uppercase tracking-widest mb-2 flex items-center gap-2"><FileText size={14} /> PO Text / Opmerkingen</h4>
+                <h4 className="text-xs font-black text-amber-800 uppercase tracking-widest mb-2 flex items-center gap-2"><FileText size={14} /> {t("productionStartModal.labels.poTextNotes", "PO-tekst / opmerkingen")}</h4>
                 <p className="text-sm font-medium text-slate-700 italic">"{selectedWikkeling.notes}"</p>
               </div>
             )}
@@ -291,18 +312,18 @@ const TerminalProductionView = ({
             <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-8 text-left">
               {selectedSeriesUnits.length > 1 && (
                 <button onClick={() => onReleaseProduct(selectedSeriesUnits[0], selectedSeriesUnits)} className="w-full py-4 bg-emerald-600 text-white rounded-[22px] font-black uppercase text-sm shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
-                  <ClipboardCheck size={20} /> Serie gereedmelden ({selectedSeriesUnits.length}x)
+                  <ClipboardCheck size={20} /> {t("digitalplanning.terminal.series_report_ready", "Serie gereedmelden")} ({selectedSeriesUnits.length}x)
                 </button>
               )}
               <button onClick={() => onReleaseProduct(selectedWikkeling)} className="w-full py-6 bg-slate-900 text-white rounded-[30px] font-black uppercase text-base shadow-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-4 active:scale-95 group">
-                <ClipboardCheck size={28} /> Product Gereedmelden
+                <ClipboardCheck size={28} /> {t("digitalplanning.terminal.product_report_ready", "Product gereedmelden")}
               </button>
             </div>
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center opacity-30 text-center text-left">
             <Zap size={80} className="mb-6 text-slate-200" />
-            <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">Selecteer actief lot</h4>
+            <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">{t("digitalplanning.terminal.select_active_lot", "Selecteer actief lot")}</h4>
           </div>
         )}
       </div>

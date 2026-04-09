@@ -119,7 +119,7 @@ export const setAdminDataSourceMode = (mode = "current") => {
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(
-      new CustomEvent("admin-data-source-mode-changed", {
+      new window.CustomEvent("admin-data-source-mode-changed", {
         detail: { mode: ADMIN_DATA_SOURCE_MODE },
       })
     );

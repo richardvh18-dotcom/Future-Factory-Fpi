@@ -334,63 +334,6 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
     return `${start} -> ${end}`;
   };
 
-  const getTrackingDurationMinutes = (log) => {
-    const ts = log?.timestamps || {};
-    const bounds = getLogProcessBounds(log);
-
-    const start = toDateValue(
-      log?.timestamps?.station_start ||
-      log?.timestamps?.started ||
-      log?.startTime ||
-      log?.startedAt
-    );
-
-    if (start) {
-      const end = toDateValue(
-        log?.timestamps?.finished ||
-        log?.timestamps?.completed ||
-        log?.endTime ||
-        log?.completedAt ||
-        log?.updatedAt
-      ) || new Date();
-
-      const minutes = calculateDuration(start, end);
-      if (Number.isFinite(minutes) && minutes > 0) return minutes;
-    }
-
-    const getNabewerkingEnd = () => {
-      const explicitEnd =
-        bounds.nabewerkingEnd ||
-        toDateValue(log?.updatedAt);
-
-      if (explicitEnd) return explicitEnd;
-
-      const statusText = String(log?.status || "").toLowerCase();
-      const stepText = String(log?.currentStep || "").toLowerCase();
-      const isStillInNabewerking =
-        (stepText.includes("nabewer") || statusText.includes("nabewer")) &&
-        !statusText.includes("completed") &&
-        !stepText.includes("finished") &&
-        !statusText.includes("gereed") &&
-        !statusText.includes("aangeboden");
-
-      return isStillInNabewerking ? new Date() : null;
-    };
-
-    let total = 0;
-
-    const addRange = (startValue, endValue) => {
-      total += getRangeDurationMinutes(startValue, endValue);
-    };
-
-    addRange(bounds.wikkelenStart, bounds.wikkelenEnd);
-    addRange(bounds.lossenStart, bounds.lossenEnd);
-    addRange(bounds.nabewerkingStart, getNabewerkingEnd());
-    addRange(ts.station_start, ts.finished || ts.completed || new Date());
-
-    return total > 0 ? total : 0;
-  };
-
   const getLogActivityDate = (log) => {
     const ts = log?.timestamps || {};
     return (

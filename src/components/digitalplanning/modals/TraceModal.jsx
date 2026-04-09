@@ -7,8 +7,11 @@ import {
   ArrowDown,
   Search,
   User,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { format } from "date-fns";
+import { useTranslation } from "react-i18next";
 import { toDateSafe } from "../../../utils/dateUtils";
 import StatusBadge from "../common/StatusBadge";
 
@@ -16,7 +19,8 @@ import StatusBadge from "../common/StatusBadge";
  * TraceModal - Toont de gedetailleerde lijst die hoort bij een KPI tegel.
  */
 
-const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
+const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick, weekNavigation = null }) => {
+  const { t } = useTranslation();
   const [sortConfig, setSortConfig] = useState({ key: 'updatedAt', direction: 'desc' });
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -38,13 +42,13 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
   const getPriorityBadge = (item) => {
     const level = getPriorityLevel(item);
     if (level === "immediate") {
-      return { label: "1e Prio", className: "bg-rose-100 text-rose-700 border border-rose-200" };
+      return { label: t('digitalplanning.trace_modal.priority_immediate', '1st Prio'), className: "bg-rose-100 text-rose-700 border border-rose-200" };
     }
     if (level === "urgent") {
-      return { label: "Spoed", className: "bg-orange-100 text-orange-700 border border-orange-200" };
+      return { label: t('digitalplanning.trace_modal.priority_urgent', 'Urgent'), className: "bg-orange-100 text-orange-700 border border-orange-200" };
     }
     if (level === "high") {
-      return { label: "Prio", className: "bg-amber-100 text-amber-700 border border-amber-200" };
+      return { label: t('digitalplanning.trace_modal.priority', 'Priority'), className: "bg-amber-100 text-amber-700 border border-amber-200" };
     }
     return null;
   };
@@ -133,21 +137,55 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
                 {title}
               </h2>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                Totaal: {filteredData.length} items gevonden {searchTerm && `(van ${data.length})`}
+                {t('digitalplanning.trace_modal.total_found', 'Total: {{count}} items found', { count: filteredData.length })} {searchTerm && t('digitalplanning.trace_modal.of_total', '(of {{count}})', { count: data.length })}
               </p>
             </div>
           </div>
 
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text"
-              placeholder="Zoeken..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-500 transition-all shadow-sm"
-              autoFocus
-            />
+          <div className="w-full sm:max-w-2xl flex flex-col sm:flex-row gap-2">
+            {weekNavigation && (
+              <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-2 shadow-sm">
+                <button
+                  type="button"
+                  onClick={weekNavigation.onPrevious}
+                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-600"
+                  title={t('digitalplanning.trace_modal.previous_week', 'Previous week')}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 whitespace-nowrap">
+                  {weekNavigation.label}
+                </span>
+                <button
+                  type="button"
+                  onClick={weekNavigation.onNext}
+                  disabled={!weekNavigation.canGoNext}
+                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={t('digitalplanning.trace_modal.next_week', 'Next week')}
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={weekNavigation.onCurrentWeek}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-600"
+                >
+                  {t('digitalplanning.trace_modal.this_week', 'This week')}
+                </button>
+              </div>
+            )}
+
+            <div className="relative w-full sm:max-w-xs sm:ml-auto">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input 
+                type="text"
+                placeholder={t('digitalplanning.trace_modal.search_placeholder', 'Search...')}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-500 transition-all shadow-sm"
+                autoFocus
+              />
+            </div>
           </div>
 
           <button
@@ -164,7 +202,7 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
             <div className="flex-1 overflow-y-auto custom-scrollbar py-20 text-center opacity-30">
               <Box size={64} className="mx-auto mb-4" />
               <p className="font-black uppercase tracking-widest text-xs">
-                Geen data beschikbaar voor deze selectie
+                {t('digitalplanning.trace_modal.no_data_for_selection', 'No data available for this selection')}
               </p>
             </div>
           ) : (
@@ -175,27 +213,27 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
                     <tr>
                       <th className="px-6 py-3 bg-slate-50 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => requestSort('lotNumber')}>
                         <div className="flex items-center gap-1">
-                          Identificatie <SortIcon columnKey="lotNumber" />
+                          {t('digitalplanning.trace_modal.identification', 'Identification')} <SortIcon columnKey="lotNumber" />
                         </div>
                       </th>
                       <th className="px-6 py-3 bg-slate-50 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => requestSort('item')}>
                         <div className="flex items-center gap-1">
-                          Product Info <SortIcon columnKey="item" />
+                          {t('digitalplanning.trace_modal.product_info', 'Product Info')} <SortIcon columnKey="item" />
                         </div>
                       </th>
                       <th className="px-6 py-3 bg-slate-50 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => requestSort('machine')}>
                         <div className="flex items-center gap-1">
-                          Station <SortIcon columnKey="machine" />
+                          {t('digitalplanning.trace_modal.station', 'Station')} <SortIcon columnKey="machine" />
                         </div>
                       </th>
                       <th className="px-6 py-3 bg-slate-50 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => requestSort('status')}>
                         <div className="flex items-center gap-1">
-                          Status <SortIcon columnKey="status" />
+                          {t('digitalplanning.trace_modal.status', 'Status')} <SortIcon columnKey="status" />
                         </div>
                       </th>
                       <th className="px-6 py-3 text-right bg-slate-50 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => requestSort('updatedAt')}>
                         <div className="flex items-center justify-end gap-1">
-                          Laatste Update <SortIcon columnKey="updatedAt" />
+                          {t('digitalplanning.trace_modal.last_update', 'Last Update')} <SortIcon columnKey="updatedAt" />
                         </div>
                       </th>
                     </tr>
@@ -233,13 +271,13 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
                           </div>
                           {item.lotNumber && (
                             <div className="text-[9px] font-bold text-slate-400 uppercase">
-                              Order: {item.orderId}
+                              {t('digitalplanning.trace_modal.order', 'Order')}: {item.orderId}
                             </div>
                           )}
                         </td>
                         <td className="px-6 py-4">
                           <div className="font-bold text-slate-700 truncate max-w-[200px]">
-                            {item.item || "Geen omschrijving"}
+                            {item.item || t('digitalplanning.trace_modal.no_description', 'No description')}
                           </div>
                           <div className="text-[10px] font-mono text-slate-400">
                             {item.itemCode || item.productId}
@@ -288,7 +326,7 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick }) => {
             onClick={onClose}
             className="px-8 py-3 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all"
           >
-            Sluiten
+            {t('common.close', 'Close')}
           </button>
         </div>
       </div>

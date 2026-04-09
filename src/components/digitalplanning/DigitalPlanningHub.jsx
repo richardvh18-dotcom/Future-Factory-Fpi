@@ -113,7 +113,7 @@ const DigitalPlanningHub = () => {
     },
     {
       id: "PIPES",
-      title: "Pipe Producties",
+      title: t("digitalplanning.hub.pipe_title"),
       icon: <Cpu size={40} />,
       description: "",
       color: "bg-orange-600",

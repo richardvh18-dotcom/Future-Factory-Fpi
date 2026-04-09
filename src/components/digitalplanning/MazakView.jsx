@@ -443,10 +443,16 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
         setBulkSeriesProducts([]);
         setActiveTab("process"); // Spring direct naar gereedmelden
       }
-      notify(`${itemsToPrint.length} label(s) succesvol naar de print wachtrij verstuurd!`);
+      notify(
+        t(
+          "mazak.labels_queued_success",
+          "{{count}} label(s) succesvol naar de print wachtrij verstuurd!",
+          { count: itemsToPrint.length }
+        )
+      );
     } catch (err) {
       console.error("Fout bij printen:", err);
-      notify("Er is een fout opgetreden bij het printen.");
+      notify(t("mazak.print_error", "Er is een fout opgetreden bij het printen."));
     } finally {
       setPrinting(false);
     }
@@ -584,7 +590,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
 
     if (code === QR_CODE_OK_CONFIRMATION && selectedProduct) {
       if (activeTab === "inbox") {
-        notify("Dit item moet eerst geprint worden voordat het goedgekeurd kan worden.");
+        notify(t("mazak.must_print_before_approve", "Dit item moet eerst geprint worden voordat het goedgekeurd kan worden."));
         setScanInput("");
         return;
       }
@@ -604,7 +610,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
       setSelectedProduct(found);
       setScanInput("");
     } else {
-      notify(t("lossen.item_not_found", { code }) || `Item ${code} niet gevonden`);
+      notify(t("lossen.item_not_found", "Item {{code}} niet gevonden", { code }));
       setScanInput("");
       setSelectedProduct(null);
     }
@@ -641,7 +647,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
           </p>
         </div>
         <div className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${activeTab === "inbox" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}>
-          {activeTab === "inbox" ? "Printen" : "Gereedmelden"}
+          {activeTab === "inbox" ? t("mazak.print_badge", "Printen") : t("mazak.complete_badge", "Gereedmelden")}
         </div>
       </div>
       <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
@@ -655,7 +661,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
           <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 opacity-80">
             <History size={10} className="text-blue-500" />
             <span className="text-[8px] font-black text-slate-500 uppercase italic">
-              Van: {item.lastStation}
+              {t("mazak.from_station", "Van")}: {item.lastStation}
             </span>
           </div>
         )}
@@ -681,13 +687,13 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
               onClick={() => { setActiveTab("inbox"); setSelectedProduct(null); setSelectedPlanningOrder(null); setBulkSeriesProducts([]); }}
               className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "inbox" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
             >
-              Inbox / Printen
+              {t("mazak.tab_inbox", "Inbox / Printen")}
             </button>
             <button 
               onClick={() => { setActiveTab("process"); setSelectedProduct(null); setSelectedPlanningOrder(null); setBulkSeriesProducts([]); }}
               className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "process" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
             >
-              Gereedmelden
+              {t("mazak.tab_complete", "Gereedmelden")}
             </button>
           </div>
         </div>
@@ -725,25 +731,25 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
           <div className="bg-white rounded-[30px] shadow-2xl w-full max-w-7xl flex flex-col md:flex-row overflow-hidden max-h-[90vh]">
             <div className="w-full md:w-1/3 shrink-0 p-8 border-r border-slate-100 flex flex-col overflow-y-auto">
                <h3 className="text-2xl font-black uppercase italic text-slate-800 mb-2">
-                 {activeTab === "process" ? "Label Herprinten" : "Labels Printen"}
+                 {activeTab === "process" ? t("mazak.reprint_label", "Label herprinten") : t("mazak.print_labels", "Labels printen")}
                </h3>
                <p className="text-sm font-bold text-slate-500 mb-8">
                   {bulkSeriesProducts.length > 1 
-                    ? `${bulkSeriesProducts.length} labels worden geprint voor deze bulk-serie.` 
+                    ? t("mazak.bulk_labels_printing", "{{count}} labels worden geprint voor deze bulk-serie.", { count: bulkSeriesProducts.length }) 
                     : activeTab === "process"
-                    ? "1 label wordt opnieuw geprint voor dit product."
-                    : "1 label wordt geprint voor dit product."}
+                    ? t("mazak.one_label_reprint", "1 label wordt opnieuw geprint voor dit product.")
+                    : t("mazak.one_label_print", "1 label wordt geprint voor dit product.")}
                </p>
 
                <div className="space-y-6 flex-1">
                  <div>
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Label Formaat</label>
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">{t("productionStartModal.labels.labelFormat", "Labelformaat")}</label>
                    <select 
                      value={selectedLabelId}
                      onChange={(e) => setSelectedLabelId(e.target.value)}
                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500"
                    >
-                     <option value="">- Selecteer een template -</option>
+                     <option value="">{t("mazak.select_template", "- Selecteer een template -")}</option>
                      {filteredLabels.map(l => (
                        <option key={l.id} value={l.id}>{l.name} ({l.width}x{l.height}mm)</option>
                      ))}
@@ -751,7 +757,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                  </div>
                  
                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl">
-                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Geselecteerde Order</p>
+                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">{t("mazak.selected_order", "Geselecteerde order")}</p>
                     <p className="font-bold text-blue-900">{selectedProduct.orderId}</p>
                     <p className="text-xs text-blue-700 mt-1">{selectedProduct.item}</p>
                  </div>
@@ -759,18 +765,22 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
 
                <div className="flex gap-3 pt-6 mt-auto">
                  <button onClick={() => setShowPrintModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-200 transition-all">
-                   Annuleren
+                   {t("common.cancel", "Annuleren")}
                  </button>
                  <button onClick={handlePrintLabels} disabled={printing || !selectedLabelId} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-blue-700 shadow-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50">
                    {printing ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
-                   {printing ? "Bezig..." : activeTab === "process" ? "Herprint Label" : `Print ${bulkSeriesProducts.length > 1 ? bulkSeriesProducts.length : 1} Label(s)`}
+                   {printing
+                     ? t("common.loading", "Laden...")
+                     : activeTab === "process"
+                       ? t("mazak.reprint_label", "Label herprinten")
+                       : t("mazak.print_count_labels", "Print {{count}} label(s)", { count: bulkSeriesProducts.length > 1 ? bulkSeriesProducts.length : 1 })}
                  </button>
                </div>
             </div>
 
             <div className="flex-1 bg-slate-50 p-8 flex flex-col items-center justify-center relative min-h-[400px] overflow-hidden">
                <div className="absolute top-4 left-4 text-[9px] font-black text-slate-500 uppercase tracking-[0.4em] flex items-center gap-2 z-10">
-                 <Printer size={12} className="text-blue-500" /> Label Preview
+                 <Printer size={12} className="text-blue-500" /> {t("productionStartModal.labels.labelPreview", "Etiket preview")}
                </div>
                
                {selectedLabelId ? (
@@ -783,7 +793,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                    </div>
                  </div>
                ) : (
-                 <p className="text-slate-400 font-bold text-sm">Selecteer een template voor preview</p>
+                 <p className="text-slate-400 font-bold text-sm">{t("mazak.select_template_for_preview", "Selecteer een template voor preview")}</p>
                )}
             </div>
           </div>
@@ -808,10 +818,10 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
               <button
                 onClick={() => setScannerMode(!scannerMode)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-bold text-xs uppercase tracking-widest transition-all ${scannerMode ? "bg-purple-100 border-purple-200 text-purple-700" : "bg-white border-slate-200 text-slate-400"}`}
-                title={scannerMode ? "Toetsenbord verborgen (Scanner Modus)" : "Normale invoer"}
+                title={scannerMode ? t("digitalplanning.terminal.scanner_keyboard_hidden", "Toetsenbord verborgen (Scanner modus)") : t("digitalplanning.terminal.normal_input", "Normale invoer")}
               >
                 {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
-                {scannerMode ? "Scanner Modus" : "Toetsenbord"}
+                {scannerMode ? t("digitalplanning.terminal.scanner_mode", "Scanner modus") : t("digitalplanning.terminal.keyboard", "Toetsenbord")}
               </button>
             </div>
 
@@ -824,7 +834,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                 onChange={(event) => setScanInput(event.target.value)}
                 inputMode={scannerMode ? "none" : "text"}
                 onKeyDown={handleScan}
-                placeholder="Scan lotnummer of order..."
+                placeholder={t("digitalplanning.terminal.scan_lot_or_order", "Scan lotnummer of order...")}
                 className="w-full pl-14 pr-4 py-4 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
               />
             </div>
@@ -835,7 +845,11 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
           <div className="p-12 text-center bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200 opacity-40">
             <Package size={48} className="mx-auto mb-4 text-slate-300" />
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              {activeTab === "inbox" ? "Geen items om te printen" : activeTab === "planning" ? "Geen flens-orders in de planning" : "Geen items om te gereedmelden"}
+              {activeTab === "inbox"
+                ? t("mazak.no_items_to_print", "Geen items om te printen")
+                : activeTab === "planning"
+                  ? t("mazak.no_flange_orders_planning", "Geen flens-orders in de planning")
+                  : t("mazak.no_items_to_complete", "Geen items om te gereedmelden")}
             </p>
           </div>
         ) : (
@@ -843,7 +857,11 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
             <div className="flex items-center gap-2 mb-4 ml-2">
               {activeTab === "planning" ? <History size={16} className="text-blue-500" /> : activeTab === "inbox" ? <Printer size={16} className="text-blue-500" /> : <ClipboardCheck size={16} className="text-emerald-500" />}
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                {activeTab === "planning" ? "Geplande Flenzen" : activeTab === "inbox" ? "Inbox" : "Te Verwerken"} ({currentList.length})
+                {activeTab === "planning"
+                  ? t("mazak.planned_flanges", "Geplande flenzen")
+                  : activeTab === "inbox"
+                    ? t("mazak.inbox", "Inbox")
+                    : t("mazak.to_process", "Te verwerken")} ({currentList.length})
               </h3>
             </div>
 
@@ -854,7 +872,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input
                       type="text"
-                      placeholder="Zoek order, item of lot..."
+                      placeholder={t("mazak.search_order_item_lot", "Zoek order, item of lot...")}
                       value={planningSearch}
                       onChange={(e) => setPlanningSearch(e.target.value)}
                       className="w-full pl-11 pr-4 py-3 bg-white border-2 border-slate-100 focus:border-blue-500 rounded-xl font-bold text-sm outline-none transition-all placeholder:text-slate-300"
@@ -865,13 +883,13 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                       onClick={() => setShowAllWeeks(true)}
                       className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${showAllWeeks ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                     >
-                      Alle Weken
+                      {t("mazak.all_weeks", "Alle weken")}
                     </button>
                     <button
                       onClick={() => setShowAllWeeks(false)}
                       className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${!showAllWeeks ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                     >
-                      Per Week
+                      {t("mazak.per_week", "Per week")}
                     </button>
                   </div>
                   {!showAllWeeks && (
@@ -879,8 +897,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                       <button onClick={() => setReferenceDate(d => subWeeks(d, 1))} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
                         <ChevronLeft size={16} />
                       </button>
-                      <div className="flex flex-col items-center cursor-pointer select-none" onDoubleClick={() => setReferenceDate(new Date())} title="Dubbelklik voor huidige week">
-                        <span className="text-xs font-black text-blue-600 uppercase tracking-widest">Week {getISOWeek(referenceDate)}</span>
+                      <div className="flex flex-col items-center cursor-pointer select-none" onDoubleClick={() => setReferenceDate(new Date())} title={t("mazak.double_click_current_week", "Dubbelklik voor huidige week")}>
+                        <span className="text-xs font-black text-blue-600 uppercase tracking-widest">{t("common.week", "Week")} {getISOWeek(referenceDate)}</span>
                         <span className="text-[9px] font-bold text-slate-400">{referenceDate.getFullYear()}</span>
                       </div>
                       <button onClick={() => setReferenceDate(d => addWeeks(d, 1))} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
@@ -893,7 +911,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                   let lastWeekLabel = null;
                   return filteredPlanningOrders.map(order => {
                     const isActive = order.status === 'in_progress' || order.status === 'In Production';
-                    const weekLabel = isActive ? "In Productie" : `Week ${order.week || order.weekNumber || "?"}`;
+                    const weekLabel = isActive ? t("status.in_production", "In Productie") : `Week ${order.week || order.weekNumber || "?"}`;
                     
                     const showDivider = showAllWeeks && weekLabel !== lastWeekLabel;
                     if (showDivider) {
@@ -916,7 +934,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                           <div className="flex justify-between items-start mb-4">
                             <div className="text-left">
                               <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">
-                                Ordernummer
+                                {t("mazak.order_number", "Ordernummer")}
                               </span>
                               <span className="font-black text-slate-900 text-lg tracking-tighter italic">
                                 {order.orderId}
@@ -932,18 +950,18 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex justify-between items-center">
                             <div>
                               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                                Wikkelmachine
+                                {t("mazak.winding_machine", "Wikkelmachine")}
                               </p>
                               <p className="text-xs font-mono font-bold text-slate-700 truncate">
-                                {order.machine || "Onbekend"}
+                                {order.machine || t("common.unknown", "Onbekend")}
                               </p>
                             </div>
                             <div className="text-right">
                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                                Aantal
+                                {t("mazak.quantity", "Aantal")}
                               </p>
                               <p className="text-xs font-mono font-black text-blue-600">
-                                {order.plan} st.
+                                {order.plan} {t("digitalplanning.terminal.piece", "st.")}
                               </p>
                             </div>
                           </div>
@@ -965,9 +983,9 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Bulk / Serie</p>
-                        <p className="text-base font-black text-blue-900">Order {item.orderId}</p>
-                        <p className="text-[10px] font-bold text-blue-700 uppercase">{item.seriesCount} stuks</p>
+                        <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">{t("mazak.bulk_series", "Bulk / serie")}</p>
+                        <p className="text-base font-black text-blue-900">{t("productionStartModal.labels.order", "Order")} {item.orderId}</p>
+                        <p className="text-[10px] font-bold text-blue-700 uppercase">{t("digitalplanning.terminal.series_count", "Serie {{count}} stuks", { count: item.seriesCount })}</p>
                       </div>
                       <button
                         onClick={(e) => {
@@ -980,11 +998,11 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                         className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-blue-200 text-blue-700 text-[10px] font-black uppercase"
                       >
                         {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                        {isCollapsed ? "Uitklappen" : "Inklappen"}
+                        {isCollapsed ? t("digitalplanning.terminal.expand", "Uitklappen") : t("digitalplanning.terminal.collapse", "Inklappen")}
                       </button>
                     </div>
                     <p className="mt-2 text-[10px] font-bold text-blue-700/80 uppercase tracking-wide">
-                      Selecteer voor printen of gereedmelden in rechterpaneel
+                      {t("mazak.select_for_print_or_complete", "Selecteer voor printen of gereedmelden in rechterpaneel")}
                     </p>
                   </div>
                 );
@@ -1005,7 +1023,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
             <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
               <button onClick={() => setSelectedPlanningOrder(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
               <div className="text-left flex-1">
-                <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">Toekomstige Flens Order</span>
+                <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("mazak.future_flange_order", "Toekomstige flens-order")}</span>
                 <h2 className="text-3xl font-black italic leading-none text-left">
                   {selectedPlanningOrder.orderId}
                 </h2>
@@ -1014,23 +1032,23 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
             </div>
 
             <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-5 text-left">
-              <h3 className="font-black uppercase tracking-widest text-slate-400 text-xs mb-4">Order Details</h3>
+              <h3 className="font-black uppercase tracking-widest text-slate-400 text-xs mb-4">{t("mazak.order_details", "Orderdetails")}</h3>
               <div className="grid grid-cols-2 gap-4">
                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Aantal te produceren</p>
-                    <p className="font-black text-lg text-slate-800">{selectedPlanningOrder.plan} stuks</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("mazak.quantity_to_produce", "Aantal te produceren")}</p>
+                  <p className="font-black text-lg text-slate-800">{selectedPlanningOrder.plan} {t("digitalplanning.terminal.pieces", "stuks")}</p>
                  </div>
                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Wikkelstation</p>
-                    <p className="font-black text-lg text-slate-800">{selectedPlanningOrder.machine || "Onbekend"}</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("mazak.winding_station", "Wikkelstation")}</p>
+                  <p className="font-black text-lg text-slate-800">{selectedPlanningOrder.machine || t("common.unknown", "Onbekend")}</p>
                  </div>
                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Huidige Status</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t("digitalplanning.status", "Status")}</p>
                     <StatusBadge status={selectedPlanningOrder.status} />
                  </div>
                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Leverdatum / Week</p>
-                    <p className="font-black text-lg text-slate-800">Week {selectedPlanningOrder.week || selectedPlanningOrder.weekNumber || "?"}</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("mazak.delivery_week", "Leverdatum / week")}</p>
+                  <p className="font-black text-lg text-slate-800">{t("common.week", "Week")} {selectedPlanningOrder.week || selectedPlanningOrder.weekNumber || "?"}</p>
                  </div>
               </div>
             </div>
@@ -1040,7 +1058,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
             <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
               <button onClick={() => setSelectedProduct(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
               <div className="text-left flex-1">
-                <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">Mazak</span>
+                <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("mazak.title", "Mazak")}</span>
                 <h2 className="text-3xl font-black italic leading-none text-left">
                   {bulkSeriesProducts.length > 1 ? (() => {
                     const sortedLots = bulkSeriesProducts.map(p => String(p.lotNumber || "")).sort();
@@ -1059,7 +1077,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                   onClick={() => setShowPrintModal(true)} 
                   className="w-full py-4 bg-blue-50 text-blue-700 rounded-[22px] font-black uppercase text-sm hover:bg-blue-100 transition-all flex items-center justify-center gap-3 active:scale-95 group border border-blue-200"
                 >
-                  <Printer size={20} /> Print Labels
+                  <Printer size={20} /> {t("mazak.print_labels", "Labels printen")}
                 </button>
               ) : (
                 <>
@@ -1067,10 +1085,10 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                     onClick={() => setShowPrintModal(true)} 
                     className="w-full py-4 bg-slate-100 text-slate-700 rounded-[22px] font-black uppercase text-sm hover:bg-slate-200 transition-all flex items-center justify-center gap-3 active:scale-95 group border border-slate-200"
                   >
-                    <Printer size={20} /> Herprint Label
+                    <Printer size={20} /> {t("mazak.reprint_label", "Label herprinten")}
                   </button>
                   <button onClick={handleOpenActionModal} className="w-full py-6 bg-slate-900 text-white rounded-[30px] font-black uppercase text-base shadow-xl hover:bg-blue-600 transition-all flex items-center justify-center gap-4 active:scale-95 group">
-                    <ClipboardCheck size={28} /> Verwerken
+                    <ClipboardCheck size={28} /> {t("mazak.process", "Verwerken")}
                   </button>
                 </>
               )}
@@ -1086,7 +1104,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                <ClipboardCheck size={80} className="mb-6 text-slate-200" />
             )}
             <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">
-               {activeTab === "inbox" ? "Selecteer order om te printen" : activeTab === "planning" ? "Selecteer geplande order" : "Selecteer order om te verwerken"}
+               {activeTab === "inbox" ? t("mazak.select_to_print", "Selecteer order om te printen") : activeTab === "planning" ? t("mazak.select_planned_order", "Selecteer geplande order") : t("mazak.select_to_process", "Selecteer order om te verwerken")}
             </h4>
           </div>
         )}

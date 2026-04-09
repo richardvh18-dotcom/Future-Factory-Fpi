@@ -2,16 +2,34 @@ import React from 'react';
 import { resolveLabelContent, getBarcodeUrl } from '../../utils/labelHelpers';
 import InternalQrImage from '../../utils/InternalQrImage';
 
-const PIXELS_PER_MM = 3.78;
+/**
+ * CRITICAL: PIXELS_PER_MM moet passen bij printer DPI voor print/preview parity.
+ * 
+ * Standaard scherm DPI = 96, dus PIXELS_PER_MM = 96 / 25.4 ≈ 3.78
+ * Printer DPI = 203 (standaard), dus dots/mm = 203 / 25.4 ≈ 8.0
+ * 
+ * Elke DPI mismatch zorgt voor overlapping/spacing mismatch in fysieke print.
+ */
 const CSS_PIXELS_PER_POINT = 96 / 72;
 const PRINTER_PREVIEW_FONT_STACK = '"Lucida Console", "Courier New", monospace';
+
+/**
+ * Berekent PIXELS_PER_MM voor gegeven printer-DPI
+ * Hiermee wordt preview gesynchroniseerd met actuele print-output
+ */
+const getPixelsPerMm = (printerDpi = 203) => {
+  // We schalen zelf naar printer-dots zodat preview parity heeft
+  // 203 DPI printer = 8.0 dots/mm
+  // Preview pixels moeten dezelfde schaal gebruiken voor 1:1 preview/print matching
+  return (printerDpi || 203) / 25.4;
+};
 
 const getLongestPreviewLineLength = (value) => {
   const lines = String(value || "").split(/\r?\n/);
   return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
 };
 
-const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1) => {
+const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1, pixelsPerMm = 3.78) => {
   const explicitMaxLines = Number(element.maxLines);
   if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
     return Math.max(1, Math.floor(explicitMaxLines));
@@ -25,7 +43,7 @@ const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1)
 
   if (!blockHeightMm || !baseFontPx) return 1;
 
-  const blockHeightPx = blockHeightMm * PIXELS_PER_MM * zoom;
+  const blockHeightPx = blockHeightMm * pixelsPerMm * zoom;
   const estimatedLineHeightPx = Math.max(1, baseFontPx * 1.05);
   return Math.max(1, Math.floor((blockHeightPx * 0.92) / estimatedLineHeightPx));
 };
@@ -34,19 +52,19 @@ const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1)
  * Berekent tekststijl exact gelijk aan AdminLabelDesigner.getPreviewTextStyle
  * zodat preview en designer identiek renderen.
  */
-const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
+const getPreviewTextStyle = (element, content, zoom, rotation = 0, pixelsPerMm = 3.78) => {
   const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
   const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
   const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
-  const maxLines = getResolvedPreviewMaxLines(element, baseFontPx, normalizedRotation, zoom);
+  const maxLines = getResolvedPreviewMaxLines(element, baseFontPx, normalizedRotation, zoom, pixelsPerMm);
 
   if (isVerticalRotation) {
     // Bij verticale rotatie is el.height het loopvlak voor tekst (de "breedte" na rotatie)
     const runLengthMm = element.height || element.width || 0;
-    const runLengthPx = runLengthMm * PIXELS_PER_MM * zoom;
+    const runLengthPx = runLengthMm * pixelsPerMm * zoom;
     // el.width wordt na rotatie de "hoogte" — het budget voor meerdere regels
     const lineBudgetMm = element.width || element.height || 0;
-    const lineBudgetPx = lineBudgetMm * PIXELS_PER_MM * zoom;
+    const lineBudgetPx = lineBudgetMm * pixelsPerMm * zoom;
 
     if (runLengthPx > 0) {
       const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
@@ -60,8 +78,8 @@ const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
   }
 
   const effectiveWidthMm = element.width || 0;
-  const blockWidthPx = effectiveWidthMm * PIXELS_PER_MM * zoom;
-  const blockHeightPx = element.height ? element.height * PIXELS_PER_MM * zoom : null;
+  const blockWidthPx = effectiveWidthMm * pixelsPerMm * zoom;
+  const blockHeightPx = element.height ? element.height * pixelsPerMm * zoom : null;
 
   if (!blockWidthPx) {
     return { fontSize: baseFontPx, lineHeight: "1.05" };
@@ -76,15 +94,17 @@ const getPreviewTextStyle = (element, content, zoom, rotation = 0) => {
   return { fontSize: fittedFontPx, lineHeight: "1.05" };
 };
 
-const LabelVisualPreview = ({ label, data, zoom = 1, className = "" }) => {
+const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi = 203 }) => {
+  const pixelsPerMm = getPixelsPerMm(printerDpi);
+  
   if (!label) return <div className={`w-48 h-32 bg-slate-200 flex items-center justify-center text-xs text-slate-400 italic ${className}`}>Geen template</div>;
 
   return (
     <div
       className={`bg-white relative overflow-hidden ${className}`}
       style={{
-        width: `${label.width * PIXELS_PER_MM * zoom}px`,
-        height: `${label.height * PIXELS_PER_MM * zoom}px`,
+        width: `${label.width * pixelsPerMm * zoom}px`,
+        height: `${label.height * pixelsPerMm * zoom}px`,
       }}
     >
       {label.elements?.map((el, index) => {
@@ -94,13 +114,13 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "" }) => {
         const isVerticalRotation = rotation === 90 || rotation === 270;
         const baseStyle = {
           position: "absolute",
-          left: `${el.x * PIXELS_PER_MM * zoom}px`,
-          top: `${el.y * PIXELS_PER_MM * zoom}px`,
+          left: `${el.x * pixelsPerMm * zoom}px`,
+          top: `${el.y * pixelsPerMm * zoom}px`,
           width: el.width
-            ? `${el.width * PIXELS_PER_MM * zoom}px`
+            ? `${el.width * pixelsPerMm * zoom}px`
             : "auto",
           height: el.height
-            ? `${el.height * PIXELS_PER_MM * zoom}px`
+            ? `${el.height * pixelsPerMm * zoom}px`
             : "auto",
           color: "black",
           transform: `rotate(${rotation}deg)`,
@@ -110,7 +130,7 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "" }) => {
         };
 
         if (el.type === "text") {
-          const textStyle = getPreviewTextStyle(el, displayContent, zoom, rotation);
+          const textStyle = getPreviewTextStyle(el, displayContent, zoom, rotation, pixelsPerMm);
 
           return (
             <div
@@ -118,12 +138,12 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "" }) => {
               style={{
                 ...baseStyle,
                 width: isVerticalRotation
-                  ? `${(el.height || el.width || 1) * PIXELS_PER_MM * zoom}px`
-                  : `${el.width * PIXELS_PER_MM * zoom}px`,
+                  ? `${(el.height || el.width || 1) * pixelsPerMm * zoom}px`
+                  : `${el.width * pixelsPerMm * zoom}px`,
                 height: isVerticalRotation
-                  ? `${(el.width || el.height || 1) * PIXELS_PER_MM * zoom}px`
+                  ? `${(el.width || el.height || 1) * pixelsPerMm * zoom}px`
                   : (el.height
-                    ? `${el.height * PIXELS_PER_MM * zoom}px`
+                    ? `${el.height * pixelsPerMm * zoom}px`
                     : "auto"),
                 fontSize: `${textStyle.fontSize}px`,
                 lineHeight: textStyle.lineHeight,
@@ -147,8 +167,8 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "" }) => {
               key={index}
               style={{
                 ...baseStyle,
-                width: `${el.width * PIXELS_PER_MM * zoom}px`,
-                height: `${el.height * PIXELS_PER_MM * zoom}px`,
+                width: `${el.width * pixelsPerMm * zoom}px`,
+                height: `${el.height * pixelsPerMm * zoom}px`,
                 backgroundColor: "black",
               }}
             />
@@ -160,9 +180,9 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "" }) => {
               key={index}
               style={{
                 ...baseStyle,
-                width: `${el.width * PIXELS_PER_MM * zoom}px`,
-                height: `${el.height * PIXELS_PER_MM * zoom}px`,
-                border: `${(el.thickness || 1) * PIXELS_PER_MM * zoom}px solid black`,
+                width: `${el.width * pixelsPerMm * zoom}px`,
+                height: `${el.height * pixelsPerMm * zoom}px`,
+                border: `${(el.thickness || 1) * pixelsPerMm * zoom}px solid black`,
                 boxSizing: "border-box",
               }}
             />
@@ -172,8 +192,8 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "" }) => {
           return (
              <div key={index} style={{
                  ...baseStyle, 
-                 width: `${(el.width || 30) * PIXELS_PER_MM * zoom}px`, 
-                 height: `${(el.height || 30) * PIXELS_PER_MM * zoom}px`,
+                 width: `${(el.width || 30) * pixelsPerMm * zoom}px`, 
+                 height: `${(el.height || 30) * pixelsPerMm * zoom}px`,
                  background: "#f8fafc",
                  border: "1px solid #cbd5e1",
                  display: "flex",

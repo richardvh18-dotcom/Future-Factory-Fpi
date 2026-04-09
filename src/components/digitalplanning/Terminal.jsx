@@ -33,16 +33,18 @@ import ProductionStartModal from "./modals/ProductionStartModal";
 import ProductDetailModal from "../products/ProductDetailModal";
 import LossenView from "./LossenView";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
 import TerminalPlanningView from "./terminal/TerminalPlanningView";
 import TerminalProductionView from "./terminal/TerminalProductionView";
 import TerminalManualInput from "./terminal/TerminalManualInput";
+import TerminalGereedTab from "./terminal/TerminalGereedTab";
 import MalOptimizationPanel from "./MalOptimizationPanel";
 import MazakView from "./MazakView";
 import RepairModal from "./modals/RepairModal";
 import { useNotifications } from '../../contexts/NotificationContext';
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
+const GEREED_TAB_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"]);
 
 /**
  * Workstation Terminal - V22.5
@@ -63,15 +65,18 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
 
   const isNabewerking = useMemo(() => normalizedStationId === "NABEWERKING" || cleanStationId === "NABEWERKING" || normalizedStationId.includes("NABEWERKING") || normalizedStationId.includes("NABEWERKEN"), [normalizedStationId, cleanStationId]);
   const isMazak = normalizedStationId === "MAZAK" || cleanStationId === "MAZAK";
-  const isLossenStation = normalizedStationId === "LOSSEN";
+  const isLossen1218Station = cleanStationId === "LOSSEN12/18";
+  const isLossenStation = normalizedStationId === "LOSSEN" && !isLossen1218Station;
   const isSimpleViewStation = isNabewerking || isMazak || isLossenStation;
   const isBH18 = cleanStationId === "BH18" || normalizedStationId === "BH18";
+  const isGereedTabSourceStation = GEREED_TAB_SOURCE_STATIONS.has(cleanStationId);
   const isBH31 = normalizedStationId === "BH31";
   const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || normalizedStationId.includes("BM01");
 
   // State management
   const { notify } = useNotifications();
   const [activeTab, setActiveTab] = useState("planning");
+  const [lossenPlanningFilter, setLossenPlanningFilter] = useState(null);
   const [allOrders, setAllOrders] = useState([]);
   const [allTracked, setAllTracked] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -108,16 +113,16 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   const absCurrentReal = currentRealYear * 52 + currentRealWeek;
 
   const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-  const stationCounterField = `started_${String(effectiveStationId || stationId || "").replace(/[^a-zA-Z0-9]/g, '_')}`;
+  const stationCounterField = getStartedCounterField(effectiveStationId || stationId);
 
   // Forceer tab reset bij station wissel
   useEffect(() => {
-    if (isBM01) {
-      setActiveTab("planning");
+    if (isLossen1218Station) {
+      setActiveTab("lossen"); // LOSSEN 12/18: standaard lossen tab
     } else {
       setActiveTab("planning");
     }
-  }, [effectiveStationId, isBM01]);
+  }, [effectiveStationId, isLossen1218Station]);
 
   // RESET EFFECT: Zorg dat de details sluiten bij navigatie acties
   useEffect(() => {
@@ -125,6 +130,11 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     setSelectedTrackedId(null);
   }, [referenceDate, showAllWeeks, activeTab]);
 
+  useEffect(() => {
+    if (isGereedTabSourceStation && activeTab === "lossen") {
+      setActiveTab("gereed");
+    }
+  }, [isGereedTabSourceStation, activeTab]);
   // Helpers
   const parseDateSafe = (dateInput) => {
     return toDateSafe(dateInput);
@@ -220,15 +230,77 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     };
   }, [stationId]);
 
+  const stationOrderMeta = useMemo(() => {
+    const map = new Map();
+    const stationNorm = String(normalizedStationId || "").toUpperCase().trim();
+    const stationClean = stationNorm.replace(/\s/g, "");
+
+    const matchesStation = (value) => {
+      const norm = (normalizeMachine(value) || "").toUpperCase().trim();
+      if (!norm) return false;
+      const clean = norm.replace(/\s/g, "");
+      if (stationClean.includes("NABEWERK")) {
+        return clean.includes("NABEWERK") || clean === "NABW";
+      }
+      if (stationClean.includes("BM01")) {
+        return clean.includes("BM01");
+      }
+      return norm === stationNorm;
+    };
+
+    allTracked.forEach((product) => {
+      const orderId = String(product?.orderId || "").trim();
+      if (!orderId) return;
+
+      const isLinked = [
+        product?.originMachine,
+        product?.currentStation,
+        product?.lastStation,
+        product?.machine,
+      ].some(matchesStation);
+      if (!isLinked) return;
+
+      const statusUpper = String(product?.status || "").toUpperCase();
+      const stepUpper = String(product?.currentStep || "").toUpperCase();
+      const isClosed =
+        ["COMPLETED", "FINISHED", "GEREED", "REJECTED", "AFKEUR"].includes(statusUpper) ||
+        stepUpper === "FINISHED" ||
+        stepUpper === "REJECTED";
+
+      const entry = map.get(orderId) || { active: 0, total: 0 };
+      entry.total += 1;
+      if (!isClosed) entry.active += 1;
+      map.set(orderId, entry);
+    });
+
+    return map;
+  }, [allTracked, normalizedStationId]);
+
   // Gefilterde data voor het huidige station
   const myOrders = useMemo(() => {
     if (isBM01) return allOrders;
+    if (isLossen1218Station) {
+      const sourceMachines = new Set(["BH12", "BH15", "BH17", "BH18"]);
+      return allOrders.filter(o => sourceMachines.has((normalizeMachine(o.machine) || "").toUpperCase().trim()));
+    }
     return allOrders.filter(o => {
       const machineNorm = (normalizeMachine(o.machine) || "").toUpperCase().trim();
       const returnNorm = (normalizeMachine(o.returnStation) || "").toUpperCase().trim();
-      return machineNorm === normalizedStationId || returnNorm === normalizedStationId;
+        const orderId = String(o.orderId || "").trim();
+        const startedAtStation = Number(stationCounterField ? o?.[stationCounterField] || 0 : 0);
+        const planAtStation = Number(o.plan || o.quantity || 0);
+        const hasRemainingPlan = startedAtStation > 0 && planAtStation > startedAtStation;
+        const meta = stationOrderMeta.get(orderId);
+        const hasStationActivity = (meta?.active || 0) > 0 || (meta?.total || 0) > 0;
+
+        return (
+          machineNorm === normalizedStationId ||
+          returnNorm === normalizedStationId ||
+          hasRemainingPlan ||
+          hasStationActivity
+        );
     });
-  }, [allOrders, normalizedStationId, isBM01]);
+  }, [allOrders, normalizedStationId, isBM01, isLossen1218Station, stationCounterField, stationOrderMeta]);
 
   const productionProgressMap = useMemo(() => {
     const map = {};
@@ -499,6 +571,15 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     });
   }, [myOrders, finishedOnMachineMap, stationCounterField, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01, normalizedStationId, productionProgressMap, absCurrentReal]);
 
+  // LOSSEN 12/18: gefilterde planning per machine (filter via filterbar)
+  const lossenFilteredOrders = useMemo(() => {
+    if (!lossenPlanningFilter) return filteredOrders;
+    return filteredOrders.filter(o => {
+      const machineNorm = (normalizeMachine(o.machine) || "").toUpperCase().trim();
+      return machineNorm === lossenPlanningFilter;
+    });
+  }, [filteredOrders, lossenPlanningFilter]);
+
   const selectedOrder = useMemo(() => 
     myOrders.find(o => o.id === selectedOrderId || o.orderId === selectedOrderId), 
     [myOrders, selectedOrderId]
@@ -511,8 +592,10 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     // Alleen auto-focus gebruiken als Scanner Modus AAN staat
     if (!scannerMode) return;
 
-    const handleClick = (e) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+      const handleClick = (e) => {
+        const target = e?.target;
+        if (!target) return;
+        if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) return;
       
       if (activeTab === "wikkelen" && !selectedTrackedId && !productToRelease && !showStartModal) {
         scanInputRef.current?.focus();
@@ -540,7 +623,12 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         const isWikkelenStep = (selectedWikkeling?.currentStep || "").toLowerCase() === "wikkelen";
 
         if (!isBH18) {
-          notify("OK-QR is op dit station niet beschikbaar. Gebruik deze alleen op BH18 (Wikkelen) en in Nabewerken/BM01.");
+          notify(
+            t(
+              "digitalplanning.terminal.ok_qr_not_available",
+              "OK-QR is op dit station niet beschikbaar. Gebruik deze alleen op BH18 (Wikkelen) en in Nabewerken/BM01."
+            )
+          );
           setScanInput("");
           setTimeout(() => {
             scanInputRef.current?.focus();
@@ -554,7 +642,12 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
           setReleaseAutoApproveToken(Date.now());
           setScanInput("");
         } else {
-          notify("Selecteer eerst een actief BH18-item in stap Wikkelen voordat je de OK-QR scant.");
+          notify(
+            t(
+              "digitalplanning.terminal.select_active_bh18_before_qr",
+              "Selecteer eerst een actief BH18-item in stap Wikkelen voordat je de OK-QR scant."
+            )
+          );
           setScanInput("");
           setTimeout(() => {
             scanInputRef.current?.focus();
@@ -575,7 +668,13 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       const conflictOnScannedLot = lotConflictMeta[normalizedCode]?.hasConflict;
 
       if (lotMatches.length > 1 && conflictOnScannedLot) {
-        notify(`Lot ${code} bestaat meerdere keren met verschillend product/order. Kies handmatig het juiste item in de lijst.`);
+        notify(
+          t(
+            "digitalplanning.terminal.lot_duplicate_conflict",
+            "Lot {{code}} bestaat meerdere keren met verschillend product/order. Kies handmatig het juiste item in de lijst.",
+            { code }
+          )
+        );
         setScanInput("");
         setTimeout(() => {
           scanInputRef.current?.focus();
@@ -587,7 +686,13 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         setSelectedTrackedId(found.id);
         setScanInput("");
       } else {
-        notify(`Item ${code} niet gevonden in actieve wikkelingen.`);
+        notify(
+          t(
+            "digitalplanning.terminal.item_not_found_active_winding",
+            "Item {{code}} niet gevonden in actieve wikkelingen.",
+            { code }
+          )
+        );
         setScanInput("");
       }
       // Na scan altijd weer focus op het scanveld
@@ -850,13 +955,25 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         <div className="p-2 bg-white border-b border-slate-200 shrink-0 shadow-sm text-left">
           <div className="flex items-center justify-center relative">
             <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-xl">
-              {(isBM01
-                ? [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_to_offer")]
-                : [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_winding"), t("digitalplanning.terminal.tab_lossen")]
-              ).map((tabLabel, idx) => {
-                const tabKey = isBM01
-                  ? ["planning", "aan te bieden"][idx]
-                  : ["planning", "wikkelen", "lossen"][idx];
+              {(() => {
+                const tabLabels = isLossen1218Station
+                  ? [t("digitalplanning.terminal.tab_lossen"), t("digitalplanning.terminal.tab_planning")]
+                  : isBM01
+                    ? [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_to_offer")]
+                    : isGereedTabSourceStation
+                      ? [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_winding"), t("digitalplanning.terminal.tab_ready", "Gereed")]
+                      : [t("digitalplanning.terminal.tab_planning"), t("digitalplanning.terminal.tab_winding"), t("digitalplanning.terminal.tab_lossen")];
+
+                const tabKeys = isLossen1218Station
+                  ? ["lossen", "planning"]
+                  : isBM01
+                    ? ["planning", "aan te bieden"]
+                    : isGereedTabSourceStation
+                      ? ["planning", "wikkelen", "gereed"]
+                      : ["planning", "wikkelen", "lossen"];
+
+                return tabLabels.map((tabLabel, idx) => {
+                  const tabKey = tabKeys[idx];
                 return (
                   <button
                     key={tabKey}
@@ -868,7 +985,8 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                     {tabLabel}
                   </button>
                 );
-              })}
+                });
+              })()}
             </div>
 
             {/* Scanner Mode Toggle */}
@@ -876,10 +994,10 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                 <button 
                     onClick={() => setScannerMode(!scannerMode)}
                     className={`absolute right-0 md:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 px-3 py-2 rounded-lg border-2 font-bold text-[10px] uppercase tracking-widest transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
-                    title={scannerMode ? "Toetsenbord verborgen (Scanner Modus)" : "Normale invoer"}
+                  title={scannerMode ? t("digitalplanning.terminal.scanner_keyboard_hidden", "Toetsenbord verborgen (Scanner modus)") : t("digitalplanning.terminal.normal_input", "Normale invoer")}
                 >
                     {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
-                    <span className="hidden sm:inline">{scannerMode ? "Scanner" : "Toetsenbord"}</span>
+                  <span className="hidden sm:inline">{scannerMode ? t("digitalplanning.terminal.scanner", "Scanner") : t("digitalplanning.terminal.keyboard", "Toetsenbord")}</span>
                 </button>
             )}
           </div>
@@ -890,7 +1008,63 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         {
           /* STANDAARD PLANNING & WIKKELEN FLOW */
           <div className="flex-1 overflow-hidden flex flex-col lg:flex-row text-left">
-            {activeTab === "planning" ? (
+            {activeTab === "planning" && isLossen1218Station ? (
+              /* LOSSEN 12/18: Volledige planning van BH12/15/17/18 met machinefilter */
+              <div className="flex-1 overflow-hidden flex flex-col">
+                {/* Machine filter bar */}
+                <div className="flex items-center gap-2 px-3 pt-2 pb-2 bg-white border-b border-slate-100 shrink-0 flex-wrap">
+                  {[null, "BH12", "BH15", "BH17", "BH18"].map(f => (
+                    <button
+                      key={f ?? "all"}
+                      onClick={() => setLossenPlanningFilter(f)}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                        lossenPlanningFilter === f
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"
+                      }`}
+                    >
+                      {f ?? t("common.all", "Alles")}
+                    </button>
+                  ))}
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest ml-auto">
+                    {lossenFilteredOrders.length} {t("digitalplanning.terminal.orders", "orders")}
+                  </span>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <TerminalPlanningView
+                    orders={lossenFilteredOrders}
+                    selectedOrderId={selectedOrderId}
+                    onSelectOrder={setSelectedOrderId}
+                    searchTerm={sidebarSearch}
+                    onSearchChange={setSidebarSearch}
+                    referenceDate={referenceDate}
+                    onDateChange={(direction) => {
+                      if (direction === 'reset') setReferenceDate(new Date());
+                      else setReferenceDate(direction === 'prev' ? subWeeks(referenceDate, 1) : addWeeks(referenceDate, 1));
+                    }}
+                    showAllWeeks={showAllWeeks}
+                    onToggleAllWeeks={() => setShowAllWeeks(!showAllWeeks)}
+                    targetWeekNum={targetWeekNum}
+                    productionProgressMap={productionProgressMap}
+                    rejectedCountMap={rejectedCountMap}
+                    readyForReturnMap={readyForReturnMap}
+                    isBM01={false}
+                    onStartProduction={null}
+                    selectedOrder={selectedOrder}
+                    onViewDrawing={handleViewDrawing}
+                    repairItems={[]}
+                    onRepair={null}
+                    optimizationPanel={
+                      <MalOptimizationPanel
+                        currentOrder={selectedOrder}
+                        allOrders={myOrders}
+                        onSelectOrder={setSelectedOrderId}
+                      />
+                    }
+                  />
+                </div>
+              </div>
+            ) : activeTab === "planning" ? (
               <TerminalPlanningView
                 orders={filteredOrders}
                 selectedOrderId={selectedOrderId}
@@ -938,6 +1112,12 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                 scanInputRef={scanInputRef}
                 scannerMode={scannerMode}
                 onCancelProduction={onCancelProduction}
+              />
+            ) : activeTab === "gereed" ? (
+              <TerminalGereedTab
+                allTracked={allTracked}
+                stationId={stationId}
+                effectiveStationId={effectiveStationId}
               />
             ) : (
               /* TAB LOSSEN */

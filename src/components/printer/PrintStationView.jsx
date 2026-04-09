@@ -439,7 +439,7 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
               disabled={loading} 
               className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-amber-500 transition-all flex items-center justify-center gap-2 shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? <Loader2 className="animate-spin" size={18} /> : "Zoeken"}
+              {loading ? <Loader2 className="animate-spin" size={18} /> : t("common.search")}
             </button>
           </div>
 
@@ -465,7 +465,7 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
             {loadingInitialList && !orderStr.trim() && (
               <div className="py-12 border-2 border-dashed border-slate-200 rounded-[30px] flex flex-col items-center justify-center text-center bg-slate-50/50">
                 <Loader2 className="animate-spin text-slate-400 mb-3" size={24} />
-                <p className="text-xs text-slate-400 font-medium">Lijst laden...</p>
+                <p className="text-xs text-slate-400 font-medium">{t("common.loadingList")}</p>
               </div>
             )}
 
@@ -474,8 +474,8 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
                 <div className="p-4 bg-slate-100 text-slate-400 rounded-full mb-3">
                   <Search size={24} />
                 </div>
-                <p className="text-sm font-black text-slate-600 uppercase tracking-widest">Niets Gevonden</p>
-                <p className="text-xs text-slate-400 font-medium mt-1">Geen order of product gevonden voor "{orderStr}".</p>
+                <p className="text-sm font-black text-slate-600 uppercase tracking-widest">{t("common.nothingFound")}</p>
+                <p className="text-xs text-slate-400 font-medium mt-1">{t("common.noOrderOrProductFoundFor", { query: orderStr })}</p>
               </div>
             )}
           </div>
@@ -486,6 +486,8 @@ const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = []
 };
 
 const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => {
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [departmentKey, setDepartmentKey] = useState(departmentGroups[0]?.key || "");
   const [station, setStation] = useState(departmentGroups[0]?.stations?.[0] || "");
   const [weekOffset, setWeekOffset] = useState(0); // -1,0,1
@@ -514,7 +516,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!station) {
-      notify("Geen station beschikbaar in factory config.");
+      notify(t("common.noStationAvailable"));
       return;
     }
     setLoading(true);
@@ -546,9 +548,9 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
       });
 
       await onPrintBatch(zplBatch, lots.length);
-      notify(`${parsedCount} lotnummer(s) direct geprint via USB!`);
+      notify(t("common.lotsPrintedDirectUsb", { count: parsedCount }));
     } catch (err) {
-      notify("Fout bij genereren: " + err.message);
+      notify(t("common.generationError", { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -571,45 +573,45 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
       <div className="bg-white w-full max-w-2xl rounded-[30px] shadow-2xl p-8 my-auto">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-black text-slate-800 uppercase italic flex items-center gap-2">
-            <Printer className="text-blue-500" /> Lotnummers Printen
+            <Printer className="text-blue-500" /> {t("common.printLotNumbers")}
           </h3>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full"><X size={20} /></button>
         </div>
 
         <form onSubmit={handleGenerate} className="space-y-4">
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Afdeling</label>
+            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t("common.department")}</label>
             <select
               value={departmentKey}
               onChange={(e) => setDepartmentKey(e.target.value)}
               className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50"
               disabled={departmentGroups.length === 0}
             >
-              {departmentGroups.length === 0 && <option value="">Geen afdelingen gevonden</option>}
+              {departmentGroups.length === 0 && <option value="">{t("common.noDepartmentsFound")}</option>}
               {departmentGroups.map((group) => (
                 <option key={group.key} value={group.key}>{group.label}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Station / Machine</label>
+            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t("common.stationMachine")}</label>
             <select value={station} onChange={e => setStation(e.target.value)} className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50" disabled={availableStations.length === 0}>
-              {availableStations.length === 0 && <option value="">Geen stations gevonden</option>}
+              {availableStations.length === 0 && <option value="">{t("common.noStationsFound")}</option>}
               {availableStations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Week</label>
+            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t("common.week")}</label>
             <select value={String(weekOffset)} onChange={(e) => setWeekOffset(parseInt(e.target.value, 10) || 0)} className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-slate-50">
-              <option value="-1">Vorige week</option>
-              <option value="0">Huidige week</option>
-              <option value="1">Volgende week</option>
+              <option value="-1">{t("common.previousWeek")}</option>
+              <option value="0">{t("common.currentWeek")}</option>
+              <option value="1">{t("common.nextWeek")}</option>
             </select>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">ISO week {previewWW}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">{t("common.isoWeek", { week: previewWW })}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Start Volgnummer</label>
+              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t("common.startSequenceNumber")}</label>
               <input
                 type="number"
                 min="1"
@@ -622,7 +624,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
               />
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Aantal Labels</label>
+              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t("common.numberOfLabels")}</label>
               <input
                 type="number"
                 min="1"
@@ -636,7 +638,7 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
             </div>
           </div>
           <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 flex flex-col items-center mt-2">
-            <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest w-full text-left">Live Preview (max 5)</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest w-full text-left">{t("common.livePreviewMax", { max: 5 })}</p>
             <div className="w-full border border-slate-200 rounded-xl overflow-hidden bg-white" style={{ maxWidth: '90mm' }}>
               {previewLots.map((lot) => (
                 <div key={lot} className="w-full h-[13mm] px-2 flex items-center gap-2 border-b border-dashed border-slate-300 last:border-b-0" style={{ maxWidth: '90mm' }}>
@@ -651,14 +653,14 @@ const LotPrintModal = ({ onClose, departmentGroups, onPrintBatch, printer }) => 
                 </div>
               ))}
               {parsedCount > 5 && (
-                <p className="text-[11px] font-bold text-slate-500 text-center">+{parsedCount - 5} extra labels worden geprint</p>
+                <p className="text-[11px] font-bold text-slate-500 text-center">{t("common.extraLabelsPrinted", { count: parsedCount - 5 })}</p>
               )}
             </div>
           </div>
 
           <button type="submit" disabled={loading} className="w-full mt-4 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
             {loading ? <Loader2 className="animate-spin" size={18} /> : <Printer size={18} />}
-            Genereer & Print
+            {t("common.generateAndPrint")}
           </button>
         </form>
       </div>
@@ -672,7 +674,7 @@ const PrintStationView = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [productData, setProductData] = useState(null);
   const [error, setError] = useState('');
-  const { showSuccess, showError , notify} = useNotifications();
+  const { showSuccess, showError } = useNotifications();
 
   const [selectedLabelId, setSelectedLabelId] = useState('');
   const [showTempModal, setShowTempModal] = useState(false);

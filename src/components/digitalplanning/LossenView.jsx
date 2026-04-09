@@ -21,6 +21,8 @@ import { getNextFlowState } from "../../utils/workstationLogic";
 import { useNotifications } from '../../contexts/NotificationContext';
 
 const QR_CODE_OK_CONFIRMATION = 'FPI-ACTION-APPROVE-OK';
+const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17"]);
+const LOSSEN_1218_STATION_NORM = "LOSSEN12/18";
 
 // Helper voor diameter (simpel)
 const getDiameter = (str) => {
@@ -32,6 +34,9 @@ const getDiameter = (str) => {
 };
 
 const shouldGoToCentralLossen = (item) => {
+  const originNorm = normalizeMachine(item?.originMachine || item?.machine || item?.currentStation || "");
+  if (LOSSEN_1218_SOURCE_STATIONS.has(originNorm)) return true;
+
   const itemStr = String(item?.item || "").toUpperCase();
   const d = getDiameter(item?.item || "");
   const isTB = itemStr.includes("TB");
@@ -86,8 +91,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
     if (!scannerMode) return;
 
     const handleClick = (e) => {
-        // Focus niet stelen als er op een interactief element wordt geklikt
-        if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+      // Focus niet stelen als er op een interactief element wordt geklikt
+      const target = e?.target;
+      if (!target) return;
+      if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) return;
         
         if (!showActionModal) {
             scanInputRef.current?.focus();
@@ -117,7 +124,12 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, productToProcess);
         } else {
           // Voor Lossen: GEEN auto-release, want meting is verplicht.
-          notify("Let op: Voor Lossen is een meting verplicht. Vul de meetwaarden in op het scherm in plaats van de OK-QR te scannen.");
+          notify(
+            t(
+              "lossen.measurement_required_for_ok_qr",
+              "Let op: Voor Lossen is een meting verplicht. Vul de meetwaarden in op het scherm in plaats van de OK-QR te scannen."
+            )
+          );
         }
         return;
       }
@@ -131,7 +143,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         handleItemClick(found);
         setScanInput("");
       } else {
-        notify(t('lossen.item_not_found', { code }) || `Item ${code} niet gevonden`);
+        notify(t('lossen.item_not_found', 'Item {{code}} niet gevonden', { code }));
         setScanInput("");
         setSelectedProduct(null);
       }
@@ -195,30 +207,41 @@ const LossenView = ({ stationId, appId, products = [] }) => {
     // Verwerkingslogica losgekoppeld zodat deze voor zowel prop als snapshot werkt
     const processData = (sourceData) => {
       const currentStationNorm = normalizeMachine(stationId);
+        const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
+        const isBM01Station = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
+        const isMazakStation = cleanStationId === "MAZAK";
+        const isNabewerkingStation = cleanStationId === "NABEWERKING" || cleanStationId === "NABW" || cleanStationId.includes("NABEWERK");
+
       const filtered = sourceData.filter((item) => {
         const stepUpper = String(item.currentStep || "").toUpperCase().trim();
         const statusUpper = String(item.status || "").toUpperCase().trim();
         const inspectionStatus = String(item.inspection?.status || "").toUpperCase().trim();
 
-        // --- AFKEUR FILTER: Producten met tijdelijke of definitieve afkeur direct uitsluiten ---
-        if (
-          inspectionStatus === "TIJDELIJKE AFKEUR" || 
-          inspectionStatus === "AFKEUR" || 
-          statusUpper === "REJECTED" || 
-          statusUpper === "AFKEUR" ||
-          stepUpper === "REJECTED" || 
-          stepUpper === "HOLD_AREA"
-        ) {
-          return false;
-        }
+          const isDefRejected =
+            inspectionStatus === "AFKEUR" ||
+            statusUpper === "REJECTED" ||
+            statusUpper === "AFKEUR" ||
+            stepUpper === "REJECTED";
+          if (isDefRejected) return false;
+
+          const isTempRejected = inspectionStatus === "TIJDELIJKE AFKEUR" || stepUpper === "HOLD_AREA";
+          if (isTempRejected && !isNabewerkingStation) return false;
 
         // Filter op currentStation die overeenkomt met dit werkstation
         // Fallback naar 'machine' (origin) als currentStation niet is gezet
         const itemStationNorm = normalizeMachine(item.currentStation || item.machine || "");
-        const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
-        const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
-        const isMazak = cleanStationId === "MAZAK";
-        const isNabewerking = cleanStationId === "NABEWERKING" || cleanStationId === "NABW" || cleanStationId.includes("NABEWERK");
+          const isDownstreamStation = isBM01Station || isMazakStation || isNabewerkingStation;
+
+        if (!isDownstreamStation) {
+          const isLossenCandidate =
+            stepUpper.includes("LOSSEN") ||
+            statusUpper === "TE LOSSEN" ||
+            itemStationNorm === "LOSSEN" ||
+            itemStationNorm === LOSSEN_1218_STATION_NORM;
+
+          // Toon op wikkel/lossen-stations alleen items die daadwerkelijk in de lossen-fase zitten.
+          if (!isLossenCandidate) return false;
+        }
         
         let isOurStation = itemStationNorm === currentStationNorm;
 
@@ -236,7 +259,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         }
 
         // FIX: Flexibele matching voor Nabewerking (Nabewerking vs Nabewerken)
-        if (isNabewerking) {
+          if (isNabewerkingStation) {
           const itemClean = (itemStationNorm || "").toUpperCase().replace(/\s/g, "");
           const stepClean = (item.currentStep || "").toUpperCase().replace(/\s/g, "");
           const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
@@ -249,13 +272,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         }
 
         // FIX: Flexibele matching voor Mazak
-        if (isMazak) {
+          if (isMazakStation) {
           const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
           if (statusClean.includes("MAZAK")) isOurStation = true;
         }
 
         // FIX: Flexibele matching voor BM01
-        if (isBM01) {
+          if (isBM01Station) {
           const itemClean = (itemStationNorm || "").toUpperCase().replace(/\s/g, "");
           const stepClean = (item.currentStep || "").toUpperCase().replace(/\s/g, "");
           const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
@@ -268,12 +291,16 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
         // --- CENTRAAL LOSSEN LOGICA ---
         // Als we naar het station "LOSSEN" kijken, toon dan ook items van specifieke machines
-        if (currentStationNorm === "LOSSEN") {
+        if (currentStationNorm === "LOSSEN" || currentStationNorm === LOSSEN_1218_STATION_NORM) {
           const origin = normalizeMachine(item.originMachine || item.machine || "");
           const originLabel = normalizeMachine(item.stationLabel || "");
           const current = normalizeMachine(item.currentStation || "");
-          
-          let targetMachines = ["BH31", "BH16", "BH11", "31", "16", "11"];
+
+          const lossen1218Origins = ["BH12", "BH15", "BH17", "12", "15", "17"];
+          const lossenOrigins = ["BH18", "18", "BH31", "BH16", "BH11", "31", "16", "11"];
+          const isLossen1218Station = currentStationNorm === LOSSEN_1218_STATION_NORM;
+
+          let targetMachines = isLossen1218Station ? lossen1218Origins : [...lossenOrigins, ...lossen1218Origins];
           let useStrictFilter = false;
 
           // Filter op toegewezen stations van de gebruiker (indien specifiek ingesteld)
@@ -289,23 +316,21 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           }
 
            if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
-             // BH18: Alleen tonen in Station Lossen als shouldGoToCentralLossen true is
-             if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current)) {
+             if (lossen1218Origins.includes(origin) || lossen1218Origins.includes(originLabel) || lossen1218Origins.includes(current)) {
+               isOurStation = isLossen1218Station;
+             } else if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current)) {
                if (shouldGoToCentralLossen(item)) {
-                 isOurStation = true;
+                 isOurStation = !isLossen1218Station;
                } else {
                  isOurStation = false;
                }
              } else {
-                 isOurStation = true;
+                 isOurStation = !isLossen1218Station;
              }
-           } else if (!useStrictFilter && (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current))) {
-             if (shouldGoToCentralLossen(item)) {
-               isOurStation = true;
-             } else {
-               isOurStation = false;
-             }
+           } else if (!useStrictFilter && (lossen1218Origins.includes(origin) || lossen1218Origins.includes(originLabel) || lossen1218Origins.includes(current))) {
+             isOurStation = isLossen1218Station;
           }
+
         }
 
         return isOurStation;
@@ -385,7 +410,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
   const viewTitle = useMemo(() => {
     if (isBM01 || isMazak || isNabewerking) return t('bm01.to_offer');
-    if (currentStationNorm === "LOSSEN") return t('lossen.wait_for_unload');
+    if (currentStationNorm === "LOSSEN" || currentStationNorm === LOSSEN_1218_STATION_NORM) return t('lossen.wait_for_unload');
     return t('lossen.waiting_receipt');
   }, [isBM01, isMazak, isNabewerking, currentStationNorm, t]);
   const isAdvancedStation = isBM01 || isMazak || isNabewerking;
@@ -700,7 +725,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
 
         {/* INKOMEND VIEW */}
         <>
-          <div className={`w-full lg:w-5/12 p-4 pb-32 space-y-3 border-r border-slate-100 overflow-y-auto custom-scrollbar ${selectedProduct ? "hidden lg:block" : "block"}`} style={{ paddingBottom: "max(8rem, env(safe-area-inset-bottom))" }}>
+          <div className={`w-full lg:w-2/3 p-4 pb-32 space-y-3 border-r border-slate-100 overflow-y-auto custom-scrollbar ${selectedProduct ? "hidden lg:block" : "block"}`} style={{ paddingBottom: "max(8rem, env(safe-area-inset-bottom))" }}>
           <div className="mb-6 space-y-2">
             <div className="flex justify-between items-end">
                 {/* Scan Indicator Label */}
@@ -715,10 +740,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                 <button 
                     onClick={() => setScannerMode(!scannerMode)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-bold text-xs uppercase tracking-widest transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
-                    title={scannerMode ? "Toetsenbord verborgen (Scanner Modus)" : "Normale invoer"}
+                  title={scannerMode ? t("digitalplanning.terminal.scanner_keyboard_hidden", "Toetsenbord verborgen (Scanner modus)") : t("digitalplanning.terminal.normal_input", "Normale invoer")}
                 >
                     {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
-                    {scannerMode ? "Scanner Modus" : "Toetsenbord"}
+                  {scannerMode ? t("digitalplanning.terminal.scanner_mode", "Scanner modus") : t("digitalplanning.terminal.keyboard", "Toetsenbord")}
                 </button>
             </div>
             {/* Scan Input Field */}
@@ -731,7 +756,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                   onChange={(e) => setScanInput(e.target.value)}
                   inputMode={scannerMode ? "none" : "text"}
                   onKeyDown={handleScan}
-                  placeholder="Scan lotnummer of order..."
+                  placeholder={t("digitalplanning.terminal.scan_lot_or_order", "Scan lotnummer of order...")}
                   className="w-full pl-14 pr-4 py-4 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
               />
             </div>
@@ -763,9 +788,9 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Serie</p>
-                          <p className="text-base font-black text-blue-900">Order {item.orderId}</p>
-                          <p className="text-[10px] font-bold text-blue-700 uppercase">{item.seriesCount} stuks</p>
+                          <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">{t("digitalplanning.terminal.series", "Serie")}</p>
+                          <p className="text-base font-black text-blue-900">{t("productionStartModal.labels.order", "Order")} {item.orderId}</p>
+                          <p className="text-[10px] font-bold text-blue-700 uppercase">{t("digitalplanning.terminal.series_count", "Serie {{count}} stuks", { count: item.seriesCount })}</p>
                         </div>
                         <button
                           onClick={(e) => {
@@ -778,11 +803,11 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-blue-200 text-blue-700 text-[10px] font-black uppercase"
                         >
                           {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                          {isCollapsed ? "Uitklappen" : "Inklappen"}
+                          {isCollapsed ? t("digitalplanning.terminal.expand", "Uitklappen") : t("digitalplanning.terminal.collapse", "Inklappen")}
                         </button>
                       </div>
                       <p className="mt-2 text-[10px] font-bold text-blue-700/80 uppercase tracking-wide">
-                        Selecteer voor gereedmelden in rechterpaneel
+                        {t("digitalplanning.terminal.select_for_complete_right_panel", "Selecteer voor gereedmelden in rechterpaneel")}
                       </p>
                     </div>
                   );
@@ -834,13 +859,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           )}
           </div>
 
-          <div className={`flex-1 bg-slate-50 p-6 md:p-8 overflow-y-auto custom-scrollbar ${!selectedProduct ? "hidden lg:flex" : "flex"} flex-col`}>
+          <div className={`w-full lg:w-1/3 bg-slate-50 p-6 md:p-8 overflow-y-auto custom-scrollbar ${!selectedProduct ? "hidden lg:flex" : "flex"} flex-col`}>
             {selectedProduct ? (
               <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left w-full">
                 <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
                   <button onClick={() => setSelectedProduct(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
                   <div className="text-left flex-1">
-                    <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">Dossier</span>
+                    <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("digitalplanning.terminal.dossier", "Dossier")}</span>
                     <h2 className="text-3xl font-black italic leading-none text-left">{selectedProduct.lotNumber}</h2>
                     <p className="text-xs font-bold text-white/70 mt-2">{selectedProduct.item}</p>
                   </div>
@@ -849,7 +874,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                 <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-5 text-left">
                   {bulkSeriesProducts.length > 1 && (
                     <button onClick={handleOpenActionModal} className="w-full py-4 bg-emerald-600 text-white rounded-[22px] font-black uppercase text-sm shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
-                      <ClipboardCheck size={20} /> Serie gereedmelden ({bulkSeriesProducts.length}x)
+                      <ClipboardCheck size={20} /> {t("digitalplanning.terminal.series_report_ready", "Serie gereedmelden")} ({bulkSeriesProducts.length}x)
                     </button>
                   )}
 
@@ -861,7 +886,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center opacity-30 text-center text-left">
                 <Package size={80} className="mb-6 text-slate-200" />
-                <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">Selecteer actief lot</h4>
+                <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">{t("digitalplanning.terminal.select_active_lot", "Selecteer actief lot")}</h4>
               </div>
             )}
           </div>

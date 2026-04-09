@@ -68,6 +68,30 @@ const PlanningSidebar = ({
   const isHistoryScope = dataScope === "history" || dataScope === "all";
   const isRejectScope = dataScope === "temp_reject" || dataScope === "definitive_reject";
 
+  const normalizeOrderStatus = (status) =>
+    String(status || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+  const isOpenOrRunningStatus = (status) => {
+    const normalized = normalizeOrderStatus(status);
+    return [
+      "open",
+      "planned",
+      "pending",
+      "todo",
+      "to_do",
+      "te_doen",
+      "in_progress",
+      "in_behandeling",
+      "active",
+      "processing",
+      "running",
+      "lopend",
+    ].includes(normalized);
+  };
+
   // Haal archief data op wanneer history scope actief is
   useEffect(() => {
     if (isHistoryScope && archivedOrders.length === 0) {
@@ -308,9 +332,9 @@ const PlanningSidebar = ({
       result = result.filter(o => o.machine === selectedMachine);
     }
 
-    // 2. Status Filter (Alleen voor actieve lijst: verberg completed)
+    // 2. Status Filter (actieve lijst: alleen Open/Lopend)
     if (dataScope === "active") {
-      result = result.filter(o => o.status !== 'completed' && o.status !== 'shipped' && o.status !== 'cancelled');
+      result = result.filter((o) => isOpenOrRunningStatus(o?.status));
     }
 
     if (isRejectScope) {
@@ -528,6 +552,46 @@ const PlanningSidebar = ({
     return "--";
   };
 
+  const getOrderTileTintClass = (order) => {
+    const matchText = [order?.itemCode, order?.item, order?.itemDescription, order?.extraCode]
+      .filter(Boolean)
+      .join(" ")
+      .toUpperCase();
+
+    if (matchText.includes("EMT")) {
+      return "border-sky-200 bg-sky-50 hover:border-sky-300";
+    }
+
+    if (matchText.includes("CST")) {
+      return "border-slate-300 bg-slate-100 hover:border-slate-400";
+    }
+
+    return "border-slate-50 bg-white hover:border-slate-200 hover:bg-slate-50";
+  };
+
+  const getOrderTypeBadge = (order) => {
+    const matchText = [order?.itemCode, order?.item, order?.itemDescription, order?.extraCode]
+      .filter(Boolean)
+      .join(" ")
+      .toUpperCase();
+
+    if (matchText.includes("EMT")) {
+      return {
+        label: "EMT",
+        className: "bg-sky-100 text-sky-700 border border-sky-200",
+      };
+    }
+
+    if (matchText.includes("CST")) {
+      return {
+        label: "CST",
+        className: "bg-slate-200 text-slate-700 border border-slate-300",
+      };
+    }
+
+    return null;
+  };
+
   const Row = ({ index, style }) => {
     const order = filteredOrders[index];
     const isSelected =
@@ -558,6 +622,8 @@ const PlanningSidebar = ({
           : priorityLevel === "high"
             ? { label: "Prio", className: "bg-amber-100 text-amber-700 border border-amber-200" }
             : null;
+    const orderTypeBadge = getOrderTypeBadge(order);
+    const cardTintClass = getOrderTileTintClass(order);
 
     return (
       <div style={style} className="px-2 py-1">
@@ -567,12 +633,12 @@ const PlanningSidebar = ({
           className={`w-full h-full p-4 rounded-2xl border-2 text-left transition-all duration-200 group relative overflow-hidden
             ${
               isSelected
-                ? "bg-blue-50 border-blue-500 shadow-md shadow-blue-100"
+                ? "bg-emerald-50 border-emerald-500 shadow-md shadow-emerald-100"
                 : isCancelled
                   ? "bg-slate-50 border-slate-100 opacity-60 grayscale"
                   : isOnHold
                     ? "bg-orange-50/50 border-orange-200 opacity-80"
-                    : "bg-white border-slate-50 hover:border-slate-200 hover:bg-slate-50"
+                    : cardTintClass
             }
           `}
         >
@@ -598,7 +664,7 @@ const PlanningSidebar = ({
             <div className="flex flex-col overflow-hidden">
               <span
                 className={`font-black text-sm uppercase tracking-tight truncate ${
-                  isSelected ? "text-blue-800" : "text-slate-700"
+                  isSelected ? "text-emerald-800" : "text-slate-700"
                 }`}
               >
                 {getOrderDisplayName(order)}
@@ -606,7 +672,7 @@ const PlanningSidebar = ({
               <div className="flex items-center gap-1.5">
                 <span
                   className={`font-black text-sm tracking-tighter truncate ${
-                    isSelected ? "text-blue-700" : "text-slate-900"
+                    isSelected ? "text-emerald-700" : "text-slate-900"
                   }`}
                 >
                   {order.orderId || t("digitalplanning.sidebar.no_id")}
@@ -623,6 +689,11 @@ const PlanningSidebar = ({
               {order.extraCode && order.extraCode !== "-" && (
                 <span className="mt-0.5 inline-block px-1.5 py-0.5 bg-amber-400 text-amber-900 border border-amber-500 rounded text-[9px] font-black uppercase tracking-wide">
                   {order.extraCode}
+                </span>
+              )}
+              {orderTypeBadge && (
+                <span className={`mt-0.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${orderTypeBadge.className}`}>
+                  {orderTypeBadge.label}
                 </span>
               )}
               {order.project && (
@@ -665,7 +736,7 @@ const PlanningSidebar = ({
               size={14}
               className={`transition-transform duration-300 ${
                 isSelected
-                  ? "text-blue-500 translate-x-1"
+                  ? "text-emerald-500 translate-x-1"
                   : "text-slate-200 group-hover:text-slate-400"
               }`}
             />

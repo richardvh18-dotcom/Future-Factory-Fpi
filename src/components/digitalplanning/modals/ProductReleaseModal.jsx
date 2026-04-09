@@ -21,7 +21,15 @@ const REJECTION_REASON_FALLBACKS = {
   "rejection.other": "Overig",
 };
 
-const getLossenRoute = (itemText) => {
+const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17"]);
+const LOSSEN_1218_STATION_NAME = "LOSSEN 12/18";
+
+const getLossenRoute = (itemText, originStation = "") => {
+  const originNorm = String(originStation || "").toUpperCase().replace(/\s/g, "");
+  if (LOSSEN_1218_SOURCE_STATIONS.has(originNorm)) {
+    return { mode: "STATION", station: LOSSEN_1218_STATION_NAME };
+  }
+
   const text = String(itemText || "").toUpperCase();
   const isTB = text.includes("TB");
   const isCB = text.includes("CB");
@@ -37,10 +45,10 @@ const getLossenRoute = (itemText) => {
   const candidates = numberMatches.filter((n) => Number.isFinite(n) && n >= 25 && n <= 2000);
   const diameter = candidates.length > 0 ? candidates[0] : 0;
 
-  if (isTB && diameter >= 300) return "STATION";
-  if ((isCB || isELB) && diameter >= 350) return "STATION";
+  if (isTB && diameter >= 300) return { mode: "STATION", station: "LOSSEN" };
+  if ((isCB || isELB) && diameter >= 350) return { mode: "STATION", station: "LOSSEN" };
 
-  return "TAB";
+  return { mode: "TAB", station: originNorm || "" };
 };
 
 /**
@@ -264,12 +272,13 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
             targetStation = "BM01";
           } else if (nextStep === "Lossen") {
             const lossenRoute = getLossenRoute(
-              `${target.item || ""} ${target.description || ""} ${target.itemCode || ""}`
+              `${target.item || ""} ${target.description || ""} ${target.itemCode || ""}`,
+              target.currentStation || target.originMachine || target.machine || ""
             );
             const originStation = target.currentStation || target.machine || "Lossen";
             nextStep = "Wacht op Lossen";
             nextStatus = "Wacht op Lossen";
-            targetStation = lossenRoute === "STATION" ? "LOSSEN" : originStation;
+            targetStation = lossenRoute.mode === "STATION" ? (lossenRoute.station || "LOSSEN") : originStation;
           } else if (nextStep === "Mazak") {
             targetStation = "Mazak";
             nextStatus = "Te Nabewerken";

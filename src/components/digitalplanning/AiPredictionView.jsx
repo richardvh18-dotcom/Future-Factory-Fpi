@@ -13,6 +13,7 @@ import {
   X
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
+import { useTranslation } from 'react-i18next';
 import { db } from '../../config/firebase';
 import { getArchiveItemsPath, getReadPaths } from '../../config/dbPaths';
 import { calculateDuration, formatMinutes } from '../../utils/efficiencyCalculator';
@@ -22,6 +23,7 @@ import { calculateDuration, formatMinutes } from '../../utils/efficiencyCalculat
  * Analyseert historische productiedata om trends, afwijkingen en nieuwe standaardtijden te voorspellen.
  */
 const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
+  const { t } = useTranslation();
   const usePilotReadData = dataSourceMode === 'pilot-read';
   const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
   const MIN_VALID_DURATION = 1;
@@ -202,8 +204,8 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
       productKey,
       duration,
       start: getLogStartDate(log),
-      itemName: log.item || log.description || 'Onbekend',
-      operator: log.operator || log.processedBy || log.user || 'Onbekend',
+      itemName: log.item || log.description || t('digitalplanning.ai_prediction.unknown', 'Unknown'),
+      operator: log.operator || log.processedBy || log.user || t('digitalplanning.ai_prediction.unknown', 'Unknown'),
     };
   };
 
@@ -391,10 +393,12 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
         <div>
           <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter flex items-center gap-3">
             <BrainCircuit className="text-purple-600" size={32} />
-            AI Voorspellingen & Analyse
+            {t('digitalplanning.ai_prediction.title', 'AI Predictions & Analysis')}
           </h1>
           <p className="text-slate-500 font-bold mt-1">
-            Analyse op basis van {trackingData.length + archivedData.length} productielogs
+            {t('digitalplanning.ai_prediction.logs_based_on', 'Analysis based on {{count}} production logs', {
+              count: trackingData.length + archivedData.length,
+            })}
           </p>
         </div>
         <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
@@ -409,7 +413,7 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
               <BrainCircuit size={24} />
             </div>
             <div>
-              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">Geanalyseerde Producten</div>
+              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.analyzed_products', 'Analyzed Products')}</div>
               <div className="text-2xl font-black text-slate-800">{analysis.length}</div>
             </div>
           </div>
@@ -421,7 +425,7 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
               <AlertTriangle size={24} />
             </div>
             <div>
-              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">Afwijkingen &gt; 10%</div>
+              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.deviations_over_10', 'Deviations > 10%')}</div>
               <div className="text-2xl font-black text-slate-800">
                 {analysis.filter(a => Math.abs(a.deviation) > 10).length}
               </div>
@@ -435,7 +439,7 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
               <TrendingUp size={24} />
             </div>
             <div>
-              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">Optimalisatie Kansen</div>
+              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.optimization_opportunities', 'Optimization Opportunities')}</div>
               <div className="text-2xl font-black text-slate-800">
                 {analysis.filter(a => a.recommendation !== 'maintain').length}
               </div>
@@ -445,25 +449,25 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
       </div>
 
       <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
-        <div className="text-[10px] font-black uppercase tracking-widest text-blue-700">AI Ingestie Diagnose</div>
+        <div className="text-[10px] font-black uppercase tracking-widest text-blue-700">{t('digitalplanning.ai_prediction.ingestion_diagnosis', 'AI Ingestion Diagnostics')}</div>
         <div className="mt-2 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs font-bold text-slate-700">
-          <div>Bron: <span className="text-blue-700">{ingestionStats.mode}</span></div>
-          <div>Tracking: {ingestionStats.tracking}</div>
-          <div>Archief: {ingestionStats.archived}</div>
-          <div>Standaarden: {ingestionStats.standards}</div>
-          <div>Kandidaten: {ingestionStats.totalCandidates}</div>
+          <div>{t('digitalplanning.ai_prediction.source', 'Source')}: <span className="text-blue-700">{ingestionStats.mode}</span></div>
+          <div>{t('digitalplanning.ai_prediction.tracking', 'Tracking')}: {ingestionStats.tracking}</div>
+          <div>{t('digitalplanning.ai_prediction.archive', 'Archive')}: {ingestionStats.archived}</div>
+          <div>{t('digitalplanning.ai_prediction.standards', 'Standards')}: {ingestionStats.standards}</div>
+          <div>{t('digitalplanning.ai_prediction.candidates', 'Candidates')}: {ingestionStats.totalCandidates}</div>
         </div>
         <div className="mt-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-bold text-slate-600">
-          <div>Met Productcode: {ingestionStats.withProductKey}</div>
-          <div>Afgerond/Gereed: {ingestionStats.completedLike}</div>
-          <div>Geldige Duur: {ingestionStats.validDuration}</div>
-          <div>Geanalyseerde Producten: {ingestionStats.analyzedProducts}</div>
+          <div>{t('digitalplanning.ai_prediction.with_product_code', 'With Product Code')}: {ingestionStats.withProductKey}</div>
+          <div>{t('digitalplanning.ai_prediction.completed_ready', 'Completed/Ready')}: {ingestionStats.completedLike}</div>
+          <div>{t('digitalplanning.ai_prediction.valid_duration', 'Valid Duration')}: {ingestionStats.validDuration}</div>
+          <div>{t('digitalplanning.ai_prediction.analyzed_products', 'Analyzed Products')}: {ingestionStats.analyzedProducts}</div>
         </div>
         <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px] font-semibold text-slate-500">
-          <div>Zonder Productcode: {ingestionStats.missingProductKey}</div>
-          <div>Niet Afgerond: {ingestionStats.missingCompletion}</div>
-          <div>Te Kort: {ingestionStats.tooShortDuration}</div>
-          <div>Te Lang: {ingestionStats.tooLongDuration}</div>
+          <div>{t('digitalplanning.ai_prediction.without_product_code', 'Without Product Code')}: {ingestionStats.missingProductKey}</div>
+          <div>{t('digitalplanning.ai_prediction.not_completed', 'Not Completed')}: {ingestionStats.missingCompletion}</div>
+          <div>{t('digitalplanning.ai_prediction.too_short', 'Too Short')}: {ingestionStats.tooShortDuration}</div>
+          <div>{t('digitalplanning.ai_prediction.too_long', 'Too Long')}: {ingestionStats.tooLongDuration}</div>
         </div>
       </div>
 
@@ -471,7 +475,7 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
         <input 
           type="text" 
-          placeholder="Zoek op productcode of omschrijving..." 
+          placeholder={t('digitalplanning.ai_prediction.search_placeholder', 'Search by product code or description...')} 
           className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-purple-500 transition-all shadow-sm"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -482,12 +486,12 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-100">
             <tr>
-              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Product</th>
-              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Target</th>
-              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">AI Gemiddelde</th>
-              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Afwijking</th>
-              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Trend</th>
-              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Advies</th>
+              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.product', 'Product')}</th>
+              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.target', 'Target')}</th>
+              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.ai_average', 'AI Average')}</th>
+              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.deviation', 'Deviation')}</th>
+              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.trend', 'Trend')}</th>
+              <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">{t('digitalplanning.ai_prediction.advice', 'Advice')}</th>
               <th className="px-6 py-4"></th>
             </tr>
           </thead>
@@ -498,7 +502,7 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
                   <div className="font-black text-slate-800">{item.itemCode}</div>
                   <div className="text-xs text-slate-500 truncate max-w-[200px]">{item.itemName}</div>
                   <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-bold text-slate-500 uppercase">
-                    {item.count} logs
+                    {t('digitalplanning.ai_prediction.logs', '{{count}} logs', { count: item.count })}
                   </div>
                 </td>
                 <td className="px-6 py-4 font-mono font-bold text-slate-600">
@@ -507,7 +511,11 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
                 <td className="px-6 py-4">
                   <div className="font-mono font-bold text-slate-800">{formatMinutes(item.avgDuration)}</div>
                   <div className={`text-[10px] font-bold ${item.confidence === 'high' ? 'text-emerald-500' : item.confidence === 'medium' ? 'text-amber-500' : 'text-slate-400'}`}>
-                    {item.confidence === 'high' ? 'Hoge zekerheid' : item.confidence === 'medium' ? 'Medium zekerheid' : 'Weinig data'}
+                    {item.confidence === 'high'
+                      ? t('digitalplanning.ai_prediction.high_confidence', 'High confidence')
+                      : item.confidence === 'medium'
+                        ? t('digitalplanning.ai_prediction.medium_confidence', 'Medium confidence')
+                        : t('digitalplanning.ai_prediction.low_data', 'Limited data')}
                   </div>
                 </td>
                 <td className="px-6 py-4">
@@ -529,24 +537,28 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
                       <ArrowRight size={16} className="text-slate-300" />
                     )}
                     <span className="text-xs font-bold text-slate-600">
-                      {Math.abs(item.trendDiff) < 1 ? 'Stabiel' : item.trendDiff > 0 ? 'Vertragend' : 'Versnellend'}
+                      {Math.abs(item.trendDiff) < 1
+                        ? t('digitalplanning.ai_prediction.stable', 'Stable')
+                        : item.trendDiff > 0
+                          ? t('digitalplanning.ai_prediction.slowing_down', 'Slowing down')
+                          : t('digitalplanning.ai_prediction.speeding_up', 'Speeding up')}
                     </span>
                   </div>
                 </td>
                 <td className="px-6 py-4">
                   {item.recommendation === 'increase_target' && (
                     <span className="flex items-center gap-1 text-xs font-bold text-amber-600">
-                      <Clock size={14} /> Verhoog Norm
+                      <Clock size={14} /> {t('digitalplanning.ai_prediction.increase_norm', 'Increase Standard')}
                     </span>
                   )}
                   {item.recommendation === 'decrease_target' && (
                     <span className="flex items-center gap-1 text-xs font-bold text-emerald-600">
-                      <Clock size={14} /> Verlaag Norm
+                      <Clock size={14} /> {t('digitalplanning.ai_prediction.decrease_norm', 'Lower Standard')}
                     </span>
                   )}
                   {item.recommendation === 'maintain' && (
                     <span className="flex items-center gap-1 text-xs font-bold text-slate-400">
-                      <CheckCircle2 size={14} /> Correct
+                      <CheckCircle2 size={14} /> {t('digitalplanning.ai_prediction.correct', 'Correct')}
                     </span>
                   )}
                 </td>
@@ -580,19 +592,21 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
             <div className="p-8 overflow-y-auto">
               <div className="grid grid-cols-2 gap-6 mb-8">
                 <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                  <div className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1">Huidige Target</div>
+                  <div className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1">{t('digitalplanning.ai_prediction.current_target', 'Current Target')}</div>
                   <div className="text-3xl font-black text-blue-700">{formatMinutes(selectedProduct.targetTime)}</div>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
-                  <div className="text-xs font-black text-purple-400 uppercase tracking-widest mb-1">AI Voorspelling</div>
+                  <div className="text-xs font-black text-purple-400 uppercase tracking-widest mb-1">{t('digitalplanning.ai_prediction.prediction', 'AI Prediction')}</div>
                   <div className="text-3xl font-black text-purple-700">{formatMinutes(selectedProduct.avgDuration)}</div>
                   <div className="text-xs font-bold text-purple-500 mt-1">
-                    Gebaseerd op {selectedProduct.count} producties
+                    {t('digitalplanning.ai_prediction.based_on_productions', 'Based on {{count}} productions', {
+                      count: selectedProduct.count,
+                    })}
                   </div>
                 </div>
               </div>
 
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Laatste 10 Producties</h4>
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">{t('digitalplanning.ai_prediction.last_10_productions', 'Last 10 Productions')}</h4>
               <div className="space-y-2">
                 {selectedProduct.logs.slice(-10).reverse().map((log, idx) => (
                   <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
@@ -623,11 +637,13 @@ const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
                     <BrainCircuit size={20} />
                   </div>
                   <div>
-                    <h4 className="font-black text-amber-800 text-sm uppercase mb-1">AI Advies</h4>
+                    <h4 className="font-black text-amber-800 text-sm uppercase mb-1">{t('digitalplanning.ai_prediction.ai_advice', 'AI Advice')}</h4>
                     <p className="text-xs font-medium text-amber-700 leading-relaxed">
-                      Op basis van {selectedProduct.count} metingen lijkt de huidige normtijd van <strong>{formatMinutes(selectedProduct.targetTime)}</strong> niet accuraat. 
-                      Het werkelijke gemiddelde ligt op <strong>{formatMinutes(selectedProduct.avgDuration)}</strong>. 
-                      Overweeg de norm aan te passen om de planning realistischer te maken.
+                      {t('digitalplanning.ai_prediction.advice_text', 'Based on {{count}} measurements, the current standard time of {{target}} does not appear accurate. The actual average is {{average}}. Consider adjusting the standard to make planning more realistic.', {
+                        count: selectedProduct.count,
+                        target: formatMinutes(selectedProduct.targetTime),
+                        average: formatMinutes(selectedProduct.avgDuration),
+                      })}
                     </p>
                   </div>
                 </div>

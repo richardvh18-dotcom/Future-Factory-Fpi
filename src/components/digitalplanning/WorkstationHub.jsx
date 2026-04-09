@@ -16,7 +16,7 @@ import {
   getNextFlowState,
   getStepForStation,
 } from "../../utils/workstationLogic";
-import { normalizeMachine, FITTING_MACHINES, PIPE_MACHINES } from "../../utils/hubHelpers";
+import { normalizeMachine, FITTING_MACHINES, PIPE_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
 import { toDateSafe } from "../../utils/dateUtils";
 import ActiveProductionView from "./views/ActiveProductionView";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
@@ -25,6 +25,7 @@ import Terminal from "./Terminal";
 import Nabewerken from "./Nabewerken";
 import LossenView from "./LossenView";
 import MazakView from "./MazakView";
+import GereedView from "./GereedView";
 import ProductDetailModal from "../products/ProductDetailModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";
@@ -36,12 +37,22 @@ const getAppId = () => {
   return "fittings-app-v1";
 };
 
+const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17"]);
+const LOSSEN_1218_STATION_NAME = "LOSSEN 12/18";
+// Stations waarbij operators ook automatisch worden ingelogd bij LOSSEN 12/18
+const AUTO_LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"]);
+
 // Bepaal lossen route op basis van product type (TB/CB) en diameter
 // TB 25-300mm  → tab lossen (lokaal)
 // TB >= 300mm  → station LOSSEN (centraal)
 // CB 25-350mm  → tab lossen (lokaal)
 // CB >= 350mm  → station LOSSEN (centraal)
-const getLossenRoute = (itemText) => {
+const getLossenRoute = (itemText, originStation = "") => {
+  const originNorm = String(originStation || "").toUpperCase().replace(/\s/g, "");
+  if (LOSSEN_1218_SOURCE_STATIONS.has(originNorm)) {
+    return { mode: "STATION", station: LOSSEN_1218_STATION_NAME };
+  }
+
   const text = String(itemText || "").toUpperCase();
   const isTB = text.includes("TB");
   const isCB = text.includes("CB");
@@ -51,16 +62,16 @@ const getLossenRoute = (itemText) => {
   const isElbow = isELB || isCB;
 
   // Alle AB en SB elbows altijd naar centraal LOSSEN
-  if (isElbow && (isAB || isSB)) return "STATION";
+  if (isElbow && (isAB || isSB)) return { mode: "STATION", station: "LOSSEN" };
 
   const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((m) => Number(m[0]));
   const candidates = numberMatches.filter((n) => Number.isFinite(n) && n >= 25 && n <= 2000);
   const diameter = candidates.length > 0 ? candidates[0] : 0;
 
-  if (isTB && diameter >= 300) return "STATION";
-  if ((isCB || isELB) && diameter >= 350) return "STATION";
+  if (isTB && diameter >= 300) return { mode: "STATION", station: "LOSSEN" };
+  if ((isCB || isELB) && diameter >= 350) return { mode: "STATION", station: "LOSSEN" };
   
-  return "TAB";
+  return { mode: "TAB", station: originNorm || "" };
 };
 
 const getTodayString = () => {
@@ -651,13 +662,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000)
               : 0;
             const grossHours = Number((previousHours + elapsedHours).toFixed(2));
-            // Netto productieve uren (pauze eraf voor dagdienst)
-            const finalHours = Math.max(0, Number((grossHours - breakHours).toFixed(2)));
+            // Secundaire koppeling (LOSSEN 12/18 auto-login): uren al geteld bij primair station
+            const finalHours = entry.isSecondary
+              ? 0
+              : Math.max(0, Number((grossHours - breakHours).toFixed(2)));
 
             await updateDoc(doc(db, ...PATHS.OCCUPANCY, entry.id), {
               hoursWorked: finalHours,
-              hoursWorkedGross: grossHours,
-              ...(breakHours > 0 ? { breakDeductedHours: breakHours } : {}),
+              hoursWorkedGross: entry.isSecondary ? 0 : grossHours,
+              ...(breakHours > 0 && !entry.isSecondary ? { breakDeductedHours: breakHours } : {}),
               checkedOutAt: serverTimestamp(),
               isActive: false,
               autoCheckout: true,
@@ -743,7 +756,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           const previousHours = Number(entry.hoursWorked || 0);
           const checkedInDate = toDateSafe(entry.checkedInAt);
           const elapsedHours = checkedInDate ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000) : 0;
-          const finalHours = Number((previousHours + elapsedHours).toFixed(2));
+          // Secundaire koppeling (LOSSEN 12/18 auto-login): uren niet dubbeltellen
+          const finalHours = entry.isSecondary ? 0 : Number((previousHours + elapsedHours).toFixed(2));
 
           await updateDoc(doc(db, ...PATHS.OCCUPANCY, entry.id), {
             hoursWorked: finalHours,
@@ -806,6 +820,53 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       } else {
         showSuccess(`${person.name || operatorNumber} aangemeld op ${selectedStation}.`);
       }
+
+      // Auto-login bij LOSSEN 12/18 voor BH12/BH15/BH17/BH18
+      const selectedStationNormForAutoLogin = normalizeMachine(selectedStation).toUpperCase().replace(/\s/g, "");
+      if (AUTO_LOSSEN_1218_SOURCE_STATIONS.has(selectedStationNormForAutoLogin)) {
+        try {
+          // Controleer of operator vandaag al een actief secondary-record heeft bij LOSSEN 12/18
+          const lossen1218OccSnap = await getDocs(
+            query(collection(db, ...PATHS.OCCUPANCY), where("date", "==", todayStr), limit(300))
+          );
+          const alreadyAtLossen1218 = lossen1218OccSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .some(e => {
+              const eMachineNorm = normalizeMachine(e.machineId || "").toUpperCase().replace(/\s/g, "");
+              const sameOp = String(e.operatorNumber || "").toUpperCase() === operatorNumber.toUpperCase();
+              const isAtLossen1218 = eMachineNorm === "LOSSEN12/18";
+              const isActive = e.isActive !== false && !e.checkedOutAt;
+              return sameOp && isAtLossen1218 && isActive;
+            });
+
+          if (!alreadyAtLossen1218) {
+            const lossen1218Norm = (normalizeMachine(LOSSEN_1218_STATION_NAME) || LOSSEN_1218_STATION_NAME).replace(/[^a-zA-Z0-9]/g, "_");
+            const lossen1218OccId = `${todayStr}_${lossen1218Norm}_${operatorNumber}_auto_${Date.now()}`;
+            await setDoc(doc(db, ...PATHS.OCCUPANCY, lossen1218OccId), {
+              departmentId: person.departmentId || "fittings",
+              machineId: LOSSEN_1218_STATION_NAME,
+              operatorNumber,
+              operatorName: person.name || `Operator ${operatorNumber}`,
+              date: todayStr,
+              hoursWorked: 0,
+              isPloeg: false,
+              shift: personShiftLabel,
+              shiftKey: personShiftKey,
+              isLoan: false,
+              isSecondary: true,        // Uren niet dubbeltellen
+              primaryStation: selectedStation,
+              checkedInAt: serverTimestamp(),
+              checkedOutAt: null,
+              isActive: true,
+              source: "auto_lossen1218",
+              updatedAt: serverTimestamp(),
+            }, { merge: true });
+          }
+        } catch (err) {
+          console.warn("Auto-login LOSSEN 12/18 mislukt (niet kritiek):", err);
+        }
+      }
+
       showInfo("Je kunt direct nog een operator scannen.");
     } catch (err) {
       console.error("Operator check-in fout:", err);
@@ -829,6 +890,56 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   // Reset index bij verandering van lijst (bijv. station wissel)
   useEffect(() => setCurrentOperatorIndex(0), [stationOccupancy]);
 
+  const stationActivityByOrder = useMemo(() => {
+    const map = new Map();
+    if (!selectedStation) return map;
+
+    const stationNorm = normalizeMachine(selectedStation);
+    const stationClean = String(stationNorm || "").toUpperCase().replace(/\s/g, "");
+    const isNabewerkingStation = stationClean === "NABEWERKING" || stationClean === "NABEWERKEN" || stationClean.includes("NABEWERK");
+    const isBm01Station = stationClean === "BM01" || stationClean.includes("BM01");
+
+    const matchesStation = (value) => {
+      const norm = normalizeMachine(value || "");
+      if (!norm) return false;
+      const clean = norm.toUpperCase().replace(/\s/g, "");
+      if (isNabewerkingStation) {
+        return clean === "NABEWERKING" || clean === "NABEWERKEN" || clean.includes("NABEWERK");
+      }
+      if (isBm01Station) {
+        return clean === "BM01" || clean.includes("BM01");
+      }
+      return norm === stationNorm;
+    };
+
+    rawProducts.forEach((product) => {
+      const orderId = String(product?.orderId || "").trim();
+      if (!orderId) return;
+
+      const isRelated = [
+        product?.originMachine,
+        product?.currentStation,
+        product?.lastStation,
+        product?.machine,
+      ].some(matchesStation);
+      if (!isRelated) return;
+
+      const statusUpper = String(product?.status || "").toUpperCase();
+      const stepUpper = String(product?.currentStep || "").toUpperCase();
+      const isClosed =
+        ["COMPLETED", "FINISHED", "GEREED", "REJECTED", "AFKEUR"].includes(statusUpper) ||
+        stepUpper === "FINISHED" ||
+        stepUpper === "REJECTED";
+
+      const entry = map.get(orderId) || { active: 0, total: 0 };
+      entry.total += 1;
+      if (!isClosed) entry.active += 1;
+      map.set(orderId, entry);
+    });
+
+    return map;
+  }, [rawProducts, selectedStation]);
+
   // Bereken Derived Data (Memoized)
   const stationOrders = useMemo(() => {
     if (!selectedStation) return [];
@@ -839,7 +950,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     const isFittingsStation = FITTING_MACHINES
       .map((s) => normalizeMachine(s))
       .includes(currentStationNorm);
-    const stationField = `started_${selectedStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const stationField = getStartedCounterField(selectedStation);
 
     const pipeStationsNorm = new Set(PIPE_MACHINES.map((s) => normalizeMachine(s)));
     const fittingStationsNorm = new Set(FITTING_MACHINES.map((s) => normalizeMachine(s)));
@@ -927,10 +1038,19 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           }
         }
 
-        const orderMachineNorm = normalizeMachine(o.machine);
+          const orderMachineNorm = normalizeMachine(o.machine);
+          const orderIdForActivity = String(o.orderId || "").trim();
+          const startedAtStation = Number(stationField ? o?.[stationField] || 0 : 0);
+          const planAtStation = Number(o.plan || o.quantity || 0);
+          const hasRemainingPlan = startedAtStation > 0 && planAtStation > startedAtStation;
+          const activityMeta = stationActivityByOrder.get(orderIdForActivity);
+          const hasStationActivity = (activityMeta?.active || 0) > 0 || (activityMeta?.total || 0) > 0;
+
         return (
           o.machine === selectedStation ||
-          orderMachineNorm === currentStationNorm
+            orderMachineNorm === currentStationNorm ||
+            hasRemainingPlan ||
+            hasStationActivity
         );
       })
       .map((o) => {
@@ -950,7 +1070,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           a.dateObj - b.dateObj ||
           String(a.orderId).localeCompare(String(b.orderId))
       );
-  }, [rawOrders, rawProducts, selectedStation]);
+  }, [rawOrders, rawProducts, selectedStation, stationActivityByOrder]);
 
   const stationStats = useMemo(() => {
     const currentStationNorm = normalizeMachine(selectedStation);
@@ -1108,6 +1228,14 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const selectedStationNormForHeader = normalizeMachine(selectedStation);
   const selectedStationCleanForHeader = (selectedStationNormForHeader || "").toUpperCase().replace(/\s/g, "");
   const isBm01HeaderStation = selectedStationCleanForHeader.includes("BM01");
+  const isWorkstationGereedTab =
+    !isBm01HeaderStation &&
+    selectedStationCleanForHeader !== "LOSSEN" &&
+    selectedStationCleanForHeader !== "LOSSEN12/18" &&
+    selectedStationCleanForHeader !== "MAZAK" &&
+    selectedStationCleanForHeader !== "NABEWERKING" &&
+    selectedStationCleanForHeader !== "NABEWERKEN" &&
+    !selectedStationCleanForHeader.includes("NABEWERK");
   const isTwoKpiHeaderStation =
     selectedStationCleanForHeader === "LOSSEN" ||
     selectedStationCleanForHeader === "MAZAK" ||
@@ -1170,7 +1298,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           currentLotNumber
         );
 
-        const stationField = `started_${selectedStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const stationField = getStartedCounterField(selectedStation);
         const persistedStartedCount = Number(order[stationField] || 0);
         const activeStartedCount = rawProducts.filter(
           (p) =>
@@ -1312,7 +1440,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
       // Update order: decrease counter for this station
       if (order.status !== "completed") {
-        const stationField = `started_${selectedStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const stationField = getStartedCounterField(selectedStation);
         const currentStarted = order[stationField] || 0;
         
         await updateDoc(
@@ -1577,7 +1705,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               const orderDoc = orderSnap.docs[0];
               const orderData = orderDoc.data();
               const originStation = itemToFinish.originMachine || itemToFinish.currentStation;
-              const stationField = `started_${originStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
+              const stationField = getStartedCounterField(originStation);
               const currentStarted = orderData[stationField] || 0;
               
               if (currentStarted > 0) {
@@ -1704,8 +1832,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         };
 
         // Grote moffen gaan naar centraal station LOSSEN, kleine/middelgrote blijven lokaal
-        if (lossenRoute === "STATION") {
-          updates.currentStation = "LOSSEN";
+        if (lossenRoute.mode === "STATION") {
+          updates.currentStation = lossenRoute.station || "LOSSEN";
         } else {
           // Houd lokale Lossen-tab robuust: zet expliciet station/step/status
           updates.currentStation = selectedStation;
@@ -1834,7 +1962,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
         const order = rawOrders.find(o => o.orderId === product.orderId);
         if (order) {
-           const stationField = `started_${selectedStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
+           const stationField = getStartedCounterField(selectedStation);
            // Gebruik increment(-1) voor atomicity
            await updateDoc(doc(db, ...PATHS.PLANNING, order.id), {
              [stationField]: increment(-1),
@@ -2097,9 +2225,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                     >
                       {t("digitalplanning.hub.title")}
                     </button>
-                    {!["BM01", "Station BM01"].includes(
+                    {![("BM01"), "Station BM01"].includes(
                       selectedStation
-                    ) && (
+                    ) && isWorkstationGereedTab && (
                       <button
                         onClick={() => {
                           setActiveTab("lossen");
@@ -2111,7 +2239,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                             : "text-gray-500"
                         }`}
                       >
-                        {t("digitalplanning.terminal.tab_lossen")}
+                        Gereed
                       </button>
                     )}
                     <button
@@ -2219,7 +2347,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             )}
             {activeTab === "lossen" && (
               <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {(String(selectedStation || "").toUpperCase().replace(/\s/g, "") === "MAZAK") ? (
+                {isWorkstationGereedTab ? (
+                  <GereedView
+                    products={rawProducts}
+                    stationId={selectedStation}
+                  />
+                ) : (String(selectedStation || "").toUpperCase().replace(/\s/g, "") === "MAZAK") ? (
                   <MazakView
                     products={rawProducts}
                     stationId={selectedStation}
@@ -2317,8 +2450,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                   <ScanBarcode size={20} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 uppercase">Operator Aanmelden</h3>
-                  <p className="text-xs text-slate-500 font-bold">Station: {selectedStation}</p>
+                  <h3 className="text-lg font-black text-slate-900 uppercase">{t("digitalplanning.workstation.operator_checkin", "Operator aanmelden")}</h3>
+                  <p className="text-xs text-slate-500 font-bold">{t("digitalplanning.workstation.station", "Station")}: {selectedStation}</p>
                 </div>
               </div>
               <button
@@ -2329,7 +2462,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                 }}
                 className="px-2 py-1 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 font-bold text-xs uppercase"
               >
-                Later
+                {t("digitalplanning.workstation.later", "Later")}
               </button>
             </div>
 
@@ -2344,11 +2477,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               return shiftCfg ? (
                 <div className="mb-4 px-3 py-2 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Huidige dienst</p>
+                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">{t("digitalplanning.workstation.current_shift", "Huidige dienst")}</p>
                     <p className="text-sm font-black text-blue-800">{shiftCfg.label}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Auto-uitlog om</p>
+                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">{t("digitalplanning.workstation.auto_logout_at", "Auto-uitlog om")}</p>
                     <p className="text-sm font-black text-blue-800">{endLabel}</p>
                   </div>
                 </div>
@@ -2356,7 +2489,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             })()}
 
             <p className="text-sm text-slate-600 mb-4">
-              Scan badge/QR of vul personeelsnummer in om de shift op deze machine te starten. Je kunt meerdere operators achter elkaar aanmelden.
+              {t("digitalplanning.workstation.checkin_help", "Scan badge/QR of vul personeelsnummer in om de shift op deze machine te starten. Je kunt meerdere operators achter elkaar aanmelden.")}
             </p>
 
             <input
@@ -2369,7 +2502,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                   handleOperatorShiftCheckin();
                 }
               }}
-              placeholder="Personeelsnummer"
+              placeholder={t("personnelOccupancy.labels.employeeNumber", "Personeelsnummer")}
               autoFocus
               className="w-full p-3 rounded-xl border-2 border-slate-200 font-bold text-slate-800 outline-none focus:border-blue-500"
             />
@@ -2379,12 +2512,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               disabled={isCheckingInOperator}
               className="w-full mt-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-xs tracking-widest disabled:opacity-60"
             >
-              {isCheckingInOperator ? "Aanmelden..." : "Aanmelden Op Machine"}
+              {isCheckingInOperator ? t("digitalplanning.workstation.checking_in", "Aanmelden...") : t("digitalplanning.workstation.checkin_on_machine", "Aanmelden op machine")}
             </button>
 
             {stationOccupancy.length > 0 && (
               <div className="mt-4 p-3 rounded-xl border border-slate-200 bg-slate-50">
-                <p className="text-[11px] font-black uppercase text-slate-500 mb-2">Nu ingelogd op dit station</p>
+                <p className="text-[11px] font-black uppercase text-slate-500 mb-2">{t("digitalplanning.workstation.currently_logged_in_here", "Nu ingelogd op dit station")}</p>
                 <div className="flex flex-wrap gap-2">
                   {stationOccupancy.map((occ, idx) => (
                     <span key={`${occ.operatorNumber || occ.id || idx}_${idx}`} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-200 bg-white text-slate-700">

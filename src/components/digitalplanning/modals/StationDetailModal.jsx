@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   X,
@@ -24,13 +25,14 @@ const StationDetailModal = ({
   allArchivedProducts = [],
   onClose,
 }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("active");
   const [historyFilter, setHistoryFilter] = useState("week");
   const historyFilterLabels = {
-    week: "Deze week",
-    "2weeks": "2 weken",
-    month: "30 dagen",
-    all: "Alles",
+    week: t("common.week", "Deze week"),
+    "2weeks": t("digitalplanning.station_detail.two_weeks", "2 weken"),
+    month: t("digitalplanning.station_detail.thirty_days", "30 dagen"),
+    all: t("common.all", "Alles"),
   };
   const stationNorm = normalizeMachine(stationId);
 
@@ -42,9 +44,9 @@ const StationDetailModal = ({
       <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
         <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh] items-center justify-center p-10">
           <AlertCircle size={48} className="text-rose-400 mb-4" />
-          <h2 className="text-xl font-black text-rose-600 mb-2">Niet toegestaan</h2>
-          <p className="text-slate-500 text-sm mb-6">Dit station hoort niet bij de afdeling Fittings.</p>
-          <button onClick={onClose} className="px-6 py-2 bg-slate-900 text-white rounded-xl font-black uppercase text-xs tracking-widest">Sluiten</button>
+          <h2 className="text-xl font-black text-rose-600 mb-2">{t("digitalplanning.station_detail.not_allowed", "Niet toegestaan")}</h2>
+          <p className="text-slate-500 text-sm mb-6">{t("digitalplanning.station_detail.not_in_fittings", "Dit station hoort niet bij de afdeling Fittings.")}</p>
+          <button onClick={onClose} className="px-6 py-2 bg-slate-900 text-white rounded-xl font-black uppercase text-xs tracking-widest">{t("common.close", "Sluiten")}</button>
         </div>
       </div>
     );
@@ -236,8 +238,8 @@ const StationDetailModal = ({
               </h2>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                 {activeItems.length > 0
-                  ? "Productie Actief"
-                  : "Station Standby"}
+                  ? t("digitalplanning.station_detail.production_active", "Production Active")
+                  : t("digitalplanning.station_detail.station_standby", "Station Standby")}
               </p>
             </div>
           </div>
@@ -259,7 +261,7 @@ const StationDetailModal = ({
                 : "border-transparent text-gray-400 hover:text-gray-600"
             }`}
           >
-            <Zap size={16} /> Nu Actief ({activeItems.length})
+            <Zap size={16} /> {t("digitalplanning.station_detail.active_now", "Nu Actief")} ({activeItems.length})
           </button>
           <button
             onClick={() => setActiveTab("planning")}
@@ -269,7 +271,7 @@ const StationDetailModal = ({
                 : "border-transparent text-gray-400 hover:text-gray-600"
             }`}
           >
-            <CalendarIcon size={16} /> Planning ({groupedPlanning.total})
+            <CalendarIcon size={16} /> {t("digitalplanning.terminal.tab_planning", "Planning")} ({groupedPlanning.total})
           </button>
           <button
             onClick={() => setActiveTab("history")}
@@ -279,7 +281,7 @@ const StationDetailModal = ({
                 : "border-transparent text-gray-400 hover:text-gray-600"
             }`}
           >
-            <History size={16} /> Historie
+            <History size={16} /> {t("digitalplanning.station_detail.history", "Historie")}
           </button>
         </div>
 
@@ -293,14 +295,14 @@ const StationDetailModal = ({
                      <div className="px-3 py-1.5 bg-orange-50 border border-orange-100 rounded-lg flex items-center gap-2">
                        <Clock size={12} className="text-orange-500" />
                        <span className="text-[10px] font-black text-orange-600 uppercase tracking-wide">
-                         Wacht op Lossen: {waitingForUnloadCount}
+                         {t("lossen.wait_for_unload", "Wacht op Lossen")}: {waitingForUnloadCount}
                        </span>
                      </div>
                    )}
                    <div className="px-3 py-1.5 bg-green-50 border border-green-100 rounded-lg flex items-center gap-2">
                      <Activity size={12} className="text-green-500" />
                      <span className="text-[10px] font-black text-green-600 uppercase tracking-wide">
-                       In Productie: {activeItems.length - waitingForUnloadCount}
+                       {t("status.in_production", "In Productie")}: {activeItems.length - waitingForUnloadCount}
                      </span>
                    </div>
                 </div>
@@ -310,7 +312,7 @@ const StationDetailModal = ({
                 <div className="text-center py-12 text-gray-400">
                   <Zap size={48} className="mx-auto mb-4 opacity-20" />
                   <p className="text-sm font-bold uppercase">
-                    Geen actieve productie op dit moment.
+                    {t("digitalplanning.station_detail.no_active_production_now", "Geen actieve productie op dit moment.")}
                   </p>
                 </div>
               ) : (
@@ -329,10 +331,10 @@ const StationDetailModal = ({
                     </div>
                     <div className="text-right">
                       <span className="bg-green-100 text-green-700 px-3 py-1 rounded-lg text-xs font-bold uppercase animate-pulse inline-block mb-1">
-                        Draaiend
+                        {t("status.active", "Actief")}
                       </span>
                       <p className="text-[10px] text-gray-400 font-bold uppercase">
-                        Operator: {item.operator?.split("@")[0] || "Unknown"}
+                        {t("personnelOccupancy.labels.operator", "Operator")}: {item.operator?.split("@")[0] || t("common.unknown", "Onbekend")}
                       </p>
                     </div>
                   </div>
@@ -374,17 +376,17 @@ const StationDetailModal = ({
                             </p>
                               {order.isOverdue && (
                                 <span className="flex items-center gap-1 text-[9px] font-bold text-rose-500 uppercase mt-0.5">
-                                  <AlertCircle size={10} /> Uit vorige week
+                                  <AlertCircle size={10} /> {t("digitalplanning.station_detail.from_previous_week", "From previous week")}
                                 </span>
                               )}
                               {order.isPriority && (
                                 <span className="flex items-center gap-1 text-[9px] font-bold text-amber-600 uppercase mt-0.5">
-                                  <ArrowUpCircle size={10} /> Prioriteit / Verplaatst
+                                  <ArrowUpCircle size={10} /> {t("digitalplanning.station_detail.priority_moved", "Priority / Moved")}
                                 </span>
                               )}
                               {order.rejectedCount > 0 && (
                                 <span className="flex items-center gap-1 text-[9px] font-bold text-rose-600 uppercase mt-0.5">
-                                  <RotateCcw size={10} /> Herstel ({order.rejectedCount})
+                                  <RotateCcw size={10} /> {t("digitalplanning.station_detail.repair", "Repair")} ({order.rejectedCount})
                                 </span>
                               )}
                               {order.activeLot && (
@@ -398,7 +400,7 @@ const StationDetailModal = ({
                           <StatusBadge status={order.status} />
                           {order.liveFinish > 0 && (
                             <p className="text-[10px] text-green-600 font-bold mt-1">
-                              {order.liveFinish} gereed
+                              {t("digitalplanning.station_detail.ready_count", "{{count}} ready", { count: order.liveFinish })}
                             </p>
                           )}
                         </div>
@@ -412,7 +414,7 @@ const StationDetailModal = ({
                 <div className="text-center py-8 text-gray-400">
                   <CalendarIcon size={32} className="mx-auto mb-2 opacity-20" />
                   <p className="text-xs font-bold uppercase">
-                    Geen orders gepland
+                    {t("digitalplanning.station_detail.no_orders_planned", "No orders planned")}
                   </p>
                 </div>
               )}
@@ -437,7 +439,7 @@ const StationDetailModal = ({
                 ))}
               </div>
               <p className="text-xs text-gray-400 font-bold uppercase tracking-widest pl-1">
-                {historyItems.length} items gereed
+                {t("digitalplanning.station_detail.ready_items", "{{count}} items completed", { count: historyItems.length })}
               </p>
               <div className="space-y-2">
                 {historyItems.map((item) => (

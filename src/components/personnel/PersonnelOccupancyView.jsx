@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { 
   Loader2, Cpu, Layers, Clock,
   ChevronUp, ShieldCheck, X,
@@ -20,7 +21,7 @@ import { useNotifications } from '../../contexts/NotificationContext';
  * Add/Edit Modal Component (Intern)
  */
 const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments, users = [] }) => {
-  const { notify } = useNotifications();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("profile");
   const [formData, setFormData] = useState({
     name: "",
@@ -99,7 +100,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
   const loanDept = departments.find(d => d.id === formData.loan?.departmentId);
   const loanShifts = loanDept?.shifts || [];
   const currentDept = departments.find(d => d.id === formData.departmentId);
-  const availableShifts = currentDept?.shifts || [{ id: "DAGDIENST", label: "Dagdienst" }];
+  const availableShifts = currentDept?.shifts || [{ id: "DAGDIENST", label: t("personnelOccupancy.labels.dayShift") }];
   const temporaryOverride = formData.temporaryShiftOverride || {
     enabled: false,
     shiftId: "",
@@ -130,7 +131,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
       <div className="bg-white rounded-[30px] p-8 max-w-md w-full shadow-2xl">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-black text-slate-900 uppercase italic">
-            {initialData ? "Medewerker Bewerken" : "Nieuwe Medewerker"}
+            {initialData ? t("personnelOccupancy.labels.editEmployee") : t("personnelOccupancy.labels.newEmployee")}
           </h3>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full"><X size={20} /></button>
         </div>
@@ -142,14 +143,14 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
             onClick={() => setActiveTab("profile")}
             className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === "profile" ? "bg-white text-blue-600 shadow-sm" : "text-slate-400"}`}
           >
-            Profiel
+            {t("personnelOccupancy.labels.profile")}
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("loan")}
             className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === "loan" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400"}`}
           >
-            Uitlenen
+            {t("personnelOccupancy.labels.loan")}
           </button>
         </div>
 
@@ -157,7 +158,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
           {activeTab === "profile" && (
             <>
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Naam</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.name")}</label>
                 <input 
                   type="text" 
                   required
@@ -167,7 +168,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                 />
               </div>
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Personeelsnummer</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.employeeNumber")}</label>
                 <input 
                   type="text" 
                   required
@@ -177,13 +178,13 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                 />
               </div>
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Koppel User Account</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.linkUserAccount")}</label>
                 <select 
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-blue-500"
                   value={formData.linkedUserId || ""}
                   onChange={e => setFormData({...formData, linkedUserId: e.target.value})}
                 >
-                  <option value="">Geen koppeling...</option>
+                  <option value="">{t("personnelOccupancy.placeholders.noLink")}</option>
                   {users.map(u => (
                     <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
                   ))}
@@ -191,18 +192,18 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Afdeling</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">{t("common.department")}</label>
                   <select 
                     className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-blue-500"
                     value={formData.departmentId}
                     onChange={e => setFormData({...formData, departmentId: e.target.value})}
                   >
-                    <option value="">Selecteer...</option>
+                    <option value="">{t("personnelOccupancy.placeholders.select")}</option>
                     {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Ploeg</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.shift")}</label>
                   <select 
                     className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-blue-500"
                     value={formData.shiftId}
@@ -217,7 +218,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
 
               <div className="p-4 rounded-2xl border-2 border-blue-100 bg-blue-50/50 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black text-blue-800 uppercase tracking-widest">Tijdelijke Dienst Override</span>
+                  <span className="text-[10px] font-black text-blue-800 uppercase tracking-widest">{t("personnelOccupancy.labels.temporaryShiftOverride")}</span>
                   <input
                     type="checkbox"
                     className="w-4 h-4 rounded text-blue-600"
@@ -241,7 +242,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                   <>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Van</label>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.from")}</label>
                         <input
                           type="date"
                           className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
@@ -257,7 +258,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Tot</label>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.to")}</label>
                         <input
                           type="date"
                           className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
@@ -274,7 +275,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Tijdelijke Dienst</label>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.temporaryShift")}</label>
                       <select
                         className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
                         value={temporaryOverride.shiftId}
@@ -286,7 +287,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                           }
                         })}
                       >
-                        <option value="">Selecteer...</option>
+                        <option value="">{t("personnelOccupancy.placeholders.select")}</option>
                         {availableShifts.map((s) => (
                           <option key={s.id} value={s.id}>{s.label}</option>
                         ))}
@@ -294,7 +295,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Notitie (optioneel)</label>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.noteOptional")}</label>
                       <input
                         type="text"
                         className="w-full p-2.5 bg-white border-2 border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-blue-500"
@@ -306,7 +307,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                             note: e.target.value,
                           }
                         })}
-                        placeholder="Bijv. week 14 tijdelijk dagdienst"
+                        placeholder={t("personnelOccupancy.placeholders.temporaryShiftExample")}
                       />
                     </div>
                   </>
@@ -318,7 +319,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
           {activeTab === "loan" && (
             <div className="space-y-4 animate-in slide-in-from-right-4">
               <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100">
-                <span className="text-xs font-black text-indigo-800 uppercase">Actief Uitlenen</span>
+                <span className="text-xs font-black text-indigo-800 uppercase">{t("personnelOccupancy.labels.activeLoan")}</span>
                 <input 
                   type="checkbox" 
                   className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500"
@@ -330,13 +331,13 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
               {formData.loan?.active && (
                 <>
                   <div>
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Doel Afdeling</label>
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.targetDepartment")}</label>
                     <select 
                       className="w-full p-3 bg-white border-2 border-slate-200 rounded-xl font-bold outline-none focus:border-indigo-500"
                       value={formData.loan.departmentId}
                       onChange={e => setFormData({...formData, loan: { ...formData.loan, departmentId: e.target.value }})}
                     >
-                      <option value="">Kies afdeling...</option>
+                      <option value="">{t("personnelOccupancy.placeholders.chooseDepartment")}</option>
                       {departments.filter(d => d.id !== formData.departmentId).map(d => (
                         <option key={d.id} value={d.id}>{d.name}</option>
                       ))}
@@ -344,13 +345,13 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                   </div>
 
                   <div>
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Doel Ploeg</label>
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.targetShift")}</label>
                     <select 
                       className="w-full p-3 bg-white border-2 border-slate-200 rounded-xl font-bold outline-none focus:border-indigo-500"
                       value={formData.loan.shiftId}
                       onChange={e => setFormData({...formData, loan: { ...formData.loan, shiftId: e.target.value }})}
                     >
-                      <option value="">Kies ploeg...</option>
+                      <option value="">{t("personnelOccupancy.placeholders.chooseShift")}</option>
                       {loanShifts.map(s => (
                         <option key={s.id} value={s.id}>{s.label}</option>
                       ))}
@@ -365,7 +366,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                         checked={formData.loan.followRotation}
                         onChange={e => setFormData({...formData, loan: { ...formData.loan, followRotation: e.target.checked }})}
                       />
-                      <span className="text-xs font-bold text-slate-700">Volg ploegenrooster doelafdeling</span>
+                      <span className="text-xs font-bold text-slate-700">{t("personnelOccupancy.labels.followTargetRotation")}</span>
                     </label>
 
                     <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer">
@@ -375,12 +376,12 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
                         checked={formData.loan.autoReturn}
                         onChange={e => handleAutoReturnToggle(e.target.checked)}
                       />
-                      <span className="text-xs font-bold text-slate-700">Automatisch terug na 5 dagen</span>
+                      <span className="text-xs font-bold text-slate-700">{t("personnelOccupancy.labels.autoReturnAfter5Days")}</span>
                     </label>
                     
                     {formData.loan.autoReturn && formData.loan.returnDate && (
                       <div className="text-[10px] font-bold text-indigo-600 px-2">
-                        Retour datum: {formData.loan.returnDate}
+                        {t("personnelOccupancy.labels.returnDate", { date: formData.loan.returnDate })}
                       </div>
                     )}
                   </div>
@@ -390,7 +391,7 @@ const AddEditPersonModal = ({ isOpen, onClose, onSave, initialData, departments,
           )}
 
           <button type="submit" className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 mt-4">
-            <Save size={18} /> Opslaan
+            <Save size={18} /> {t("common.save")}
           </button>
         </form>
       </div>
@@ -414,6 +415,8 @@ const PersonnelOccupancyView = ({
   onClearToday,
   isClearing = false
 }) => {
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [localPersonnel, setLocalPersonnel] = useState([]);
   const [localOccupancy, setLocalOccupancy] = useState([]);
   const [localStructure, setLocalStructure] = useState({ departments: [] });
@@ -592,7 +595,7 @@ const PersonnelOccupancyView = ({
       setEditingPerson(null);
     } catch (err) {
       console.error("Fout bij opslaan medewerker:", err);
-      notify("Er ging iets mis bij het opslaan.");
+      notify(t("personnelOccupancy.notifications.saveFailed"));
     }
   };
 
@@ -606,7 +609,7 @@ const PersonnelOccupancyView = ({
       );
     } catch (err) {
       console.error("Verwijderen bezetting mislukt:", err);
-      notify("Kon bezetting niet verwijderen");
+      notify(t("personnelOccupancy.notifications.deleteOccupancyFailed"));
     }
   };
 
@@ -669,7 +672,7 @@ const PersonnelOccupancyView = ({
                 }}
                 className="px-3 py-2 bg-white border border-slate-200 text-slate-600 hover:text-blue-700 hover:border-blue-300 rounded-xl transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider shadow-sm"
               >
-                <Clock size={14} /> Achteraf Uren Corrigeren
+                <Clock size={14} /> {t("personnelOccupancy.labels.correctHoursAfterward")}
               </button>
             </div>
           )}
@@ -688,10 +691,10 @@ const PersonnelOccupancyView = ({
                         onClick={(e) => { e.stopPropagation(); onCopyYesterday(dept.id); }}
                         disabled={isCopying}
                         className="mr-2 p-2 bg-white border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-300 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider shadow-sm"
-                        title="Kopieer bezetting van gisteren voor deze afdeling"
+                        title={t("personnelOccupancy.labels.copyYesterdayTitle")}
                       >
                         {isCopying ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
-                        <span className="hidden sm:inline">Kopieer Gisteren</span>
+                        <span className="hidden sm:inline">{t("personnelOccupancy.labels.copyYesterday")}</span>
                       </button>
                     )}
 
@@ -700,10 +703,10 @@ const PersonnelOccupancyView = ({
                         onClick={(e) => { e.stopPropagation(); onClearToday(dept.id); }}
                         disabled={isClearing}
                         className="mr-2 p-2 bg-white border border-rose-200 text-rose-500 hover:text-rose-700 hover:border-rose-300 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider shadow-sm"
-                        title="Wis bezetting van vandaag voor deze afdeling"
+                        title={t("personnelOccupancy.labels.clearTodayTitle")}
                       >
                         {isClearing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                        <span className="hidden sm:inline">Reset</span>
+                        <span className="hidden sm:inline">{t("personnelOccupancy.labels.reset")}</span>
                       </button>
                     )}
 
@@ -774,22 +777,22 @@ const PersonnelOccupancyView = ({
                                                   className={`p-1 rounded-lg border flex flex-col gap-0.5 animate-in slide-in-from-right-1 cursor-pointer hover:scale-[1.02] transition-all ${isTL ? 'bg-white/5 border-white/10 text-white' : `${shiftColors.bg} ${shiftColors.border}`} ${occ.isLoan ? 'ring-2 ring-green-400' : `ring-1 ${shiftColors.ring}`}`}>
                                                     <div className="flex items-center justify-between text-left">
                                                         <div className="text-left overflow-hidden text-left flex-1">
-                                                            <h5 className={`text-[11px] sm:text-xs font-black uppercase italic truncate mb-0.5 text-left ${isTL ? 'text-amber-400' : shiftColors.text}`}>{occ.operatorName || "Naamloos"}</h5>
+                                                            <h5 className={`text-[11px] sm:text-xs font-black uppercase italic truncate mb-0.5 text-left ${isTL ? 'text-amber-400' : shiftColors.text}`}>{occ.operatorName || t("personnelOccupancy.labels.nameless")}</h5>
                                                             <div className="flex items-center gap-1 opacity-70 text-left flex-wrap">
                                                                 <span className={`text-[6px] font-black px-1 py-0 rounded ${occ.isPloeg ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{occ.shift || (occ.isPloeg ? 'PLOEG' : 'DAG')}</span>
                                                                 <span className={`text-[6px] font-bold uppercase ${isTL ? 'text-slate-400' : 'text-slate-600'}`}>#{occ.operatorNumber || "?"}</span>
-                                                                {occ.isLoan && <span className="text-[6px] font-black px-1 py-0 rounded bg-green-100 text-green-700">UITGELEEND</span>}
+                                                                {occ.isLoan && <span className="text-[6px] font-black px-1 py-0 rounded bg-green-100 text-green-700">{t("personnelOccupancy.labels.loaned")}</span>}
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center gap-1">
                                                           {editable && !occ.isLoan && (
-                                                            <button onClick={(e) => { e.stopPropagation(); setSelectedPersonForLoan(occ); setSelectedDepartmentForLoan(dept); setLoanModalOpen(true); }} className="p-0.5 text-blue-400 hover:text-blue-600 transition-colors" title="Uitlenen aan andere afdeling"><ArrowRight size={10} /></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); setSelectedPersonForLoan(occ); setSelectedDepartmentForLoan(dept); setLoanModalOpen(true); }} className="p-0.5 text-blue-400 hover:text-blue-600 transition-colors" title={t("personnelOccupancy.labels.loanToOtherDepartment")}><ArrowRight size={10} /></button>
                                                           )}
                                                           <button onClick={(e) => { e.stopPropagation(); handleDeleteOccupancy(occ); }} className="p-0.5 text-slate-400 hover:text-rose-500 transition-colors"><X size={10} /></button>
                                                         </div>
                                                     </div>
                                                     <div className={`pt-1 border-t flex items-center justify-between ${isTL ? 'border-white/5' : 'border-slate-300/60'}`}>
-                                                      <div className="flex items-center gap-1"><Clock size={8} className={shiftColors.text} /><span className={`text-[6px] font-black uppercase tracking-tighter ${isTL ? 'text-slate-500' : 'text-slate-500'}`}>Inzet:</span></div>
+                                                      <div className="flex items-center gap-1"><Clock size={8} className={shiftColors.text} /><span className={`text-[6px] font-black uppercase tracking-tighter ${isTL ? 'text-slate-500' : 'text-slate-500'}`}>{t("personnelOccupancy.labels.allocation")}</span></div>
                                                       <span className={`text-[10px] sm:text-[11px] font-black ${isTL ? 'text-white' : shiftColors.text}`}>{getDisplayHours(occ).toFixed(1)}u</span>
                                                     </div>
                                                 </div>
@@ -797,7 +800,7 @@ const PersonnelOccupancyView = ({
                                             </div>
                                           );
                                         })}
-                                        {!isBusy && <div className={`py-4 border border-dashed rounded-2xl flex flex-col items-center justify-center opacity-40 ${isTL ? 'border-white/10' : 'border-slate-200'}`}><span className={`text-[7px] font-black uppercase tracking-widest text-center ${isTL ? 'text-slate-600' : 'text-slate-400'}`}>Vrij</span></div>}
+                                        {!isBusy && <div className={`py-4 border border-dashed rounded-2xl flex flex-col items-center justify-center opacity-40 ${isTL ? 'border-white/10' : 'border-slate-200'}`}><span className={`text-[7px] font-black uppercase tracking-widest text-center ${isTL ? 'text-slate-600' : 'text-slate-400'}`}>{t("personnelOccupancy.labels.free")}</span></div>}
                                     </div>
                                 </div>
                             );
@@ -828,39 +831,39 @@ const PersonnelOccupancyView = ({
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-black text-slate-900 uppercase italic">Personeel toevoegen</h3>
+              <h3 className="text-xl font-black text-slate-900 uppercase italic">{t("personnelOccupancy.labels.addPersonnel")}</h3>
               <button onClick={() => setAssignModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all"><X size={20} /></button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Station</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">{t("common.stationMachine")}</label>
                 <select value={selectedStation?.id || ""} onChange={(e) => setSelectedStation(selectedDept.stations?.find(s => s.id === e.target.value) || null)} className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600" disabled>
-                  <option value="">Selecteer een station...</option>
+                  <option value="">{t("personnelOccupancy.placeholders.selectStation")}</option>
                   {(selectedDept.stations || []).map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}
                 </select>
               </div>
               
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Filter op ploeg</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">{t("personnelOccupancy.labels.filterByShift")}</label>
                 <select 
                   value={assignShift} 
                   onChange={(e) => { setAssignShift(e.target.value); setSelectedPersonId(""); }} 
                   className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600"
                 >
-                  <option value="">Alle ploegen...</option>
+                  <option value="">{t("personnelOccupancy.placeholders.allShifts")}</option>
                   {(selectedDept.shifts || []).map(s => (<option key={s.id} value={s.id}>{s.label}</option>))}
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Personeelslid</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">{t("personnelOccupancy.labels.personnelMember")}</label>
                 <select 
                   value={selectedPersonId}
                   onChange={(e) => setSelectedPersonId(e.target.value)} 
                   className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600"
                   disabled={!assignShift && personnel.length > 100} // Optional optimization
                 >
-                  <option value="">Selecteer personeelslid...</option>
+                  <option value="">{t("personnelOccupancy.placeholders.selectPersonnelMember")}</option>
                   {personnel
                     .filter(p => {
                       if (!assignShift) return true;
@@ -871,24 +874,24 @@ const PersonnelOccupancyView = ({
                     .map(p => {
                         const effectiveShiftId = getPersonShiftForDate(p, dateToUse);
                         const displayLabel = getShiftLabelFromDept(selectedDept, effectiveShiftId);
-                        return (<option key={p.id} value={p.id}>{p.name} ({displayLabel || "?"})</option>);
+                        return (<option key={p.id} value={p.id}>{p.name} ({displayLabel || t("common.unknown")})</option>);
                     })}
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Inzetduur</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">{t("personnelOccupancy.labels.allocationDuration")}</label>
                 <input
                   type="number"
                   step="0.5"
                   value={assignHours}
                   onChange={(e) => setAssignHours(e.target.value)}
                   className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-600"
-                  placeholder="bv. 8.0"
+                  placeholder={t("personnelOccupancy.placeholders.hoursExample")}
                 />
               </div>
               <div className="pt-4 border-t border-slate-200 flex gap-3">
-                <button onClick={() => setAssignModalOpen(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold uppercase text-xs tracking-wider hover:bg-slate-200 transition-all">Klaar</button>
+                <button onClick={() => setAssignModalOpen(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold uppercase text-xs tracking-wider hover:bg-slate-200 transition-all">{t("personnelOccupancy.labels.done")}</button>
                 <button 
                   onClick={async () => {
                     const person = personnel.find(p => p.id === selectedPersonId);
@@ -901,7 +904,12 @@ const PersonnelOccupancyView = ({
 
                       if (existingAssignments.length > 0) {
                         const stations = existingAssignments.map(o => o.machineId).join(", ");
-                        const confirmMsg = `${person.name} is al ingepland op: ${stations}.\n\nWil je deze persoon ook op ${selectedStation.name || selectedStation.id} inplannen voor ${assignHours} uur?`;
+                        const confirmMsg = t("personnelOccupancy.confirm.alreadyPlanned", {
+                          name: person.name,
+                          stations,
+                          station: selectedStation.name || selectedStation.id,
+                          hours: assignHours,
+                        });
                         if (!window.confirm(confirmMsg)) return;
                       }
 
@@ -960,7 +968,7 @@ const PersonnelOccupancyView = ({
                   disabled={!selectedPersonId}
                   className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs tracking-wider hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Toevoegen
+                  {t("common.add")}
                 </button>
               </div>
             </div>
@@ -973,18 +981,18 @@ const PersonnelOccupancyView = ({
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-[30px] p-8 max-w-sm w-full shadow-2xl border border-white/20">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-black text-slate-900 uppercase italic">Uren Aanpassen</h3>
+              <h3 className="text-lg font-black text-slate-900 uppercase italic">{t("personnelOccupancy.labels.adjustHours")}</h3>
               <button onClick={() => setEditAssignmentModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
             </div>
             
             <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Operator</p>
+              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">{t("personnelOccupancy.labels.operator")}</p>
               <p className="font-bold text-slate-800 text-sm">{selectedAssignment.operatorName}</p>
               <p className="text-[10px] text-slate-500 mt-1">#{selectedAssignment.operatorNumber}</p>
             </div>
 
             <div className="mb-8">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Gewerkte Uren</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">{t("personnelOccupancy.labels.workedHours")}</label>
               <div className="relative">
                 <input
                   type="number"
@@ -994,7 +1002,7 @@ const PersonnelOccupancyView = ({
                   onChange={(e) => setSelectedAssignment({...selectedAssignment, hoursWorked: e.target.value})}
                   autoFocus
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">uur</span>
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">{t("personnelOccupancy.labels.hourShort")}</span>
               </div>
             </div>
 
@@ -1011,12 +1019,12 @@ const PersonnelOccupancyView = ({
                       setLoanModalOpen(true);
                       setEditAssignmentModalOpen(false);
                     } else {
-                      notify("Persoonsgegevens niet gevonden.");
+                      notify(t("personnelOccupancy.notifications.personDetailsNotFound"));
                     }
                   }}
                   className="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-indigo-100 border-2 border-indigo-100 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
                 >
-                  <ArrowRight size={18} /> Uitlenen
+                  <ArrowRight size={18} /> {t("personnelOccupancy.labels.loan")}
                 </button>
               )}
 
@@ -1034,12 +1042,12 @@ const PersonnelOccupancyView = ({
                     setEditAssignmentModalOpen(false);
                   } catch (err) {
                     console.error("Update failed", err);
-                    notify("Kon uren niet opslaan");
+                    notify(t("personnelOccupancy.notifications.couldNotSaveHours"));
                   }
                 }} 
                 className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
               >
-                <Save size={18} /> Opslaan
+                <Save size={18} /> {t("common.save")}
               </button>
             </div>
           </div>
@@ -1050,7 +1058,7 @@ const PersonnelOccupancyView = ({
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-[30px] p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto shadow-2xl border border-white/20">
             <div className="flex justify-between items-center mb-5">
-              <h3 className="text-lg font-black text-slate-900 uppercase italic">Achteraf Uren Corrigeren</h3>
+              <h3 className="text-lg font-black text-slate-900 uppercase italic">{t("personnelOccupancy.labels.correctHoursAfterward")}</h3>
               <button
                 onClick={() => setClosedHoursModalOpen(false)}
                 className="p-2 hover:bg-slate-100 rounded-full transition-colors"
@@ -1060,13 +1068,13 @@ const PersonnelOccupancyView = ({
             </div>
 
             <p className="text-xs text-slate-500 font-bold mb-4">
-              Datum: {dateToUse} - uitgecheckte registraties: {closedAssignmentsForDate.length}
+              {t("personnelOccupancy.labels.closedRegistrationsSummary", { date: dateToUse, count: closedAssignmentsForDate.length })}
             </p>
 
             <div className="space-y-3">
               {closedAssignmentsForDate.length === 0 && (
                 <div className="p-4 rounded-xl border border-dashed border-slate-300 text-sm text-slate-500 font-bold">
-                  Geen uitgecheckte registraties voor deze datum.
+                  {t("personnelOccupancy.labels.noClosedRegistrationsForDate")}
                 </div>
               )}
 
@@ -1078,12 +1086,12 @@ const PersonnelOccupancyView = ({
                         {entry.operatorName || entry.operatorNumber}
                       </p>
                       <p className="text-[11px] text-slate-500 font-bold mt-1">
-                        {entry.machineId || "Onbekend station"} - {entry.shift || "Onbekende dienst"}
+                        {entry.machineId || t("personnelOccupancy.labels.unknownStation")} - {entry.shift || t("personnelOccupancy.labels.unknownShift")}
                       </p>
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Gewerkte Uren</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("personnelOccupancy.labels.workedHours")}</label>
                       <input
                         type="number"
                         step="0.25"
@@ -1115,12 +1123,12 @@ const PersonnelOccupancyView = ({
                           );
                         } catch (err) {
                           console.error("Achteraf uren opslaan mislukt", err);
-                          notify("Kon uren niet opslaan");
+                          notify(t("personnelOccupancy.notifications.couldNotSaveHours"));
                         }
                       }}
                       className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
                     >
-                      <Save size={14} /> Opslaan
+                      <Save size={14} /> {t("common.save")}
                     </button>
                   </div>
                 </div>

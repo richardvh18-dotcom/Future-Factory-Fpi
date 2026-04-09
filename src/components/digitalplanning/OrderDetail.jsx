@@ -37,6 +37,7 @@ import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import { useNotifications } from "../../contexts/NotificationContext";
 import StatusBadge from "./common/StatusBadge";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { getStartedCounterField } from "../../utils/hubHelpers";
 
 /**
  * OrderDetail V2.3
@@ -280,9 +281,22 @@ const OrderDetail = React.memo(({
   const hasNoteChanged = String(noteDraft || "").trim() !== visibleOrderNote;
   const hasPlanChanged = canEditOrderPlan && nextPlan !== null && nextPlan !== visibleOrderPlan;
   const hasPendingChanges = hasNoteChanged || hasPlanChanged;
-  const machineCounterKey = String(order?.machine || "").replace(/[^a-zA-Z0-9]/g, "_");
-  const startedCounterField = machineCounterKey ? `started_${machineCounterKey}` : "";
-  const startedAmount = Number(startedCounterField ? order?.[startedCounterField] : 0) || 0;
+  const startedCounterField = getStartedCounterField(order?.machine || "");
+  const stationStartedAmount = Number(startedCounterField ? order?.[startedCounterField] : 0) || 0;
+  const summedStartedAmount = Object.entries(order || {}).reduce((sum, [key, value]) => {
+    if (!String(key || "").startsWith("started_")) return sum;
+    return sum + (Number(value) || 0);
+  }, 0);
+  const liveStartedAmount = orderProducts.filter((product) => {
+    const statusUpper = String(product?.status || "").toUpperCase();
+    const stepUpper = String(product?.currentStep || "").toUpperCase();
+    const isClosed =
+      ["COMPLETED", "FINISHED", "GEREED", "REJECTED", "AFKEUR"].includes(statusUpper) ||
+      stepUpper === "FINISHED" ||
+      stepUpper === "REJECTED";
+    return !isClosed;
+  }).length;
+  const startedAmount = Math.max(stationStartedAmount, summedStartedAmount, liveStartedAmount);
   const effectivePlanForTodo = canEditOrderPlan && nextPlan !== null ? Number(nextPlan) : visibleOrderPlan;
   const todoAmount = Math.max(0, Number((Number(effectivePlanForTodo || 0) - startedAmount).toFixed(2)));
   const normalizedPriority =

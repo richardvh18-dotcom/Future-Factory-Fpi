@@ -1,10 +1,13 @@
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 /**
  * Nabewerken Component
  * Toont alle producten die op Nabewerking staan (currentStation/currentStep)
  */
 const Nabewerken = ({ products = [] }) => {
+  const { t } = useTranslation();
+
   // Filter producten voor Nabewerking
     const nabewerkingProducts = useMemo(() => {
       const today = new Date();
@@ -44,12 +47,12 @@ const Nabewerken = ({ products = [] }) => {
 
   return (
     <div>
-      <h2>Producten op Nabewerking</h2>
+      <h2>{t("digitalplanning.nabewerking.title", "Producten op Nabewerking")}</h2>
       <ul>
-        {nabewerkingProducts.length === 0 && <li>Geen producten gevonden.</li>}
+        {nabewerkingProducts.length === 0 && <li>{t("digitalplanning.nabewerking.empty", "Geen producten gevonden.")}</li>}
         {nabewerkingProducts.map((p) => (
           <li key={p.id || p.lotNumber}>
-            <strong>{p.item || p.id}</strong> — Lot: {p.lotNumber} — Status: {p.status}
+            <strong>{p.item || p.id}</strong> — {t("digitalplanning.nabewerking.lot_label", "Lot")}: {p.lotNumber} — {t("digitalplanning.nabewerking.status_label", "Status")}: {p.status}
           </li>
         ))}
       </ul>
