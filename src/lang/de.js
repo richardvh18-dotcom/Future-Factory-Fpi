@@ -397,7 +397,11 @@ export const de = {
       table_plan_hours: "Planstunden",
       table_in_planning: "In Planung",
       only_new: "Nur neue",
+      smart_update: "Intelligente Synchronisation",
       overwrite_all: "Alles überschreiben",
+      sync_label: "Sync",
+      update_label: "Aktualisieren",
+      new_label: "Neu",
       cancel: "Abbrechen",
       import_orders: "{{count}} Aufträge importieren",
       alerts: {

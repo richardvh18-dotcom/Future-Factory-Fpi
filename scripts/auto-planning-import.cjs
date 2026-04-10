@@ -1,4 +1,4 @@
-EL9AEMS0CR0B50BCCBB0#!/usr/bin/env node
+#!/usr/bin/env node
 
 /**
  * Auto Planning Import watcher
@@ -42,9 +42,19 @@ const readArg = (name, fallback) => {
 
 const WATCH_MODE = hasFlag("--watch");
 const OVERWRITE = hasFlag("--overwrite");
+const SMART_UPDATE = !OVERWRITE && hasFlag("--smart-update");
 const WATCH_DIR = path.resolve(process.cwd(), readArg("--dir", "./imports/planning"));
 const POLL_INTERVAL_MS = Number(readArg("--interval", "4000")) || 4000;
 const STATE_FILE = path.resolve(process.cwd(), ".auto-planning-import-state.json");
+
+// Velden die LN beheert en veilig bijgewerkt mogen worden op bestaande orders.
+const LN_UPDATABLE_FIELDS = [
+  "quantity", "toDoQty", "plan", "notes", "deliveryDate", "plannedDeliveryDate",
+  "weekNumber", "orderStatus", "totalPlannedHours", "totalActualHours",
+  "itemDescription", "item", "itemCode", "extraCode", "drawing",
+  "project", "projectDesc", "orderCreationDate", "machine", "sourceType",
+  "operations",
+];
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -308,20 +318,30 @@ const fetchExistingIds = async () => {
 const importOrders = async (orders, sourceFile) => {
   if (!orders.length) {
     console.log(`[AUTO-IMPORT] Geen geldige orders in ${path.basename(sourceFile)}`);
-    return { imported: 0, skipped: 0 };
+    return { imported: 0, skipped: 0, updated: 0 };
   }
 
-  const existingIds = OVERWRITE ? new Set() : await fetchExistingIds();
-  const toImport = OVERWRITE ? orders : orders.filter((o) => !existingIds.has(o.id));
-  const skipped = orders.length - toImport.length;
+  const existingIds = (OVERWRITE || SMART_UPDATE) ? await fetchExistingIds() : new Set();
+
+  let toImport;
+  if (OVERWRITE) {
+    toImport = orders;
+  } else if (SMART_UPDATE) {
+    toImport = orders; // alle orders: nieuwe volledig, bestaande partieel
+  } else {
+    toImport = orders.filter((o) => !existingIds.has(o.id));
+  }
+
+  const skipped = OVERWRITE || SMART_UPDATE ? 0 : orders.length - toImport.length;
 
   if (!toImport.length) {
     console.log(`[AUTO-IMPORT] Geen nieuwe orders in ${path.basename(sourceFile)} (${skipped} overgeslagen)`);
-    return { imported: 0, skipped };
+    return { imported: 0, skipped, updated: 0 };
   }
 
   const CHUNK = 350;
   let imported = 0;
+  let updated = 0;
 
   for (let i = 0; i < toImport.length; i += CHUNK) {
     const chunk = toImport.slice(i, i + CHUNK);
@@ -334,21 +354,50 @@ const importOrders = async (orders, sourceFile) => {
       const { productionHours, postHours, qcHours } = getSplitPlannedHours(item.operations, item.totalPlannedHours || 0);
       const operationByCode = buildReferenceOperationSummary(item.operations);
 
-      const planningPayload = {
-        ...item,
-        item: normalizedItem,
-        itemDescription: normalizedItemDescription,
-        plannedHoursBH: productionHours,
-        plannedHoursNabewerken: postHours,
-        plannedHoursBM01: qcHours,
-        plannedMinutesBH: productionHours * 60,
-        plannedMinutesNabewerken: postHours * 60,
-        plannedMinutesBM01: qcHours * 60,
-        referenceOperationTimes: operationByCode,
-        planningHidden: false,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-      delete planningPayload.isValidForImport;
+      const isExistingOrder = existingIds.has(item.id);
+      const isSmartUpdate = SMART_UPDATE && isExistingOrder;
+
+      if (isSmartUpdate) {
+        // Slimme Sync: alleen LN-gestuurde velden bijwerken.
+        const lnPayload = {};
+        LN_UPDATABLE_FIELDS.forEach((field) => {
+          if (item[field] !== undefined) lnPayload[field] = item[field];
+        });
+        const planningPayload = {
+          ...lnPayload,
+          item: normalizedItem,
+          itemDescription: normalizedItemDescription,
+          plannedHoursBH: productionHours,
+          plannedHoursNabewerken: postHours,
+          plannedHoursBM01: qcHours,
+          plannedMinutesBH: productionHours * 60,
+          plannedMinutesNabewerken: postHours * 60,
+          plannedMinutesBM01: qcHours * 60,
+          referenceOperationTimes: operationByCode,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        delete planningPayload.isValidForImport;
+        batch.set(db.collection(PLANNING_COLLECTION).doc(item.id), planningPayload, { merge: true });
+        updated++;
+      } else {
+        const planningPayload = {
+          ...item,
+          item: normalizedItem,
+          itemDescription: normalizedItemDescription,
+          plannedHoursBH: productionHours,
+          plannedHoursNabewerken: postHours,
+          plannedHoursBM01: qcHours,
+          plannedMinutesBH: productionHours * 60,
+          plannedMinutesNabewerken: postHours * 60,
+          plannedMinutesBM01: qcHours * 60,
+          referenceOperationTimes: operationByCode,
+          planningHidden: false,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        delete planningPayload.isValidForImport;
+        batch.set(db.collection(PLANNING_COLLECTION).doc(item.id), planningPayload, { merge: true });
+        imported++;
+      }
 
       const productionMinutes = productionHours * 60;
       const postProcessingMinutes = postHours * 60;
@@ -370,21 +419,20 @@ const importOrders = async (orders, sourceFile) => {
         quantity: qty,
         minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
         status: "active",
-        source: "ln_import_auto",
+        source: isSmartUpdate ? "ln_smart_sync_auto" : "ln_import_auto",
         sourceFile: path.basename(sourceFile),
         lastSync: new Date().toISOString(),
       };
 
-      batch.set(db.collection(PLANNING_COLLECTION).doc(item.id), planningPayload, { merge: true });
       batch.set(db.collection(EFFICIENCY_COLLECTION).doc(item.id), efficiencyPayload, { merge: true });
     });
 
     await batch.commit();
-    imported += chunk.length;
   }
 
-  console.log(`[AUTO-IMPORT] ${path.basename(sourceFile)} -> ${imported} geimporteerd, ${skipped} overgeslagen`);
-  return { imported, skipped };
+  const modeLabel = SMART_UPDATE ? `smart-sync (${imported} nieuw, ${updated} bijgewerkt)` : `${imported + updated} geimporteerd`;
+  console.log(`[AUTO-IMPORT] ${path.basename(sourceFile)} -> ${modeLabel}, ${skipped} overgeslagen`);
+  return { imported, skipped, updated };
 };
 
 const fileNeedsImport = (state, filePath, mtimeMs) => {
@@ -430,7 +478,7 @@ const ensureWatchDir = () => {
   console.log("[AUTO-IMPORT] Start");
   console.log(`[AUTO-IMPORT] Directory: ${WATCH_DIR}`);
   console.log(`[AUTO-IMPORT] Mode: ${WATCH_MODE ? "watch" : "single-scan"}`);
-  console.log(`[AUTO-IMPORT] Overwrite: ${OVERWRITE ? "ja" : "nee (alleen nieuwe orders)"}`);
+  console.log(`[AUTO-IMPORT] Modus: ${OVERWRITE ? "Overschrijf alles" : SMART_UPDATE ? "Slimme Sync (LN-velden bijwerken, app-velden behouden)" : "Alleen nieuwe orders"}`);
 
   await scanAndImport();
 

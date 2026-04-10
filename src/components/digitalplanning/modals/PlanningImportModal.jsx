@@ -872,8 +872,21 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return rows;
   }, [validOrders, machineFilter, machineGroupFilter, statusFilter, existingIds]);
 
+  // Velden die LN beheert en veilig bijgewerkt mogen worden op bestaande orders.
+  const LN_UPDATABLE_FIELDS = [
+    'quantity', 'toDoQty', 'plan', 'notes', 'deliveryDate', 'plannedDeliveryDate',
+    'weekNumber', 'orderStatus', 'totalPlannedHours', 'totalActualHours',
+    'itemDescription', 'item', 'itemCode', 'extraCode', 'drawing',
+    'project', 'projectDesc', 'orderCreationDate', 'machine', 'sourceType',
+    'operations',
+  ];
+
   const importCandidates = useMemo(() => {
-    let rows = validOrders.filter((d) => importMode === "overwrite" || !existingIds.has(d.id));
+    let rows = validOrders.filter((d) =>
+      importMode === "overwrite" ||
+      importMode === "smart_update" ||
+      !existingIds.has(d.id)
+    );
     rows = rows.filter((d) => isAllowedByHybridMachineFilter(d));
     return rows;
   }, [validOrders, importMode, existingIds, hybridImportEnabled, hybridMachines]);
@@ -951,27 +964,56 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           const { productionHours, postHours, qcHours } = getSplitPlannedHours(item.operations, item.totalPlannedHours || 0);
           const operationByCode = buildReferenceOperationSummary(item.operations);
 
-          // Planning order
-          batch.set(
-            doc(db, ...PATHS.PLANNING, item.id),
-            {
-              ...dbData,
-              item: normalizedItem,
-              itemDescription: normalizedItemDescription,
-              // Houd station-specifieke importuren op orderniveau voor planning/efficiency fallback.
-              plannedHoursBH: productionHours,
-              plannedHoursNabewerken: postHours,
-              plannedHoursBM01: qcHours,
-              plannedMinutesBH: productionHours * 60,
-              plannedMinutesNabewerken: postHours * 60,
-              plannedMinutesBM01: qcHours * 60,
-              referenceOperationTimes: operationByCode,
-              planningHidden: !selectedOrderIds.has(item.id),
-              updatedAt: serverTimestamp()
-            },
-            { merge: true }
-          );
-          // Efficiency record: totalPlannedHours → standardTimeTotal (in minuten)
+          const isExistingOrder = existingIds.has(item.id);
+          const isSmartUpdate = importMode === "smart_update" && isExistingOrder;
+
+          if (isSmartUpdate) {
+            // Slimme Sync: alleen LN-gestuurde velden bijwerken.
+            // Status, planningHidden en andere app-beheerde velden blijven onaangeroerd.
+            const lnPayload = {};
+            LN_UPDATABLE_FIELDS.forEach((field) => {
+              if (dbData[field] !== undefined) lnPayload[field] = dbData[field];
+            });
+            batch.set(
+              doc(db, ...PATHS.PLANNING, item.id),
+              {
+                ...lnPayload,
+                item: normalizedItem,
+                itemDescription: normalizedItemDescription,
+                plannedHoursBH: productionHours,
+                plannedHoursNabewerken: postHours,
+                plannedHoursBM01: qcHours,
+                plannedMinutesBH: productionHours * 60,
+                plannedMinutesNabewerken: postHours * 60,
+                plannedMinutesBM01: qcHours * 60,
+                referenceOperationTimes: operationByCode,
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            );
+          } else {
+            // Volledig importeren (nieuw order of Overschrijf Alles modus)
+            batch.set(
+              doc(db, ...PATHS.PLANNING, item.id),
+              {
+                ...dbData,
+                item: normalizedItem,
+                itemDescription: normalizedItemDescription,
+                plannedHoursBH: productionHours,
+                plannedHoursNabewerken: postHours,
+                plannedHoursBM01: qcHours,
+                plannedMinutesBH: productionHours * 60,
+                plannedMinutesNabewerken: postHours * 60,
+                plannedMinutesBM01: qcHours * 60,
+                referenceOperationTimes: operationByCode,
+                planningHidden: !selectedOrderIds.has(item.id),
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
+
+          // Efficiency record: afgeleide LN-data, altijd bijwerken.
           const productionMinutes = productionHours * 60;
           const postProcessingMinutes = postHours * 60;
           const qcMinutes = qcHours * 60;
@@ -991,17 +1033,21 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
             quantity: qty,
             minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
             status: "active",
-            source: "ln_import",
+            source: isSmartUpdate ? "ln_smart_sync" : "ln_import",
             lastSync: new Date().toISOString(),
           };
           batch.set(doc(db, ...PATHS.EFFICIENCY_HOURS, item.id), effData, { merge: true });
         });
         await batch.commit();
       }
+
+      const newCount = toImport.filter((item) => !existingIds.has(item.id)).length;
+      const updateCount = toImport.length - newCount;
+      const logMsg = importMode === "smart_update"
+        ? `${toImport.length} orders gesynchroniseerd (${newCount} nieuw, ${updateCount} bijgewerkt).`
+        : `${toImport.length} orders geimporteerd.`;
       addLog(t("digitalplanning.planning_import.logs.import_success", "Import succesvol!"), "success");
-      const visibleCount = toImport.filter((item) => selectedOrderIds.has(item.id)).length;
-      const hiddenCount = toImport.length - visibleCount;
-      await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", `${toImport.length} orders geimporteerd (${visibleCount} zichtbaar, ${hiddenCount} verborgen).`);
+      await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", logMsg);
       setTimeout(() => { onSuccess?.(); onClose(); }, 1000);
     } catch { addLog(t("digitalplanning.planning_import.logs.database_error", "Database fout."), "error"); } finally { setImporting(false); }
   };
@@ -1280,9 +1326,11 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                                   className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                 />
                                 {isExisting ? (
-                                  <span className="text-amber-500 font-black uppercase text-[10px]">Update</span>
+                                  importMode === "smart_update"
+                                    ? <span className="text-emerald-600 font-black uppercase text-[10px]">{t("digitalplanning.planning_import.sync_label", "Sync")}</span>
+                                    : <span className="text-amber-500 font-black uppercase text-[10px]">{t("digitalplanning.planning_import.update_label", "Update")}</span>
                                 ) : (
-                                  <span className="text-emerald-500 font-black uppercase text-[10px]">Nieuw</span>
+                                  <span className="text-blue-500 font-black uppercase text-[10px]">{t("digitalplanning.planning_import.new_label", "Nieuw")}</span>
                                 )}
                               </label>
                             </td>
@@ -1299,9 +1347,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         </div>
 
         <div className="p-10 border-t bg-slate-50 flex justify-between items-center">
-          <div className="flex gap-5 bg-white p-1.5 rounded-3xl border border-slate-200">
-             <button onClick={() => setImportMode("new_only")} className={`px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "new_only" ? "bg-blue-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.only_new", "Alleen Nieuwe")}</button>
-             <button onClick={() => setImportMode("overwrite")} className={`px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "overwrite" ? "bg-orange-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.overwrite_all", "Overschrijf Alles")}</button>
+          <div className="flex gap-3 bg-white p-1.5 rounded-3xl border border-slate-200">
+             <button onClick={() => setImportMode("new_only")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "new_only" ? "bg-blue-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.only_new", "Alleen Nieuwe")}</button>
+             <button onClick={() => setImportMode("smart_update")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "smart_update" ? "bg-emerald-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.smart_update", "Slimme Sync")}</button>
+             <button onClick={() => setImportMode("overwrite")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "overwrite" ? "bg-orange-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.overwrite_all", "Overschrijf Alles")}</button>
           </div>
           <div className="flex gap-5">
             <button onClick={onClose} className="px-10 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100 transition-all">{t("digitalplanning.planning_import.cancel", "Annuleren")}</button>

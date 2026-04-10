@@ -1197,7 +1197,11 @@ export const en = {
         table_plan_hours: "Planned Hours",
         table_in_planning: "In Planning",
         only_new: "Only New",
+        smart_update: "Smart Sync",
         overwrite_all: "Overwrite All",
+        sync_label: "Sync",
+        update_label: "Update",
+        new_label: "New",
         cancel: "Cancel",
         import_orders: "Import {{count}} Orders",
         alerts: {

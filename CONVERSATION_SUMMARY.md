@@ -1,5 +1,46 @@
 # 📝 FPi Future Factory - Pilot Handover & Development Summary
 
+### Update sessie 58 (Planning Import Smart Sync + LN bestandsanalyse)
+
+**Datum:** 9 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Import verbeteren zodat bestaande orders veilig geüpdatet worden bij wijzigingen in LN-data (bv. aantal/PO-opmerking), zonder app-status te overschrijven.
+
+**Wat is afgerond in deze batch:**
+- LN-bestand geanalyseerd voor importvalidatie:
+    - bron: `Tijdelijke Bestanden/tisfc140101000_0000_20260409-135329_126536.xlsx`
+    - sheet: `data`
+    - ~16.5k rijen, relevante velden bevestigd (`Orderstatus`, `Orderhoeveelheid`, `Hoeveelheid gereed`, `Productieorder`, `r.ref.oper.desc`, `Afdeling`, `Bewerking`, `Referentiebewerking`, `Work Center Group`).
+- Nieuwe importmodus toegevoegd in Planning Import modal: **Slimme Sync**.
+    - bestand: `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+    - nieuwe modus naast `Alleen Nieuwe` en `Overschrijf Alles`.
+    - gedrag:
+        - **nieuwe orders**: volledige import.
+        - **bestaande orders**: alleen LN-gestuurde velden updaten (zoals aantal, notes, leverdatum/week, orderstatus, uren, item/project/machine).
+        - app-beheerde velden (zoals `status`, `planningHidden`) blijven ongemoeid in Smart Sync.
+- Auto-import script uitgebreid met CLI-modus `--smart-update`.
+    - bestand: `scripts/auto-planning-import.cjs`
+    - gedrag:
+        - zonder flags: alleen nieuwe orders.
+        - `--smart-update`: nieuwe + partiële update bestaande orders.
+        - `--overwrite`: volledige overschrijving.
+- UI labels/vertalingen aangevuld voor nieuwe modus:
+    - `src/lang/nl.js`
+    - `src/lang/en.js`
+    - `src/lang/de.js`
+    - keys o.a.: `smart_update`, `sync_label`, `update_label`, `new_label`.
+
+**Morgen als eerste oppakken (hervatpunt):**
+1. Functionele test in UI van **Slimme Sync** met een order die al bestaat in Firestore.
+2. Verifiëren dat alleen LN-velden wijzigen bij re-import (met focus op `quantity/toDoQty/plan`, `notes`, `deliveryDate/weekNumber`, `orderStatus`, urenvelden).
+3. Verifiëren dat app-velden intact blijven (`status`, `planningHidden`, operationele voortgang).
+4. Daarna commit + push van deze Smart Sync batch.
+
+**Handige commando’s voor morgen:**
+- UI route: Planning Import -> modus `Slimme Sync`.
+- Script test: `node scripts/auto-planning-import.cjs --smart-update --dir ./imports/planning`
+
 ### Update sessie 57 (Preview-branch sync uitgevoerd en gevalideerd)
 
 **Datum:** 9 april 2026 | **Bron:** `origin/FPiFF-may-build` | **Doelbranch:** `origin/preview-v2`

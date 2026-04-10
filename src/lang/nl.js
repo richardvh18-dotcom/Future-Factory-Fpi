@@ -1198,7 +1198,11 @@ export const nl = {
         table_plan_hours: "Plan Uren",
         table_in_planning: "In Planning",
         only_new: "Alleen Nieuwe",
+        smart_update: "Slimme Sync",
         overwrite_all: "Overschrijf Alles",
+        sync_label: "Sync",
+        update_label: "Update",
+        new_label: "Nieuw",
         cancel: "Annuleren",
         import_orders: "Importeer {{count}} Orders",
         alerts: {
