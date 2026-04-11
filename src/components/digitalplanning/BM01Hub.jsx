@@ -8,9 +8,10 @@ import OrderDetail from "./OrderDetail";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot, arrayUnion, limit, increment } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, onSnapshot, arrayUnion, limit } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
-import { PATHS, getArchiveRejectedItemsPath, getArchiveItemsPath } from "../../config/dbPaths";
+import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
+import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
 import { getStartedCounterField } from "../../utils/hubHelpers";
 import InternalQrImage from "../../utils/InternalQrImage";
 import PlanningSidebar from "./PlanningSidebar";
@@ -397,164 +398,69 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   const handlePostProcessingFinish = async (status, data, productOverride = null) => {
     const product = productOverride || selectedProduct;
     if (!product) return;
-    
+
+    const productId = product.id || product.lotNumber;
     try {
-      const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
-      
-      const updates = {
-        updatedAt: serverTimestamp(),
-        note: data.note || "",
-        processedBy: user?.email || "Unknown",
-      };
-      
-      // Maak history entry aan voor de laatste stap
-      const historyEntry = {
-          action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
-          timestamp: new Date().toISOString(),
-          user: user?.email || "Operator",
-          station: "BM01",
-          details: status === "completed" ? "Eindinspectie voltooid & Aangeboden" : `Reden: ${data.reasons?.join(", ")}`
-      };
-
       if (status === "completed") {
-          updates.currentStation = "GEREED";
-          updates.currentStep = "Finished";
-          updates.status = "completed";
-          // AANGEPAST: lastStation instellen zodat KPI's correct tellen dat het van BM01 kwam
-          updates.lastStation = "BM01";
-          updates["timestamps.finished"] = serverTimestamp();
+        await completeTrackedProduct({
+          productId,
+          finishType: "archive",
+          fromStation: "BM01",
+          note: data.note || "",
+          actorLabel: user?.email || "Operator",
+          source: "BM01Hub",
+        });
+        await logActivity(
+          user?.uid || "system",
+          "POST_PROCESS_COMPLETE",
+          `BM01 afgerond en gearchiveerd: lot ${product.lotNumber || productId}`
+        );
+        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+        return;
+      }
 
-          // ARCHIVERING LOGICA
-          const year = new Date().getFullYear();
-          const archiveRef = doc(db, ...getArchiveItemsPath(year), product.id || product.lotNumber);
-          
-          // Voeg updates toe aan het product object voor archivering
-          const finalData = { 
-              ...product, 
-              ...updates,
-              // Zorg dat timestamps correct zijn (serverTimestamp werkt niet direct in object copy, dus gebruik new Date() voor archief)
-              updatedAt: new Date(),
-              timestamps: {
-                  ...product.timestamps,
-                  finished: new Date()
-              },
-              // Voeg de laatste historie stap toe aan de array (belangrijk voor archief!)
-              history: [...(product.history || []), historyEntry]
-          };
-
-          // 1. Sla op in archief
-          await setDoc(archiveRef, finalData);
-          
-          // 2. Verwijder uit actieve tracking
-          await deleteDoc(productRef);
-
-                    await logActivity(
-                        user?.uid || "system",
-                        "POST_PROCESS_COMPLETE",
-                        `BM01 afgerond en gearchiveerd: lot ${product.lotNumber || product.id}`
-                    );
-
-          // Alleen sluiten als we niet al een nieuwe hebben gescand
-          if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-              handleCloseModal();
-          }
-          return; // Stop hier, want product bestaat niet meer in tracking
-      } else if (status === "temp_reject") {
-        // Voeg history toe aan updates voor updateDoc
-        updates.history = arrayUnion(historyEntry);
-        
-        updates.inspection = {
-          status: "Tijdelijke afkeur",
-          reasons: data.reasons,
-          timestamp: new Date().toISOString(),
-        };
-        updates.currentStep = "HOLD_AREA";
-      } else if (status === "rejected") {
-        // Voeg history toe voor archief
-        const rejectionData = {
-          ...product,
-          status: "rejected",
-          currentStep: "REJECTED",
-          currentStation: "AFKEUR",
-          inspection: {
-            status: "Afkeur",
-            reasons: data.reasons,
-            timestamp: new Date().toISOString(),
-          },
-          history: [...(product.history || []), historyEntry],
-          updatedAt: new Date(),
-          archivedAt: new Date(),
-          archivedReason: "rejected",
-        };
-        
-        // ARCHIVERING LOGICA voor DEFINITIEF AFKEUR
-        const year = new Date().getFullYear();
-        const rejectedArchiveRef = doc(db, ...getArchiveRejectedItemsPath(year), product.id || product.lotNumber);
-        
-        // 1. Sla op in rejected archief
-        await setDoc(rejectedArchiveRef, rejectionData);
-        
-        // 2. Verwijder uit actieve tracking
-        await deleteDoc(productRef);
-        
-        // Update order teller bij definitieve afkeur
-        if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-             try {
-                const orderQuery = query(
-                  collection(db, ...PATHS.PLANNING),
-                  where("orderId", "==", product.orderId)
-                );
-                const orderSnap = await getDocs(orderQuery);
-                
-                if (!orderSnap.empty) {
-                  const orderDoc = orderSnap.docs[0];
-                  const orderData = orderDoc.data();
-                  const originStation = product.originMachine || product.currentStation;
-                                    const stationField = getStartedCounterField(originStation);
-                                    const currentStarted = Number(orderData?.[stationField] || 0);
-                                    const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
-
-                                    const orderUpdates = {
-                                        rejectedCount: increment(1),
-                                        lastUpdated: serverTimestamp(),
-                                    };
-
-                                    if (stationField && currentStarted > 0) {
-                                        orderUpdates[stationField] = currentStarted - 1;
-                                    }
-
-                                    if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
-                                        orderUpdates.status = "planned";
-                                    }
-
-                                    await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), orderUpdates);
-                }
-              } catch (err) {
-                console.error("Fout bij updaten order teller:", err);
-              }
-        }
-        
+      if (status === "rejected") {
+        await rejectTrackedProductFinal({
+          productId,
+          reasons: data.reasons || [],
+          note: data.note || "",
+          source: "BM01Hub",
+          actorLabel: user?.email || "Operator",
+        });
         await logActivity(
           user?.uid || "system",
           "QUALITY_REJECT_FINAL",
-          `BM01 Definitieve afkeur en gearchiveerd: lot ${product.lotNumber || product.id}`
+          `BM01 Definitieve afkeur en gearchiveerd: lot ${product.lotNumber || productId}`
         );
-        
-        if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-          handleCloseModal();
-        }
-        return; // Stop hier, product is naar archief verplaatst
+        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+        return;
       }
 
-      await updateDoc(productRef, updates);
-            await logActivity(
-                user?.uid || "system",
-                status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
-                `BM01 afhandeling: lot ${product.lotNumber || product.id}, status ${status}`
-            );
-      if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-          handleCloseModal();
-      }
+      // temp_reject – directe Firestore update voor tijdelijk hold
+      const productRef = doc(db, ...PATHS.TRACKING, productId);
+      await updateDoc(productRef, {
+        updatedAt: serverTimestamp(),
+        note: data.note || "",
+        inspection: {
+          status: "Tijdelijke afkeur",
+          reasons: data.reasons,
+          timestamp: new Date().toISOString(),
+        },
+        currentStep: "HOLD_AREA",
+        history: arrayUnion({
+          action: "Tijdelijke Afkeur",
+          timestamp: new Date().toISOString(),
+          user: user?.email || "Operator",
+          station: "BM01",
+          details: `Reden: ${(data.reasons || []).join(", ")}`,
+        }),
+      });
+      await logActivity(
+        user?.uid || "system",
+        "QUALITY_TEMP_REJECT",
+        `BM01 Tijdelijke afkeur: lot ${product.lotNumber || productId}`
+      );
+      if (selectedProductRef.current?.id === product.id) handleCloseModal();
     } catch (error) {
       console.error("Fout bij afronden:", error);
     }

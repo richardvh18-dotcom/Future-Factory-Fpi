@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Loader2, Menu, X, Clock, Calendar, ScanBarcode, UserCheck } from "lucide-react";
 import { db, logActivity } from "../../config/firebase";
-import { PATHS, getArchiveItemsPath, getArchiveRejectedItemsPath } from "../../config/dbPaths";
+import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
+import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
 import { useNotifications } from "../../contexts/NotificationContext";
@@ -1543,213 +1544,65 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
   const handlePostProcessingFinish = async (status, data) => {
     if (!itemToFinish) return;
+    const productId = itemToFinish.id || itemToFinish.lotNumber;
     try {
-      const productRef = doc(
-        db,
-        ...PATHS.TRACKING,
-        itemToFinish.id || itemToFinish.lotNumber
-      );
-      
-      // Haal personeelsnummers op voor dit station
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const stationOperators = occupancy
-        .filter(occ => {
-          if (occ.station !== selectedStation) return false;
-          if (!occ.date) return false;
-          const occDate = occ.date.toDate ? occ.date.toDate() : new Date(occ.date);
-          occDate.setHours(0, 0, 0, 0);
-          // Filter: Datum moet vandaag zijn EN de shift moet nu actief zijn
-          return occDate.getTime() === today.getTime() && isShiftActive(occ.shift);
-        })
-        .map(occ => occ.operatorNumber)
-        .filter(Boolean);
-      
+      if (status === "completed") {
+        const isBM01 = selectedStation === "BM01" || selectedStation === "Station BM01";
+        const finishType = isBM01 ? "archive" : "forward";
+        await completeTrackedProduct({
+          productId,
+          finishType,
+          fromStation: selectedStation,
+          note: data.note || "",
+          actorLabel: currentUser?.email,
+          source: "WorkstationHub",
+        });
+        setFinishModalOpen(false);
+        setItemToFinish(null);
+        return;
+      }
+
+      if (status === "rejected") {
+        await rejectTrackedProductFinal({
+          productId,
+          reasons: data.reasons || [],
+          note: data.note || "",
+          source: "WorkstationHub",
+          actorLabel: currentUser?.email,
+        });
+        setFinishModalOpen(false);
+        setItemToFinish(null);
+        return;
+      }
+
+      // temp_reject: directe updateDoc
+      const productRef = doc(db, ...PATHS.TRACKING, productId);
       const updates = {
         updatedAt: serverTimestamp(),
         note: data.note || "",
         processedBy: currentUser?.email || "Unknown",
-      };
-
-      // Maak history entry aan
-      const historyEntry = {
-          action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
-          timestamp: new Date().toISOString(),
-          user: currentUser?.email || "Operator",
-          station: selectedStation,
-          details: status === "completed" ? "Verwerking afgerond" : `Reden: ${data.reasons?.join(", ")}`
-      };
-
-      // Update personnel tracking
-      if (stationOperators.length > 0) {
-        updates[`personnelTracking.${selectedStation}`] = stationOperators;
-      }
-
-      if (status === "completed") {
-        if (selectedStation === "BM01" || selectedStation === "Station BM01") {
-          const flowState = getNextFlowState('FINISH_INSPECTION');
-          updates.currentStation = flowState.currentStation || "GEREED";
-          updates.currentStep = flowState.currentStep || "Finished";
-          updates.status = flowState.status || "completed";
-          updates["timestamps.finished"] = serverTimestamp();
-          updates.lastStation = "BM01"; // Ensure lastStation is set for archiving context
-
-          // ARCHIVERING LOGICA VOOR BM01 (indien hier afgehandeld)
-          const year = new Date().getFullYear();
-          const archiveRef = doc(db, ...getArchiveItemsPath(year), itemToFinish.id || itemToFinish.lotNumber);
-          
-          const finalData = { 
-              ...itemToFinish, 
-              ...updates,
-              updatedAt: new Date(),
-              timestamps: {
-                  ...itemToFinish.timestamps,
-                  finished: new Date()
-              },
-              // Override history met array inclusief laatste stap (ipv arrayUnion)
-              history: [...(itemToFinish.history || []), historyEntry]
-          };
-
-          await setDoc(archiveRef, finalData);
-          await deleteDoc(productRef);
-          await logActivity(
-            currentUser?.uid || "system",
-            "POST_PROCESS_COMPLETE",
-            `Afgerond en gearchiveerd: lot ${itemToFinish?.lotNumber || itemToFinish?.id}, station BM01`
-          );
-
-          // Update Planning Order
-          if (itemToFinish.orderId && itemToFinish.orderId !== "NOG_TE_BEPALEN") {
-              try {
-                  const planningRef = collection(db, ...PATHS.PLANNING);
-                  const q = query(planningRef, where("orderId", "==", itemToFinish.orderId));
-                  const snap = await getDocs(q);
-                  if (!snap.empty) {
-                      const orderDoc = snap.docs[0];
-                      const newProduced = (orderDoc.data().produced || 0) + 1;
-                      const plan = orderDoc.data().plan || 0;
-                      const orderUpdates = {
-                          produced: increment(1),
-                          lastUpdated: serverTimestamp()
-                      };
-                      if (newProduced >= plan) orderUpdates.status = "completed";
-                      await updateDoc(orderDoc.ref, orderUpdates);
-                  }
-              } catch (e) {
-                  console.error("Error updating planning order:", e);
-              }
-          }
-          
-          setFinishModalOpen(false);
-          setItemToFinish(null);
-          return;
-        } else {
-          const flowState = getNextFlowState('FINISH_PROCESSING');
-          updates.currentStation = flowState.currentStation || "BM01";
-          updates.currentStep = flowState.currentStep || "Eindinspectie";
-          updates.status = flowState.status || "Te Keuren";
-          updates.lastStation = selectedStation;
-          updates["timestamps.eindinspectie_start"] = serverTimestamp();
-
-          const hasActiveRepair = Boolean(itemToFinish?.repairActive || itemToFinish?.timestamps?.repair_start);
-          if (hasActiveRepair) {
-            updates.repairActive = false;
-            updates["timestamps.repair_end"] = serverTimestamp();
-          }
-        }
-        
-        // Voor niet-archivering updates: gebruik arrayUnion
-        if (!updates.history) updates.history = arrayUnion(historyEntry);
-      } else if (status === "temp_reject") {
-        updates.inspection = {
+        inspection: {
           status: "Tijdelijke afkeur",
           reasons: data.reasons,
           timestamp: new Date().toISOString(),
-        };
-        updates.currentStep = "HOLD_AREA";
-        // Sla de vorige staat op zodat we kunnen hervatten
-        updates.previousStep = itemToFinish.currentStep;
-        updates.previousStatus = itemToFinish.status;
-        updates.history = arrayUnion(historyEntry);
-      } else if (status === "rejected") {
-        // ARCHIVERING LOGICA voor DEFINITIEF AFKEUR
-        const rejectionData = {
-          ...itemToFinish,
-          status: "rejected",
-          currentStep: "REJECTED",
-          currentStation: "AFKEUR",
-          inspection: {
-            status: "Afkeur",
-            reasons: data.reasons,
-            timestamp: new Date().toISOString(),
-          },
-          history: [...(itemToFinish.history || []), historyEntry],
-          updatedAt: new Date(),
-          archivedAt: new Date(),
-          archivedReason: "rejected",
-        };
-        
-        const year = new Date().getFullYear();
-        const rejectedArchiveRef = doc(db, ...getArchiveRejectedItemsPath(year), itemToFinish.id || itemToFinish.lotNumber);
-        
-        // 1. Sla op in rejected archief
-        await setDoc(rejectedArchiveRef, rejectionData);
-        
-        // 2. Verwijder uit actieve tracking
-        await deleteDoc(productRef);
-        
-        // Bij definitieve afkeur: update order teller
-        if (itemToFinish.orderId && itemToFinish.orderId !== "NOG_TE_BEPALEN") {
-          try {
-            const orderQuery = query(
-              collection(db, ...PATHS.PLANNING),
-              where("orderId", "==", itemToFinish.orderId)
-            );
-            const orderSnap = await getDocs(orderQuery);
-            
-            if (!orderSnap.empty) {
-              const orderDoc = orderSnap.docs[0];
-              const orderData = orderDoc.data();
-              const originStation = itemToFinish.originMachine || itemToFinish.currentStation;
-              const stationField = getStartedCounterField(originStation);
-              const currentStarted = Number(orderData?.[stationField] || 0);
-              const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
+        },
+        currentStep: "HOLD_AREA",
+        previousStep: itemToFinish.currentStep,
+        previousStatus: itemToFinish.status,
+        history: arrayUnion({
+          action: "Tijdelijke Afkeur",
+          timestamp: new Date().toISOString(),
+          user: currentUser?.email || "Operator",
+          station: selectedStation,
+          details: `Reden: ${data.reasons?.join(", ")}`,
+        }),
+      };
 
-              const orderUpdates = {
-                rejectedCount: increment(1),
-                lastUpdated: serverTimestamp(),
-              };
-
-              if (stationField && currentStarted > 0) {
-                orderUpdates[stationField] = currentStarted - 1;
-              }
-
-              if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
-                orderUpdates.status = "planned";
-              }
-
-              await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), orderUpdates);
-            }
-          } catch (err) {
-            console.error("Fout bij updaten order teller:", err);
-          }
-        }
-        
-        await logActivity(
-          currentUser?.uid || "system",
-          "QUALITY_REJECT_FINAL",
-          `Post-processing Definitieve afkeur en gearchiveerd: lot ${itemToFinish?.lotNumber || itemToFinish?.id}`
-        );
-        
-        setFinishModalOpen(false);
-        setItemToFinish(null);
-        return; // Stop hier, product is naar archief verplaatst
-      }
       await updateDoc(productRef, updates);
       await logActivity(
         currentUser?.uid || "system",
-        status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
-        `Post-processing: lot ${itemToFinish?.lotNumber || itemToFinish?.id}, station ${selectedStation}, status ${status}`
+        "QUALITY_TEMP_REJECT",
+        `Post-processing: lot ${itemToFinish?.lotNumber || itemToFinish?.id}, station ${selectedStation}, status temp_reject`
       );
       setFinishModalOpen(false);
       setItemToFinish(null);

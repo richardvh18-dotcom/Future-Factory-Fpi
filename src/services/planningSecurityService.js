@@ -60,3 +60,34 @@ export const moveTrackedProductManual = async ({
   const result = await moveTrackedProductManualCallable(payload);
   return result?.data || { ok: false };
 };
+
+const completeTrackedProductCallable = httpsCallable(functions, "completeTrackedProduct");
+
+export const completeTrackedProduct = async ({
+  productId,
+  finishType,
+  fromStation = "",
+  note = "",
+  actorLabel = "",
+  source = "",
+}) => {
+  const payload = {
+    productId: String(productId || "").trim(),
+    finishType: String(finishType || "").trim(),
+    fromStation: String(fromStation || "").trim(),
+    note: String(note || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+    source: String(source || "").trim(),
+  };
+
+  if (!payload.productId) {
+    throw new Error("productId is verplicht.");
+  }
+
+  if (!["archive", "forward"].includes(payload.finishType)) {
+    throw new Error('finishType moet "archive" of "forward" zijn.');
+  }
+
+  const result = await completeTrackedProductCallable(payload);
+  return result?.data || { ok: false };
+};

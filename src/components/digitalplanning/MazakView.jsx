@@ -10,9 +10,6 @@ import {
   serverTimestamp,
   getDocs,
   arrayUnion,
-  increment,
-  setDoc,
-  deleteDoc,
 } from "firebase/firestore";
 import {
   Package,
@@ -29,8 +26,9 @@ import {
   Search,
 } from "lucide-react";
 import { db, logActivity } from "../../config/firebase";
-import { PATHS, getArchiveRejectedItemsPath } from "../../config/dbPaths";
-import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
+import { PATHS } from "../../config/dbPaths";
+import { normalizeMachine } from "../../utils/hubHelpers";
+import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import { queuePrintJob } from "../../services/printService";
@@ -463,155 +461,64 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
   const handlePostProcessingFinish = async (status, data, productOverride = null) => {
     const product = productOverride || selectedProduct;
     if (!product) return;
+    const productId = product.id || product.lotNumber;
 
     try {
-      const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
+      if (status === "completed") {
+        await completeTrackedProduct({
+          productId,
+          finishType: "forward",
+          fromStation: stationId,
+          note: data.note || "",
+          actorLabel: user?.email,
+          source: "MazakView",
+        });
+        if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
+          handleCloseModal();
+        }
+        return;
+      }
+
+      if (status === "rejected") {
+        await rejectTrackedProductFinal({
+          productId,
+          reasons: data.reasons || [],
+          note: data.note || "",
+          source: "MazakView",
+          actorLabel: user?.email,
+        });
+        if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
+          handleCloseModal();
+        }
+        return;
+      }
+
+      // temp_reject: directe updateDoc
+      const productRef = doc(db, ...PATHS.TRACKING, productId);
       const updates = {
         updatedAt: serverTimestamp(),
         note: data.note || "",
         processedBy: user?.email || "Unknown",
         history: arrayUnion({
-          action: status === "completed" ? "Stap Voltooid" : status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur",
+          action: "Tijdelijke Afkeur",
           timestamp: new Date().toISOString(),
           user: user?.email || "Operator",
           station: stationId,
-          details: status === "completed" ? "Mazak verwerking afgerond" : `Reden: ${data.reasons?.join(", ")}`,
+          details: `Reden: ${data.reasons?.join(", ")}`,
         }),
-      };
-
-      if (status === "completed") {
-        const flowState = getNextFlowState("FINISH_PROCESSING");
-        updates.currentStation = flowState.currentStation || "BM01";
-        updates.currentStep = flowState.currentStep || "Eindinspectie";
-        updates.status = flowState.status || "Te Keuren";
-        updates.lastStation = stationId;
-        updates["timestamps.bm01_start"] = serverTimestamp();
-
-        const hasActiveRepair = Boolean(product?.repairActive || product?.timestamps?.repair_start);
-        if (hasActiveRepair) {
-          updates.repairActive = false;
-          updates["timestamps.repair_end"] = serverTimestamp();
-        }
-
-        if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-          try {
-            const planningRef = collection(db, ...PATHS.PLANNING);
-            const orderQuery = query(planningRef, where("orderId", "==", product.orderId));
-            const orderSnap = await getDocs(orderQuery);
-            if (!orderSnap.empty) {
-              const orderDoc = orderSnap.docs[0];
-              const orderData = orderDoc.data();
-              const newProduced = (orderData.produced || 0) + 1;
-              const plan = parseInt(orderData.plan || orderData.quantity || 0, 10);
-              const orderUpdates = {
-                produced: increment(1),
-                lastUpdated: serverTimestamp(),
-              };
-
-              if (newProduced >= plan) {
-                orderUpdates.status = "completed";
-              }
-
-              await updateDoc(orderDoc.ref, orderUpdates);
-            }
-          } catch (error) {
-            console.error("Error updating Mazak order status:", error);
-          }
-        }
-      } else if (status === "temp_reject") {
-        updates.inspection = {
+        inspection: {
           status: "Tijdelijke afkeur",
           reasons: data.reasons,
           timestamp: new Date().toISOString(),
-        };
-        updates.currentStep = "HOLD_AREA";
-      } else if (status === "rejected") {
-        // ARCHIVERING LOGICA voor DEFINITIEF AFKEUR
-        const rejectionData = {
-          ...product,
-          status: "rejected",
-          currentStep: "REJECTED",
-          currentStation: "AFKEUR",
-          inspection: {
-            status: "Afkeur",
-            reasons: data.reasons,
-            timestamp: new Date().toISOString(),
-          },
-          history: [...(product.history || []), {
-            action: "Definitieve Afkeur",
-            timestamp: new Date().toISOString(),
-            user: user?.email || "Operator",
-            station: "Mazak",
-            details: `Reden: ${data.reasons?.join(", ")}`
-          }],
-          updatedAt: new Date(),
-          archivedAt: new Date(),
-          archivedReason: "rejected",
-        };
-        
-        const year = new Date().getFullYear();
-        const rejectedArchiveRef = doc(db, ...getArchiveRejectedItemsPath(year), product.id || product.lotNumber);
-        
-        // 1. Sla op in rejected archief
-        await setDoc(rejectedArchiveRef, rejectionData);
-        
-        // 2. Verwijder uit actieve tracking
-        await deleteDoc(productRef);
-
-        // Zet order To Do direct terug omhoog bij definitieve afkeur.
-        if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-          try {
-            const orderQuery = query(
-              collection(db, ...PATHS.PLANNING),
-              where("orderId", "==", product.orderId)
-            );
-            const orderSnap = await getDocs(orderQuery);
-
-            if (!orderSnap.empty) {
-              const orderDoc = orderSnap.docs[0];
-              const orderData = orderDoc.data();
-              const originStation = product.originMachine || product.currentStation || product.machine;
-              const stationField = getStartedCounterField(originStation);
-              const currentStarted = Number(orderData?.[stationField] || 0);
-              const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
-
-              const orderUpdates = {
-                rejectedCount: increment(1),
-                lastUpdated: serverTimestamp(),
-              };
-
-              if (stationField && currentStarted > 0) {
-                orderUpdates[stationField] = currentStarted - 1;
-              }
-
-              if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
-                orderUpdates.status = "planned";
-              }
-
-              await updateDoc(orderDoc.ref, orderUpdates);
-            }
-          } catch (err) {
-            console.error("Fout bij updaten order teller (Mazak):", err);
-          }
-        }
-        
-        await logActivity(
-          user?.uid || "system",
-          "QUALITY_REJECT_FINAL",
-          `Mazak Definitieve afkeur en gearchiveerd: lot ${product.lotNumber || product.id}`
-        );
-        
-        if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-          handleCloseModal();
-        }
-        return; // Stop hier, product is naar archief verplaatst
-      }
+        },
+        currentStep: "HOLD_AREA",
+      };
 
       await updateDoc(productRef, updates);
       await logActivity(
         user?.uid || "system",
-        status === "completed" ? "MAZAK_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
-        `Mazak afhandeling: lot ${product.lotNumber || product.id}, status ${status}, operators ${activeOperators.length}`
+        "QUALITY_TEMP_REJECT",
+        `Mazak afhandeling: lot ${product.lotNumber || product.id}, status temp_reject`
       );
 
       if (selectedProductRef.current && selectedProductRef.current.id === product.id) {

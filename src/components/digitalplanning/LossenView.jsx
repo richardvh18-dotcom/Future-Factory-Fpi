@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, setDoc, deleteDoc, arrayUnion, increment } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, arrayUnion } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
-import { PATHS, getArchiveRejectedItemsPath, getArchiveItemsPath } from "../../config/dbPaths";
+import { PATHS } from "../../config/dbPaths";
+import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
 import { Package,
     Loader2,
     ClipboardCheck,
@@ -15,7 +16,7 @@ import { Package,
     Keyboard } from "lucide-react";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
-import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -476,207 +477,80 @@ const LossenView = ({ stationId, appId, products = [] }) => {
     const product = productOverride || selectedProduct;
     if (!product) return;
 
+    const productId = product.id || product.lotNumber;
     try {
-      const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
-      
+      if (status === "completed" && isAdvancedStation) {
+        const finishType = stationId === "BM01" ? "archive" : "forward";
+        await completeTrackedProduct({
+          productId,
+          finishType,
+          fromStation: stationId,
+          note: data.note || "",
+          actorLabel: user?.email || "Operator",
+          source: "LossenView",
+        });
+        await logActivity(
+          user?.uid || "system",
+          "POST_PROCESS_COMPLETE",
+          `${stationId} afgerond${finishType === "archive" ? " en gearchiveerd" : " → BM01"}: lot ${product.lotNumber || productId}`
+        );
+        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+        return;
+      }
+
+      if (status === "rejected") {
+        await rejectTrackedProductFinal({
+          productId,
+          reasons: data.reasons || [],
+          note: data.note || "",
+          source: "LossenView",
+          actorLabel: user?.email || "Operator",
+        });
+        await logActivity(
+          user?.uid || "system",
+          "QUALITY_REJECT_FINAL",
+          `Lossen Definitieve afkeur en gearchiveerd: lot ${product.lotNumber || productId}`
+        );
+        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+        return;
+      }
+
+      // temp_reject en basic-station completed: directe Firestore update
+      const productRef = doc(db, ...PATHS.TRACKING, productId);
       const updates = {
         updatedAt: serverTimestamp(),
         note: data.note || "",
-        processedBy: user?.email || "Unknown",
         history: arrayUnion({
-            action: status === "completed" ? "Stap Voltooid" : (status === "temp_reject" ? "Tijdelijke Afkeur" : "Definitieve Afkeur"),
-            timestamp: new Date().toISOString(),
-            user: user?.email || "Operator",
-            station: stationId,
-            details: status === "completed" ? "Verwerking afgerond" : `Reden: ${data.reasons?.join(", ")}`
-        })
+          action: status === "completed" ? "Stap Voltooid" : "Tijdelijke Afkeur",
+          timestamp: new Date().toISOString(),
+          user: user?.email || "Operator",
+          station: stationId,
+          details: status === "completed" ? "Verwerking afgerond" : `Reden: ${(data.reasons || []).join(", ")}`,
+        }),
       };
 
-      if (status === "completed") {
-        // BM01/Mazak/Nabewerking flow
-        if (isAdvancedStation) {
-          // Als het van BM01 komt, is het klaar voor archief
-          if (stationId === "BM01") {
-              updates.currentStation = "GEREED";
-              updates.currentStep = "Finished";
-              updates.status = "completed";
-              updates.lastStation = "BM01";
-              updates["timestamps.finished"] = serverTimestamp();
-
-              // ARCHIVERING LOGICA
-              const year = new Date().getFullYear();
-              const archiveRef = doc(db, ...getArchiveItemsPath(year), product.id || product.lotNumber);
-              
-              const finalData = { 
-                  ...product, 
-                  ...updates,
-                  updatedAt: new Date(),
-                  timestamps: {
-                      ...product.timestamps,
-                      finished: new Date()
-                  },
-                  history: [...(product.history || []), updates.history[0]] // arrayUnion is een object, we willen de waarde
-              };
-              delete finalData.history; // Verwijder de arrayUnion operator
-
-              await setDoc(archiveRef, finalData);
-              await deleteDoc(productRef);
-
-              await logActivity(
-                  user?.uid || "system",
-                  "POST_PROCESS_COMPLETE",
-                  `BM01 afgerond en gearchiveerd: lot ${product.lotNumber || product.id}`
-              );
-
-              // Update de 'produced' teller op de planning order
-              if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-                  try {
-                      const planningRef = collection(db, ...PATHS.PLANNING);
-                      const q = query(planningRef, where("orderId", "==", product.orderId));
-                      const snap = await getDocs(q);
-                      if (!snap.empty) {
-                          const orderDoc = snap.docs[0];
-                          const newProduced = (orderDoc.data().produced || 0) + 1;
-                          const plan = orderDoc.data().plan || 0;
-                          const orderUpdates = {
-                              produced: increment(1),
-                              lastUpdated: serverTimestamp()
-                          };
-                          if (newProduced >= plan) orderUpdates.status = "completed";
-                          await updateDoc(orderDoc.ref, orderUpdates);
-                      }
-                  } catch (e) { console.error(e); }
-              }
-
-              if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-                 handleCloseModal();
-              }
-              return;
-          } else {
-            const flowState = getNextFlowState('FINISH_PROCESSING');
-            updates.currentStation = flowState.currentStation || "BM01";
-            updates.currentStep = flowState.currentStep || "Eindinspectie";
-            updates.status = flowState.status || "Te Keuren";
-            updates.lastStation = stationId;
-            updates["timestamps.bm01_start"] = serverTimestamp();
-
-            if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-                try {
-                    const planningRef = collection(db, ...PATHS.PLANNING);
-                    const q = query(planningRef, where("orderId", "==", product.orderId));
-                    const snap = await getDocs(q);
-                    if (!snap.empty) {
-                        const orderDoc = snap.docs[0];
-                        const orderData = orderDoc.data();
-                        const newProduced = (orderData.produced || 0) + 1;
-                        const plan = parseInt(orderData.plan || orderData.quantity || 0);
-                        
-                        const orderUpdates = {
-                            produced: increment(1),
-                            lastUpdated: serverTimestamp()
-                        };
-
-                        if (newProduced >= plan) {
-                            orderUpdates.status = "completed";
-                        }
-                        
-                        await updateDoc(orderDoc.ref, orderUpdates);
-                    }
-                } catch (e) { console.error("Error updating order status:", e); }
-            }
-          }
-        }
-      } else if (status === "temp_reject") {
+      if (status === "temp_reject") {
         updates.inspection = {
           status: "Tijdelijke afkeur",
           reasons: data.reasons,
           timestamp: new Date().toISOString(),
         };
         updates.currentStep = "HOLD_AREA";
-      } else if (status === "rejected") {
-        // ARCHIVERING LOGICA voor DEFINITIEF AFKEUR
-        const rejectionData = {
-          ...product,
-          status: "rejected",
-          currentStep: "REJECTED",
-          currentStation: "AFKEUR",
-          inspection: {
-            status: "Afkeur",
-            reasons: data.reasons,
-            timestamp: new Date().toISOString(),
-          },
-          history: [...(product.history || []), updates.history[0]],
-          updatedAt: new Date(),
-          archivedAt: new Date(),
-          archivedReason: "rejected",
-        };
-        
-        const year = new Date().getFullYear();
-        const rejectedArchiveRef = doc(db, ...getArchiveRejectedItemsPath(year), product.id || product.lotNumber);
-        
-        // 1. Sla op in rejected archief
-        await setDoc(rejectedArchiveRef, rejectionData);
-        
-        // 2. Verwijder uit actieve tracking
-        await deleteDoc(productRef);
-        
-        if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-             try {
-                const orderQuery = query(
-                  collection(db, ...PATHS.PLANNING),
-                  where("orderId", "==", product.orderId)
-                );
-                const orderSnap = await getDocs(orderQuery);
-                
-                if (!orderSnap.empty) {
-                  const orderDoc = orderSnap.docs[0];
-                  const orderData = orderDoc.data();
-                  const originStation = product.originMachine || product.currentStation;
-                  const stationField = getStartedCounterField(originStation);
-                  const currentStarted = Number(orderData?.[stationField] || 0);
-                  const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
-
-                  const orderUpdates = {
-                    rejectedCount: increment(1),
-                    lastUpdated: serverTimestamp(),
-                  };
-
-                  if (stationField && currentStarted > 0) {
-                    orderUpdates[stationField] = currentStarted - 1;
-                  }
-
-                  if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
-                    orderUpdates.status = "planned";
-                  }
-
-                  await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), orderUpdates);
-                }
-              } catch (err) {
-                console.error("Fout bij updaten order teller:", err);
-              }
-        }
-        
-        await logActivity(
-          user?.uid || "system",
-          "QUALITY_REJECT_FINAL",
-          `Lossen Definitieve afkeur en gearchiveerd: lot ${product.lotNumber || product.id}`
-        );
-        
-        if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-          handleCloseModal();
-        }
-        return; // Stop hier, product is naar archief verplaatst
+      } else if (status === "completed" && !isAdvancedStation) {
+        const flowState = getNextFlowState("FINISH_WINDING");
+        updates.currentStation = flowState.currentStation || stationId;
+        updates.currentStep = flowState.currentStep || "Lossen";
+        updates.status = flowState.status || "In Productie";
+        updates.lastStation = stationId;
       }
 
       await updateDoc(productRef, updates);
       await logActivity(
         user?.uid || "system",
-        status === "completed" ? "POST_PROCESS_COMPLETE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
-        `Lossen afhandeling: lot ${product.lotNumber || product.id}, station ${stationId}, status ${status}`
+        status === "completed" ? "POST_PROCESS_COMPLETE" : "QUALITY_TEMP_REJECT",
+        `Lossen afhandeling: lot ${product.lotNumber || productId}, station ${stationId}, status ${status}`
       );
-      if (selectedProductRef.current && selectedProductRef.current.id === product.id) {
-          handleCloseModal();
-      }
+      if (selectedProductRef.current?.id === product.id) handleCloseModal();
     } catch (error) {
       console.error("Fout bij afronden:", error);
     }

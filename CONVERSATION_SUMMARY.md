@@ -1,3 +1,50 @@
+## Update sessie 76 (Start architectuurrefactor: backend lagen + planning vertical slice)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Start maken met echte layered architecture in Cloud Functions, zonder gedrag van bestaande planning-callables te breken.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe modulaire backend-structuur opgezet onder `functions/src/`:
+    - `config/` voor gedeelde Firebase/planning-constants;
+    - `utils/` voor text helpers;
+    - `auth/` voor rol-resolutie;
+    - `repositories/` voor Firestore read lookups;
+    - `services/` voor domeinlogica/transities;
+    - `callables/` voor API-ingang + inputvalidatie + error-mapping.
+- Eerste vertical slice gemigreerd naar lagen:
+    - `rejectTrackedProductFinal`
+    - `moveTrackedProductManual`
+    - `archivePlanningOrder`
+- `functions/index.js` opgeschoond:
+    - bovenstaande 3 callables worden nu geëxporteerd vanuit `src/callables/planningCallables`;
+    - duplicaat helper/role-code voor deze flows verwijderd uit monolithische index.
+
+**Aangepaste bestanden (kern):**
+- `functions/index.js`
+- `functions/src/config/firebase.js`
+- `functions/src/config/planningConstants.js`
+- `functions/src/utils/text.js`
+- `functions/src/auth/resolveUserRole.js`
+- `functions/src/repositories/planningRepository.js`
+- `functions/src/services/planningTransitionService.js`
+- `functions/src/callables/planningCallables.js`
+
+**Validatie:**
+- `get_errors` op alle gewijzigde functions-bestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+- Extra directe `node` load-check op `functions/index.js` faalde omdat `firebase-functions` lokaal niet geïnstalleerd is in deze container op dat moment.
+
+**Resultaat:**
+- Architectuurskelet staat en is in gebruik voor een eerste domein (planning mutaties).
+- Gedrag blijft functioneel gelijk, maar verantwoordelijkheden zijn nu gescheiden (controller/callable -> service -> repository).
+
+**Openstaand / eerstvolgende stap:**
+1. Zelfde patroon uitrollen naar volgende kritieke writeflows (bijv. reject/finish paden in Lossen/Workstation/BM01/Mazak).
+2. Monolithische `functions/index.js` verder afbouwen naar alleen triggerregistratie/exports.
+3. Optioneel: lint/test scripts toevoegen in `functions/package.json` voor snellere backend-regressiechecks.
+
 ## Update sessie 75 (Flow 3 uitgevoerd: legacy planning-archivering server-side)
 
 **Datum:** 11 april 2026 | **Branch:** `pilot-dev`
