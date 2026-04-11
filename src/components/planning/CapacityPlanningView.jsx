@@ -1666,7 +1666,12 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       
       {activeTab === "efficiency" && <EfficiencyDashboard dataSourceMode={dataSourceMode} />}
       {activeTab === "gantt" && <GanttChartView dataSourceMode={dataSourceMode} />}
-      {activeTab === "timetracking" && <TimeTrackingView dataSourceMode={dataSourceMode} />}
+      {activeTab === "timetracking" && (
+        <TimeTrackingView
+          dataSourceMode={dataSourceMode}
+          initialDepartment={selectedDepartment}
+        />
+      )}
       {activeTab === "heatmap" && <WorkloadHeatmapView />}
     </div>
     </div>

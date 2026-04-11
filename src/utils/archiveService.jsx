@@ -1,58 +1,36 @@
-import { doc, writeBatch, serverTimestamp } from "firebase/firestore";
-import { db } from "../config/firebase";
-import { PATHS, getPlanningArchivePath } from "../config/dbPaths";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import app from "../config/firebase";
 import i18n from "../i18n";
 
-// Hulpfunctie om het huidige jaar op te halen
-const getCurrentYear = () => new Date().getFullYear();
+const functions = getFunctions(app);
+const archivePlanningOrderCallable = httpsCallable(functions, "archivePlanningOrder");
 
 /**
  * Verplaatst een order van de actieve planning naar de juiste archief-collectie.
  * * Strategie:
  * 1. Is de status 'rejected' of reden 'rejected'? -> map: rejected_{JAAR}_planning
  * 2. Anders (completed/manual) -> map: archive_{JAAR}_planning
- * * @param {string} appId - De huidige applicatie ID (bv. fittings-app-v1)
  * @param {object} order - Het volledige order object
  * @param {string} reason - Reden van archiveren ('completed', 'rejected', 'manual')
  */
-export const archiveOrder = async (appId, order, reason) => {
-  if (!appId || !order || !order.id) {
+export const archiveOrder = async (order, reason) => {
+  if (!order || !order.id) {
     console.error(i18n.t("archive.missing_data", "Kan niet archiveren: Gegevens ontbreken"));
     return false;
   }
 
-  const batch = writeBatch(db);
-  const year = getCurrentYear();
-
-  // 1. Definieer de paden
-  // Bron: De huidige actieve lijst
-  const sourceRef = doc(db, ...PATHS.PLANNING, order.id);
-
-  // Doel: /future-factory/production/archive/{year}/planning
-  // Onderscheid archive/rejected zit in het archiveReason veld van het document
-  const targetRef = doc(db, ...getPlanningArchivePath(year), order.id);
-
-  // 3. Bereid de data voor het archief voor
-  // We voegen meta-data toe over wanneer en waarom het gearchiveerd is
-  const archiveData = {
-    ...order,
-    archivedAt: serverTimestamp(),
-    archiveReason: reason || order.status,
-    archiveYear: year,
-    originalStatus: order.status,
-    archivedFrom: "digital_planning",
-  };
-
-  // 4. Batch Operatie: Move & Delete (Atomic Transaction)
-  // Dit garandeert dat de order pas verwijderd wordt als hij succesvol is gekopieerd.
-  batch.set(targetRef, archiveData); // Kopieer
-  batch.delete(sourceRef); // Verwijder origineel
-
   // 5. Uitvoeren
   try {
-    await batch.commit();
+    const res = await archivePlanningOrderCallable({
+      orderDocId: order.id,
+      reason: reason || order.status || "manual",
+      source: "archiveService",
+    });
+
+    const archiveYear = res?.data?.archiveYear || new Date().getFullYear();
+
     console.log(
-      i18n.t("archive.success", { order: order.orderId || order.id, year, defaultValue: `Order ${order.orderId || order.id} succesvol verplaatst naar archief (${year})` })
+      i18n.t("archive.success", { order: order.orderId || order.id, year: archiveYear, defaultValue: `Order ${order.orderId || order.id} succesvol verplaatst naar archief (${archiveYear})` })
     );
     return true;
   } catch (error) {

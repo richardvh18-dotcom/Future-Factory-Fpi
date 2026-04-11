@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth, db, logActivity } from "./config/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
 import LoggedOutView from "./components/LoggedOutView";
 
 // Basis Componenten
@@ -28,6 +28,7 @@ import { useProductsData } from "./hooks/useProductsData";
 import { useSettingsData } from "./hooks/useSettingsData";
 import { useMessages } from "./hooks/useMessages";
 import { useAutoLogout } from "./hooks/useAutoLogout";
+import { PATHS } from "./config/dbPaths";
 
 // Lazy Loading Modules
 const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
@@ -100,6 +101,72 @@ const App = () => {
       checkPasswordChange();
     }
   }, [user, authLoading, role, isAdmin]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !user?.email) return undefined;
+
+    let initialized = false;
+
+    const createConnectivityMessage = async (online) => {
+      const eventKey = `connectivity:${online ? "online" : "offline"}`;
+      const lastRaw = window.localStorage.getItem("ff_last_connectivity_message");
+      const now = Date.now();
+
+      if (lastRaw) {
+        try {
+          const last = JSON.parse(lastRaw);
+          if (last?.key === eventKey && now - Number(last?.timestamp || 0) < 30000) {
+            return;
+          }
+        } catch {
+          // Ignore malformed localStorage values.
+        }
+      }
+
+      await addDoc(collection(db, ...PATHS.MESSAGES), {
+        to: user.email.toLowerCase(),
+        from: "SYSTEM",
+        senderId: "system-connectivity",
+        subject: online ? "Verbinding hersteld" : "Offline modus actief",
+        content: online
+          ? "De verbinding met het netwerk is hersteld. Live synchronisatie is weer actief."
+          : "De netwerkverbinding is weggevallen. De app draait verder op lokale cache totdat de verbinding terug is.",
+        timestamp: serverTimestamp(),
+        read: false,
+        archived: false,
+        priority: "normal",
+        type: "system",
+        targetGroup: user.email.toLowerCase(),
+      });
+
+      window.localStorage.setItem(
+        "ff_last_connectivity_message",
+        JSON.stringify({ key: eventKey, timestamp: now })
+      );
+    };
+
+    const handleConnectivityChange = (online) => {
+      if (!initialized) {
+        initialized = true;
+        return;
+      }
+      createConnectivityMessage(online).catch((error) => {
+        console.error("Kon verbindingsmelding niet opslaan:", error);
+      });
+    };
+
+    const handleOnline = () => handleConnectivityChange(true);
+    const handleOffline = () => handleConnectivityChange(false);
+
+    initialized = true;
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [user?.email]);
 
   const handleLogin = async (email, password) => {
     setLoginError(null);

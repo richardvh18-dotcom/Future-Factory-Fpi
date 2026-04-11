@@ -464,7 +464,6 @@ const AdminUsersView = () => {
         role: newUser.role,
         modules: [], // Standaard geen modules toegang
         requirePasswordChange: newUser.requirePasswordChange, // Gebruik de checkbox waarde
-        tempPassword: isExistingUser ? "(bestaand wachtwoord behouden)" : passwordToUse,
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || "Admin",
         imported: isExistingUser,
@@ -633,7 +632,6 @@ const AdminUsersView = () => {
         role: "guest", // Standaard rol
         modules: [], // Standaard geen modules toegang
         requirePasswordChange: true, // Moet wachtwoord wijzigen bij eerste login
-        tempPassword: tempPassword, // Voor admin referentie (wordt niet gebruikt voor auth)
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || "Admin",
         approved: true,
@@ -647,7 +645,6 @@ const AdminUsersView = () => {
         status: "approved",
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || "Admin",
-        tempPassword: tempPassword,
       });
 
       setStatus({

@@ -1,4 +1,643 @@
+## Update sessie 75 (Flow 3 uitgevoerd: legacy planning-archivering server-side)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Derde kritieke writeflow uit sessie 72 server-side afdwingen: legacy/handmatige archivering van planningorders.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe callable toegevoegd: `archivePlanningOrder` in `functions/index.js`.
+- Server-side validatie toegevoegd op:
+    - ingelogde gebruiker;
+    - rol-allowlist voor planning-archivering;
+    - verplichte payload (`orderDocId`) en reason-allowlist (`rejected/completed/manual`).
+- Callable voert nu centraal uit:
+    - order lookup op primair en legacy planningpad;
+    - atomische move naar `production/archive/{year}/planning` met metadata;
+    - delete van actieve planningorder.
+- Frontend archiveringspad gemigreerd:
+    - `src/utils/archiveService.jsx` gebruikt nu `archivePlanningOrder` callable i.p.v. client-side batch writes;
+    - `TeamleaderHub` legacy afkeur-archivering blijft functioneel identiek maar loopt via serverflow.
+- Overbodige `appId` afhankelijkheid verwijderd uit `archiveService` signatuur.
+
+**Aangepaste bestanden (kern):**
+- `functions/index.js`
+- `src/utils/archiveService.jsx`
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+
+**Validatie:**
+- `get_errors` op alle gewijzigde bestanden: geen fouten.
+- Productiebuild uitgevoerd: succesvol (`npm run build`, alleen chunk-size waarschuwingen).
+
+**Resultaat t.o.v. sessie 72 scope:**
+- Flow 1 afgerond: definitieve afkeur server-side.
+- Flow 2 afgerond: handmatige lotverplaatsing server-side.
+- Flow 3 afgerond: legacy planning-archivering server-side.
+
+**Openstaand / eerstvolgende stap:**
+1. Firestore rules verder versmallen met gerichte field-level allowlists op resterende high-risk writes.
+2. Overige losse client mutatiepaden in digital planning stapsgewijs naar callables migreren.
+
+## Update sessie 74 (Flow 2 uitgevoerd: handmatige lotverplaatsing server-side)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Tweede kritieke writeflow uit sessie 72 server-side afdwingen: handmatige lotverplaatsing vanuit Teamleader/Workstation.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe callable toegevoegd: `moveTrackedProductManual` in `functions/index.js`.
+- Server-side validatie toegevoegd op:
+    - ingelogde gebruiker;
+    - rol-allowlist voor handmatige verplaatsing;
+    - verplichte payload (`productOrLotId`, `newStation`);
+    - veilige limieten op invoer (`repairInstruction`, labels/source).
+- Callable voert nu centraal uit:
+    - resolve van tracking item op document-id of `lotNumber`;
+    - server-side stap/status bepaling op basis van doelstation;
+    - update van `currentStation/currentStep/status/isManualMove`;
+    - reparatievelden (`repairActive`, `repairCategory`, `repairInstruction`, `timestamps.repair_start`) bij reparatieflow;
+    - centrale history-entry op tracked product.
+- Frontend gekoppeld aan centrale service:
+    - `src/services/planningSecurityService.js` uitgebreid met `moveTrackedProductManual(...)`;
+    - `TeamleaderHub` `handleMoveLot(...)` omgezet naar callable;
+    - `WorkstationHub` `handleMoveLot(...)` omgezet naar callable.
+- `ProductDossierModal` opgeschoond:
+    - directe history-write op tracked product verwijderd (wordt nu server-side gedaan).
+- Firestore rules aangescherpt:
+    - directe client-side handmatige move-mutaties op tracked products geblokkeerd wanneer `isManualMove` + status/station/step/reparatievelden worden gewijzigd.
+
+**Aangepaste bestanden (kern):**
+- `functions/index.js`
+- `src/services/planningSecurityService.js`
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+- `src/components/digitalplanning/WorkstationHub.jsx`
+- `src/components/digitalplanning/modals/ProductDossierModal.jsx`
+- `firestore.rules`
+
+**Validatie:**
+- `get_errors` op alle gewijzigde bestanden: geen fouten.
+- Productiebuild uitgevoerd: succesvol (`npm run build`, alleen chunk-size waarschuwingen).
+
+**Openstaand / eerstvolgende stap:**
+1. Flow 3 oppakken: legacy handmatige archiveringsacties naar backend-callables.
+2. Daarna field-level allowlists verder versmallen voor resterende high-risk writepaden.
+
+## Update sessie 73 (Flow 1 uitgevoerd: definitieve afkeur via backend callable)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Eerste kritieke writeflow uit sessie 72 server-side afdwingen: definitieve afkeur van tracked products.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe callable toegevoegd: `rejectTrackedProductFinal` in `functions/index.js`.
+- Server-side validatie toegevoegd op:
+    - ingelogde gebruiker;
+    - rol-allowlist voor afkeuracties;
+    - verplichte payload (`productId`, minimaal 1 reden);
+    - veilige limieten op tekstvelden.
+- Callable voert nu centraal uit:
+    - archive naar `production/archive/{year}/rejected`;
+    - delete uit `production/tracked_products`;
+    - update van gekoppelde order (`rejectedCount`, `started_*` rollback, status terug naar `planned` indien nodig).
+- Frontend gekoppeld aan centrale service:
+    - nieuwe service `src/services/planningSecurityService.js`;
+    - `ProductReleaseModal` definitieve afkeur omgezet naar callable;
+    - `ProductDossierModal` definitieve afkeur omgezet naar callable.
+- Firestore rules aangescherpt:
+    - directe client-update naar definitieve afkeurstatus op tracked products geblokkeerd (`REJECTED` / `AFKEUR` / `Rejected`).
+
+**Aangepaste bestanden (kern):**
+- `functions/index.js`
+- `src/services/planningSecurityService.js`
+- `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+- `src/components/digitalplanning/modals/ProductDossierModal.jsx`
+- `firestore.rules`
+
+**Validatie:**
+- `get_errors` op alle gewijzigde bestanden: geen fouten.
+- Productiebuild uitgevoerd: succesvol (`npm run build`, alleen chunk-size waarschuwingen).
+
+**Openstaand / eerstvolgende stap:**
+1. Flow 2 oppakken: kritieke workstation/teamleader statusmutaties naar backend-callables.
+2. Flow 3 oppakken: legacy handmatige archivering server-side trekken.
+3. Daarna rules verder versmallen met field allowlists per kritieke collection.
+
+## Update sessie 72 (Hervat: server-side write hardening op kritieke flows)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Verdergaan op de openstaande security-acties uit sessie 71: minder client-trust op kritieke mutaties en strengere server-side validatie.
+
+**Startpunt uit vorige sessie:**
+- AI en print hardening zijn afgerond.
+- Volgende prioriteit is het migreren van hoog-risico writeflows naar backend-callables/functions met expliciete schema- en role-checks.
+
+**Scope voor deze vervolgiteratie (top-3 writeflows):**
+1. Definitieve afkeur en status-overgangen in planningflow.
+2. Kritieke mutaties op order/product statusvelden vanuit workstation/teamleader acties.
+3. Legacy/handmatige archiveringsacties met impact op actieve planning.
+
+**Aanpak (uitvoering):**
+1. Inventariseren waar write-acties nu nog direct vanaf client naar Firestore gaan.
+2. Per flow beslissen: volledig naar callable of tijdelijk afschermen met extra rules + strict field allowlist.
+3. Server-side validatie toevoegen:
+    - verplichte velden en typechecks;
+    - toegestane status-transities;
+    - role-check op basis van custom claims/user role.
+4. Firestore rules aanscherpen zodat client-only writes op deze paden niet meer mogelijk zijn zonder de juiste serverflow.
+
+**Acceptatiecriteria:**
+- Kritieke statusmutaties kunnen niet meer via losse client-write worden geforceerd.
+- Elke top-3 flow heeft expliciete validatie op payload + transitie + rol.
+- Build en diagnostics draaien zonder nieuwe fouten.
+
+**Openstaand / eerstvolgende stap:**
+1. Top-3 writeflows concreet mappen naar bestanden/collections.
+2. Eerste flow volledig server-side trekken en end-to-end valideren.
+3. Daarna flow 2 en 3 in dezelfde stijl uitrollen.
+
+## Update sessie 71 (Security hardening: resterende kritieke punten afgerond)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Resterende kritieke securitypunten afronden uit de audit: AI key exposure, zwakke validatie, prompt-injection risico, print abuse, en foutafhandeling.
+
+**Wat is afgerond in deze batch:**
+- Frontend AI-calls opgeschoond zodat direct Gemini-gebruik en browser-side key usage zijn verwijderd op de bekende paden.
+- AI-verkeer geconsolideerd via backend proxy (`aiService.chat(...)` pad), met strengere payloadvalidatie.
+- Backend AI proxy gehard met:
+    - berichtnormalisatie en limieten (aantal/omvang);
+    - model-allowlist;
+    - prompt-injection patroonchecks;
+    - beschermde system prompt opbouw;
+    - strengere safety thresholds.
+- Printflow gehard met inputvalidatie op client + strengere Firestore-rules voor print queue create/update/status-overgangen.
+- Globale runtime error logging toegevoegd met throttling en centrale activity-log route.
+
+**Aangepaste bestanden (kern):**
+- `src/utils/helpers.jsx`
+- `src/services/testGemini.jsx`
+- `src/components/admin/AdminDatabaseView.jsx`
+- `src/components/admin/ProjectStructureExpertView.jsx`
+- `src/services/printService.js`
+- `src/main.jsx`
+- `functions/index.js`
+- `firestore.rules`
+- `src/services/aiService.jsx`
+
+**Validatie:**
+- `get_errors` op gewijzigde bestanden: geen fouten.
+- Pattern-check op frontend key/externe Gemini endpoint usage: opgeschoond in broncode.
+- Productiebuild uitgevoerd: succesvol (`npm run build`, alleen chunk-size waarschuwingen).
+
+**Resultaat:**
+- Kritieke exposure-punten voor AI en print zijn aantoonbaar verkleind.
+- Input- en statusvalidatie is strakker afgedwongen op zowel app- als rules/backend-niveau.
+- Observability voor runtime fouten is verbeterd.
+
+**Openstaand / eerstvolgende stap:**
+1. Hoog-risico Firestore mutaties verder migreren naar backend callables/functions (minder client-trust op kritieke state transitions).
+2. Verdere field-level aanscherping van message/update-semantiek waar nodig.
+3. Top-3 kritieke writeflows kiezen en server-side valideren met schema + role checks.
+
 # 📝 FPi Future Factory - Pilot Handover & Development Summary
+
+### Update sessie 70 (Label preview parity: Admin ↔ ProductionStart ↔ Mazak gestabiliseerd)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Alle labelvoorbeelden visueel laten overeenkomen met elkaar en met Zebra-printgedrag (ZM400 / 300 DPI).
+
+**Wat is afgerond in deze batch:**
+- Vertaling voor Pipe tile aangepast naar `Buizen producties` in NL-teksten.
+- Toast gedrag aangepast:
+    - `success/info` rechtsonder en niet-blokkerend;
+    - `warning/error` centraal met overlay.
+- AI-context uitgebreid voor productievragen:
+    - recent lotnummer / laatste activiteit;
+    - productietijden;
+    - capaciteitsvragen en achterstandsinzicht.
+- Label preview rendering gelijkgetrokken:
+    - gedeelde utility toegevoegd voor tekstmeting/fontmapping: `src/utils/labelPreviewMetrics.js`;
+    - zowel `LabelVisualPreview` als `AdminLabelDesigner` gebruiken nu dezelfde metrics.
+- Production Start previewpad gelijkgemaakt aan andere schermen:
+    - eigen zoom/recalc verwijderd;
+    - overgezet naar `AutoScaledLabelPreview` met printer-DPI.
+- ZM400 default/fallback DPI op 300 gezet voor preview/print-flow waar nodig.
+- Label Manager standaard zoom aangepast naar 100%.
+
+**Aangepaste bestanden (kern):**
+- `src/lang/nl.js`
+- `src/components/notifications/ToastContainer.jsx`
+- `src/services/aiService.jsx`
+- `src/data/aiPrompts.jsx`
+- `src/components/printer/LabelVisualPreview.jsx`
+- `src/components/printer/AutoScaledLabelPreview.jsx`
+- `src/components/admin/AdminLabelDesigner.jsx`
+- `src/components/digitalplanning/modals/ProductionStartModal.jsx`
+- `src/components/digitalplanning/MazakView.jsx`
+- `src/components/printer/PrintQueueAdminView.jsx`
+- `src/components/printer/PrintStationView.jsx`
+- `src/utils/labelPreviewMetrics.js`
+
+**Validatie:**
+- `get_errors` uitgevoerd op gewijzigde preview/designer bestanden: geen fouten.
+
+**Openstaand / eerstvolgende stap:**
+1. Visuele eindcheck op 1 labeltemplate in drie schermen: Admin Label, ProductionStart (BH12), Mazak.
+2. Indien nog pixelverschillen: alleen layout/padding finetunen (geen aparte renderlogica meer).
+
+### Update sessie 67 (MES-positionering vastgelegd + eerste code-stap: offline-first fundament)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Strategische positionering van Future Factory tegenover klassieke MES-systemen vastleggen.
+- Niet alleen documenteren, maar ook direct een eerste productfundament in code oppakken.
+
+**Positionering die is vastgelegd:**
+- Future Factory onderscheidt zich niet door meer monolithische modules, maar door:
+    - native AI-potentie in plaats van alleen opslag/rapportage;
+    - real-time werkvloersync zonder polling;
+    - operator-gerichte UX;
+    - snelle hardware- en cloudintegraties;
+    - veel lagere frictie bij procesaanpassingen.
+- Grootste directe winst nu: **live ervaring op de werkvloer**.
+- Grootste structurele vervolgstap: **betrouwbare uren- en capaciteitsinzichten** voor planners.
+- Belangrijkste gat t.o.v. zware MES-systemen: **traceability/compliance** en **offline-first robuustheid**.
+
+**Wat is direct in code opgepakt:**
+- Eerste concrete stap gekozen op het fundamentniveau: **offline-first Firestore persistence**.
+- `src/config/firebase.jsx` aangepast zodat Firestore nu probeert te starten met lokale persistentie + multi-tab cache.
+- Veilige fallback toegevoegd naar standaard `getFirestore(app)` als browser/device dit niet ondersteunt of Firestore al eerder is geïnitialiseerd.
+
+**Aangepaste bestanden:**
+- `src/config/firebase.jsx`
+- `CONVERSATION_SUMMARY.md`
+
+**Waarom deze stap als eerste:**
+- Dit sluit direct aan op het benoemde zwakke punt van cloud-native MES op de werkvloer: wifi-uitval of instabiele hal-connectiviteit.
+- Het versterkt de live shopfloor-ervaring zonder eerst grote functionele verbouwingen te vragen.
+
+**Validatie:**
+- Nog uit te voeren na deze batch: build/gedrag valideren op runtime met bestaande flows.
+
+**Openstaand / eerstvolgende stap:**
+1. Build controleren na activeren van Firestore persistence.
+2. Functioneel testen of de app normaal opstart met bestaande auth/planning/tracking schermen.
+3. Daarna eventueel uitbreiden met expliciete offline-statusmelding in UI voor operators/teamleaders.
+
+### Update sessie 68 (Zichtbare online/offline status in header)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De nieuwe offline-first Firestore persistence zichtbaar maken in de UI, zodat gebruikers direct zien of ze online of op lokale cache werken.
+
+**Wat is afgerond in deze batch:**
+- `Header` uitgebreid met een online/offline indicator op basis van browser `online` / `offline` events.
+- Indicator toegevoegd op:
+    - mobiel: direct naast de `TEST` badge in de branding;
+    - desktop: in de rechter status-chip van de header.
+- Desktopstatus toont nu bij offline expliciet `Offline cache actief`.
+
+**Aangepaste bestanden:**
+- `src/components/Header.jsx`
+- `CONVERSATION_SUMMARY.md`
+
+**Validatie:**
+- Nog uit te voeren na deze batch: diagnostics + build.
+
+### Update sessie 69 (Verbindingswissels naar ingebouwde meldingen i.p.v. toast)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Verbindingswissels niet als toast tonen, maar als interne systeemmeldingen in het bestaande meldingensysteem.
+
+**Wat is afgerond in deze batch:**
+- `App.jsx` uitgebreid met centrale `online` / `offline` listeners.
+- Bij wissel van verbinding wordt nu een systeemmelding geschreven naar `PATHS.MESSAGES` voor de ingelogde gebruiker.
+- Soorten meldingen:
+    - `Offline modus actief`
+    - `Verbinding hersteld`
+- Geen melding op eerste app-load.
+- Dedupe toegevoegd via `localStorage`, zodat meerdere tabs of snelle reconnects niet meteen dubbele berichten genereren.
+
+**Aangepaste bestanden:**
+- `src/App.jsx`
+- `CONVERSATION_SUMMARY.md`
+
+**Openstaand / eerstvolgende stap:**
+1. Diagnostics + build valideren.
+2. Runtime testen of een offline/online wissel exact één interne melding oplevert.
+
+### Update sessie 63 (Time Tracking: Teamleader Fittings default afdeling)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Time Tracking automatisch op de juiste afdeling laten openen wanneer een Teamleader in afdelingsscope werkt, zodat Fittings niet meer op `ALLES` start.
+
+**Wat is afgerond in deze batch:**
+- `TimeTrackingView` uitgebreid met prop `initialDepartment`.
+- `CapacityPlanningView` geeft nu de actuele afdelingsfilter door aan `TimeTrackingView`.
+- Slimme matching toegevoegd zodat varianten zoals `Fittings` / `Fitting Productions` toch op dezelfde afdeling landen.
+
+**Aangepaste bestanden:**
+- `src/components/planning/CapacityPlanningView.jsx`
+- `src/components/planning/TimeTrackingView.jsx`
+
+**Validatie:**
+- `get_errors`: geen fouten.
+
+**Resultaat:**
+- Teamleader Fittings opent Time Tracking nu standaard op de Fittings-afdeling in plaats van `ALLES`.
+
+### Update sessie 64 (Werkuren-logica: nacht/weekend uitsluiten uit Time Tracking en Efficiency)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Voorkomen dat stilstand buiten ploeguren of in weekend onterecht als productietijd wordt meegeteld in Time Tracking en Efficiency.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe helper toegevoegd: `src/utils/workingTimeUtils.js`
+    - berekent alleen minuten binnen werkvensters;
+    - fallback blijft bestaan voor contexten zonder bekend rooster.
+- `TimeTrackingView` omgezet van ruwe `start -> eind` duur naar werkuren-geclipte duur.
+- `EfficiencyDashboard` idem omgezet voor werkelijke minuten uit trackinglogs.
+- Eerste implementatie voor Fittings toegevoegd; daarna uitgebreid naar Pipes en Spools.
+- Definitieve afdelingsroosters ingesteld:
+    - `Fittings`: ma-vr `06:00-22:00`
+    - `Pipes`: ma-vr `05:30-22:30`
+    - `Spools`: ma-vr `07:15-16:00`
+
+**Aangepaste bestanden:**
+- `src/utils/workingTimeUtils.js`
+- `src/components/planning/TimeTrackingView.jsx`
+- `src/components/digitalplanning/EfficiencyDashboard.jsx`
+
+**Validatie:**
+- `get_errors`: geen fouten.
+- Volledige productiebuild uitgevoerd: succesvol.
+
+**Resultaat:**
+- Nachtgaten tussen stappen, en weekendtijd buiten rooster, tellen niet meer mee als actieve tijd in Time Tracking en Efficiency.
+
+### Update sessie 65 (Handmatige Teamleader-knop voor oude definitieve afkeur-orders)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Een handmatige actie klaarzetten om oude definitieve afkeur-orders, die nog volgens de oude methode in actieve planning bleven staan, alsnog naar planning-archief te verplaatsen.
+
+**Wat is afgerond in deze batch:**
+- In `TeamleaderHub` een nieuwe actie toegevoegd: `Oude Afkeur Archiveren`.
+- De actie gebruikt dezelfde bestaande archiefroutine als de nieuwe flow via `archiveOrder(..., "rejected")`.
+- Logregistratie toegevoegd met actiecode `PLANNING_ARCHIVE_LEGACY_REJECTED`.
+- Zowel desktop- als mobile-entry toegevoegd in de Teamleader acties.
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+
+**Validatie:**
+- `get_errors`: geen fouten.
+- Volledige productiebuild uitgevoerd: succesvol.
+
+### Update sessie 66 (Legacy afkeur-detectie verbreed + knop altijd zichtbaar)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Zorgen dat de handmatige archiveerknop ook beschikbaar is voor oude gevallen die niet expliciet meer de status `rejected` dragen, zoals vorige-week-orders met alleen `rejectedCount`.
+
+**Wat is afgerond in deze batch:**
+- Detectielogica voor `legacyRejectedOrders` verbreed:
+    - expliciete `rejected/afkeur/definitieve afkeur` status;
+    - `archiveReason/archivedReason = rejected`;
+    - of orders met `rejectedCount > 0`, zonder actieve producten, en:
+        - ouder dan huidige week, of
+        - volledig afgewikkeld via `rejectedCount + finishedCount >= plan`.
+- Knop `Oude Afkeur Archiveren (x)` nu altijd zichtbaar gemaakt in Teamleader Hub:
+    - bij 0 kandidaten grijs zichtbaar;
+    - bij >0 kandidaten rood actief met teller.
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+
+**Validatie:**
+- `get_errors`: geen fouten.
+- Volledige productiebuild uitgevoerd: succesvol.
+
+**Openstaand / eerstvolgende stap:**
+1. In pilot controleren of de teller nu de twee oude afkeur-orders van vorige week oppakt.
+2. De handmatige actie eenmalig uitvoeren zodra productie het toelaat.
+3. Daarna visueel controleren dat deze orders niet meer in actieve planning staan en wél terug te vinden zijn in planning-archief.
+
+### Update sessie 62 (Tijdelijke afkeur uniform + reparatieflow Teamleader + reparatie-uren zichtbaar)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Tijdelijke afkeurflow voor operators uniform maken op Lossen/Nabewerken/Mazak/Eindinspectie.
+- Teamleader-dossier aanpassen van generiek verplaatsen naar gerichte reparatieflow bij tijdelijke afkeur.
+- Reparatie-uren meetbaar en terugvindbaar maken als aparte categorie.
+
+**Wat is afgerond in deze batch:**
+- **Tijdelijke afkeur redenen gestandaardiseerd** via `REJECTION_REASONS`:
+    - `Oppervlakteschade`
+    - `Maatafwijking (TW/TF/W)`
+    - `Kwaliteit onvoldoende`
+    - `Onjuist label`
+    - `Liner beschadigd`
+    - `Overig`
+    - meerdere redenen blijven selecteerbaar; minimaal 1 reden blijft verplicht.
+- Dit werkt nu consistent in:
+    - `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+    - `src/components/digitalplanning/modals/PostProcessingFinishModal.jsx`
+    - `src/components/digitalplanning/modals/ProductDossierModal.jsx`
+    - bronlijst in `src/utils/workstationLogic.jsx`
+- **Opmerkingveld blijft behouden** in alle relevante afkeurmodalen.
+
+- **Teamleader reparatie-UX in dossier aangepast** (`ProductDossierModal`):
+    - knoplabel verandert bij tijdelijke afkeur van `Verplaats` naar `Reparatie`;
+    - stationskeuze wordt bij tijdelijke afkeur beperkt tot `BH31` en `Nabewerking`;
+    - extra tekstveld toegevoegd voor reparatie-instructie aan operator;
+    - confirm-flow en logteksten aangepast naar reparatie-context.
+
+- **Reparatie metadata + flowtracking toegevoegd**:
+    - `onMoveLot` uitgebreid met optionele reparatie-opties (`isRepairMove`, `repairInstruction`) in:
+        - `src/components/digitalplanning/TeamleaderHub.jsx`
+        - `src/components/digitalplanning/WorkstationHub.jsx`
+    - bij reparatieverplaatsing worden nu gezet:
+        - `repairActive`
+        - `repairCategory: "reparatie"`
+        - `repairInstruction`
+        - `timestamps.repair_start`
+    - bij doorstroom naar eindinspectie (BM01) wordt reparatie afgesloten met:
+        - `timestamps.repair_end`
+        - `repairActive: false`
+    - toegepast in:
+        - `src/components/digitalplanning/WorkstationHub.jsx`
+        - `src/components/digitalplanning/MazakView.jsx`
+
+- **BH31 flowcorrectie**:
+    - `getStepForStation("BH31")` behandelt BH31 nu expliciet als reparatiestation (niet meer als standaard BH-wikkelstap).
+
+- **Reparatie-uren zichtbaar gemaakt in Time Tracking** (`src/components/planning/TimeTrackingView.jsx`):
+    - nieuwe berekening op basis van `timestamps.repair_start` -> `timestamps.repair_end`/`bm01_start`;
+    - nieuwe total card `Totaal Reparatie`;
+    - extra kolom `Reparatie` in orderanalyse;
+    - extra detailkolommen `Reparatie` en `Reparatie Tijd` op lotniveau.
+
+**Validatie:**
+- `get_errors` op alle aangepaste bestanden: **geen fouten**.
+- Volledige productiebuild uitgevoerd: **succesvol** (`vite build`, klaar in ~19s).
+
+**Openstaand / eerstvolgende stap:**
+1. Functionele pilotcheck op tijdelijke afkeur in 4 contexten: Lossen, Nabewerken, Mazak, BM01.
+2. Teamleadercheck: dossierknop `Reparatie`, stationbeperking `BH31/Nabewerking`, instructietekst zichtbaar in history/note.
+3. Time Tracking check: reparatie-uren lopen op tijdens reparatie en zijn terug te vinden in `Totaal Reparatie` + detailregels.
+4. Daarna commit + push bij akkoord.
+
+### Update sessie 61 (Afkeurflow: To Do direct corrigeren bij definitieve afkeur)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Pilot-bevinding oplossen waarbij `To Do` niet overal consistent omhoog ging na definitieve afkeur.
+- Gewenste gedrag borgen:
+    - **Tijdelijke afkeur**: `To Do` blijft gelijk.
+    - **Definitieve afkeur** (direct of na tijdelijke afkeur): `To Do` direct +1 via rollback op order-startteller.
+
+**Wat is afgerond in deze batch:**
+- Definitieve-afkeur rollback gestandaardiseerd op meerdere paden:
+    - `src/components/digitalplanning/MazakView.jsx`
+    - `src/components/digitalplanning/LossenView.jsx`
+    - `src/components/digitalplanning/BM01Hub.jsx`
+    - `src/components/digitalplanning/WorkstationHub.jsx`
+    - `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+    - `src/components/digitalplanning/modals/ProductDossierModal.jsx`
+- Belangrijkste aanpassing:
+    - overal `started_*`-veld nu via `getStartedCounterField(...)` i.p.v. losse stringopbouw;
+    - bij definitieve afkeur wordt de relevante `started_*` teller verlaagd (indien > 0), waardoor `To Do` direct met 1 stijgt;
+    - bij orders die al op `completed/finished/gereed` stonden, status teruggezet naar `planned` zodat ze weer zichtbaar/plannbaar zijn;
+    - `rejectedCount` en `lastUpdated` worden nu ook consequent bijgewerkt op orderniveau.
+- Tijdelijke afkeurflow is bewust ongewijzigd gehouden: geen wijziging in `To Do` zolang herstel nog mogelijk is.
+
+**Validatie:**
+- `get_errors` op alle 6 aangepaste bestanden: **geen fouten**.
+- Volledige productiebuild uitgevoerd: **succesvol** (`vite build`, klaar in ~21s).
+
+**Openstaand / eerstvolgende stap:**
+1. Pilotvloer scenario-test met 1 order op elk pad:
+   - Lossen -> definitieve afkeur
+   - Nabewerken/Mazak -> definitieve afkeur
+   - BM01 -> definitieve afkeur
+2. Per scenario controleren:
+   - `To Do` stijgt direct met 1 op de moederorder/machine;
+   - tijdelijke afkeur laat `To Do` onveranderd;
+   - omzetting tijdelijk -> definitief verhoogt `To Do` exact één keer.
+3. Daarna commit + push als akkoord.
+
+**Opgeslagen op verzoek (hervatpunt):**
+- Live-check bewust geparkeerd om later in één sessie uit te voeren.
+- Volgende keer direct starten met deze 3 checks achter elkaar:
+    1. Lossen definitieve afkeur
+    2. Nabewerken/Mazak definitieve afkeur
+    3. BM01 tijdelijke afkeur -> definitieve afkeur
+
+### Update sessie 60 (Volledige Lijst stationsfilter: Nabewerken zichtbaar gemaakt)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Laatste openstaande punt oppakken uit sessie 59: analyseren waarom `Nabewerken` niet zichtbaar werd in `Alle Machines / Stations` in de Volledige Lijst en dit herstellen.
+
+**Wat is afgerond in deze batch:**
+- Oorzaak in `PlanningSidebar` aangepakt:
+    - opbouw van de stationsdropdown was te afhankelijk van `sourceData`-orders;
+    - downstream stations uit tracking (zoals `Nabewerken`) konden daardoor ontbreken als gekoppelde order niet meer in de actieve bronlijst zat.
+- Fix doorgevoerd in `src/components/digitalplanning/PlanningSidebar.jsx`:
+    - downstream set gecentraliseerd (`BM01`, `MAZAK`, `NABEWERKEN`, `LOSSEN`);
+    - stations worden nu niet alleen per zichtbare order toegevoegd, maar ook expliciet uit `orderStationMap` (trackingbron) zelf opgebouwd.
+- Resultaat:
+    - `Nabewerken` blijft nu als filteroptie beschikbaar zodra trackingdata dit station bevat, ook in edge-cases waar orderbrondata dit niet direct meer toont.
+
+**Validatie:**
+- `get_errors` op aangepast bestand: **geen fouten**.
+- Volledige productiebuild uitgevoerd: **succesvol** (`vite build`, klaar in ~33s).
+
+**Openstaand / eerstvolgende stap:**
+1. Functionele UI-test in Volledige Lijst uitvoeren op filters `Nabewerken`, `Mazak` en `BM01` met echte pilotdata.
+2. Bevestigen dat de gefilterde product-/orderlijsten inhoudelijk correct zijn per station.
+3. Indien akkoord: wijzigingen committen en pushen.
+
+### Update sessie 59 (Slimme Sync verfijnd + compacte import modal + planner/sidebar uitbreidingen)
+
+**Datum:** 10 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Slimme Sync bruikbaarder maken voor LN-herimport.
+- Planning Import modal compacter maken.
+- Meer operationele info zichtbaar maken in planningskaartjes.
+- Volledige Lijst uitbreiden met stationfilters en PDF-export.
+
+**Wat is afgerond in deze batch:**
+- **Planning Import modal vereenvoudigd** in `src/components/digitalplanning/modals/PlanningImportModal.jsx`:
+    - tabbladselectie verwijderd
+    - `Week t/m` blok verwijderd
+    - `Hybride Import` blok verwijderd
+    - zwarte header compacter gemaakt
+    - machinechips en snelle selectie-acties (`Alles selecteren`, `Leegmaken`, `BH12 + BH18`) verplaatst naar de zwarte header
+    - `Machinegroep` hernoemd naar `Afdelingsgroep`
+    - groepen: `Fittings`, `Pipes`, `Spools`
+    - multi-select machine-import toegevoegd; niet-geselecteerde machines worden overgeslagen
+- **Slimme Sync verfijnd** in `src/components/digitalplanning/modals/PlanningImportModal.jsx`:
+    - focus op wijzigingen in `Quantity Ordered` (`quantity`) en `PO Text` (`notes`/`poText`)
+    - bestaande orders zonder wijziging worden in Slimme Sync niet meer getoond
+    - alleen `Nieuw` of echte wijzigingen worden automatisch geselecteerd en meegenomen
+    - lijst sorteert nieuwe/gewijzigde regels bovenaan
+    - `Aantal` toont oud + nieuw bij wijziging:
+        - hoger nieuw aantal = groene badge
+        - lager nieuw aantal = rode badge
+    - `PO Text` krijgt groene highlight bij wijziging
+    - kolom `In Planning` toont:
+        - `Nieuw` voor nieuwe regels
+        - `Sync` voor bestaande regels met wijziging
+        - ongewijzigde bestaande regels worden niet getoond in Slimme Sync
+- **Importtabel compacter gemaakt** in `src/components/digitalplanning/modals/PlanningImportModal.jsx`:
+    - kleinere header paddings
+    - kleinere rijhoogte
+    - compactere badges/tags
+    - meer regels en kolommen zichtbaar
+- **PO Text zichtbaar op planningskaartjes**:
+    - `src/components/digitalplanning/PlanningSidebar.jsx`
+    - `src/components/digitalplanning/terminal/TerminalPlanningView.jsx`
+    - operators zien PO Text nu al op de kaart voordat ze doorklikken naar dossier/start
+- **Volledige Lijst / PlanningSidebar uitgebreid** in `src/components/digitalplanning/PlanningSidebar.jsx`:
+    - filter `Alle Machines / Stations` uitgebreid richting stationlogica op basis van tracked products
+    - extra stationfilters toegevoegd voor o.a. `Mazak`, `BM01`, `Lossen`
+    - snelle PDF-export toegevoegd op de actuele gefilterde lijst
+    - PDF-export aangepast naar **productniveau** in plaats van orderniveau
+    - PDF-kolommen nu: `Lotnummer`, `Ordernummer`, `Product`, `Station`, `PO Text`, `Status`
+
+**Openstaand / eerst controleren in volgende sessie:**
+1. `Nabewerken` ontbreekt nog steeds zichtbaar in de dropdown `Alle Machines / Stations` van de Volledige Lijst, ondanks eerdere filterlogica-uitbreiding.
+2. Controleren waarom `Nabewerken` niet als optie wordt opgebouwd in `src/components/digitalplanning/PlanningSidebar.jsx`.
+3. Daarna functioneel testen of filteren op `Nabewerken`, `Mazak` en `BM01` daadwerkelijk de juiste product-/orderlijst oplevert.
+4. Indien goed: wijzigingen committen en pushen.
+
+**Belangrijke technische notities:**
+- Voor Slimme Sync is `Quantity Ordered` leidend gemaakt als hoeveelheid (`quantity`).
+- `To do qty` is bewust niet meer leidend voor de verschilvergelijking in de importmodal.
+- PDF-export gebruikt eerst `trackedProducts`; als die ontbreken, valt export terug op minimale orderregels.
 
 ### Update sessie 58 (Planning Import Smart Sync + LN bestandsanalyse)
 

@@ -3,19 +3,21 @@
  * Exclusief voor Firebase/Google ecosystem
  * 
  * Setup:
- * API key is al geconfigureerd in .env:
- * VITE_GOOGLE_AI_KEY=AIza...
+ * API key wordt uitsluitend server-side geconfigureerd
+ * via Firebase Functions config/environment.
  */
 
-import { collection, query, getDocs, addDoc, setDoc, getDoc, doc, limit, serverTimestamp } from 'firebase/firestore';
-import { db, logActivity } from '../config/firebase';
+import { collection, query, getDocs, addDoc, setDoc, getDoc, doc, limit, orderBy, serverTimestamp } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import app, { auth, db, logActivity } from '../config/firebase';
 import { PATHS } from '../config/dbPaths';
 import i18n from '../i18n';
 
 class AIService {
   constructor() {
-    this.apiKey = import.meta.env.VITE_GOOGLE_AI_KEY;
-    this.availableModel = null; // Cache voor het gevonden model
+    this.availableModel = 'gemini-1.5-flash';
+    this.functions = getFunctions(app);
+    this.aiProxyGenerate = httpsCallable(this.functions, 'aiProxyGenerate');
     
     // Expose debug functie globally voor troubleshooting
     if (typeof window !== 'undefined') {
@@ -28,7 +30,7 @@ class AIService {
   }
 
   isConfigured() {
-    return !!this.apiKey;
+    return import.meta.env.VITE_DISABLE_AI !== 'true';
   }
 
   /**
@@ -275,6 +277,65 @@ class AIService {
   }
 
   /**
+   * Haal meest recente productie activiteit op gesorteerd op timestamp
+   * Gebruikt voor vragen als "welk lotnummer als laatste gebruikt?" of "wat is recentste lot?"
+   * @param {number} limitCount - Maximaal aantal items
+   * @returns {Promise<Array>} Array met meest recente activiteit
+   */
+  async getRecentProductionActivity(limitCount = 10) {
+    const results = [];
+    for (const pathKey of ['TRACKING', 'PLANNING']) {
+      try {
+        const col = collection(db, ...PATHS[pathKey]);
+        let snapshot;
+        // Probeer timestamp desc, dan createdAt desc, dan zonder sortering
+        try {
+          snapshot = await getDocs(query(col, orderBy('timestamp', 'desc'), limit(limitCount)));
+        } catch {
+          try {
+            snapshot = await getDocs(query(col, orderBy('createdAt', 'desc'), limit(limitCount)));
+          } catch {
+            snapshot = await getDocs(query(col, limit(limitCount)));
+          }
+        }
+        const docs = snapshot.docs.map(d => ({ id: d.id, source: pathKey, ...d.data() }));
+        results.push(...docs);
+        console.log(`📦 Recent activity from ${pathKey}: ${docs.length} items`);
+      } catch (error) {
+        console.warn(`⚠️ Kon recente activiteit niet ophalen uit ${pathKey}:`, error.message);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Haal productie tijden op uit TIME_LOGS en EFFICIENCY_HOURS
+   * Gebruikt voor vragen over cyclustijden, bewerkingstijden, efficiëntie
+   * @param {number} limitCount - Maximaal aantal items
+   * @returns {Promise<Array>} Array met tijdregistraties
+   */
+  async getProductionTimes(limitCount = 20) {
+    const results = [];
+    for (const pathKey of ['TIME_LOGS', 'EFFICIENCY_HOURS']) {
+      try {
+        const col = collection(db, ...PATHS[pathKey]);
+        let snapshot;
+        try {
+          snapshot = await getDocs(query(col, orderBy('timestamp', 'desc'), limit(limitCount)));
+        } catch {
+          snapshot = await getDocs(query(col, limit(limitCount)));
+        }
+        const docs = snapshot.docs.map(d => ({ id: d.id, source: pathKey, ...d.data() }));
+        results.push(...docs);
+        console.log(`⏱️ Times from ${pathKey}: ${docs.length} items`);
+      } catch (error) {
+        console.warn(`⚠️ Kon tijden niet ophalen uit ${pathKey}:`, error.message);
+      }
+    }
+    return results;
+  }
+
+  /**
    * Haal geanalyseerde AI documenten op
    * @param {number} limitCount - Maximaal aantal documenten
    * @returns {Promise<Array>} Array met documenten
@@ -293,6 +354,188 @@ class AIService {
       console.error('Error fetching AI documents:', error);
       return [];
     }
+  }
+
+  /**
+   * Berekent werkbelasting + beschikbare capaciteit voor de komende weken.
+   * Gebruikt voor vragen als:
+   * - "Kan ik een order van 130 uur inplannen vóór donderdag over 2 weken?"
+   * - "Welke orders lopen achterstand op?"
+   * - "Wat is mijn vrije capaciteit volgende week?"
+   * @returns {Promise<string>} Geformateerde capaciteits-context string
+   */
+  async getCapacityContext() {
+    let ctx = '\n\n## WERKBELASTING & CAPACITEITSANALYSE:\n';
+    ctx += '='.repeat(60) + '\n';
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const DAY_MS = 86400000;
+
+    // --- 1. Fabrieksstructuur (ploegen per afdeling) ---
+    let dailyCapacityHours = 0; // totale norm-uren per werkdag op basis van ploegen
+    let departments = [];
+    try {
+      const factorySnap = await getDoc(doc(db, ...PATHS.FACTORY_CONFIG));
+      if (factorySnap.exists()) {
+        const data = factorySnap.data();
+        departments = data.departments || [];
+        departments.forEach(dept => {
+          const shifts = Number(dept.shifts) || 1;
+          dailyCapacityHours += shifts * 8; // 8 uur per ploeg
+        });
+        ctx += `\n### Fabrieksstructuur:\n`;
+        departments.forEach(dept => {
+          const shifts = Number(dept.shifts) || 1;
+          ctx += `- ${dept.name}: ${shifts} ploeg(en) = ${shifts * 8} uur/dag\n`;
+        });
+        ctx += `**Totale dagcapaciteit: ${dailyCapacityHours} uur/dag (alle afdelingen)**\n`;
+      }
+    } catch (err) {
+      console.warn('Kon fabrieksstructuur niet laden voor capaciteitscontext:', err);
+      dailyCapacityHours = 16; // veilig default: 2 ploegen á 8u
+      ctx += `- Fabrieksstructuur niet beschikbaar, gebruik default: ${dailyCapacityHours} uur/dag\n`;
+    }
+
+    // --- 2. Werkdagen in de komende 3 weken berekenen ---
+    const horizon = 21; // dagen vooruit
+    const workdays = [];
+    for (let i = 0; i < horizon; i++) {
+      const d = new Date(today.getTime() + i * DAY_MS);
+      const dow = d.getDay(); // 0=zo, 6=za
+      if (dow !== 0 && dow !== 6) {
+        workdays.push(d.toISOString().slice(0, 10));
+      }
+    }
+    ctx += `\n### Beschikbare werkdagen (komende 3 weken):\n`;
+    ctx += workdays.map(d => `- ${d}`).join('\n') + '\n';
+    ctx += `**Totaalaantal werkdagen: ${workdays.length} | Totale capaciteit: ${workdays.length * dailyCapacityHours} uur**\n`;
+
+    // --- 3. Al bezette uren ophalen uit OCCUPANCY ---
+    const occupancyByDay = {};
+    try {
+      const occSnap = await getDocs(collection(db, ...PATHS.OCCUPANCY));
+      occSnap.docs.forEach(d => {
+        const data = d.data();
+        if (data.date && workdays.includes(data.date)) {
+          occupancyByDay[data.date] = (occupancyByDay[data.date] || 0) + (Number(data.hours) || 8);
+        }
+      });
+    } catch (err) {
+      console.warn('Kon bezetting niet ophalen:', err);
+    }
+
+    // --- 4. Geschatte resterende werkuren per lopende order (EFFICIENCY_HOURS) ---
+    let totalCommittedHours = 0;
+    const behindOrders = [];
+    const activeOrders = [];
+    try {
+      const effSnap = await getDocs(query(collection(db, ...PATHS.EFFICIENCY_HOURS), limit(100)));
+      const trackingSnap = await getDocs(query(collection(db, ...PATHS.TRACKING), limit(500)));
+      const trackingData = trackingSnap.docs.map(d => d.data());
+
+      effSnap.docs.forEach(d => {
+        const std = d.data();
+        if (!std.orderId) return;
+
+        const relatedLogs = trackingData.filter(t =>
+          String(t.orderId || t.orderNumber) === String(std.orderId)
+        );
+
+        let actualMinutes = 0;
+        let producedQty = 0;
+        relatedLogs.forEach(log => {
+          if (log.timestamps?.station_start) {
+            const start = log.timestamps.station_start.toDate
+              ? log.timestamps.station_start.toDate() : new Date(log.timestamps.station_start);
+            const end = log.timestamps.completed?.toDate
+              ? log.timestamps.completed.toDate()
+              : (log.timestamps.finished?.toDate ? log.timestamps.finished.toDate() : new Date());
+            if (end - start > 0) actualMinutes += (end - start) / 60000;
+          }
+          if (['completed', 'Finished', 'GEREED'].includes(log.status || log.currentStep || log.currentStation)) {
+            producedQty++;
+          }
+        });
+
+        const normPerUnit = Number(std.minutesPerUnit) || 0;
+        const totalQty = Number(std.quantity) || 0;
+        const remainingQty = Math.max(0, totalQty - producedQty);
+        const remainingMinutes = remainingQty * normPerUnit;
+        const remainingHours = Math.round(remainingMinutes / 60 * 10) / 10;
+
+        let efficiency = 0;
+        if (actualMinutes > 0) {
+          const earnedMinutes = producedQty * normPerUnit;
+          efficiency = Math.round((earnedMinutes / actualMinutes) * 100);
+        }
+
+        const statusLabel = efficiency > 0
+          ? (efficiency >= 100 ? 'VOOR op schema' : efficiency >= 85 ? 'OP schema' : 'ACHTER op schema')
+          : (producedQty > 0 ? 'Start gemaakt' : 'Nog niet gestart');
+
+        const orderInfo = {
+          orderId: std.orderId,
+          totalQty,
+          producedQty,
+          remainingQty,
+          remainingHours,
+          efficiency,
+          status: statusLabel,
+          dueDate: std.dueDate || std.deliveryDate || null,
+        };
+
+        totalCommittedHours += remainingHours;
+        activeOrders.push(orderInfo);
+        if (efficiency > 0 && efficiency < 85) behindOrders.push(orderInfo);
+      });
+    } catch (err) {
+      console.warn('Kon efficiency/tracking niet laden voor capaciteitscontext:', err);
+    }
+
+    // --- 5. Output: vrije capaciteit ---
+    const freeHours = Math.max(0, workdays.length * dailyCapacityHours - totalCommittedHours);
+    ctx += `\n### Huidige werkbelasting:\n`;
+    ctx += `- Actieve orders totaal resterende uren: **${Math.round(totalCommittedHours)} uur**\n`;
+    ctx += `- Vrije capaciteit komende ${workdays.length} werkdagen: **${Math.round(freeHours)} uur**\n`;
+
+    if (activeOrders.length > 0) {
+      ctx += `\n### Lopende orders met resterende werkuren:\n`;
+      activeOrders.forEach(o => {
+        ctx += `- Order ${o.orderId}: ${o.producedQty}/${o.totalQty} stuks, `;
+        ctx += `resterend: **${o.remainingHours} uur**, status: ${o.status}`;
+        if (o.dueDate) ctx += `, deadline: ${o.dueDate}`;
+        ctx += `\n`;
+      });
+    }
+
+    if (behindOrders.length > 0) {
+      ctx += `\n### ⚠️ ORDERS ACHTER OP SCHEMA:\n`;
+      behindOrders.forEach(o => {
+        ctx += `- Order ${o.orderId}: efficiëntie ${o.efficiency}% — ${o.remainingQty} stuks resterend (${o.remainingHours} uur)\n`;
+      });
+    } else {
+      ctx += `\n### ✅ Geen orders met significante achterstand gevonden.\n`;
+    }
+
+    // --- 6. Capaciteitsadvies: beschikbaar venster per dag ---
+    ctx += `\n### Dagelijkse capaciteit overzicht (komende 2 weken):\n`;
+    workdays.slice(0, 10).forEach(day => {
+      const committed = Math.round(occupancyByDay[day] || 0);
+      const available = Math.max(0, dailyCapacityHours - committed);
+      const date = new Date(day);
+      const dayName = date.toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' });
+      ctx += `- ${dayName}: ${available} uur beschikbaar (${committed} uur bezet)\n`;
+    });
+
+    ctx += '='.repeat(60) + '\n';
+    ctx += `\n**INSTRUCTIE VOOR AI:** Gebruik bovenstaande data om:
+- Te berekenen of een nieuwe order (bijv. 130 uur) past binnen een gevraagd tijdvenster
+- Te adviseren over de meest gunstige startdatum
+- Te rapporteren welke orders achterstand hebben
+- Spreiding voor te stellen (uren per dag) om deadline te halen\n`;
+
+    return ctx;
   }
 
   /**
@@ -557,7 +800,134 @@ class AIService {
           contextData += `\n\n${i18n.t("ai.context.no_orders_found", "⚠️ Geen productie orders gevonden in database voor:")} ${userQuery}\n`;
         }
       }
-      
+
+      // Vragen over meest recente lot / laatste activiteit
+      const isRecentQuery = query.includes('laatste') ||
+                            query.includes('recent') ||
+                            query.includes('nieuwste') ||
+                            query.includes('laats') ||
+                            (query.includes('lot') && (query.includes('welk') || query.includes('wat') || query.includes('nummer')));
+
+      if (isRecentQuery) {
+        try {
+          const recent = await this.getRecentProductionActivity(10);
+          if (recent.length > 0) {
+            contextData += `\n\n📋 RECENTSTE PRODUCTIE ACTIVITEIT:\n`;
+            contextData += '='.repeat(60) + '\n';
+
+            recent.slice(0, 5).forEach((item, idx) => {
+              contextData += `\n[Activiteit ${idx + 1}]\n`;
+              const orderId = item.orderId || item.orderNumber || item.id || 'N/A';
+              contextData += `Order: ${orderId}\n`;
+
+              const lotNr = item.lotNumber || item.lot || item.batchNumber || item.batch || item.lotId;
+              if (lotNr) contextData += `Lotnummer: ${lotNr}\n`;
+
+              const productName = item.name || item.productName || item.title || item.itemCode;
+              if (productName) contextData += `Product: ${productName}\n`;
+              if (item.sku) contextData += `SKU: ${item.sku}\n`;
+
+              const ts = item.timestamp || item.createdAt || item.updatedAt || item.completedAt;
+              if (ts) {
+                const date = ts?.toDate ? ts.toDate().toLocaleString('nl-NL') : new Date(ts).toLocaleString('nl-NL');
+                contextData += `Tijdstip: ${date}\n`;
+              }
+
+              if (item.status) contextData += `Status: ${item.status}\n`;
+              if (item.operator) contextData += `Operator: ${item.operator}\n`;
+              if (item.workstation) contextData += `Werkstation: ${item.workstation}\n`;
+            });
+
+            contextData += '\n' + '='.repeat(60) + '\n';
+          }
+        } catch (err) {
+          console.warn('Kon recente activiteit niet laden:', err);
+        }
+      }
+
+      // Vragen over productie tijden / uren / efficiëntie
+      const isTimeQuery = query.includes('tijd') ||
+                          query.includes('uren') ||
+                          query.includes('uur') ||
+                          query.includes('effici') ||
+                          query.includes('hoelang') ||
+                          query.includes('duur') ||
+                          query.includes('cyclustijd') ||
+                          query.includes('bewerkingstijd') ||
+                          query.includes('instelttijd') ||
+                          query.includes('takt');
+
+      if (isTimeQuery) {
+        try {
+          const times = await this.getProductionTimes(20);
+          if (times.length > 0) {
+            contextData += `\n\n⏱️ PRODUCTIE TIJDEN:\n`;
+            contextData += '='.repeat(60) + '\n';
+
+            times.slice(0, 10).forEach((item, idx) => {
+              contextData += `\n[Tijdregistratie ${idx + 1}]\n`;
+              const productName = item.name || item.productName || item.itemCode || item.sku;
+              if (productName) contextData += `Product: ${productName}\n`;
+              const orderId = item.orderId || item.orderNumber || item.id || 'N/A';
+              contextData += `Order: ${orderId}\n`;
+              if (item.workstation || item.workcenter) contextData += `Werkstation: ${item.workstation || item.workcenter}\n`;
+              if (item.operator) contextData += `Operator: ${item.operator}\n`;
+              if (item.duration !== undefined) contextData += `Duur: ${item.duration} min\n`;
+              if (item.setupTime !== undefined) contextData += `Instelttijd: ${item.setupTime} min\n`;
+              if (item.cycleTime !== undefined) contextData += `Cyclustijd: ${item.cycleTime} sec\n`;
+              if (item.totalTime !== undefined) contextData += `Totale tijd: ${item.totalTime} min\n`;
+              if (item.startTime) contextData += `Starttijd: ${item.startTime}\n`;
+              if (item.endTime) contextData += `Eindtijd: ${item.endTime}\n`;
+              if (item.quantity !== undefined) contextData += `Aantal: ${item.quantity}\n`;
+              if (item.efficiency !== undefined) contextData += `Efficiëntie: ${item.efficiency}%\n`;
+              const ts = item.timestamp || item.createdAt;
+              if (ts) {
+                const date = ts?.toDate ? ts.toDate().toLocaleString('nl-NL') : new Date(ts).toLocaleString('nl-NL');
+                contextData += `Datum: ${date}\n`;
+              }
+              Object.keys(item).forEach(key => {
+                if (!['id', 'orderId', 'orderNumber', 'name', 'productName', 'itemCode', 'sku',
+                       'workstation', 'workcenter', 'operator', 'duration', 'setupTime', 'cycleTime',
+                       'totalTime', 'startTime', 'endTime', 'quantity', 'efficiency', 'timestamp',
+                       'createdAt', 'source'].includes(key)) {
+                  const value = item[key];
+                  if (value !== null && value !== undefined && value !== '') {
+                    contextData += `${key}: ${JSON.stringify(value)}\n`;
+                  }
+                }
+              });
+            });
+
+            contextData += '\n' + '='.repeat(60) + '\n';
+          }
+        } catch (err) {
+          console.warn('Kon productie tijden niet laden:', err);
+        }
+      }
+
+      // Vragen over capaciteitsplanning, werkdruk, achterstand, inplannen
+      const isCapacityQuery =
+        query.includes('werkuur') || query.includes('werkuren') ||
+        query.includes('capaciteit') || query.includes('werkdruk') ||
+        query.includes('inplannen') || query.includes('inplan') ||
+        query.includes('achterstand') || query.includes('achter') ||
+        query.includes('deadline') || query.includes('klaar voor') ||
+        query.includes('klaar op') || query.includes('hoeveel uur') ||
+        query.includes('beschikbaar') || query.includes('vrije') ||
+        query.includes('passen') ||
+        /\d+\s*(uur|werkuur|manuur)/i.test(userQuery);
+
+      if (isCapacityQuery) {
+        try {
+          console.log('📊 Capaciteitscontext ophalen...');
+          const capacityCtx = await this.getCapacityContext();
+          contextData += capacityCtx;
+          console.log('✅ Capaciteitscontext toegevoegd');
+        } catch (err) {
+          console.warn('Kon capaciteitscontext niet laden:', err);
+        }
+      }
+
       // Controleer op catalog/maten/toleranties vragen
       if (query.includes('maat') || 
           query.includes('tolerantie') ||
@@ -616,57 +986,23 @@ class AIService {
   }
 
   async getAvailableModel() {
-    // Als we al een werkend model hebben, gebruik dat
-    if (this.availableModel) {
-      return this.availableModel;
-    }
-
-    try {
-      // Haal lijst met beschikbare modellen op
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`
-      );
-      
-      if (!response.ok) {
-        console.error('Failed to fetch models');
-        return 'gemini-pro'; // Fallback
-      }
-
-      const data = await response.json();
-      console.log('Available models:', data.models?.map(m => m.name));
-      
-      // Zoek een geschikt model voor generateContent
-      const suitableModel = data.models?.find(model => 
-        model.supportedGenerationMethods?.includes('generateContent') &&
-        (model.name.includes('gemini') || model.name.includes('chat'))
-      );
-
-      if (suitableModel) {
-        // Haal alleen de model naam (laatste deel na /)
-        this.availableModel = suitableModel.name.split('/').pop();
-        console.log('✅ Using model:', this.availableModel);
-        return this.availableModel;
-      }
-
-      // Fallback naar gemini-pro
-      this.availableModel = 'gemini-pro';
-      return this.availableModel;
-    } catch (error) {
-      console.error('Error fetching models:', error);
-      return 'gemini-pro'; // Fallback
-    }
+    return this.availableModel;
   }
 
   async chat(messages, systemPrompt = null, options = {}) {
-    if (!this.apiKey) {
-      throw new Error(i18n.t("gemini.api_key_missing_env", "Geen Google AI API key gevonden in .env"));
+    if (!this.isConfigured()) {
+      throw new Error(i18n.t("gemini.api_disabled", "AI functionaliteit is uitgeschakeld."));
+    }
+
+    if (!auth.currentUser) {
+      throw new Error(i18n.t("gemini.auth_required", "Je moet ingelogd zijn om AI te gebruiken."));
     }
 
     // Haal beschikbare model op
     const modelName = await this.getAvailableModel();
 
     try {
-      return await this.chatGoogle(messages, systemPrompt, this.apiKey, modelName, options);
+      return await this.chatGoogle(messages, systemPrompt, modelName, options);
     } catch (error) {
       console.error('AI Chat Error:', error);
       throw error;
@@ -681,8 +1017,8 @@ class AIService {
    * @returns {Promise<string>} Response
    */
   async chatWithContext(messages, systemPrompt = null, includeContext = true, options = {}) {
-    if (!this.apiKey) {
-      throw new Error('Geen Google AI API key gevonden in .env');
+    if (!this.isConfigured()) {
+      throw new Error('AI functionaliteit is uitgeschakeld');
     }
 
     // Als includeContext true is, voeg relevante data toe aan de system prompt
@@ -711,94 +1047,32 @@ class AIService {
     return this.chat(messages, enhancedSystemPrompt, options);
   }
 
-  async chatGoogle(messages, systemPrompt, apiKey, modelName, options = {}) {
-    // Gemini API format: converteer chat history naar Gemini format
-    const contents = [];
-    
-    // Voeg system prompt toe als eerste user message
-    if (systemPrompt) {
-      contents.push({
-        role: 'user',
-        parts: [{ text: systemPrompt }]
-      });
-      contents.push({
-        role: 'model',
-        parts: [{ text: i18n.t("ai.system_ack", "Begrepen. Ik zal je helpen met je vragen over FPi Future Factory.") }]
-      });
-    }
-
-    // Converteer messages naar Gemini format
-    messages.forEach(msg => {
-      contents.push({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }]
-      });
-    });
-
+  async chatGoogle(messages, systemPrompt, modelName, options = {}) {
     try {
-      const { signal } = options || {};
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          signal,
-          body: JSON.stringify({
-            contents: contents,
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 8000,
-              topP: 0.95,
-              topK: 40,
-            },
-            safetySettings: [
-              {
-                category: "HARM_CATEGORY_HARASSMENT",
-                threshold: "BLOCK_NONE"
-              },
-              {
-                category: "HARM_CATEGORY_HATE_SPEECH",
-                threshold: "BLOCK_NONE"
-              },
-              {
-                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                threshold: "BLOCK_NONE"
-              },
-              {
-                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                threshold: "BLOCK_NONE"
-              }
-            ]
-          }),
-        }
-      );
+      const response = await this.aiProxyGenerate({
+        messages,
+        systemPrompt: systemPrompt || '',
+        modelName,
+      });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Gemini API Error Response:', errorData);
-        throw new Error(errorData.error?.message || `API fout: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      // Check of er een response is
-      if (!data.candidates || data.candidates.length === 0) {
+      const text = response?.data?.text;
+      if (!text) {
         throw new Error(i18n.t("gemini.no_answer", "Geen antwoord ontvangen van AI"));
       }
 
-      const candidate = data.candidates[0];
-      
-      // Check blocking
-      if (candidate.finishReason === 'SAFETY') {
-        throw new Error(i18n.t("gemini.safety_block", "Antwoord geblokkeerd door veiligheidsfilters"));
+      return text;
+    } catch (error) {
+      console.error('AI proxy error:', error);
+
+      if (error?.code === 'resource-exhausted') {
+        throw new Error(i18n.t("gemini.rate_limit", "Te veel AI aanvragen. Probeer het over een minuut opnieuw."));
       }
 
-      return candidate.content.parts[0].text;
-    } catch (error) {
-      console.error('Gemini Chat Error:', error);
-      throw error;
+      if (error?.code === 'unauthenticated') {
+        throw new Error(i18n.t("gemini.auth_required", "Je moet ingelogd zijn om AI te gebruiken."));
+      }
+
+      throw new Error(error?.message || i18n.t("gemini.proxy_error", "AI proxy request mislukt"));
     }
   }
 

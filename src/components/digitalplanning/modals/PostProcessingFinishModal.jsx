@@ -17,14 +17,11 @@ import { useNotifications } from "../../../contexts/NotificationContext";
 import { useTranslation } from "react-i18next";
 
 const REJECTION_REASON_FALLBACKS = {
-  "rejection.notConformDrawing": "Niet conform tekening",
-  "rejection.wrongDiameter": "Verkeerde diameter",
   "rejection.surfaceDamage": "Oppervlakteschade",
-  "rejection.crack": "Scheur",
-  "rejection.materialShortage": "Materiaaltekort",
-  "rejection.wrongSpec": "Verkeerde specificatie",
-  "rejection.dimensionDeviation": "Maatafwijking",
+  "rejection.dimensionDeviation": "Maatafwijking (TW/TF/W)",
   "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
+  "rejection.incorrectLabel": "Onjuist label",
+  "rejection.linerDamaged": "Liner beschadigd",
   "rejection.other": "Overig",
 };
 

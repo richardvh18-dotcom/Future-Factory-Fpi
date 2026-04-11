@@ -3,8 +3,31 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App"; // Schakelt weer over naar de hoofdapplicatie
 import ErrorBoundary from "./components/ErrorBoundary";
+import { auth, logActivity } from "./config/firebase";
 import "./i18n"; // Import i18n configuratie
 import "./styles.css";
+
+const recentRuntimeErrors = new Map();
+
+const reportRuntimeError = (type, details) => {
+  try {
+    const fingerprint = `${type}:${details}`.slice(0, 200);
+    const now = Date.now();
+    const prev = recentRuntimeErrors.get(fingerprint) || 0;
+
+    // Throttle duplicate errors to avoid spamming logs.
+    if (now - prev < 30000) return;
+    recentRuntimeErrors.set(fingerprint, now);
+
+    logActivity(
+      auth.currentUser?.uid || "system",
+      "CLIENT_RUNTIME_ERROR",
+      `${type}: ${String(details || "unknown").slice(0, 1200)}`
+    ).catch(() => {});
+  } catch {
+    // Best effort error reporting only.
+  }
+};
 
 const shouldAttachManifest = (() => {
   if (typeof window === "undefined") return false;
@@ -80,6 +103,10 @@ window.addEventListener('error', (event) => {
   console.error('🔴 Error message:', event.message);
   console.error('🔴 Error filename:', event.filename);
   console.error('🔴 Error line:', event.lineno);
+  reportRuntimeError(
+    'window.error',
+    `${event.message || 'unknown'} @ ${event.filename || 'unknown'}:${event.lineno || 0}`
+  );
 });
 
 // Promise rejection handler voor Safari
@@ -93,4 +120,5 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 
   console.error('🔴 Unhandled promise rejection:', reason);
+  reportRuntimeError('window.unhandledrejection', message || reason?.stack || 'unknown');
 });

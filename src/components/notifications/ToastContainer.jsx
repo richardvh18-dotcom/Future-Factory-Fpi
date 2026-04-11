@@ -63,62 +63,123 @@ const ToastContainer = () => {
 
   if (!activeToast) return null;
 
-  return (
-    <div className="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
-      <div className="absolute inset-0 bg-slate-950/10 backdrop-blur-[1px]" />
+  // Fout/waarschuwing → midden in beeld, met overlay (blokkerend)
+  const isBlocking = activeToast.type === 'error' || activeToast.type === 'warning';
 
+  if (isBlocking) {
+    return (
+      <div className="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
+        <div className="absolute inset-0 bg-slate-950/10 backdrop-blur-[1px]" />
+
+        <div
+          key={activeToast.id}
+          className={`pointer-events-auto relative w-full max-w-2xl overflow-hidden rounded-[26px] border shadow-[0_30px_75px_-30px_rgba(15,23,42,0.55)] backdrop-blur-xl animate-in ${getSurface(activeToast.type)}`}
+        >
+          <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${getAccent(activeToast.type)}`} />
+
+          <div className="flex items-start gap-4 px-4 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
+            <div className={`mt-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white/75 shadow-inner ${getIconColors(activeToast.type)}`}>
+              {getIcon(activeToast.type)}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-800 sm:text-xs">
+                  {activeToast.title}
+                </h4>
+                {activeToast.count > 1 && (
+                  <span className="inline-flex items-center rounded-full bg-black/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-700">
+                    {activeToast.count}x
+                  </span>
+                )}
+                {queuedCount > 0 && (
+                  <span className="inline-flex items-center rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 shadow-sm">
+                    +{queuedCount} in rij
+                  </span>
+                )}
+              </div>
+
+              {activeToast.message && (
+                <p className="mt-2 whitespace-pre-line pr-2 text-sm font-medium leading-6 text-slate-700 sm:text-[15px]">
+                  {activeToast.message}
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={() => removeToast(activeToast.id)}
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-black/10 bg-white/70 text-slate-500 transition-colors hover:bg-white hover:text-slate-900"
+              aria-label="Sluiten"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="px-4 pb-4 sm:px-6 sm:pb-5">
+            <div className="h-1.5 overflow-hidden rounded-full bg-black/10">
+              <div
+                className={`h-full rounded-full bg-gradient-to-r ${getAccent(activeToast.type)}`}
+                style={{
+                  width: '100%',
+                  animation: `shrink-width ${activeToast.duration}ms linear forwards`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Succes/info → rechts onder in beeld, niet-blokkerend (geen overlay)
+  return (
+    <div className="pointer-events-none fixed bottom-5 right-5 z-[9999] flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
       <div
         key={activeToast.id}
-        className={`pointer-events-auto relative w-full max-w-2xl overflow-hidden rounded-[26px] border shadow-[0_30px_75px_-30px_rgba(15,23,42,0.55)] backdrop-blur-xl animate-in ${getSurface(activeToast.type)}`}
+        className={`pointer-events-auto relative w-full max-w-sm overflow-hidden rounded-2xl border shadow-[0_12px_40px_-12px_rgba(15,23,42,0.35)] backdrop-blur-xl animate-in slide-in-from-right-5 ${getSurface(activeToast.type)}`}
       >
         <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${getAccent(activeToast.type)}`} />
 
-        <div className="flex items-start gap-4 px-4 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
-          <div className={`mt-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white/75 shadow-inner ${getIconColors(activeToast.type)}`}>
+        <div className="flex items-start gap-3 px-4 pb-3 pt-4">
+          <div className={`mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/75 shadow-inner ${getIconColors(activeToast.type)}`}>
             {getIcon(activeToast.type)}
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h4 className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-800 sm:text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <h4 className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-800">
                 {activeToast.title}
               </h4>
               {activeToast.count > 1 && (
-                <span className="inline-flex items-center rounded-full bg-black/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-700">
+                <span className="inline-flex items-center rounded-full bg-black/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-slate-700">
                   {activeToast.count}x
                 </span>
               )}
               {queuedCount > 0 && (
-                <span className="inline-flex items-center rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 shadow-sm">
-                  +{queuedCount} in rij
+                <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-slate-600 shadow-sm">
+                  +{queuedCount}
                 </span>
               )}
             </div>
 
             {activeToast.message && (
-              <p className="mt-2 whitespace-pre-line pr-2 text-sm font-medium leading-6 text-slate-700 sm:text-[15px]">
+              <p className="mt-1 whitespace-pre-line pr-1 text-xs font-medium leading-5 text-slate-700">
                 {activeToast.message}
-              </p>
-            )}
-
-            {queuedCount > 0 && (
-              <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Meldingen worden netjes achter elkaar getoond.
               </p>
             )}
           </div>
 
           <button
             onClick={() => removeToast(activeToast.id)}
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-black/10 bg-white/70 text-slate-500 transition-colors hover:bg-white hover:text-slate-900"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-black/10 bg-white/70 text-slate-500 transition-colors hover:bg-white hover:text-slate-900"
             aria-label="Sluiten"
           >
-            <X className="h-4 w-4" />
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
 
-        <div className="px-4 pb-4 sm:px-6 sm:pb-5">
-          <div className="h-1.5 overflow-hidden rounded-full bg-black/10">
+        <div className="px-4 pb-3">
+          <div className="h-1 overflow-hidden rounded-full bg-black/10">
             <div
               className={`h-full rounded-full bg-gradient-to-r ${getAccent(activeToast.type)}`}
               style={{
@@ -134,3 +195,4 @@ const ToastContainer = () => {
 };
 
 export default ToastContainer;
+

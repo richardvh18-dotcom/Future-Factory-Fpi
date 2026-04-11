@@ -71,7 +71,7 @@ const normalizeQueuePrintPayload = (content, quantity) => {
 };
 
 // --- Helper voor Tijdelijke Labels ---
-const TempLabelItem = ({ item, labelTemplates, labelRules, isExpanded, onToggle, printerDpi = 203, handleTempLegacyPrint }) => {
+const TempLabelItem = ({ item, labelTemplates, labelRules, isExpanded, onToggle, printerDpi = 300, handleTempLegacyPrint }) => {
   const itemDisplay = item.item || item.description || item.Description || item.Omschrijving || item.itemCode || item.Item || item.Artikel || "";
 
   const topOptions = useMemo(() => {
@@ -186,7 +186,7 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, isExpanded, onToggle,
 };
 
 // --- Modal: Tijdelijke Labels Zoeken ---
-const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printerDpi = 203, usbDevice, setUsbDevice, activeQueuePrinter, selectedStation }) => {
+const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printerDpi = 300, usbDevice, setUsbDevice, activeQueuePrinter, selectedStation }) => {
   const { t } = useTranslation();
   const { notify } = useNotifications();
 

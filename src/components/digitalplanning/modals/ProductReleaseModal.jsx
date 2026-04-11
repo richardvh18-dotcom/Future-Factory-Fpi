@@ -1,23 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, CheckCircle, ArrowRight, AlertTriangle, Ruler, AlertOctagon, FileText } from "lucide-react";
-import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, getDocs, increment, setDoc, deleteDoc } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
-import { PATHS, getArchiveRejectedItemsPath } from "../../../config/dbPaths";
+import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS, resolvePostLossenStation } from "../../../utils/workstationLogic";
 import { useNotifications } from '../../../contexts/NotificationContext';
+import { rejectTrackedProductFinal } from "../../../services/planningSecurityService";
 
 const PILOT_ALLOW_INCOMPLETE_LOSSEN_MEASUREMENTS = true;
 
 const REJECTION_REASON_FALLBACKS = {
-  "rejection.notConformDrawing": "Niet conform tekening",
-  "rejection.wrongDiameter": "Verkeerde diameter",
   "rejection.surfaceDamage": "Oppervlakteschade",
-  "rejection.crack": "Scheur",
-  "rejection.materialShortage": "Materiaaltekort",
-  "rejection.wrongSpec": "Verkeerde specificatie",
-  "rejection.dimensionDeviation": "Maatafwijking",
+  "rejection.dimensionDeviation": "Maatafwijking (TW/TF/W)",
   "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
+  "rejection.incorrectLabel": "Onjuist label",
+  "rejection.linerDamaged": "Liner beschadigd",
   "rejection.other": "Overig",
 };
 
@@ -67,7 +65,7 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
   const [status, setStatus] = useState("approved"); // approved, temp_reject, rejected
   const [measurements, setMeasurements] = useState({});
   const [errors, setErrors] = useState({});
-  const [reason, setReason] = useState("");
+  const [selectedReasons, setSelectedReasons] = useState([]);
   const [comment, setComment] = useState("");
   const [selectedBulkLotIds, setSelectedBulkLotIds] = useState([]);
 
@@ -91,6 +89,14 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
     const translated = t(reasonKey);
     if (translated && translated !== reasonKey) return translated;
     return REJECTION_REASON_FALLBACKS[reasonKey] || reasonKey;
+  };
+
+  const toggleReason = (reasonKey) => {
+    setSelectedReasons((prev) =>
+      prev.includes(reasonKey)
+        ? prev.filter((r) => r !== reasonKey)
+        : [...prev, reasonKey]
+    );
   };
 
   // Determine product/connectie type for measurements
@@ -305,59 +311,25 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
           updates.currentStep = "HOLD_AREA";
           updates.inspection = {
             status: "Tijdelijke afkeur",
-            reasons: [reason],
+            reasons: selectedReasons,
             timestamp: new Date().toISOString(),
           };
           updates.history = arrayUnion({
             action: "Tijdelijke Afkeur",
             timestamp: new Date(),
             user: activeOperator,
-            details: `Reden: ${reason} - ${comment}`,
+            details: `Reden: ${selectedReasons.map((r) => getReasonLabel(r)).join(", ")} - ${comment}`,
             station: target.currentStation || target.machine || "Onbekend",
           });
         } else if (status === "rejected") {
-          // ARCHIVERING LOGICA voor DEFINITIEF AFKEUR
-          const historyEntry = {
-            action: "Definitieve Afkeur",
-            timestamp: new Date(),
-            user: activeOperator,
-            details: `Reden: ${reason} - ${comment}`,
-            station: target.currentStation || target.machine || "Onbekend",
-          };
-          
-          const rejectionData = {
-            ...target,
-            status: "Rejected",
-            currentStep: "REJECTED",
-            currentStation: "AFKEUR",
-            inspection: {
-              status: "Afkeur",
-              reasons: [reason],
-              timestamp: new Date().toISOString(),
-            },
-            history: [...(target.history || []), historyEntry],
-            updatedAt: new Date(),
-            archivedAt: new Date(),
-            archivedReason: "rejected",
-          };
-          
-          const year = new Date().getFullYear();
-          const rejectedArchiveRef = doc(db, ...getArchiveRejectedItemsPath(year), target.id || target.lotNumber);
-          
-          // 1. Sla op in rejected archief
-          await setDoc(rejectedArchiveRef, rejectionData);
-          
-          // 2. Verwijder uit actieve tracking
-          await deleteDoc(targetRef);
+          await rejectTrackedProductFinal({
+            productId: targetId,
+            reasons: selectedReasons,
+            note: comment,
+            source: "ProductReleaseModal",
+            actorLabel: activeOperator,
+          });
 
-          if (target.orderId) {
-            const orderRef = doc(db, ...PATHS.PLANNING, target.orderId);
-            updateDoc(orderRef, {
-              rejectedCount: increment(1),
-              lastUpdated: serverTimestamp(),
-            }).catch((e) => console.error("Kon order niet updaten na afkeur:", e));
-          }
-          
           // Skip updateDoc, direct naar next target
           continue;
         }
@@ -538,8 +510,8 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
                 {REJECTION_REASONS.map((r) => (
                   <button
                     key={r}
-                    onClick={() => setReason(getReasonLabel(r))}
-                    className={`p-3 rounded-xl text-xs font-bold border text-left ${reason === getReasonLabel(r) ? "bg-slate-800 text-white border-slate-800" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                    onClick={() => toggleReason(r)}
+                    className={`p-3 rounded-xl text-xs font-bold border text-left ${selectedReasons.includes(r) ? "bg-slate-800 text-white border-slate-800" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
                   >
                     {getReasonLabel(r)}
                   </button>
@@ -578,7 +550,7 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
 
           <button
             onClick={handleRelease}
-            disabled={loading || (status !== "approved" && !reason)}
+            disabled={loading || (status !== "approved" && selectedReasons.length === 0)}
             className={`w-full py-4 rounded-xl font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95 ${
               status === 'approved' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' :
               status === 'temp_reject' ? 'bg-orange-500 hover:bg-orange-600 text-white' :

@@ -29,7 +29,7 @@ import { useNotifications } from "../../../contexts/NotificationContext";
 import { generatePrintData, generateLotBatchZPL } from "../../../utils/zplHelper";
 import { getDriver } from "../../../utils/printerDrivers";
 import { queuePrintJob } from "../../../services/printService.js";
-import LabelVisualPreview from "../../printer/LabelVisualPreview";
+import AutoScaledLabelPreview from "../../printer/AutoScaledLabelPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
 import InternalQrImage from "../../../utils/InternalQrImage";
 
@@ -37,11 +37,11 @@ import InternalQrImage from "../../../utils/InternalQrImage";
  * DPI-aware PIXELS_PER_MM for print preview parity
  * Must match zplHelper.js printer DPI conversions
  */
-const getPixelsPerMm = (printerDpi = 203) => {
-  return (printerDpi || 203) / 25.4;
+const getPixelsPerMm = (printerDpi = 300) => {
+  return (printerDpi || 300) / 25.4;
 };
 
-const DEFAULT_PRINTER_DPI = 203;
+const DEFAULT_PRINTER_DPI = 300;
 const LOT_ARCHIVE_LOOKBACK_YEARS = 6;
 
 // Functie om ISO week en bijbehorend ISO jaar te berekenen
@@ -86,7 +86,7 @@ const getMachineCode = (station) => {
   return `4${digits.slice(-2).padStart(2, "0")}`;
 };
 
-const getNormalizedPrinterDpi = (printer, fallback = 203) => {
+const getNormalizedPrinterDpi = (printer, fallback = 300) => {
   const parsed = Number.parseInt(printer?.dpi, 10);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
   const resolved = getDriver(printer);
@@ -125,7 +125,6 @@ const ProductionStartModal = ({
   const [orderError, setOrderError] = useState("");
 
   const [selectedLabelId, setSelectedLabelId] = useState("");
-  const [previewZoom, setPreviewZoom] = useState(1);
   const location = useLocation();
   
   const [savedPrinters, setSavedPrinters] = useState([]);
@@ -139,7 +138,6 @@ const ProductionStartModal = ({
   });
 
   const containerRef = useRef(null);
-  const previewAreaRef = useRef(null);
 
   const [isCheckingLot, setIsCheckingLot] = useState(false);
   const [lotError, setLotError] = useState("");
@@ -230,6 +228,19 @@ const ProductionStartModal = ({
   }), [order, isManualMode, manualOrderInput, manualLotInput, lotNumber]);
 
   const { selectedLabel, previewData, availableLabels: allLabels, loadingLabels } = useLabelPreview(productForPreview, selectedLabelId);
+
+  const previewTargetPrinter = useMemo(() => {
+    const explicit = printConfig?.printerId
+      ? savedPrinters.find((p) => p.id === printConfig.printerId)
+      : null;
+    if (explicit) return explicit;
+    return resolveTargetPrinter(savedPrinters, stationId);
+  }, [savedPrinters, stationId, printConfig?.printerId]);
+
+  const previewPrinterDpi = useMemo(
+    () => getNormalizedPrinterDpi(previewTargetPrinter, DEFAULT_PRINTER_DPI),
+    [previewTargetPrinter]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -777,53 +788,6 @@ const ProductionStartModal = ({
       } catch (e) { console.error("Kon counter niet updaten:", e); }
   };
 
-  useEffect(() => {
-    if (!isOpen || mode === "manual") return;
-
-    const previewEl = previewAreaRef.current || containerRef.current;
-    const containerEl = containerRef.current;
-    if (!previewEl || !selectedLabel) return;
-
-    const recalc = () => {
-      const pixelsPerMm = getPixelsPerMm(DEFAULT_PRINTER_DPI);
-      const availableW = Math.max(120, previewEl.clientWidth - 24);
-      const availableH = Math.max(120, previewEl.clientHeight - 24);
-      const widthMm = Number.parseFloat(String(selectedLabel.width ?? "").replace(",", "."));
-      const heightMm = Number.parseFloat(String(selectedLabel.height ?? "").replace(",", "."));
-      const safeWidthMm = Number.isFinite(widthMm) && widthMm > 0 ? widthMm : 90;
-      const safeHeightMm = Number.isFinite(heightMm) && heightMm > 0 ? heightMm : 55;
-      const labelW = safeWidthMm * pixelsPerMm;
-      const labelH = safeHeightMm * pixelsPerMm;
-
-      if (labelW > 0 && labelH > 0) {
-        // Houd preview altijd binnen het zichtbare vak (geen overflow buiten scherm)
-        const fitZoom = Math.min(availableW / labelW, availableH / labelH);
-        const nextZoom = Math.min(7, fitZoom);
-        setPreviewZoom(Math.max(0.35, nextZoom));
-      }
-    };
-
-    // Eerste meting kan te vroeg zijn direct na mode-switch, daarom extra frame.
-    recalc();
-    const raf1 = window.requestAnimationFrame(recalc);
-    const raf2 = window.requestAnimationFrame(recalc);
-
-    const ro = new ResizeObserver(recalc);
-    ro.observe(previewEl);
-    if (containerEl && containerEl !== previewEl) {
-      ro.observe(containerEl);
-    }
-
-    window.addEventListener("resize", recalc);
-
-    return () => {
-      window.cancelAnimationFrame(raf1);
-      window.cancelAnimationFrame(raf2);
-      ro.disconnect();
-      window.removeEventListener("resize", recalc);
-    };
-  }, [selectedLabel, selectedLabelId, isOpen, mode]);
-
   const handleManualOrderChange = async (e) => {
     const value = e.target.value.toUpperCase();
     setManualOrderInput(value);
@@ -923,7 +887,7 @@ const ProductionStartModal = ({
         }
 
         if (!isFlangeOrder && selectedLabel) {
-          const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
+          const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, DEFAULT_PRINTER_DPI);
           const printPreviewData = {
             ...previewData,
             lotNumber: effectiveLotNumber,
@@ -970,7 +934,7 @@ const ProductionStartModal = ({
           if (!targetPrinter) {
             targetPrinter = await resolveTargetPrinterAsync();
           }
-          const lotBatchDpi = getNormalizedPrinterDpi(targetPrinter, 203);
+          const lotBatchDpi = getNormalizedPrinterDpi(targetPrinter, DEFAULT_PRINTER_DPI);
           const lotBatchDarkness = Number.parseInt(targetPrinter?.darkness, 10);
           lotBatchPrintData = generateLotBatchZPL({
             lots: lotBatchLots,
@@ -1496,18 +1460,18 @@ const ProductionStartModal = ({
             <Activity size={12} className="text-emerald-500" /> {t("productionStartModal.labels.labelPreview", "Etiket preview")}
           </div>
 
-          <div ref={previewAreaRef} className="flex-1 flex items-center justify-center w-full min-h-0 py-4">
+          <div className="flex-1 flex items-center justify-center w-full min-h-0 py-4">
             {mode === "manual" && (!manualLotInput || !manualOrderInput) ? (
               <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] text-xs uppercase font-black tracking-widest italic">
                 {t("productionStartModal.labels.fillOrderAndLot")}
               </div>
             ) : (
               selectedLabel ? (
-                <LabelVisualPreview
+                <AutoScaledLabelPreview
                   label={selectedLabel}
                   data={previewData}
-                  zoom={previewZoom}
-                  className="shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center border-2 border-white/10"
+                  printerDpi={previewPrinterDpi}
+                  className="w-full h-full shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center border-2 border-white/10"
                 />
               ) : (
                 <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] animate-pulse text-xs uppercase font-black tracking-widest italic">

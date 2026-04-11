@@ -11,6 +11,7 @@ import {
   Filter,
   Archive,
   Download,
+  Printer,
 } from "lucide-react";
 import StatusBadge from "./common/StatusBadge";
 import { collection, query, getDocs, limit } from "firebase/firestore";
@@ -73,6 +74,27 @@ const PlanningSidebar = ({
       .trim()
       .toLowerCase()
       .replace(/[\s-]+/g, "_");
+
+  const normalizeStationFilter = (value) => {
+    const raw = String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+    if (!raw) return "";
+    if (raw === "STATION BM01") return "BM01";
+    if (raw.includes("BM01") || raw.includes("INSPECTIE")) return "BM01";
+    if (raw.includes("MAZAK")) return "MAZAK";
+    if (raw.includes("NABEWERK")) return "NABEWERKEN";
+    if (raw.includes("LOSSEN")) return "LOSSEN";
+    if (raw.startsWith("40")) return raw.slice(2);
+    return raw;
+  };
+
+  const getStationLabel = (value) => {
+    const normalized = normalizeStationFilter(value);
+    if (normalized === "NABEWERKEN") return "Nabewerken";
+    if (normalized === "MAZAK") return "Mazak";
+    if (normalized === "BM01") return "BM01";
+    if (normalized === "LOSSEN") return "Lossen";
+    return normalized || String(value || "").trim();
+  };
 
   const isOpenOrRunningStatus = (status) => {
     const normalized = normalizeOrderStatus(status);
@@ -251,11 +273,74 @@ const PlanningSidebar = ({
     return createdAt > twentyFourHoursAgo;
   };
 
+  const orderStationMap = useMemo(() => {
+    const byOrder = new Map();
+
+    trackedProducts.forEach((product) => {
+      const orderKey = String(product?.orderId || "").trim();
+      if (!orderKey) return;
+
+      const set = byOrder.get(orderKey) || new Set();
+      const candidates = [
+        product?.currentStation,
+        product?.currentStep,
+        product?.lastStation,
+        product?.originMachine,
+        product?.machine,
+      ];
+
+      candidates.forEach((candidate) => {
+        const normalized = normalizeStationFilter(candidate);
+        if (normalized) set.add(normalized);
+      });
+
+      byOrder.set(orderKey, set);
+    });
+
+    return byOrder;
+  }, [trackedProducts]);
+
   // Unieke machines ophalen voor filter
   const machines = useMemo(() => {
-    const m = new Set(sourceData.map(o => o.machine).filter(Boolean));
-    return ["ALL", ...Array.from(m).sort()];
-  }, [sourceData]);
+    const options = new Map();
+    options.set("ALL", { value: "ALL", label: "Alle Machines / Stations" });
+    const downstreamStations = new Set(["BM01", "MAZAK", "NABEWERKEN", "LOSSEN"]);
+
+    sourceData.forEach((order) => {
+      const machineValue = normalizeStationFilter(order?.machine);
+      if (machineValue && !options.has(machineValue)) {
+        options.set(machineValue, { value: machineValue, label: getStationLabel(machineValue) });
+      }
+
+      const orderKey = String(order?.orderId || order?.id || "").trim();
+      if (!orderKey) return;
+      const relatedStations = orderStationMap.get(orderKey);
+      if (!relatedStations) return;
+      relatedStations.forEach((stationValue) => {
+        if (!stationValue || !downstreamStations.has(stationValue)) return;
+        if (!options.has(stationValue)) {
+          options.set(stationValue, { value: stationValue, label: getStationLabel(stationValue) });
+        }
+      });
+    });
+
+    // Ook downstream stations tonen die alleen in tracking voorkomen
+    // (bijv. wanneer de gekoppelde order niet meer in de actieve sourceData zit).
+    orderStationMap.forEach((stationSet) => {
+      stationSet.forEach((stationValue) => {
+        if (!stationValue || !downstreamStations.has(stationValue)) return;
+        if (!options.has(stationValue)) {
+          options.set(stationValue, { value: stationValue, label: getStationLabel(stationValue) });
+        }
+      });
+    });
+
+    return Array.from(options.values()).sort((a, b) => {
+      if (a.value === "ALL") return -1;
+      if (b.value === "ALL") return 1;
+      return a.label.localeCompare(b.label);
+    });
+  }, [sourceData, orderStationMap]);
 
   const scopeOptions = [
     { value: "active", label: "Actief" },
@@ -329,7 +414,15 @@ const PlanningSidebar = ({
 
     // 1. Machine Filter
     if (selectedMachine !== "ALL") {
-      result = result.filter(o => o.machine === selectedMachine);
+      result = result.filter((o) => {
+        const machineMatch = normalizeStationFilter(o.machine) === selectedMachine;
+        if (machineMatch) return true;
+
+        const orderKey = String(o?.orderId || o?.id || "").trim();
+        if (!orderKey) return false;
+        const relatedStations = orderStationMap.get(orderKey);
+        return relatedStations ? relatedStations.has(selectedMachine) : false;
+      });
     }
 
     // 2. Status Filter (actieve lijst: alleen Open/Lopend)
@@ -466,7 +559,7 @@ const PlanningSidebar = ({
       // Fallback: Order ID
       return (a.orderId || "").localeCompare(b.orderId || "");
     });
-  }, [sourceData, searchTerm, selectedMachine, dataScope, currentWeek, currentYear, sortMode, rejectPeriod, isRejectScope]);
+  }, [sourceData, searchTerm, selectedMachine, dataScope, currentWeek, currentYear, sortMode, rejectPeriod, isRejectScope, orderStationMap]);
 
   const handleExportCurrentList = () => {
     if (!filteredOrders.length) return;
@@ -510,6 +603,98 @@ const PlanningSidebar = ({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const filteredProductRows = useMemo(() => {
+    const orderLookup = new Map(
+      filteredOrders.map((order) => [String(order?.orderId || order?.id || "").trim(), order])
+    );
+
+    const rows = [];
+    const seen = new Set();
+
+    trackedProducts.forEach((product) => {
+      const orderKey = String(product?.orderId || "").trim();
+      if (!orderKey || !orderLookup.has(orderKey)) return;
+
+      const lotNumber = String(product?.lotNumber || product?.activeLot || product?.id || "").trim();
+      const dedupeKey = `${orderKey}__${lotNumber || product?.id || ""}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+
+      const order = orderLookup.get(orderKey);
+      const stationLabel = getStationLabel(
+        product?.currentStation || product?.currentStep || product?.lastStation || product?.originMachine || product?.machine || order?.machine || ""
+      );
+
+      rows.push({
+        lotNumber,
+        orderId: orderKey,
+        product: product?.item || product?.itemDescription || order?.item || order?.itemDescription || order?.itemCode || "",
+        station: stationLabel,
+        poText: order?.notes || order?.poText || "",
+        status: product?.status || order?.status || "",
+      });
+    });
+
+    if (rows.length > 0) return rows;
+
+    // Fallback: als er geen tracked products zijn, exporteer minimale orderregels.
+    return filteredOrders.map((order) => ({
+      lotNumber: order?.lotNumber || order?.activeLot || "",
+      orderId: order?.orderId || order?.id || "",
+      product: order?.item || order?.itemDescription || order?.itemCode || "",
+      station: getStationLabel(order?.machine || ""),
+      poText: order?.notes || order?.poText || "",
+      status: order?.status || "",
+    }));
+  }, [filteredOrders, trackedProducts]);
+
+  const handleExportCurrentPdf = async () => {
+    if (!filteredProductRows.length) return;
+
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const datePart = new Date().toISOString().slice(0, 10);
+    const selectedOption = machines.find((option) => option.value === selectedMachine);
+    const filterLabel = selectedOption?.label || selectedMachine;
+
+    doc.setFontSize(14);
+    doc.text("Planning Productlijst", 14, 14);
+    doc.setFontSize(9);
+    doc.text(`Filter: ${filterLabel}`, 14, 20);
+    doc.text(`Scope: ${dataScope}`, 70, 20);
+    doc.text(`Datum: ${datePart}`, 110, 20);
+    doc.text(`Totaal: ${filteredProductRows.length}`, 155, 20);
+
+    autoTable(doc, {
+      startY: 25,
+      styles: { fontSize: 8, cellPadding: 1.5, overflow: "linebreak" },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+      head: [["Lotnummer", "Ordernummer", "Product", "Station", "PO Text", "Status"]],
+      body: filteredProductRows.map((row) => [
+        row.lotNumber || "",
+        row.orderId || "",
+        row.product || "",
+        row.station || "",
+        row.poText || "",
+        row.status || "",
+      ]),
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 64 },
+        3: { cellWidth: 28 },
+        4: { cellWidth: 100 },
+        5: { cellWidth: 24 },
+      },
+    });
+
+    doc.save(`planning_productlijst_${String(selectedMachine || "all").toLowerCase()}_${datePart}.pdf`);
   };
 
   const getOrderDisplayName = (order) => {
@@ -717,6 +902,15 @@ const PlanningSidebar = ({
             </p>
           </div>
 
+          {(order.poText || order.notes) && (
+            <div className="mb-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1">
+              <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">PO Text</p>
+              <p className="truncate text-[10px] font-bold text-amber-900">
+                {order.poText || order.notes}
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center gap-1.5 mb-2 text-[10px] font-bold text-slate-500">
             <Calendar size={10} className="text-slate-300" />
             <span className="uppercase text-slate-400">Leverdatum:</span>
@@ -768,9 +962,9 @@ const PlanningSidebar = ({
               <select 
                 value={selectedMachine}
                 onChange={(e) => setSelectedMachine(e.target.value)}
-                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
+                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
               >
-                {machines.map(m => <option key={m} value={m}>{m === "ALL" ? "Alle Machines" : m}</option>)}
+                {machines.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
             <div className="relative flex-1">
@@ -814,6 +1008,15 @@ const PlanningSidebar = ({
             </div>
             <button
               type="button"
+              onClick={handleExportCurrentPdf}
+              disabled={filteredOrders.length === 0}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Exporteer huidige lijst als PDF"
+            >
+              <Printer size={14} /> PDF
+            </button>
+            <button
+              type="button"
               onClick={handleExportCurrentList}
               disabled={filteredOrders.length === 0}
               className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
@@ -824,8 +1027,8 @@ const PlanningSidebar = ({
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-1 custom-scrollbar">
-          {filteredOrders.map((order, index) => (
-             <div key={order.id} style={{ height: 160, width: "100%" }}>
+           {filteredOrders.map((order, index) => (
+             <div key={order.id} style={{ height: 176, width: "100%" }}>
                 <Row index={index} style={{ height: "100%", width: "100%" }} />
              </div>
           ))}
@@ -863,7 +1066,7 @@ const PlanningSidebar = ({
                 onChange={(e) => setSelectedMachine(e.target.value)}
                 className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
               >
-                {machines.map(m => <option key={m} value={m}>{m === "ALL" ? "Alle Machines" : m}</option>)}
+                {machines.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
             <div className="relative flex-1">
@@ -907,6 +1110,15 @@ const PlanningSidebar = ({
             </div>
             <button
               type="button"
+              onClick={handleExportCurrentPdf}
+              disabled={filteredOrders.length === 0}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Exporteer huidige lijst als PDF"
+            >
+              <Printer size={14} /> PDF
+            </button>
+            <button
+              type="button"
               onClick={handleExportCurrentList}
               disabled={filteredOrders.length === 0}
               className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
@@ -937,7 +1149,7 @@ const PlanningSidebar = ({
               <FixedSizeList
                 className="custom-scrollbar"
                 rowCount={filteredOrders.length}
-                rowHeight={160}
+                rowHeight={176}
                 rowComponent={Row}
                 rowProps={{}}
                 style={{ height, width }}

@@ -13,7 +13,7 @@ import {
 } from "firebase/firestore";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import { ref, listAll, getDownloadURL } from "firebase/storage";
-import { callGemini } from "../../utils/helpers";
+import { aiService } from "../../services/aiService";
 import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
@@ -135,7 +135,10 @@ const AdminDatabaseView = () => {
 
     try {
       const systemPrompt = generateDbContext();
-      const response = await callGemini(userQ, systemPrompt);
+      const response = await aiService.chat(
+        [{ role: "user", content: userQ }],
+        systemPrompt
+      );
       setAiMessages(prev => [...prev, { role: 'ai', content: response }]);
     } catch {
       setAiMessages(prev => [...prev, { role: 'ai', content: "Fout bij verbinden met AI service." }]);

@@ -394,7 +394,7 @@ const TerminalPlanningView = ({
                   key={order.id}
                   ref={(el) => (itemRefs.current[order.id] = el)}
                   onClick={() => onSelectOrder(order.id)}
-                  className={`min-h-[132px] p-5 rounded-[2rem] border-2 transition-all flex items-center justify-between relative overflow-hidden cursor-pointer ${
+                  className={`min-h-[152px] p-5 rounded-[2rem] border-2 transition-all flex items-center justify-between relative overflow-hidden cursor-pointer ${
                     selectedOrderId === order.id
                       ? "bg-emerald-50 border-emerald-500 shadow-md shadow-emerald-100 translate-x-1"
                       : priorityCardClass
@@ -454,6 +454,14 @@ const TerminalPlanningView = ({
                         <p className="text-[10px] font-bold text-blue-500 uppercase truncate flex items-center gap-1">
                           <Briefcase size={10} /> {order.projectDesc}
                         </p>
+                      )}
+                      {(order.poText || order.notes) && (
+                        <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1">
+                          <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">PO Text</p>
+                          <p className="truncate text-[10px] font-bold text-amber-900">
+                            {order.poText || order.notes}
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>

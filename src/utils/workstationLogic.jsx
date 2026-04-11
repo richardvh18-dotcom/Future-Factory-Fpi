@@ -11,14 +11,11 @@ import i18n from "../i18n";
 // Redenen voor afkeur
 // Let op: Voor dynamische taalwissel zonder reload, gebruik de functie getRejectionReasons()
 export const REJECTION_REASONS = [
-  "rejection.notConformDrawing",
-  "rejection.wrongDiameter",
   "rejection.surfaceDamage",
-  "rejection.crack",
-  "rejection.materialShortage",
-  "rejection.wrongSpec",
   "rejection.dimensionDeviation",
   "rejection.qualityInsufficient",
+  "rejection.incorrectLabel",
+  "rejection.linerDamaged",
   "rejection.other",
 ];
 
@@ -187,11 +184,13 @@ export const getNextFlowState = (action, currentState = {}) => {
 export const getStepForStation = (stationName) => {
   const name = String(stationName || "").toUpperCase();
   
+  if (name === "BH31" || name.includes("REPARATIE") || name.includes("REPAIR")) {
+    return { status: "Tijdelijke afkeur", currentStep: "Reparatie" };
+  }
   if (name.includes("BM01")) return { status: FLOW_STATUS.TE_KEUREN, currentStep: FLOW_STEPS.EINDINSPECTIE };
   if (name.includes("NABEWERK") || name.includes("MAZAK")) return { status: FLOW_STATUS.TE_NABEWERKEN, currentStep: FLOW_STEPS.NABEWERKING };
   if (name === "LOSSEN") return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.LOSSEN };
   if (name.startsWith("BH")) return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.WIKKELEN };
-  if (name.includes("REPARATIE") || name.includes("REPAIR")) return { status: FLOW_STATUS.IN_PROGRESS, currentStep: "Reparatie" };
   
   // Fallback
   return { status: FLOW_STATUS.IN_PROGRESS, currentStep: "Onbekend" };

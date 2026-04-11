@@ -297,10 +297,7 @@ const ProjectStructureExpertView = () => {
     setAiExplanation("");
     setIsAiLoading(false);
 
-    // Check if the AI key is present in the environment
-    // Vite exposes VITE_ variables to import.meta.env
-    const apiKey = import.meta.env.VITE_GOOGLE_AI_KEY || import.meta.env.VITE_GEMINI_API_KEY;
-    if ((apiKey && apiKey.length > 10) || (aiService && aiService.isConfigured && aiService.isConfigured())) {
+    if (aiService && aiService.isConfigured && aiService.isConfigured()) {
       setIsAiConfigured(true);
     } else {
       setIsAiConfigured(false);
@@ -316,8 +313,8 @@ const ProjectStructureExpertView = () => {
       setAiExplanation(response);
     } catch (error) {
       console.error("AI Error:", error);
-      if (error.message.toLowerCase().includes('api key')) {
-          setAiExplanation("Configuratie fout: Google AI API sleutel ontbreekt of is ongeldig. Voeg VITE_GOOGLE_AI_KEY of VITE_GEMINI_API_KEY toe aan uw .env bestand en herstart de server.");
+      if (String(error?.message || "").toLowerCase().includes('key')) {
+        setAiExplanation("Configuratie fout: backend AI sleutel ontbreekt of is ongeldig. Controleer Firebase Functions config of environment variables op de server.");
       } else {
           setAiExplanation("Kon geen uitleg genereren. Controleer de console voor foutmeldingen.");
       }
@@ -422,7 +419,7 @@ const ProjectStructureExpertView = () => {
                     <div>
                       <h4 className="text-xs font-black text-amber-900 uppercase tracking-tight">AI Assistent niet geconfigureerd</h4>
                       <p className="text-xs text-amber-800 mt-1 leading-normal font-medium">
-                        De Google AI API sleutel ontbreekt. Voeg <code>VITE_GOOGLE_AI_KEY</code> of <code>VITE_GEMINI_API_KEY</code> toe aan een <strong>.env</strong> bestand in de root van het project en herstart de server.
+                        De backend AI-configuratie ontbreekt. Configureer de AI sleutel in Firebase Functions configuratie of server environment variables.
                       </p>
                     </div>
                   </div>

@@ -14,12 +14,13 @@ import { db } from "../../config/firebase";
 import { getArchiveItemsPath, getReadPaths } from "../../config/dbPaths";
 import { format, getISOWeek, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfMonth, endOfMonth, isWithinInterval, isValid, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from "date-fns";
 import { calculateDuration } from "../../utils/efficiencyCalculator";
+import { calculateWorkingMinutes } from "../../utils/workingTimeUtils";
 
 /**
  * TimeTrackingView - Compare actual vs planned time
  * Shows time variance and identifies bottlenecks
  */
-const TimeTrackingView = ({ dataSourceMode = "current" }) => {
+const TimeTrackingView = ({ dataSourceMode = "current", initialDepartment = "ALLES" }) => {
   const usePilotReadData = dataSourceMode === "pilot-read";
   const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
   const [orders, setOrders] = useState([]);
@@ -30,7 +31,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [periodMode, setPeriodMode] = useState("week");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [selectedDepartment, setSelectedDepartment] = useState("ALLES");
+  const [selectedDepartment, setSelectedDepartment] = useState(initialDepartment || "ALLES");
   const [departments, setDepartments] = useState(["ALLES"]);
   const [factoryConfig, setFactoryConfig] = useState({ departments: [] });
   const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
@@ -127,6 +128,28 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       unsubConfig();
     };
   }, [readPaths, selectedDate]);
+
+  useEffect(() => {
+    if (!departments.length) return;
+
+    const target = String(initialDepartment || "ALLES").trim();
+    if (!target || target.toUpperCase() === "ALLES") {
+      setSelectedDepartment("ALLES");
+      return;
+    }
+
+    const targetLower = target.toLowerCase();
+    const match = departments.find((dept) => {
+      const normalized = String(dept || "").toLowerCase().trim();
+      return (
+        normalized === targetLower ||
+        normalized.includes(targetLower) ||
+        targetLower.includes(normalized)
+      );
+    });
+
+    setSelectedDepartment(match || target);
+  }, [initialDepartment, departments]);
 
   const toDateValue = (value) => {
     if (!value) return null;
@@ -267,6 +290,16 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       toDateValue(ts.completed) ||
       toDateValue(log?.updatedAt);
 
+    const repairStart =
+      toDateValue(ts.repair_start) ||
+      getHistoryTimestampBy(log, (h) => String(h?.action || "").toLowerCase().includes("reparatie"));
+
+    const repairEnd =
+      toDateValue(ts.repair_end) ||
+      toDateValue(ts.bm01_start) ||
+      toDateValue(ts.eindinspectie_start) ||
+      null;
+
     return {
       wikkelenStart,
       wikkelenEnd,
@@ -274,19 +307,29 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       lossenEnd,
       nabewerkingStart,
       nabewerkingEnd,
+      repairStart,
+      repairEnd,
     };
   };
 
-  const getRangeDurationMinutes = (startValue, endValue) => {
+  const getRangeDurationMinutes = (startValue, endValue, context = {}) => {
     const start = toDateValue(startValue);
     const end = toDateValue(endValue);
     if (!start || !end) return 0;
-    const duration = calculateDuration(start, end);
+    const duration = calculateWorkingMinutes(start, end, context);
     return Number.isFinite(duration) && duration > 0 ? duration : 0;
   };
 
   const getLotMetrics = (log) => {
     const bounds = getLogProcessBounds(log);
+    const contextMachine = log?.originMachine || log?.machine || log?.currentStation || log?.lastStation;
+    const contextDepartment = log?.department || inferDepartmentFromMachine(contextMachine);
+    const durationContext = {
+      department: contextDepartment,
+      machine: contextMachine,
+      station: log?.currentStation || log?.lastStation,
+      originMachine: log?.originMachine,
+    };
     const bm01Start =
       toDateValue(log?.timestamps?.bm01_start) ||
       getHistoryTimestampBy(log, (h) => String(h?.station || "").toUpperCase() === "BM01");
@@ -295,11 +338,12 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       toDateValue(log?.timestamps?.completed) ||
       toDateValue(log?.updatedAt);
 
-    const wikkelenMinutes = getRangeDurationMinutes(bounds.wikkelenStart, bounds.wikkelenEnd);
-    const lossenMinutes = getRangeDurationMinutes(bounds.lossenStart, bounds.lossenEnd);
-    const nabewerkingMinutes = getRangeDurationMinutes(bounds.nabewerkingStart, bounds.nabewerkingEnd);
-    const bm01Minutes = getRangeDurationMinutes(bm01Start, bm01End);
-    const totalMinutes = wikkelenMinutes + lossenMinutes + nabewerkingMinutes + bm01Minutes;
+    const wikkelenMinutes = getRangeDurationMinutes(bounds.wikkelenStart, bounds.wikkelenEnd, durationContext);
+    const lossenMinutes = getRangeDurationMinutes(bounds.lossenStart, bounds.lossenEnd, durationContext);
+    const nabewerkingMinutes = getRangeDurationMinutes(bounds.nabewerkingStart, bounds.nabewerkingEnd, durationContext);
+    const bm01Minutes = getRangeDurationMinutes(bm01Start, bm01End, durationContext);
+    const repairMinutes = getRangeDurationMinutes(bounds.repairStart, bounds.repairEnd, durationContext);
+    const totalMinutes = wikkelenMinutes + lossenMinutes + nabewerkingMinutes + bm01Minutes + repairMinutes;
 
     return {
       id: log?.id,
@@ -313,6 +357,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
         lossenHours: lossenMinutes / 60,
         nabewerkingHours: nabewerkingMinutes / 60,
         bm01Hours: bm01Minutes / 60,
+        repairHours: repairMinutes / 60,
       },
       timeBounds: {
         ...bounds,
@@ -341,6 +386,8 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       toDateValue(ts.lossen_start) ||
       toDateValue(ts.nabewerking_start) ||
       toDateValue(ts.bm01_start) ||
+      toDateValue(ts.repair_start) ||
+      toDateValue(ts.repair_end) ||
       toDateValue(ts.station_start) ||
       toDateValue(ts.started) ||
       toDateValue(ts.nabewerking_end) ||
@@ -360,6 +407,8 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       ts.lossen_start,
       ts.nabewerking_start,
       ts.bm01_start,
+      ts.repair_start,
+      ts.repair_end,
       ts.station_start,
       ts.started,
       ts.wikkelen_end,
@@ -558,6 +607,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       let lossenMinutes = 0;
       let nabewerkingMinutes = 0;
       let bm01Minutes = 0;
+      let repairMinutes = 0;
       
       lotDetails.forEach((lot) => {
         calculatedActualMinutes += lot.actualHours * 60;
@@ -565,6 +615,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
         lossenMinutes += (lot.stationMetrics?.lossenHours || 0) * 60;
         nabewerkingMinutes += (lot.stationMetrics?.nabewerkingHours || 0) * 60;
         bm01Minutes += (lot.stationMetrics?.bm01Hours || 0) * 60;
+        repairMinutes += (lot.stationMetrics?.repairHours || 0) * 60;
       });
 
       const actualFromLogs = calculatedActualMinutes / 60;
@@ -594,12 +645,14 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
           lossenHours: lossenMinutes / 60,
           nabewerkingHours: nabewerkingMinutes / 60,
           bm01Hours: bm01Minutes / 60,
+          repairHours: repairMinutes / 60,
         },
         plannedStationMetrics: {
           wikkelenHours: plannedProductionHours,
           lossenHours: 0,
           nabewerkingHours: plannedPostHours,
           bm01Hours: plannedQcHours,
+          repairHours: 0,
         },
       };
     });
@@ -635,9 +688,10 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
         acc.lossen += Number(metrics.lossenHours || 0);
         acc.nabewerking += Number(metrics.nabewerkingHours || 0);
         acc.bm01 += Number(metrics.bm01Hours || 0);
+        acc.repair += Number(metrics.repairHours || 0);
         return acc;
       },
-      { wikkelen: 0, lossen: 0, nabewerking: 0, bm01: 0 }
+      { wikkelen: 0, lossen: 0, nabewerking: 0, bm01: 0, repair: 0 }
     );
   }, [orderMetrics]);
 
@@ -799,7 +853,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
       </div>
 
       {/* Orders Table */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
         <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
           <div className="text-xs font-bold text-slate-600 uppercase mb-1">Totaal Wikkelen</div>
           <div className="text-2xl font-black text-slate-800">{stationTotals.wikkelen.toFixed(1)}h</div>
@@ -815,6 +869,10 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
         <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
           <div className="text-xs font-bold text-slate-600 uppercase mb-1">Totaal Eindinspectie</div>
           <div className="text-2xl font-black text-slate-800">{stationTotals.bm01.toFixed(1)}h</div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border-2 border-amber-200">
+          <div className="text-xs font-bold text-amber-700 uppercase mb-1">Totaal Reparatie</div>
+          <div className="text-2xl font-black text-amber-700">{stationTotals.repair.toFixed(1)}h</div>
         </div>
       </div>
 
@@ -835,6 +893,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
                 <th className="px-4 py-3 text-right text-xs font-bold text-slate-600 uppercase">Lossen</th>
                 <th className="px-4 py-3 text-right text-xs font-bold text-slate-600 uppercase">Nabewerken</th>
                 <th className="px-4 py-3 text-right text-xs font-bold text-slate-600 uppercase">Eindinspectie</th>
+                <th className="px-4 py-3 text-right text-xs font-bold text-slate-600 uppercase">Reparatie</th>
                 <th className="px-4 py-3 text-right text-xs font-bold text-slate-600 uppercase">Gepland</th>
                 <th className="px-4 py-3 text-right text-xs font-bold text-slate-600 uppercase">Daadwerkelijk</th>
                 <th className="px-4 py-3 text-right text-xs font-bold text-slate-600 uppercase">Variance</th>
@@ -844,7 +903,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
             <tbody>
               {orderMetrics.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan="12" className="px-4 py-12 text-center text-slate-400">
                     Geen orders in geselecteerde {periodMode === "day" ? "dag" : periodMode === "month" ? "maand" : "week"}
                   </td>
                 </tr>
@@ -889,6 +948,12 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
                       <div className="text-sm font-bold text-slate-700">
                         {order.stationMetrics ? order.stationMetrics.bm01Hours.toFixed(1) : "0.0"}h
                         <span className="text-xs text-slate-400"> / {order.plannedStationMetrics ? order.plannedStationMetrics.bm01Hours.toFixed(1) : "0.0"}h</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="text-sm font-bold text-amber-700">
+                        {order.stationMetrics ? order.stationMetrics.repairHours.toFixed(1) : "0.0"}h
+                        <span className="text-xs text-slate-400"> / {order.plannedStationMetrics ? order.plannedStationMetrics.repairHours.toFixed(1) : "0.0"}h</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -955,10 +1020,12 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
                     <th className="px-3 py-2 text-right text-xs font-bold text-slate-600 uppercase">Lossen</th>
                     <th className="px-3 py-2 text-right text-xs font-bold text-slate-600 uppercase">Nabew.</th>
                     <th className="px-3 py-2 text-right text-xs font-bold text-slate-600 uppercase">Inspectie</th>
+                    <th className="px-3 py-2 text-right text-xs font-bold text-slate-600 uppercase">Reparatie</th>
                     <th className="px-3 py-2 text-right text-xs font-bold text-slate-600 uppercase">Totaal</th>
                     <th className="px-3 py-2 text-left text-xs font-bold text-slate-600 uppercase">Wikkel Tijd</th>
                     <th className="px-3 py-2 text-left text-xs font-bold text-slate-600 uppercase">Lossen Tijd</th>
                     <th className="px-3 py-2 text-left text-xs font-bold text-slate-600 uppercase">Nabew. Tijd</th>
+                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-600 uppercase">Reparatie Tijd</th>
                     <th className="px-3 py-2 text-left text-xs font-bold text-slate-600 uppercase">BM01 Tijd</th>
                   </tr>
                 </thead>
@@ -972,6 +1039,7 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
                       <td className="px-3 py-3 text-sm text-right font-bold text-slate-700 whitespace-nowrap">{lot.stationMetrics.lossenHours.toFixed(1)}h</td>
                       <td className="px-3 py-3 text-sm text-right font-bold text-slate-700 whitespace-nowrap">{lot.stationMetrics.nabewerkingHours.toFixed(1)}h</td>
                       <td className="px-3 py-3 text-sm text-right font-bold text-slate-700 whitespace-nowrap">{lot.stationMetrics.bm01Hours.toFixed(1)}h</td>
+                      <td className="px-3 py-3 text-sm text-right font-bold text-amber-700 whitespace-nowrap">{lot.stationMetrics.repairHours.toFixed(1)}h</td>
                       <td className="px-3 py-3 text-sm text-right font-black text-slate-800 whitespace-nowrap">{lot.actualHours.toFixed(1)}h</td>
                       <td
                         className="px-3 py-3 text-[11px] leading-tight text-slate-500 whitespace-normal break-words"
@@ -990,6 +1058,12 @@ const TimeTrackingView = ({ dataSourceMode = "current" }) => {
                         title={formatDateRange(lot.timeBounds.nabewerkingStart, lot.timeBounds.nabewerkingEnd)}
                       >
                         {formatDateRange(lot.timeBounds.nabewerkingStart, lot.timeBounds.nabewerkingEnd)}
+                      </td>
+                      <td
+                        className="px-3 py-3 text-[11px] leading-tight text-slate-500 whitespace-normal break-words"
+                        title={formatDateRange(lot.timeBounds.repairStart, lot.timeBounds.repairEnd)}
+                      >
+                        {formatDateRange(lot.timeBounds.repairStart, lot.timeBounds.repairEnd)}
                       </td>
                       <td
                         className="px-3 py-3 text-[11px] leading-tight text-slate-500 whitespace-normal break-words"

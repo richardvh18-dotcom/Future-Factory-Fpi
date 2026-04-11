@@ -174,11 +174,11 @@ const ProfileView = () => {
     try {
       await updatePassword(auth.currentUser, passwordData.newPassword);
       const userRef = doc(db, ...PATHS.USERS, user.uid);
-      await setDoc(userRef, { mustChangePassword: false }, { merge: true });
+      await setDoc(userRef, { requirePasswordChange: false }, { merge: true });
       await logActivity(
         user.uid,
         "PASSWORD_CHANGE",
-        "Wachtwoord gewijzigd en mustChangePassword uitgezet"
+        "Wachtwoord gewijzigd en requirePasswordChange uitgezet"
       );
 
       setPwSuccess(true);

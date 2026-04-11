@@ -15,6 +15,7 @@ import { db } from '../../config/firebase';
 import { getReadPaths, getEfficiencyArchivePath, getPlanningArchivePath } from '../../config/dbPaths';
 import { format as formatDate, getISOWeek, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 import { calculateDuration, formatMinutes, getEfficiencyColor } from '../../utils/efficiencyCalculator';
+import { calculateWorkingMinutes } from '../../utils/workingTimeUtils';
 import AiPredictionView from './AiPredictionView';
 
 const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
@@ -43,6 +44,15 @@ const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
   };
 
   const getTrackingDurationMinutes = (log) => {
+    const contextMachine = log?.originMachine || log?.machine || log?.currentStation || log?.lastStation;
+    const contextDepartment = log?.department || inferDepartmentFromMachine(contextMachine);
+    const durationContext = {
+      department: contextDepartment,
+      machine: contextMachine,
+      station: log?.currentStation || log?.lastStation,
+      originMachine: log?.originMachine,
+    };
+
     const start = toDateValue(
       log?.timestamps?.station_start ||
       log?.timestamps?.started ||
@@ -58,7 +68,7 @@ const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
         log?.updatedAt
       ) || new Date();
 
-      const minutes = calculateDuration(start, end);
+      const minutes = calculateWorkingMinutes(start, end, durationContext);
       if (Number.isFinite(minutes) && minutes > 0) return minutes;
     }
 
@@ -69,7 +79,7 @@ const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
       const s = toDateValue(startValue);
       const e = toDateValue(endValue);
       if (!s || !e) return;
-      const diff = calculateDuration(s, e);
+      const diff = calculateWorkingMinutes(s, e, durationContext);
       if (Number.isFinite(diff) && diff > 0) total += diff;
     };
 
@@ -85,7 +95,7 @@ const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
       const startFromHistory = toDateValue(startHistory?.timestamp);
       const bestEnd = toDateValue(ts.wikkelen_end || ts.lossen_end || ts.nabewerking_end || log?.updatedAt);
       if (startFromHistory && bestEnd) {
-        const diff = calculateDuration(startFromHistory, bestEnd);
+        const diff = calculateWorkingMinutes(startFromHistory, bestEnd, durationContext);
         if (Number.isFinite(diff) && diff > 0) total += diff;
       }
     }

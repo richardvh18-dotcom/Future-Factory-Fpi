@@ -30,12 +30,13 @@ import {
 } from "lucide-react";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveRejectedItemsPath } from "../../config/dbPaths";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import { queuePrintJob } from "../../services/printService";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import LabelVisualPreview from "../printer/LabelVisualPreview";
+import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";
 import StatusBadge from "./common/StatusBadge";
 import { getISOWeek, addWeeks, subWeeks } from "date-fns";
 import { filterLabelsByProduct, processLabelData, resolveLabelContent } from "../../utils/labelHelpers";
@@ -43,6 +44,7 @@ import { generatePrintData } from "../../utils/zplHelper";
 import { useNotifications } from '../../contexts/NotificationContext';
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
+const DEFAULT_MAZAK_DPI = 300;
 
 const MazakView = ({ stationId = "Mazak", products = [] }) => {
   const { t } = useTranslation();
@@ -389,7 +391,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
             zplCode = generatePrintData(
               templateToUse,
               processedData,
-              203, //  DPI
+              DEFAULT_MAZAK_DPI,
               resolveLabelContent,
               t
             );
@@ -485,6 +487,12 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
         updates.lastStation = stationId;
         updates["timestamps.bm01_start"] = serverTimestamp();
 
+        const hasActiveRepair = Boolean(product?.repairActive || product?.timestamps?.repair_start);
+        if (hasActiveRepair) {
+          updates.repairActive = false;
+          updates["timestamps.repair_end"] = serverTimestamp();
+        }
+
         if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
           try {
             const planningRef = collection(db, ...PATHS.PLANNING);
@@ -549,6 +557,43 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
         
         // 2. Verwijder uit actieve tracking
         await deleteDoc(productRef);
+
+        // Zet order To Do direct terug omhoog bij definitieve afkeur.
+        if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
+          try {
+            const orderQuery = query(
+              collection(db, ...PATHS.PLANNING),
+              where("orderId", "==", product.orderId)
+            );
+            const orderSnap = await getDocs(orderQuery);
+
+            if (!orderSnap.empty) {
+              const orderDoc = orderSnap.docs[0];
+              const orderData = orderDoc.data();
+              const originStation = product.originMachine || product.currentStation || product.machine;
+              const stationField = getStartedCounterField(originStation);
+              const currentStarted = Number(orderData?.[stationField] || 0);
+              const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
+
+              const orderUpdates = {
+                rejectedCount: increment(1),
+                lastUpdated: serverTimestamp(),
+              };
+
+              if (stationField && currentStarted > 0) {
+                orderUpdates[stationField] = currentStarted - 1;
+              }
+
+              if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
+                orderUpdates.status = "planned";
+              }
+
+              await updateDoc(orderDoc.ref, orderUpdates);
+            }
+          } catch (err) {
+            console.error("Fout bij updaten order teller (Mazak):", err);
+          }
+        }
         
         await logActivity(
           user?.uid || "system",
@@ -784,13 +829,12 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
                </div>
                
                {selectedLabelId ? (
-                 <div className="flex-1 w-full h-full flex items-center justify-center mt-4">
-                   <div className="transform scale-[1.5] sm:scale-[2] lg:scale-[2.5] origin-center transition-all duration-300">
-                     <LabelVisualPreview 
-                     label={availableLabels.find(l => l.id === selectedLabelId)} 
-                     data={processLabelData(selectedProduct)} 
+                 <div className="flex-1 w-full h-full flex items-center justify-center mt-4 px-4">
+                   <AutoScaledLabelPreview
+                     label={availableLabels.find(l => l.id === selectedLabelId)}
+                     data={processLabelData(selectedProduct)}
+                     className="w-full"
                    />
-                   </div>
                  </div>
                ) : (
                  <p className="text-slate-400 font-bold text-sm">{t("mazak.select_template_for_preview", "Selecteer een template voor preview")}</p>

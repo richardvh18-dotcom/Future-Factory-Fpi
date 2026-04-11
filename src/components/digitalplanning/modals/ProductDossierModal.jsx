@@ -24,7 +24,7 @@ import { WORKSTATIONS, REJECTION_REASONS } from "../../../utils/workstationLogic
 import { format } from "date-fns";
 import { getISOWeekInfo } from "../../../utils/hubHelpers";
 import { findDrawingForOrder, syncOrderDrawing } from "../../../utils/drawingLinker.jsx";
-import { collection, query, where, getDocs, getDoc, doc, updateDoc, arrayUnion, limit, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, arrayUnion, limit } from "firebase/firestore";
 import { db, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
@@ -35,6 +35,7 @@ import ConfirmationModal from "./ConfirmationModal";
 import { formatDateTimeSafe, toDateSafe } from "../../../utils/dateUtils";
 import { queuePrintJob } from "../../../services/printService";
 import { useNotifications } from '../../../contexts/NotificationContext';
+import { rejectTrackedProductFinal } from "../../../services/planningSecurityService";
 
 /**
  * ProductDossierModal: Toont proces-stappen, kwaliteitsmetingen en order-info.
@@ -53,6 +54,7 @@ const ProductDossierModal = ({
   const [isAdding, setIsAdding] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
   const [targetStation, setTargetStation] = useState("");
+  const [repairInstruction, setRepairInstruction] = useState("");
   const [overrideLoading, setOverrideLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -103,14 +105,11 @@ const ProductDossierModal = ({
   const isTijdelijkeAfkeur = product?.inspection?.status === "Tijdelijke afkeur";
 
   const REJECTION_REASON_LABELS = {
-    "rejection.notConformDrawing": "Niet conform tekening",
-    "rejection.wrongDiameter": "Verkeerde diameter",
     "rejection.surfaceDamage": "Oppervlakteschade",
-    "rejection.crack": "Scheur",
-    "rejection.materialShortage": "Materiaaltekort",
-    "rejection.wrongSpec": "Verkeerde specificatie",
-    "rejection.dimensionDeviation": "Maatafwijking",
+    "rejection.dimensionDeviation": "Maatafwijking (TW/TF/W)",
     "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
+    "rejection.incorrectLabel": "Onjuist label",
+    "rejection.linerDamaged": "Liner beschadigd",
     "rejection.other": "Overig",
   };
 
@@ -342,6 +341,12 @@ const ProductDossierModal = ({
     return uniqueStations.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
   }, []);
 
+  const moveStations = useMemo(() => {
+    if (!isTijdelijkeAfkeur) return sortedStations;
+    const allowed = new Set(["BH31", "Nabewerking"]);
+    return sortedStations.filter((s) => allowed.has(s.id));
+  }, [isTijdelijkeAfkeur, sortedStations]);
+
   // Effect: Verrijk historie met operator data uit occupancy als deze ontbreekt
   React.useEffect(() => {
     const enrichHistory = async () => {
@@ -408,37 +413,13 @@ const ProductDossierModal = ({
     setRejectLoading(true);
     const reasonLabels = rejectReasons.map(r => REJECTION_REASON_LABELS[r] || r).join(", ");
     try {
-      const productRef = doc(db, ...PATHS.TRACKING, product.id);
-      await updateDoc(productRef, {
-        status: "rejected",
-        currentStep: "REJECTED",
-        currentStation: "AFKEUR",
-        inspection: {
-          status: "Afkeur",
-          reasons: rejectReasons,
-          note: rejectNote || "",
-          timestamp: new Date().toISOString(),
-        },
-        updatedAt: serverTimestamp(),
-        history: arrayUnion({
-          action: "Definitieve Afkeur",
-          timestamp: new Date().toISOString(),
-          user: role || "Systeem",
-          station: product.currentStation || "Dossier",
-          details: `Omgezet van Tijdelijke Afkeur naar Definitieve Afkeur. Reden: ${reasonLabels}${rejectNote ? `. Opmerking: ${rejectNote}` : ""}`,
-        }),
+      await rejectTrackedProductFinal({
+        productId: product.id,
+        reasons: rejectReasons,
+        note: rejectNote || "",
+        source: "ProductDossierModal",
+        actorLabel: role || "Systeem",
       });
-
-      // Update order teller bij definitieve afkeur
-      if (parentOrder?.id) {
-        const orderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
-        const originStation = product.originMachine || product.currentStation;
-        const stationField = `started_${(originStation || "").replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const currentStarted = parentOrder[stationField] || 0;
-        if (currentStarted > 0) {
-          await updateDoc(orderRef, { [stationField]: currentStarted - 1 });
-        }
-      }
 
       await logActivity(
         user?.uid || "system",
@@ -460,21 +441,12 @@ const ProductDossierModal = ({
     if (!targetStation) return;
     
     setOverrideLoading(true);
-    await onMoveLot(product.id, targetStation);
-
-    // 1. Update history on the tracked product
-    const productRef = doc(db, ...PATHS.TRACKING, product.id);
-    await updateDoc(productRef, {
-      history: arrayUnion({
-        station: product.currentStation || "Dossier",
-        user: role || "Systeem",
-        action: "Handmatige Verplaatsing",
-        details: `Verplaatst naar station: ${targetStation}`,
-        time: new Date().toISOString(),
-      }),
+    await onMoveLot(product.id, targetStation, {
+      isRepairMove: isTijdelijkeAfkeur,
+      repairInstruction: repairInstruction.trim(),
     });
 
-    // 2. Update the planning order to reflect the move for terminal views
+    // Update de planningorder voor terminal/views; tracking historie gaat nu server-side via callable.
     if (parentOrder.id) {
       const now = new Date();
       const { week: currentWeek, year: currentYear } = getISOWeekInfo(now);
@@ -492,11 +464,12 @@ const ProductDossierModal = ({
     await logActivity(
       user?.uid || "system",
       "LOT_MANUAL_MOVE",
-      `Handmatige verplaatsing: lot ${product.lotNumber || product.id} -> ${targetStation} (order ${displayOrderId})`
+      `${isTijdelijkeAfkeur ? "Reparatie verplaatsing" : "Handmatige verplaatsing"}: lot ${product.lotNumber || product.id} -> ${targetStation} (order ${displayOrderId})${repairInstruction.trim() ? ` | instructie: ${repairInstruction.trim()}` : ""}`
     );
 
     setOverrideLoading(false);
     setIsMoving(false);
+    setRepairInstruction("");
     onClose();
   };
 
@@ -1028,12 +1001,20 @@ const ProductDossierModal = ({
                     className="px-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-xs text-slate-700 outline-none focus:border-blue-500"
                   >
                     <option value="">Kies station...</option>
-                    {sortedStations.map((s) => (
+                    {moveStations.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
                       </option>
                     ))}
                   </select>
+                  {isTijdelijkeAfkeur && (
+                    <textarea
+                      value={repairInstruction}
+                      onChange={(e) => setRepairInstruction(e.target.value)}
+                      className="px-4 py-3 bg-white border-2 border-slate-200 rounded-2xl font-medium text-xs text-slate-700 outline-none focus:border-blue-500 min-w-[260px] min-h-[92px]"
+                      placeholder="Wat moet de operator repareren?"
+                    />
+                  )}
                   <button
                     onClick={async () => {
                       if (!targetStation) return;
@@ -1045,7 +1026,10 @@ const ProductDossierModal = ({
                     {overrideLoading ? "..." : "Bevestig"}
                   </button>
                   <button
-                    onClick={() => setIsMoving(false)}
+                    onClick={() => {
+                      setIsMoving(false);
+                      setRepairInstruction("");
+                    }}
                     className="px-6 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
                   >
                     Annuleer
@@ -1067,7 +1051,7 @@ const ProductDossierModal = ({
                       onClick={() => setIsMoving(true)}
                       className="px-6 py-4 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all flex items-center gap-2"
                     >
-                      <ArrowRightLeft size={16} /> Verplaats
+                      <ArrowRightLeft size={16} /> {isTijdelijkeAfkeur ? "Reparatie" : "Verplaats"}
                     </button>
                   )}
                   <button
@@ -1094,9 +1078,11 @@ const ProductDossierModal = ({
         isOpen={showConfirmMove}
         onClose={() => setShowConfirmMove(false)}
         onConfirm={handleExecuteMove}
-        title="Product Verplaatsen"
-        message={`Weet je zeker dat je dit product wilt verplaatsen naar ${sortedStations.find(s => s.id === targetStation)?.name || targetStation}?`}
-        confirmText="Ja, Verplaatsen"
+        title={isTijdelijkeAfkeur ? "Reparatie Inplannen" : "Product Verplaatsen"}
+        message={isTijdelijkeAfkeur
+          ? `Weet je zeker dat je deze tijdelijke afkeur wilt doorzetten naar ${moveStations.find(s => s.id === targetStation)?.name || targetStation}?`
+          : `Weet je zeker dat je dit product wilt verplaatsen naar ${moveStations.find(s => s.id === targetStation)?.name || targetStation}?`}
+        confirmText={isTijdelijkeAfkeur ? "Ja, Reparatie" : "Ja, Verplaatsen"}
       />
 
       {showConfirmReject && (

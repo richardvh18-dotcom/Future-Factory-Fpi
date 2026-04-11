@@ -1,6 +1,11 @@
 import { db, auth, logActivity } from "../config/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
+const MAX_ZPL_LENGTH = 120000;
+const MAX_METADATA_LENGTH = 16000;
+const MAX_PRINT_QUANTITY = 200;
+const PRINTER_ID_PATTERN = /^[a-zA-Z0-9._:-]{2,80}$/;
+
 const sanitizeFirestoreValue = (value) => {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -29,16 +34,36 @@ const sanitizeFirestoreValue = (value) => {
  */
 export const queuePrintJob = async (printerId, zplData, metadata = {}) => {
   try {
+    const normalizedPrinterId = String(printerId || "").trim();
+    const normalizedZpl = String(zplData || "");
+
+    if (!PRINTER_ID_PATTERN.test(normalizedPrinterId)) {
+      throw new Error("Ongeldige printerId.");
+    }
+
+    if (!normalizedZpl || normalizedZpl.length > MAX_ZPL_LENGTH) {
+      throw new Error("ZPL payload ontbreekt of is te groot.");
+    }
+
+    const requestedQuantity = Number(metadata?.quantity ?? metadata?.copies ?? 1);
+    if (!Number.isFinite(requestedQuantity) || requestedQuantity < 1 || requestedQuantity > MAX_PRINT_QUANTITY) {
+      throw new Error(`Aantal labels moet tussen 1 en ${MAX_PRINT_QUANTITY} liggen.`);
+    }
+
     const queueRef = collection(db, "future-factory", "production", "print_queue");
     const sanitizedMetadata = sanitizeFirestoreValue({
       ...metadata,
-      userAgent: navigator.userAgent,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
       requesterEmail: auth.currentUser?.email || "unknown"
     });
+
+    if (JSON.stringify(sanitizedMetadata || {}).length > MAX_METADATA_LENGTH) {
+      throw new Error("Metadata is te groot.");
+    }
     
     const jobData = {
-      printerId: printerId,
-      zpl: zplData,
+      printerId: normalizedPrinterId,
+      zpl: normalizedZpl,
       status: "pending", // pending -> printing -> completed
       createdAt: serverTimestamp(),
       createdBy: auth.currentUser?.uid || "unknown",

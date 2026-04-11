@@ -8,9 +8,10 @@ import OrderDetail from "./OrderDetail";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot, arrayUnion, limit } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, deleteDoc, onSnapshot, arrayUnion, limit, increment } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveRejectedItemsPath, getArchiveItemsPath } from "../../config/dbPaths";
+import { getStartedCounterField } from "../../utils/hubHelpers";
 import InternalQrImage from "../../utils/InternalQrImage";
 import PlanningSidebar from "./PlanningSidebar";
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -509,14 +510,24 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                   const orderDoc = orderSnap.docs[0];
                   const orderData = orderDoc.data();
                   const originStation = product.originMachine || product.currentStation;
-                  const stationField = `started_${(originStation || "").replace(/[^a-zA-Z0-9]/g, '_')}`;
-                  const currentStarted = orderData[stationField] || 0;
-                  
-                  if (currentStarted > 0) {
-                    await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), {
-                      [stationField]: currentStarted - 1,
-                    });
-                  }
+                                    const stationField = getStartedCounterField(originStation);
+                                    const currentStarted = Number(orderData?.[stationField] || 0);
+                                    const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
+
+                                    const orderUpdates = {
+                                        rejectedCount: increment(1),
+                                        lastUpdated: serverTimestamp(),
+                                    };
+
+                                    if (stationField && currentStarted > 0) {
+                                        orderUpdates[stationField] = currentStarted - 1;
+                                    }
+
+                                    if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
+                                        orderUpdates.status = "planned";
+                                    }
+
+                                    await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), orderUpdates);
                 }
               } catch (err) {
                 console.error("Fout bij updaten order teller:", err);

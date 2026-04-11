@@ -53,110 +53,21 @@ import {
   LABEL_SIZES,
   processLabelData,
   resolveLabelContent,
+  getBarcodeUrl,
 } from "../../utils/labelHelpers";
+import { getPixelsPerMm, getPreviewTextStyle, resolvePreviewFontFamily, ZEBRA_FONT0_PREVIEW_STACK } from "../../utils/labelPreviewMetrics";
 import { generatePrintData, downloadZPL } from "../../utils/zplHelper";
 import { getDriver } from "../../utils/printerDrivers";
 import { useNotifications } from '../../contexts/NotificationContext';
+import InternalQrImage from "../../utils/InternalQrImage";
 
 /**
  * CRITICAL DPI PARITY: designer moet dezelfde schaal gebruiken als preview
  * zodat wat je ontwerpt exact overeenkomt met wat wordt geprint
  */
-const CSS_PIXELS_PER_POINT = 96 / 72;
 const SNAP_THRESHOLD_MM = 1.5;
-const DEFAULT_PRINTER_DPI = 203;
-
-/**
- * Berekent PIXELS_PER_MM voor gegeven printer-DPI
- * Hiermee wordt designer gesynchroniseerd met print-output
- */
-const getPixelsPerMm = (printerDpi = DEFAULT_PRINTER_DPI) => {
-  return (printerDpi || DEFAULT_PRINTER_DPI) / 25.4;
-};
+const DEFAULT_PRINTER_DPI = 300;
 const PIXELS_PER_MM = getPixelsPerMm(DEFAULT_PRINTER_DPI);
-
-const getLongestPreviewLineLength = (value) => {
-  const lines = String(value || "").split(/\r?\n/);
-  return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
-};
-
-const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1, pixelsPerMm = 8.0) => {
-  const explicitMaxLines = Number(element.maxLines);
-  if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
-    return Math.max(1, Math.floor(explicitMaxLines));
-  }
-
-  const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
-  const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
-  const blockHeightMm = isVerticalRotation
-    ? (element.width || element.height || 0)
-    : (element.height || 0);
-
-  if (!blockHeightMm || !baseFontPx) return 1;
-
-  const blockHeightPx = blockHeightMm * pixelsPerMm * zoom;
-  const estimatedLineHeightPx = Math.max(1, baseFontPx * 1.05);
-  return Math.max(1, Math.floor((blockHeightPx * 0.92) / estimatedLineHeightPx));
-};
-
-const getPreviewTextStyle = (element, content, zoom, rotation = 0, pixelsPerMm = 8.0) => {
-  const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
-  const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
-  const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
-  const maxLines = getResolvedPreviewMaxLines(element, baseFontPx, normalizedRotation, zoom, pixelsPerMm);
-
-  if (isVerticalRotation) {
-    const runLengthMm = element.height || element.width || 0;
-    const runLengthPx = runLengthMm * pixelsPerMm * zoom;
-    const lineBudgetMm = element.width || element.height || 0;
-    const lineBudgetPx = lineBudgetMm * pixelsPerMm * zoom;
-
-    if (runLengthPx > 0) {
-      const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
-      const estimatedLongestWrappedLine = Math.max(1, Math.ceil(longestLineLength / maxLines));
-      const widthLimitedFontPx = (runLengthPx * 0.92) / (estimatedLongestWrappedLine * 0.52);
-      const heightLimitedFontPx = lineBudgetPx ? (lineBudgetPx * 0.9) / maxLines : baseFontPx;
-      const fittedFontPx = Math.max(1, Math.min(baseFontPx, widthLimitedFontPx, heightLimitedFontPx));
-      return {
-        fontSize: `${fittedFontPx}px`,
-        lineHeight: "1.05",
-      };
-    }
-
-    return {
-      fontSize: `${baseFontPx}px`,
-      lineHeight: "1.05",
-    };
-  }
-
-  const effectiveWidthMm = isVerticalRotation
-    ? (element.height || element.width || 0)
-    : (element.width || 0);
-  const blockWidthPx = effectiveWidthMm * pixelsPerMm * zoom;
-  const blockHeightPx = element.height
-    ? element.height * pixelsPerMm * zoom
-    : null;
-
-  if (!blockWidthPx) {
-    return {
-      fontSize: `${baseFontPx}px`,
-      lineHeight: "1.05",
-    };
-  }
-
-  const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
-  const estimatedLongestWrappedLine = Math.max(1, Math.ceil(longestLineLength / maxLines));
-  const widthLimitedFontPx = (blockWidthPx * 0.92) / (estimatedLongestWrappedLine * 0.52);
-  const heightLimitedFontPx = blockHeightPx
-    ? (blockHeightPx * 0.9) / maxLines
-    : baseFontPx;
-  const fittedFontPx = Math.max(1, Math.min(baseFontPx, widthLimitedFontPx, heightLimitedFontPx));
-
-  return {
-    fontSize: `${fittedFontPx}px`,
-    lineHeight: "1.05",
-  };
-};
 const LABEL_FOLDER_OPTIONS = [
   "Tijdelijk Wavistrong",
   "Tijdelijk Fibermar",
@@ -186,7 +97,7 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
 
   const [elements, setElements] = useState([]);
   const [selectedElementIds, setSelectedElementIds] = useState([]);
-  const [zoom, setZoom] = useState(1.2);
+  const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(true);
   const [guidelines, setGuidelines] = useState([]);
 
@@ -621,7 +532,7 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
           : type === "image" ? "" : "QR_DATA",
       fontSize: 10,
       align: "left",
-      fontFamily: "Arial",
+      fontFamily: ZEBRA_FONT0_PREVIEW_STACK,
       isBold: false,
       rotation: 0,
       variable: "",
@@ -1133,7 +1044,7 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
                           style={{
                             ...previewTextStyle,
                             fontWeight: el.isBold ? "900" : "normal",
-                            fontFamily: el.fontFamily,
+                            fontFamily: resolvePreviewFontFamily(el.fontFamily),
                             width: isVerticalRotation
                               ? `${(el.height || el.width || 1) * PIXELS_PER_MM * zoom}px`
                               : `${el.width * PIXELS_PER_MM * zoom}px`,
@@ -1176,7 +1087,9 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
                         }}
                       />
                     )}
-                    {(el.type === "barcode" || el.type === "qr") && (
+                    {(el.type === "barcode" || el.type === "qr") && (() => {
+                      const { content } = resolveLabelContent(el, previewData);
+                      return (
                       <div
                         className="bg-slate-50 border border-slate-300 flex items-center justify-center"
                         style={{
@@ -1186,12 +1099,23 @@ const AdminLabelDesigner = ({ onBack, openLabelId = null }) => {
                           }px`,
                         }}
                       >
-                        <ScanBarcode
-                          size={24 * zoom}
-                          className="text-slate-400"
-                        />
+                        {el.type === "barcode" ? (
+                          <img
+                            src={getBarcodeUrl(content)}
+                            alt="code"
+                            style={{ width: "80%", height: "80%", objectFit: "contain" }}
+                          />
+                        ) : (
+                          <InternalQrImage
+                            value={content}
+                            size={160}
+                            alt="code"
+                            className="w-[80%] h-[80%] object-contain"
+                          />
+                        )}
                       </div>
-                    )}
+                      );
+                    })()}
                     {el.type === "image" && (
                       <div
                         style={{

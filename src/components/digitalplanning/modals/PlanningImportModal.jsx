@@ -26,20 +26,16 @@ import { getISOWeek, format, startOfISOWeek, differenceInCalendarWeeks, parse, p
 const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const { t } = useTranslation();
   const [fileData, setFileData] = useState([]);
-  const [availableSheets, setAvailableSheets] = useState([]);
-  const [selectedSheetName, setSelectedSheetName] = useState("");
   const [rawWorkbook, setRawWorkbook] = useState(null);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [existingIds, setExistingIds] = useState(new Set());
+  const [existingOrderMap, setExistingOrderMap] = useState(new Map());
   const [importMode, setImportMode] = useState("new_only");
-  const [machineFilter, setMachineFilter] = useState("All");
+  const [selectedMachines, setSelectedMachines] = useState([]);
   const [machineGroupFilter, setMachineGroupFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrderIds, setSelectedOrderIds] = useState(new Set());
-  const [selectedWeekCutoff, setSelectedWeekCutoff] = useState("");
-  const [hybridImportEnabled, setHybridImportEnabled] = useState(false);
-  const [hybridMachines, setHybridMachines] = useState([]);
   const [pasteMode, setPasteMode] = useState(true);
   const [, setDebugLogs] = useState([]);
 
@@ -52,6 +48,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       try {
         const snap = await getDocs(collection(db, ...PATHS.PLANNING));
         setExistingIds(new Set(snap.docs.map(d => d.id)));
+        setExistingOrderMap(new Map(snap.docs.map((d) => [d.id, d.data()])));
       } catch {
         addLog(t("digitalplanning.planning_import.logs.db_connect_failed", "Database connectie mislukt."), "error");
       }
@@ -296,11 +293,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     if (/^40AJ\d{2}$/.test(m)) return 300;
     if (/^40\d{4}$/.test(m)) return 150;
     return 50;
-  };
-
-  const isActivePlanningStatus = (status) => {
-    const s = clean(status).toLowerCase();
-    return ["active", "released", "planned", "in productie", "lopend"].some((keyword) => s.includes(keyword));
   };
 
   const isFittingsMachine = (machineCode) => {
@@ -584,7 +576,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const handleSheetChange = (sheetName, workbookOverride = null) => {
     const workbook = workbookOverride || rawWorkbook;
     if (!workbook) return;
-    setSelectedSheetName(sheetName);
     setLoading(true);
     try {
       const sheet = workbook.Sheets[sheetName];
@@ -617,7 +608,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { cellDates: true });
       setRawWorkbook(workbook);
-      setAvailableSheets(workbook.SheetNames);
       const bestSheet = workbook.SheetNames.find(n => n.toLowerCase().includes("data") || n.toLowerCase().includes("format") || n === "40BM01");
       handleSheetChange(bestSheet || workbook.SheetNames[0], workbook);
     } catch { addLog(t("digitalplanning.planning_import.logs.file_unreadable", "Bestand onleesbaar."), "error"); } finally { setLoading(false); }
@@ -750,8 +740,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       }
 
       setRawWorkbook(null);
-      setAvailableSheets(["PastedData"]);
-      setSelectedSheetName("PastedData");
       setFileData(parsedData);
       addLog(
         t("digitalplanning.planning_import.logs.paste_rows_loaded", {
@@ -769,84 +757,106 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   };
 
   const validOrders = useMemo(() => fileData.filter((d) => d.isValidForImport), [fileData]);
-  useEffect(() => {
-    setSelectedOrderIds(new Set(validOrders.map((d) => d.id)));
-  }, [validOrders]);
 
-  const availableWeeks = useMemo(() => {
-    return Array.from(
-      new Set(
-        validOrders
-          .map((d) => Number(d.weekNumber))
-          .filter((w) => Number.isFinite(w) && w > 0)
-      )
-    ).sort((a, b) => a - b);
-  }, [validOrders]);
-
-  useEffect(() => {
-    if (!availableWeeks.length) {
-      setSelectedWeekCutoff("");
-      return;
-    }
-    setSelectedWeekCutoff((prev) => {
-      if (prev && availableWeeks.includes(Number(prev))) return prev;
-      return String(availableWeeks[availableWeeks.length - 1]);
-    });
-  }, [availableWeeks]);
-
-  const availableMachines = useMemo(() => ["All", ...Array.from(new Set(validOrders.map(d => d.machine))).sort()], [validOrders]);
-  const availableHybridMachines = useMemo(
+  const availableMachines = useMemo(
     () => Array.from(new Set(validOrders.map((d) => normalizeMachineCodeForFilter(d.machine)).filter(Boolean))).sort(),
     [validOrders]
   );
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("planningImportHybridConfig");
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      setHybridImportEnabled(Boolean(parsed?.enabled));
-      setHybridMachines(Array.isArray(parsed?.machines) ? parsed.machines.map((m) => normalizeMachineCodeForFilter(m)) : []);
-    } catch {
-      // Geen opgeslagen voorkeuren of ongeldige JSON.
-    }
-  }, []);
+    setSelectedMachines((prev) => {
+      const stillValid = prev.filter((machine) => availableMachines.includes(machine));
+      if (prev.length === 0 && availableMachines.length > 0) {
+        return availableMachines;
+      }
+      return stillValid;
+    });
+  }, [availableMachines]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "planningImportHybridConfig",
-        JSON.stringify({
-          enabled: hybridImportEnabled,
-          machines: hybridMachines,
-        })
-      );
-    } catch {
-      // Storage kan uitstaan in sommige browsers/profielen.
-    }
-  }, [hybridImportEnabled, hybridMachines]);
-
-  useEffect(() => {
-    setHybridMachines((prev) => prev.filter((machine) => availableHybridMachines.includes(machine)));
-  }, [availableHybridMachines]);
-
-  const isAllowedByHybridMachineFilter = (order) => {
-    if (!hybridImportEnabled) return true;
-    if (!hybridMachines.length) return false;
-    return hybridMachines.includes(normalizeMachineCodeForFilter(order.machine));
+  const isSpoolsMachine = (machineCode) => {
+    const m = clean(machineCode).toUpperCase();
+    const normalized = m.startsWith("40") ? m.slice(2) : m;
+    return /^BB\d{2}$/.test(normalized) || /^BM\d{2}$/.test(normalized);
   };
 
-  const toggleHybridMachine = (machineCode) => {
-    setHybridMachines((prev) => {
+  const getDepartmentGroupMachines = (groupName) => {
+    if (groupName === "fittings") return availableMachines.filter((machine) => isFittingsMachine(machine));
+    if (groupName === "pipes") return availableMachines.filter((machine) => isPipesMachine(machine));
+    if (groupName === "spools") return availableMachines.filter((machine) => isSpoolsMachine(machine));
+    return availableMachines;
+  };
+
+  const toggleMachineSelection = (machineCode) => {
+    setSelectedMachines((prev) => {
       if (prev.includes(machineCode)) return prev.filter((m) => m !== machineCode);
       return [...prev, machineCode].sort();
     });
   };
 
-  const selectHybridMachines = (machines) => {
-    const unique = Array.from(new Set(machines.map((m) => normalizeMachineCodeForFilter(m)))).filter((m) => availableHybridMachines.includes(m));
-    setHybridMachines(unique.sort());
+  const selectMachines = (machines) => {
+    const unique = Array.from(new Set(machines.map((m) => normalizeMachineCodeForFilter(m)))).filter((m) => availableMachines.includes(m));
+    setSelectedMachines(unique.sort());
   };
+
+  const isAllowedBySelectedMachines = (order) => {
+    if (!selectedMachines.length) return false;
+    return selectedMachines.includes(normalizeMachineCodeForFilter(order.machine));
+  };
+
+  const getComparableQty = (order) => {
+    const raw = order?.quantity ?? 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const orderChangeMeta = useMemo(() => {
+    const byId = new Map();
+    validOrders.forEach((order) => {
+      const existing = existingOrderMap.get(order.id);
+      if (!existing) {
+        byId.set(order.id, {
+          isExisting: false,
+          quantityChanged: false,
+          notesChanged: false,
+          oldQuantity: null,
+          newQuantity: getComparableQty(order),
+          oldNotes: "",
+          newNotes: clean(order.notes),
+          hasSmartChange: false,
+        });
+        return;
+      }
+
+      const oldQuantity = getComparableQty(existing);
+      const newQuantity = getComparableQty(order);
+      const oldNotes = clean(existing?.notes);
+      const newNotes = clean(order?.notes);
+      const quantityChanged = oldQuantity !== newQuantity;
+      const notesChanged = oldNotes !== newNotes;
+
+      byId.set(order.id, {
+        isExisting: true,
+        quantityChanged,
+        notesChanged,
+        oldQuantity,
+        newQuantity,
+        oldNotes,
+        newNotes,
+        hasSmartChange: quantityChanged || notesChanged,
+      });
+    });
+    return byId;
+  }, [validOrders, existingOrderMap]);
+
+  useEffect(() => {
+    if (!availableMachines.length) return;
+    if (machineGroupFilter === "all") {
+      setSelectedMachines(availableMachines);
+      return;
+    }
+    const groupMachines = getDepartmentGroupMachines(machineGroupFilter);
+    setSelectedMachines(groupMachines);
+  }, [machineGroupFilter, availableMachines]);
 
   const displayData = useMemo(() => {
     let rows = [...validOrders];
@@ -855,13 +865,11 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       rows = rows.filter((d) => isFittingsMachine(d.machine));
     } else if (machineGroupFilter === "pipes") {
       rows = rows.filter((d) => isPipesMachine(d.machine));
-    } else if (machineGroupFilter === "other") {
-      rows = rows.filter((d) => !isFittingsMachine(d.machine) && !isPipesMachine(d.machine));
+    } else if (machineGroupFilter === "spools") {
+      rows = rows.filter((d) => isSpoolsMachine(d.machine));
     }
 
-    if (machineFilter !== "All") {
-      rows = rows.filter((d) => d.machine === machineFilter);
-    }
+    rows = rows.filter((d) => isAllowedBySelectedMachines(d));
 
     if (statusFilter === "new") {
       rows = rows.filter((d) => !existingIds.has(d.id));
@@ -869,8 +877,24 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       rows = rows.filter((d) => existingIds.has(d.id));
     }
 
+    if (importMode === "smart_update") {
+      rows = rows.filter((d) => {
+        const meta = orderChangeMeta.get(d.id);
+        return meta ? (!meta.isExisting || meta.hasSmartChange) : false;
+      });
+
+      rows.sort((a, b) => {
+        const aMeta = orderChangeMeta.get(a.id);
+        const bMeta = orderChangeMeta.get(b.id);
+        const aEligible = aMeta ? (!aMeta.isExisting || aMeta.hasSmartChange) : false;
+        const bEligible = bMeta ? (!bMeta.isExisting || bMeta.hasSmartChange) : false;
+        if (Number(bEligible) !== Number(aEligible)) return Number(bEligible) - Number(aEligible);
+        return String(a.orderId || a.id).localeCompare(String(b.orderId || b.id));
+      });
+    }
+
     return rows;
-  }, [validOrders, machineFilter, machineGroupFilter, statusFilter, existingIds]);
+  }, [validOrders, machineGroupFilter, statusFilter, existingIds, selectedMachines, importMode, orderChangeMeta]);
 
   // Velden die LN beheert en veilig bijgewerkt mogen worden op bestaande orders.
   const LN_UPDATABLE_FIELDS = [
@@ -882,14 +906,26 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   ];
 
   const importCandidates = useMemo(() => {
-    let rows = validOrders.filter((d) =>
-      importMode === "overwrite" ||
-      importMode === "smart_update" ||
-      !existingIds.has(d.id)
-    );
-    rows = rows.filter((d) => isAllowedByHybridMachineFilter(d));
+    let rows;
+    if (importMode === "smart_update") {
+      rows = validOrders.filter((d) => !existingIds.has(d.id) || orderChangeMeta.get(d.id)?.hasSmartChange);
+    } else {
+      rows = validOrders.filter((d) =>
+        importMode === "overwrite" ||
+        !existingIds.has(d.id)
+      );
+    }
+    rows = rows.filter((d) => isAllowedBySelectedMachines(d));
     return rows;
-  }, [validOrders, importMode, existingIds, hybridImportEnabled, hybridMachines]);
+  }, [validOrders, importMode, existingIds, selectedMachines, orderChangeMeta]);
+
+  useEffect(() => {
+    if (importMode === "smart_update") {
+      setSelectedOrderIds(new Set(importCandidates.map((d) => d.id)));
+      return;
+    }
+    setSelectedOrderIds(new Set(validOrders.map((d) => d.id)));
+  }, [validOrders, importMode, importCandidates]);
 
   const importableCount = useMemo(
     () => importCandidates.length,
@@ -927,23 +963,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       });
       return next;
     });
-  };
-
-  const selectThroughWeek = () => {
-    const cutoff = Number(selectedWeekCutoff);
-    if (!Number.isFinite(cutoff) || cutoff <= 0) return;
-
-    const keepVisible = new Set(
-      validOrders
-        .filter((order) => {
-          const orderWeek = Number(order.weekNumber);
-          if (Number.isFinite(orderWeek) && orderWeek > 0 && orderWeek <= cutoff) return true;
-          return isActivePlanningStatus(order.orderStatus);
-        })
-        .map((order) => order.id)
-    );
-
-    setSelectedOrderIds(keepVisible);
   };
 
   const startImport = async () => {
@@ -1057,15 +1076,15 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-md">
       <div className="bg-white w-full max-w-[96vw] max-h-[92vh] rounded-[3rem] shadow-2xl flex flex-col overflow-hidden border border-white/20 text-left">
-        <div className="p-8 border-b flex justify-between items-center bg-slate-50">
-          <div className="flex items-center gap-5">
-            <div className="bg-blue-600 p-4 rounded-[1.5rem] text-white shadow-xl"><Database size={28} /></div>
+        <div className="p-5 border-b flex justify-between items-center bg-slate-50">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-600 p-3 rounded-[1.1rem] text-white shadow-xl"><Database size={22} /></div>
             <div>
-              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight italic leading-none">{t("digitalplanning.planning_import.title", "Planning Import")}</h2>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-2">v4.7 • Extended Dossier Support</p>
+              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight italic leading-none">{t("digitalplanning.planning_import.title", "Planning Import")}</h2>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">v4.7 • Extended Dossier Support</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-3 hover:bg-slate-200 rounded-full text-slate-400 transition-all"><X size={28} /></button>
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-all"><X size={24} /></button>
         </div>
 
         <div className="flex-1 overflow-hidden flex">
@@ -1115,43 +1134,81 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                 </div>
             ) : (
               <div className="h-full min-h-0 flex flex-col gap-8">
-                <div className="bg-slate-900 p-6 rounded-[2.5rem] flex justify-between items-center shadow-2xl">
-                   <div className="flex items-center gap-8 text-white">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">{t("digitalplanning.planning_import.sheet_label", "Tabblad")}</span>
-                        <select value={selectedSheetName} onChange={(e) => handleSheetChange(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
-                          {availableSheets.map(s => <option key={s} value={s} className="text-slate-800">{s}</option>)}
-                        </select>
+                <div className="bg-slate-900 p-4 rounded-[2.5rem] flex justify-between items-start shadow-2xl gap-4">
+                   <div className="flex-1 min-w-0 text-white">
+                      <div className="flex flex-wrap items-end gap-4">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-1 tracking-widest">{t("digitalplanning.planning_import.department_group_label", "Afdelingsgroep")}</span>
+                          <select value={machineGroupFilter} onChange={(e) => setMachineGroupFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-xl px-3 py-2 font-bold text-xs text-white outline-none focus:border-blue-500">
+                            <option value="all" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_all", "ALLES")}</option>
+                            <option value="fittings" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_fittings", "FITTINGS")}</option>
+                            <option value="pipes" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_pipes", "PIPES")}</option>
+                            <option value="spools" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_spools", "SPOOLS")}</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-1 tracking-widest">{t("digitalplanning.planning_import.status_label", "Status")}</span>
+                          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-xl px-3 py-2 font-bold text-xs text-white outline-none focus:border-blue-500">
+                            <option value="all" className="text-slate-800">{t("digitalplanning.planning_import.status_all", "ALLES")}</option>
+                            <option value="new" className="text-slate-800">{t("digitalplanning.planning_import.status_new", "NIEUW")}</option>
+                            <option value="existing" className="text-slate-800">{t("digitalplanning.planning_import.status_existing", "BESTAAND")}</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => selectMachines(availableMachines)}
+                            className="px-2.5 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-white/20"
+                          >
+                            {t("digitalplanning.planning_import.select_all", "Alles selecteren")}
+                          </button>
+                          <button
+                            onClick={() => selectMachines([])}
+                            className="px-2.5 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-white/20"
+                          >
+                            {t("digitalplanning.planning_import.clear_selection", "Leegmaken")}
+                          </button>
+                          <button
+                            onClick={() => selectMachines(["BH12", "BH18"])}
+                            className="px-2.5 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-white/20"
+                          >
+                            BH12 + BH18
+                          </button>
+                          <button
+                            onClick={() => setVisibleSelection(true)}
+                            className="px-2.5 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-white/20"
+                          >
+                            {t("digitalplanning.planning_import.all_visible", "Alles zichtbaar")}
+                          </button>
+                          <button
+                            onClick={() => setVisibleSelection(false)}
+                            className="px-2.5 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-white/20"
+                          >
+                            {t("digitalplanning.planning_import.all_hidden", "Alles verborgen")}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">{t("digitalplanning.planning_import.filter_label", "Filter")}</span>
-                        <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
-                          {availableMachines.map(m => <option key={m} value={m} className="text-slate-800">{m === "All" ? t("digitalplanning.planning_import.all_machines", "ALLE MACHINES") : m}</option>)}
-                        </select>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">{t("digitalplanning.planning_import.machine_group_label", "Machinegroep")}</span>
-                        <select value={machineGroupFilter} onChange={(e) => setMachineGroupFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
-                          <option value="all" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_all", "ALLES")}</option>
-                          <option value="fittings" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_fittings", "FITTINGS (BH11/12/15/16/17/18/31)")}</option>
-                          <option value="pipes" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_pipes", "PIPES (BA05/07/08/09)")}</option>
-                          <option value="other" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_other", "OVERIG")}</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-2 tracking-widest">{t("digitalplanning.planning_import.status_label", "Status")}</span>
-                        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-2xl px-5 py-3 font-bold text-sm text-white outline-none focus:border-blue-500">
-                          <option value="all" className="text-slate-800">{t("digitalplanning.planning_import.status_all", "ALLES")}</option>
-                          <option value="new" className="text-slate-800">{t("digitalplanning.planning_import.status_new", "NIEUW")}</option>
-                          <option value="existing" className="text-slate-800">{t("digitalplanning.planning_import.status_existing", "BESTAAND")}</option>
-                        </select>
+
+                      <div className="mt-3 flex flex-wrap gap-2 max-h-16 overflow-y-auto pr-1">
+                        {availableMachines.map((machineCode) => {
+                          const selected = selectedMachines.includes(machineCode);
+                          return (
+                            <button
+                              key={machineCode}
+                              onClick={() => toggleMachineSelection(machineCode)}
+                              className={`px-2.5 py-1 rounded-lg font-black uppercase text-[10px] tracking-widest border transition-all ${selected ? "bg-blue-500 text-white border-blue-500" : "bg-white/5 text-slate-200 border-white/20 hover:bg-white/15"}`}
+                            >
+                              {machineCode}
+                            </button>
+                          );
+                        })}
                       </div>
                    </div>
-                   <div className="text-right text-white">
+                   <div className="text-right text-white shrink-0">
                        <p className="text-[10px] font-black opacity-40 uppercase tracking-widest">{t("digitalplanning.planning_import.found_orders", "Gevonden Orders")}</p>
                        <p className="text-3xl font-black tracking-tighter">{displayData.length}</p>
+                       <p className="text-[10px] mt-1 text-emerald-200 font-black uppercase tracking-widest">{t("digitalplanning.planning_import.selected_machines_count", { count: selectedMachines.length, defaultValue: "Machines in import: {{count}}" })}</p>
                        <p className="text-[10px] mt-1 text-blue-200 font-black uppercase tracking-widest">{t("digitalplanning.planning_import.in_planning", { count: displayData.filter((order) => selectedOrderIds.has(order.id)).length, defaultValue: "In Planning: {{count}}" })}</p>
-                       <div className="mt-3 flex flex-wrap justify-end gap-2">
+                       <div className="mt-2 flex flex-wrap justify-end gap-2">
                          <span className="px-2 py-1 rounded-lg bg-red-500/20 text-red-200 text-[10px] font-black uppercase tracking-widest">{t("digitalplanning.planning_import.bucket_overdue", { count: deliveryBuckets.overdue, defaultValue: "Achter: {{count}}" })}</span>
                          <span className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-200 text-[10px] font-black uppercase tracking-widest">{t("digitalplanning.planning_import.bucket_current", { count: deliveryBuckets.current, defaultValue: "Deze week: {{count}}" })}</span>
                          <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-200 text-[10px] font-black uppercase tracking-widest">{t("digitalplanning.planning_import.bucket_upcoming", { count: deliveryBuckets.upcoming, defaultValue: "Komend: {{count}}" })}</span>
@@ -1159,175 +1216,114 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                    </div>
                 </div>
 
-                <div className="flex flex-wrap items-end justify-between gap-4 bg-slate-50 border border-slate-200 rounded-3xl p-4">
-                  <div className="flex items-end gap-3">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-1">{t("digitalplanning.planning_import.week_until", "Week t/m")}</span>
-                      <select
-                        value={selectedWeekCutoff}
-                        onChange={(e) => setSelectedWeekCutoff(e.target.value)}
-                        className="bg-white border border-slate-300 rounded-xl px-4 py-2 font-bold text-xs text-slate-700 outline-none focus:border-blue-500"
-                      >
-                        {availableWeeks.length === 0 ? (
-                          <option value="">{t("digitalplanning.planning_import.no_week_data", "Geen weekdata")}</option>
-                        ) : (
-                          availableWeeks.map((week) => (
-                            <option key={week} value={week}>{t("digitalplanning.planning_import.week_option", { week, defaultValue: "Week {{week}}" })}</option>
-                          ))
-                        )}
-                      </select>
-                    </div>
-                    <button
-                      onClick={selectThroughWeek}
-                      disabled={!selectedWeekCutoff}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {t("digitalplanning.planning_import.select_until_week", "Selecteer t/m week + lopende orders")}
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setVisibleSelection(true)}
-                      className="px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100"
-                    >
-                      {t("digitalplanning.planning_import.all_visible", "Alles zichtbaar")}
-                    </button>
-                    <button
-                      onClick={() => setVisibleSelection(false)}
-                      className="px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100"
-                    >
-                      {t("digitalplanning.planning_import.all_hidden", "Alles verborgen")}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-amber-50 border border-amber-200 rounded-3xl p-4 flex flex-col gap-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{t("digitalplanning.planning_import.hybrid_title", "Hybride Import")}</p>
-                      <p className="text-xs font-bold text-amber-900">{t("digitalplanning.planning_import.hybrid_help", "Beperk import tot gekozen workcenters (bijv. BH12/BH18).")}</p>
-                    </div>
-                    <label className="inline-flex items-center gap-2 text-xs font-black text-amber-900 uppercase tracking-widest cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={hybridImportEnabled}
-                        onChange={(e) => setHybridImportEnabled(e.target.checked)}
-                        className="h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
-                      />
-                      {t("digitalplanning.planning_import.hybrid_checkbox", "Alleen geselecteerde machines importeren")}
-                    </label>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => selectHybridMachines(["BH12", "BH18"])}
-                      className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-100"
-                    >
-                      BH12 + BH18
-                    </button>
-                    <button
-                      onClick={() => selectHybridMachines(availableHybridMachines)}
-                      className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-100"
-                    >
-                      {t("digitalplanning.planning_import.select_all", "Alles selecteren")}
-                    </button>
-                    <button
-                      onClick={() => setHybridMachines([])}
-                      className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-100"
-                    >
-                      {t("digitalplanning.planning_import.clear_selection", "Leegmaken")}
-                    </button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
-                    {availableHybridMachines.map((machineCode) => {
-                      const selected = hybridMachines.includes(machineCode);
-                      return (
-                        <button
-                          key={machineCode}
-                          onClick={() => toggleHybridMachine(machineCode)}
-                          className={`px-3 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest border transition-all ${selected ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-800 border-amber-300 hover:bg-amber-100"}`}
-                        >
-                          {machineCode}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {hybridImportEnabled && hybridMachines.length === 0 && (
-                    <p className="text-[11px] font-bold text-red-700">{t("digitalplanning.planning_import.hybrid_empty_warning", "Hybride import staat aan, maar er zijn nog geen machines geselecteerd. Resultaat: 0 imports.")}</p>
-                  )}
-                </div>
-
                 <div className="border border-slate-100 rounded-[2.5rem] overflow-hidden bg-white shadow-sm flex-1 min-h-0 overflow-y-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-400 font-black uppercase tracking-widest border-b">
+                  <table className="w-full text-left text-[11px] border-collapse">
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-400 font-black uppercase tracking-wider border-b">
                       <tr>
-                        <th className="px-8 py-5 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_order", "Order")}</th>
-                        <th className="px-6 py-5 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_machine", "Machine")}</th>
-                        <th className="px-6 py-5 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_product", "Product")}</th>
-                        <th className="px-6 py-5 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_delivery_date", "Leverdatum")}</th>
-                        <th className="px-4 py-5 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_status", "Status")}</th>
-                        <th className="px-4 py-5 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_quantity", "Aantal")}</th>
-                        <th className="px-4 py-5 sticky top-0 bg-slate-50 text-center w-[120px]">{t("digitalplanning.planning_import.table_extra_code", "ExtraCode")}</th>
-                        <th className="px-4 py-5 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_po_text", "PO Text")}</th>
-                        <th className="px-6 py-5 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_plan_hours", "Plan Uren")}</th>
-                        <th className="px-6 py-5 sticky top-0 bg-slate-50 text-right pr-10">{t("digitalplanning.planning_import.table_in_planning", "In Planning")}</th>
+                        <th className="px-4 py-3 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_order", "Order")}</th>
+                        <th className="px-3 py-3 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_machine", "Machine")}</th>
+                        <th className="px-3 py-3 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_product", "Product")}</th>
+                        <th className="px-3 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_delivery_date", "Leverdatum")}</th>
+                        <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_status", "Status")}</th>
+                        <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_quantity", "Aantal")}</th>
+                        <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center w-[100px]">{t("digitalplanning.planning_import.table_extra_code", "ExtraCode")}</th>
+                        <th className="px-2 py-3 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_po_text", "PO Text")}</th>
+                        <th className="px-3 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_plan_hours", "Plan Uren")}</th>
+                        <th className="px-3 py-3 sticky top-0 bg-slate-50 text-right pr-4">{t("digitalplanning.planning_import.table_in_planning", "In Planning")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {displayData.slice(0, 50).map((order) => {
                         const isExisting = existingIds.has(order.id);
+                        const changeMeta = orderChangeMeta.get(order.id);
+                        const isQtyIncrease = changeMeta?.quantityChanged && Number(changeMeta.newQuantity) > Number(changeMeta.oldQuantity);
+                        const isQtyDecrease = changeMeta?.quantityChanged && Number(changeMeta.newQuantity) < Number(changeMeta.oldQuantity);
+                        const isSmartUnchangedExisting =
+                          importMode === "smart_update" &&
+                          isExisting &&
+                          !changeMeta?.hasSmartChange;
                         const deliveryMeta = getDeliveryMeta(order);
                         const deliveryColor = getDeliveryColorClass(deliveryMeta.weekDiff);
                         return (
                           <tr key={order.id} className={`hover:bg-blue-50/30 transition-all ${!order.isValidForImport ? 'opacity-30 grayscale italic' : ''}`}>
-                            <td className="px-8 py-4 font-black text-slate-900">{order.orderId}</td>
-                            <td className="px-6 py-4"><span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-xl font-black text-[10px] uppercase">{order.machine}</span></td>
-                            <td className="px-6 py-4">
-                              <p className="font-bold text-slate-800 truncate max-w-sm">{order.itemDescription}</p>
+                            <td className="px-4 py-1.5 font-black text-slate-900 whitespace-nowrap leading-tight">{order.orderId}</td>
+                            <td className="px-3 py-1.5"><span className="bg-blue-100 text-blue-700 px-2 py-[2px] rounded-lg font-black text-[10px] uppercase leading-none">{order.machine}</span></td>
+                            <td className="px-3 py-1.5 leading-tight">
+                              <p className="font-bold text-slate-800 truncate max-w-[220px]">{order.itemDescription}</p>
                               <span className="text-[9px] text-slate-400 font-mono">{order.itemCode}</span>
                             </td>
-                            <td className="px-6 py-4 text-center">
-                              <div className="flex flex-col items-center gap-1">
-                                <span className={`px-2 py-1 rounded-lg border text-[10px] font-black ${deliveryColor}`}>{deliveryMeta.weekLabel}</span>
+                            <td className="px-3 py-1.5 text-center">
+                              <div className="flex flex-col items-center gap-0.5 leading-tight">
+                                <span className={`px-2 py-[2px] rounded-lg border text-[10px] font-black ${deliveryColor}`}>{deliveryMeta.weekLabel}</span>
                                 <span className="text-[10px] font-bold text-slate-500">{deliveryMeta.dateLabel}</span>
                               </div>
                             </td>
-                            <td className="px-4 py-4 text-center">
-                              <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-[10px] font-black uppercase max-w-[110px] truncate">{order.orderStatus || "-"}</span>
+                            <td className="px-2 py-1.5 text-center">
+                              <span className="inline-block px-2 py-[2px] rounded-lg bg-slate-100 text-slate-700 text-[10px] font-black uppercase max-w-[110px] truncate leading-none">{order.orderStatus || "-"}</span>
                             </td>
-                            <td className="px-4 py-4 text-center">
-                              <span className="text-[11px] font-black text-slate-700">{Number(order.toDoQty || order.quantity || 0)}</span>
+                            <td className="px-2 py-1.5 text-center">
+                              {importMode === "smart_update" && changeMeta?.isExisting && changeMeta?.quantityChanged ? (
+                                <div className="inline-flex items-center gap-1">
+                                  <span className="text-[10px] font-black text-slate-400 line-through">{changeMeta.oldQuantity}</span>
+                                  <span
+                                    className={`text-[11px] font-black px-1.5 py-[1px] rounded border ${
+                                      isQtyIncrease
+                                        ? "text-emerald-700 bg-emerald-100 border-emerald-200"
+                                        : isQtyDecrease
+                                        ? "text-red-700 bg-red-100 border-red-200"
+                                        : "text-slate-700 bg-slate-100 border-slate-200"
+                                    }`}
+                                  >
+                                    {changeMeta.newQuantity}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] font-black text-slate-700">{Number(order.quantity || 0)}</span>
+                              )}
                             </td>
-                            <td className="px-4 py-4 text-center w-[120px]">
+                            <td className="px-2 py-1.5 text-center w-[100px]">
                               {order.extraCode ? (
-                                <span className="inline-block max-w-[96px] truncate text-[10px] bg-amber-50 text-amber-700 px-2 py-1 rounded font-black border border-amber-100">{order.extraCode}</span>
+                                <span className="inline-block max-w-[88px] truncate text-[10px] bg-amber-50 text-amber-700 px-1.5 py-[2px] rounded font-black border border-amber-100 leading-none">{order.extraCode}</span>
                               ) : (
                                 <span className="text-[10px] text-slate-300 font-black">-</span>
                               )}
                             </td>
-                            <td className="px-4 py-4">
+                            <td className="px-2 py-1.5 leading-tight">
                               {order.notes ? (
-                                <span className="inline-block max-w-[260px] truncate text-[10px] bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-black border border-indigo-100">{order.notes}</span>
+                                <span
+                                  className={`inline-block max-w-[200px] truncate text-[10px] px-1.5 py-[2px] rounded font-black border leading-none ${
+                                    importMode === "smart_update" && changeMeta?.isExisting && changeMeta?.notesChanged
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                  }`}
+                                  title={importMode === "smart_update" && changeMeta?.isExisting && changeMeta?.notesChanged ? `${t("digitalplanning.planning_import.was", "Was")}: ${changeMeta.oldNotes || "-"}` : undefined}
+                                >
+                                  {order.notes}
+                                </span>
                               ) : (
                                 <span className="text-[10px] text-slate-300 font-black">-</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 text-center">
+                            <td className="px-3 py-1.5 text-center whitespace-nowrap">
                                 <span className="text-sm font-black text-blue-600">{Number(order.totalPlannedHours).toFixed(1)}h</span>
                             </td>
-                            <td className="px-6 py-4 text-right pr-10">
-                              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                            <td className="px-3 py-1.5 text-right pr-4">
+                              <label className={`inline-flex items-center gap-2 select-none ${isSmartUnchangedExisting ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
                                 <input
                                   type="checkbox"
                                   checked={selectedOrderIds.has(order.id)}
-                                  onChange={() => toggleOrderSelection(order.id)}
+                                  disabled={isSmartUnchangedExisting}
+                                  onChange={() => {
+                                    if (isSmartUnchangedExisting) return;
+                                    toggleOrderSelection(order.id);
+                                  }}
                                   className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                 />
                                 {isExisting ? (
-                                  importMode === "smart_update"
+                                  importMode === "smart_update" && changeMeta?.hasSmartChange
                                     ? <span className="text-emerald-600 font-black uppercase text-[10px]">{t("digitalplanning.planning_import.sync_label", "Sync")}</span>
+                                    : importMode === "smart_update"
+                                    ? <span className="text-slate-400 font-black uppercase text-[10px]">-</span>
                                     : <span className="text-amber-500 font-black uppercase text-[10px]">{t("digitalplanning.planning_import.update_label", "Update")}</span>
                                 ) : (
                                   <span className="text-blue-500 font-black uppercase text-[10px]">{t("digitalplanning.planning_import.new_label", "Nieuw")}</span>

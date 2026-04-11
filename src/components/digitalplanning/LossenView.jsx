@@ -15,7 +15,7 @@ import { Package,
     Keyboard } from "lucide-react";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -632,14 +632,24 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                   const orderDoc = orderSnap.docs[0];
                   const orderData = orderDoc.data();
                   const originStation = product.originMachine || product.currentStation;
-                  const stationField = `started_${originStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
-                  const currentStarted = orderData[stationField] || 0;
-                  
-                  if (currentStarted > 0) {
-                    await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), {
-                      [stationField]: currentStarted - 1,
-                    });
+                  const stationField = getStartedCounterField(originStation);
+                  const currentStarted = Number(orderData?.[stationField] || 0);
+                  const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
+
+                  const orderUpdates = {
+                    rejectedCount: increment(1),
+                    lastUpdated: serverTimestamp(),
+                  };
+
+                  if (stationField && currentStarted > 0) {
+                    orderUpdates[stationField] = currentStarted - 1;
                   }
+
+                  if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
+                    orderUpdates.status = "planned";
+                  }
+
+                  await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), orderUpdates);
                 }
               } catch (err) {
                 console.error("Fout bij updaten order teller:", err);

@@ -34,6 +34,7 @@ import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { runBatchDrawingSync } from "../../utils/drawingLinker";
+import { archiveOrder } from "../../utils/archiveService";
 import TeamleaderDashboard from "../teamleader/TeamleaderDashboard";
 import TeamleaderGanttView from "../teamleader/TeamleaderGanttView";
 import TeamleaderEfficiencyView from "../teamleader/TeamleaderEfficiencyView";
@@ -42,6 +43,7 @@ import PlanningSidebar from "./PlanningSidebar";
 import OrderDetail from "./OrderDetail";
 import ProductDossierModal from "./modals/ProductDossierModal.jsx";
 import AiPredictionView from "./AiPredictionView";
+import { moveTrackedProductManual } from "../../services/planningSecurityService";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -90,6 +92,7 @@ const TeamleaderHub = React.memo(({
   const [showAiPrediction, setShowAiPrediction] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSyncingDrawings, setIsSyncingDrawings] = useState(false);
+  const [isArchivingLegacyRejected, setIsArchivingLegacyRejected] = useState(false);
   const { showSuccess, showInfo, showWarning, showConfirm , notify} = useNotifications();
 
   // Modals state
@@ -481,6 +484,47 @@ const TeamleaderHub = React.memo(({
   }, [selectedSidebarEntry, selectedOrderId]);
 
   const canManageOverproduction = fixedScope === "all" && ["planner", "admin", "teamleader"].includes(user?.role);
+  const legacyRejectedOrders = useMemo(() => {
+    const currentWeekStart = startOfISOWeek(new Date());
+
+    const hasActiveProductsForOrder = (orderId) => {
+      const normalizedOrderId = String(orderId || "").trim();
+      if (!normalizedOrderId) return false;
+
+      return rawProducts.some((product) => {
+        if (String(product?.orderId || "").trim() !== normalizedOrderId) return false;
+
+        const productStatus = String(product?.status || "").toUpperCase().trim();
+        const productStep = String(product?.currentStep || "").toUpperCase().trim();
+        return !["COMPLETED", "FINISHED", "GEREED", "REJECTED", "AFKEUR", "SHIPPED", "DELETED"].includes(productStatus)
+          && !["FINISHED", "REJECTED"].includes(productStep);
+      });
+    };
+
+    return rawOrders.filter((order) => {
+      const status = String(order?.status || order?.orderStatus || "").toLowerCase().trim();
+      const archiveReason = String(order?.archiveReason || order?.archivedReason || "").toLowerCase().trim();
+      const rejectedCount = Number(order?.rejectedCount || 0);
+      const planCount = Number(order?.plan ?? order?.quantity ?? 0);
+      const finishedCount = Number(order?.finishValue ?? order?.wrapped ?? 0);
+      const orderDate = (() => {
+        const value = order?.plannedDate || order?.date || order?.deliveryDate || null;
+        if (!value) return null;
+        if (value?.toDate) return value.toDate();
+        const parsed = new Date(value);
+        return Number.isFinite(parsed.getTime()) ? parsed : null;
+      })();
+
+      const explicitRejected = ["rejected", "afkeur", "definitieve afkeur"].includes(status) || archiveReason === "rejected";
+      if (explicitRejected) return true;
+
+      const isOlderOrder = orderDate ? orderDate < currentWeekStart : false;
+      const fullyAccountedFor = planCount > 0 && rejectedCount + finishedCount >= planCount;
+      const hasNoActiveProducts = !hasActiveProductsForOrder(order?.orderId || order?.id);
+
+      return rejectedCount > 0 && hasNoActiveProducts && (isOlderOrder || fullyAccountedFor);
+    });
+  }, [rawOrders, rawProducts]);
 
   const normalizeOrderStatus = (status) =>
     String(status || "")
@@ -1599,44 +1643,27 @@ const TeamleaderHub = React.memo(({
     }
   };
 
-  const handleMoveLot = async (lotNumber, newStation) => {
+  const handleMoveLot = async (lotNumber, newStation, options = {}) => {
     if (!lotNumber || !newStation) return;
     try {
-      let productRef = doc(db, ...PATHS.TRACKING, lotNumber);
-      let productSnap = await getDoc(productRef);
-      let foundProduct = productSnap.exists();
+      const isRepairMove = Boolean(options?.isRepairMove);
+      const repairInstruction = String(options?.repairInstruction || "").trim();
 
-      if (!foundProduct) {
-        const trackingRef = collection(db, ...PATHS.TRACKING);
-        const byLotSnap = await getDocs(query(trackingRef, where("lotNumber", "==", String(lotNumber).trim()), limit(1)));
-        if (!byLotSnap.empty) {
-          productRef = byLotSnap.docs[0].ref;
-          productSnap = byLotSnap.docs[0];
-          foundProduct = true;
-        }
-      }
-
-      if (!foundProduct) {
-        throw new Error(`Geen tracking item gevonden voor lot ${lotNumber}`);
-      }
-      
-      // Bepaal direct de juiste status (bijv. Te Nabewerken)
-      const nextState = getStepForStation(newStation);
-
-      await updateDoc(productRef, {
-        currentStation: newStation,
-        currentStep: nextState.currentStep,
-        status: nextState.status || "in_progress",
-        isManualMove: true,
-        updatedAt: serverTimestamp(),
-        note: `Handmatig verplaatst naar ${newStation} door ${user?.email || 'Teamleader'}`
+      await moveTrackedProductManual({
+        productOrLotId: lotNumber,
+        newStation,
+        isRepairMove,
+        repairInstruction,
+        source: "TeamleaderHub",
+        actorLabel: user?.email || "Teamleader",
       });
+
       await logActivity(
         user?.uid || "system",
         "LOT_MANUAL_MOVE",
-        `Teamleader verplaatsing: lot ${lotNumber} -> ${newStation}`
+        `${isRepairMove ? "Teamleader reparatie" : "Teamleader verplaatsing"}: lot ${lotNumber} -> ${newStation}${repairInstruction ? ` | instructie: ${repairInstruction}` : ""}`
       );
-      notify(`Product ${lotNumber} verplaatst naar ${newStation}`);
+      notify(`${isRepairMove ? "Reparatie" : "Product"} ${lotNumber} verplaatst naar ${newStation}`);
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
       notify("Fout bij verplaatsen: " + err.message);
@@ -1673,6 +1700,54 @@ const TeamleaderHub = React.memo(({
       notify("Fout bij aanmaken order: " + error.message);
     } finally {
       setCreatingOrder(false);
+    }
+  };
+
+  const handleArchiveLegacyRejectedOrders = async () => {
+    if (legacyRejectedOrders.length === 0) {
+      notify("Geen oude definitieve afkeur-orders gevonden om te verplaatsen.");
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: "Oude afkeur-orders verplaatsen",
+      message: `Wil je ${legacyRejectedOrders.length} oude definitieve afkeur-order(s) verplaatsen naar het archief?`,
+      confirmText: "Verplaatsen",
+      cancelText: "Annuleren",
+      tone: "warning",
+    });
+    if (!confirmed) return;
+
+    setIsArchivingLegacyRejected(true);
+    try {
+      let archivedCount = 0;
+
+      for (const order of legacyRejectedOrders) {
+        try {
+          const ok = await archiveOrder(order, "rejected");
+          if (ok) archivedCount += 1;
+        } catch (error) {
+          console.error(`Archiveren mislukt voor order ${order?.orderId || order?.id}:`, error);
+        }
+      }
+
+      await logActivity(
+        user?.uid || "system",
+        "PLANNING_ARCHIVE_LEGACY_REJECTED",
+        `Oude definitieve afkeur-orders gearchiveerd: ${archivedCount}/${legacyRejectedOrders.length}`
+      );
+
+      if (archivedCount > 0) {
+        showSuccess(`${archivedCount} oude definitieve afkeur-order(s) verplaatst naar archief.`);
+      }
+      if (archivedCount !== legacyRejectedOrders.length) {
+        showWarning(`${legacyRejectedOrders.length - archivedCount} order(s) konden niet worden verplaatst. Controleer de console/logs.`);
+      }
+    } catch (err) {
+      console.error("Fout bij archiveren oude afkeur-orders:", err);
+      notify("Fout bij verplaatsen van oude afkeur-orders: " + err.message);
+    } finally {
+      setIsArchivingLegacyRejected(false);
     }
   };
 
@@ -1764,6 +1839,15 @@ const TeamleaderHub = React.memo(({
             )}
             <button onClick={handlePlannerExcelExport} className="p-2 bg-white border border-slate-200 text-emerald-700 rounded-xl shadow-sm hover:bg-emerald-50 transition-all" title={t('teamleader.export_planner_excel', 'Exporteer Planner Excel')}><Table size={20} /></button>
             <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title={t('teamleader.export_csv', 'Exporteer CSV')}><Download size={20} /></button>
+            <button
+              onClick={handleArchiveLegacyRejectedOrders}
+              disabled={isArchivingLegacyRejected}
+              className={`px-4 py-2 rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap disabled:opacity-50 ${legacyRejectedOrders.length > 0 ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-600"}`}
+              title="Verplaats oude definitieve afkeur-orders naar archief"
+            >
+              {isArchivingLegacyRejected ? <Loader2 size={16} className="animate-spin" /> : <AlertTriangle size={16} />}
+              <span className="hidden sm:inline">Oude Afkeur Archiveren ({legacyRejectedOrders.length})</span>
+            </button>
             <button onClick={() => setShowAddOrderModal(true)} className="px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><Plus size={16} /> <span className="hidden sm:inline">{t('teamleader.new_order', 'Nieuwe Order')}</span></button>
             <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">{t('teamleader.import', 'Import')}</span></button>
             <button onClick={handleDrawingSync} disabled={isSyncingDrawings} className="p-2 bg-white border border-slate-200 text-purple-600 rounded-xl shadow-sm hover:bg-purple-50 transition-all disabled:opacity-50" title={t('teamleader.sync_drawings', 'Sync tekeningen')}><RefreshCw size={20} className={isSyncingDrawings ? 'animate-spin' : ''} /></button>
@@ -1806,6 +1890,9 @@ const TeamleaderHub = React.memo(({
                 <button onClick={() => { setShowImportModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-blue-600 hover:bg-blue-50 flex items-center gap-2"><FileSpreadsheet size={16} /> {t('teamleader.import', 'Import')}</button>
                 <button onClick={() => { handlePlannerExcelExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"><Table size={16} /> {t('teamleader.export_planner_excel', 'Exporteer Planner Excel')}</button>
                 <button onClick={() => { handleExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-slate-600 hover:bg-slate-50 flex items-center gap-2"><Download size={16} /> {t('teamleader.export_csv', 'Exporteer CSV')}</button>
+                <button onClick={() => { handleArchiveLegacyRejectedOrders(); setIsMobileMenuOpen(false); }} disabled={isArchivingLegacyRejected} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full flex items-center gap-2 disabled:opacity-50 ${legacyRejectedOrders.length > 0 ? "text-rose-600 hover:bg-rose-50" : "text-slate-500 hover:bg-slate-50"}`}>
+                  {isArchivingLegacyRejected ? <Loader2 size={16} className="animate-spin" /> : <AlertTriangle size={16} />} Oude Afkeur Archiveren ({legacyRejectedOrders.length})
+                </button>
                 <button onClick={() => { handleDrawingSync(); setIsMobileMenuOpen(false); }} disabled={isSyncingDrawings} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-purple-600 hover:bg-purple-50 flex items-center gap-2 disabled:opacity-50"><RefreshCw size={16} className={isSyncingDrawings ? 'animate-spin' : ''} /> {t('teamleader.sync_drawings', 'Sync tekeningen')}</button>
               </div>
             )}

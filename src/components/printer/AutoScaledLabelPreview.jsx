@@ -5,8 +5,8 @@ import LabelVisualPreview from './LabelVisualPreview';
  * CRITICAL: moet passen bij zplHelper DPI-conversie
  * getPixelsPerMm(203) ≈ 8.0 pixels/mm voor 203 DPI printer parity
  */
-const getPixelsPerMm = (printerDpi = 203) => {
-  return (printerDpi || 203) / 25.4;
+const getPixelsPerMm = (printerDpi = 300) => {
+  return (printerDpi || 300) / 25.4;
 };
 
 /**
@@ -14,7 +14,7 @@ const getPixelsPerMm = (printerDpi = 203) => {
  * Een wrapper die de LabelVisualPreview automatisch schaalt zodat deze in de container past.
  * Gebruikt printer-DPI schaal zodat preview parity heeft met actuele print output.
  */
-const AutoScaledLabelPreview = ({ label, data, className = "", maxScale = 3, printerDpi = 203 }) => {
+const AutoScaledLabelPreview = ({ label, data, className = "", maxScale = 3, printerDpi = 300 }) => {
   const containerRef = useRef(null);
   const [scale, setScale] = useState(1);
   const pixelsPerMm = getPixelsPerMm(printerDpi);

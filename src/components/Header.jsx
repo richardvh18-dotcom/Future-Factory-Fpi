@@ -16,6 +16,10 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [isAIMode, setIsAIMode] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => {
+    if (typeof navigator === "undefined") return true;
+    return navigator.onLine;
+  });
   const [adminDataSourceMode, setAdminDataSourceMode] = useState(() => {
     if (typeof window === "undefined") return "current";
     return getAdminDataSourceMode();
@@ -31,6 +35,21 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
     window.addEventListener("admin-data-source-mode-changed", syncModeFromStorage);
     return () => {
       window.removeEventListener("admin-data-source-mode-changed", syncModeFromStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
@@ -106,6 +125,10 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-500 text-black shadow-lg shadow-amber-500/40 animate-pulse">
                 TEST
               </span>
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg ${isOnline ? "bg-emerald-500/20 text-emerald-300 shadow-emerald-900/20" : "bg-rose-500/20 text-rose-300 shadow-rose-900/20"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-400" : "bg-rose-400"}`}></span>
+                {isOnline ? "Online" : "Offline"}
+              </span>
             </div>
             <p className="hidden sm:block text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1.5">
               {t('header.branding_sub', 'Smart Manufacturing Platform')}
@@ -176,9 +199,12 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
           className="flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5"
           title={`Databron: ${isPilotReadMode ? "Pilot DB (Read Only)" : "Huidige DB"}\nPLANNING: ${planningPathLabel}`}
         >
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+          <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`}></div>
           <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic select-none">
-            {t('header.system_status', 'Systeem actief')}
+            {isOnline ? t('header.system_status', 'Systeem actief') : 'Offline cache actief'}
+          </span>
+          <span className={`text-[9px] font-black uppercase tracking-widest select-none ${isOnline ? "text-emerald-400" : "text-rose-400"}`}>
+            {isOnline ? 'Online' : 'Offline'}
           </span>
           <span className={`text-[9px] font-black uppercase tracking-widest select-none ${isPilotReadMode ? "text-amber-400" : "text-slate-600"}`}>
             {isPilotReadMode ? "Pilot" : "Current"}

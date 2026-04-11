@@ -52,7 +52,7 @@ const getOrderLabelDescription = (item = {}) =>
   "";
 
 // --- Helper voor Tijdelijke Labels ---
-const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, onToggle, printerDpi = 203 }) => {
+const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, onToggle, printerDpi = 300 }) => {
   const itemDisplay = getOrderLabelDescription(item) || getOrderLabelItemCode(item);
 
   const topOptions = useMemo(() => {
@@ -167,7 +167,7 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, isExpanded, 
 };
 
 // --- Modal: Tijdelijke Labels Zoeken ---
-const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = [], printerDpi = 203 }) => {
+const TempLabelModal = ({ onClose, onPrint, labelTemplates = [], labelRules = [], printerDpi = 300 }) => {
   const { t } = useTranslation();
   const [orderStr, setOrderStr] = useState("");
   const [results, setResults] = useState([]);

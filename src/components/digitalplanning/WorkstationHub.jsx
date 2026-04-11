@@ -31,6 +31,7 @@ import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";
 import BM01Hub from "./BM01Hub";
 import RepairModal from "./modals/RepairModal";
+import { moveTrackedProductManual } from "../../services/planningSecurityService";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -1465,28 +1466,27 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   };
 
   // Handler voor handmatig verplaatsen van product (Nieuw toegevoegd voor Dossier)
-  const handleMoveLot = async (lotNumber, newStation) => {
+  const handleMoveLot = async (lotNumber, newStation, options = {}) => {
     if (!lotNumber || !newStation) return;
     try {
-      const productRef = doc(db, ...PATHS.TRACKING, lotNumber);
-      
-      // Bepaal direct de juiste status voor het nieuwe station (bijv. Te Keuren voor BM01)
-      const nextState = getStepForStation(newStation);
+      const isRepairMove = Boolean(options?.isRepairMove);
+      const repairInstruction = String(options?.repairInstruction || "").trim();
 
-      await updateDoc(productRef, {
-        currentStation: newStation,
-        currentStep: nextState.currentStep,
-        status: nextState.status || "in_progress",
-        isManualMove: true,
-        updatedAt: serverTimestamp(),
-        note: `Handmatig verplaatst naar ${newStation} door ${currentUser?.email || 'Operator'}`
+      await moveTrackedProductManual({
+        productOrLotId: lotNumber,
+        newStation,
+        isRepairMove,
+        repairInstruction,
+        source: "WorkstationHub",
+        actorLabel: currentUser?.email || "Operator",
       });
+
       await logActivity(
         currentUser?.uid || "system",
         "LOT_MANUAL_MOVE",
-        `Workstation move: lot ${lotNumber} -> ${newStation}`
+        `${isRepairMove ? "Workstation reparatie" : "Workstation move"}: lot ${lotNumber} -> ${newStation}${repairInstruction ? ` | instructie: ${repairInstruction}` : ""}`
       );
-      showSuccess(`Product ${lotNumber} verplaatst naar ${newStation}`);
+      showSuccess(`${isRepairMove ? "Reparatie" : "Product"} ${lotNumber} verplaatst naar ${newStation}`);
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
       showError("Fout bij verplaatsen: " + err.message);
@@ -1650,6 +1650,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           updates.status = flowState.status || "Te Keuren";
           updates.lastStation = selectedStation;
           updates["timestamps.eindinspectie_start"] = serverTimestamp();
+
+          const hasActiveRepair = Boolean(itemToFinish?.repairActive || itemToFinish?.timestamps?.repair_start);
+          if (hasActiveRepair) {
+            updates.repairActive = false;
+            updates["timestamps.repair_end"] = serverTimestamp();
+          }
         }
         
         // Voor niet-archivering updates: gebruik arrayUnion
@@ -1706,13 +1712,23 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               const orderData = orderDoc.data();
               const originStation = itemToFinish.originMachine || itemToFinish.currentStation;
               const stationField = getStartedCounterField(originStation);
-              const currentStarted = orderData[stationField] || 0;
-              
-              if (currentStarted > 0) {
-                await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), {
-                  [stationField]: currentStarted - 1,
-                });
+              const currentStarted = Number(orderData?.[stationField] || 0);
+              const normalizedStatus = String(orderData?.status || "").toLowerCase().trim();
+
+              const orderUpdates = {
+                rejectedCount: increment(1),
+                lastUpdated: serverTimestamp(),
+              };
+
+              if (stationField && currentStarted > 0) {
+                orderUpdates[stationField] = currentStarted - 1;
               }
+
+              if (["completed", "finished", "gereed"].includes(normalizedStatus)) {
+                orderUpdates.status = "planned";
+              }
+
+              await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), orderUpdates);
             }
           } catch (err) {
             console.error("Fout bij updaten order teller:", err);
@@ -1874,7 +1890,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               currentStep: "Eindinspectie",
               status: "Te Keuren",
               updatedAt: serverTimestamp(),
+              repairActive: false,
               note: itemToRepair.note ? `${itemToRepair.note}\nReparatie: ${data.notes}` : `Reparatie: ${data.notes}`,
+              "timestamps.bm01_start": serverTimestamp(),
+              "timestamps.repair_end": serverTimestamp(),
               history: arrayUnion({
                   action: "Reparatie Voltooid",
                   timestamp: new Date().toISOString(),

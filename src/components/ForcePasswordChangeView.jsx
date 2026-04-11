@@ -34,7 +34,6 @@ const ForcePasswordChangeView = ({ user, onComplete }) => {
       const userRef = doc(db, ...PATHS.USERS, user.uid);
       await updateDoc(userRef, {
         requirePasswordChange: false,
-        tempPassword: null,
       });
       await logActivity(
         auth.currentUser?.uid,

@@ -1,5 +1,8 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   getFirestore,
   collection,
   addDoc,
@@ -23,7 +26,30 @@ export const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-export const db = getFirestore(app);
+const createFirestoreInstance = () => {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (error) {
+    const code = String(error?.code || "").toLowerCase();
+    const message = String(error?.message || "");
+
+    if (
+      code !== "failed-precondition" &&
+      code !== "unimplemented" &&
+      !message.toLowerCase().includes("already been initialized")
+    ) {
+      console.warn("Firestore persistence fallback actief:", error);
+    }
+
+    return getFirestore(app);
+  }
+};
+
+export const db = createFirestoreInstance();
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const appId = firebaseConfig.projectId;

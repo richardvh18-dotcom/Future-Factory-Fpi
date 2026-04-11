@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { 
   Activity, 
@@ -51,7 +51,7 @@ const ShopFloorMobileApp = () => {
   const [allTracked, setAllTracked] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all"); // all | active | issues
-  const [activeView, setActiveView] = useState("overview"); // overview | downtime | quality | orders | scanner
+  const [activeView, setActiveView] = useState("planning"); // planning | overview | downtime | quality | orders | scanner
   const [showScanner, setShowScanner] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [factoryStations, setFactoryStations] = useState([]);
@@ -64,6 +64,16 @@ const ShopFloorMobileApp = () => {
   const [issueDescription, setIssueDescription] = useState("");
   const [productToMove, setProductToMove] = useState(null);
   const [selectedMachineFilter, setSelectedMachineFilter] = useState(null);
+  const [selectedMachineDetail, setSelectedMachineDetail] = useState(null); // For Teamleader: detailed machine view
+  const [selectedProduct, setSelectedProduct] = useState(null); // For product dossier
+  const [repairMode, setRepairMode] = useState(null); // null | productId
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const scrollContainerRef = useRef(null);
+  
+  // Planning Dashboard filters
+  const [planningSearchTerm, setPlanningSearchTerm] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState("all"); // all | active | completed | defect | temp_reject
+  const [readyForNextStepMode, setReadyForNextStepMode] = useState(null); // null | productId (voor snelle scan)
 
   useEffect(() => {
     if (!PATHS || !PATHS.FACTORY_CONFIG) return;
@@ -190,6 +200,76 @@ const ShopFloorMobileApp = () => {
     }
   }, [role, user, departments]);
 
+  const handleContainerScroll = (event) => {
+    setIsHeaderCollapsed(event.currentTarget.scrollTop > 20);
+  };
+
+  const normalizeDepartmentLabel = (value) => String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^productie\s*-\s*/i, "")
+    .replace(/\s+/g, " ");
+
+  const inferDepartmentFromMachineCode = (value) => {
+    const machine = normalizeMachine(String(value || "").trim()).toUpperCase();
+    if (machine.startsWith("BH")) return "fittings";
+    if (machine.startsWith("BA")) return "pipes";
+    if (machine.startsWith("BM")) return "spools";
+    return "";
+  };
+
+  const matchesDepartmentId = (departmentId, selectedDept) => {
+    if (!departmentId || !selectedDept) return false;
+
+    const id = String(departmentId).trim().toLowerCase();
+    const filter = normalizeDepartmentLabel(selectedDept);
+
+    if (id === filter) return true;
+    if (id.includes(filter) || filter.includes(id)) return true;
+
+    if (filter === "fittings" && id.includes("fitting")) return true;
+    if (filter === "pipes" && (id.includes("pipe") || id.includes("pijp"))) return true;
+    if (filter === "spools" && id.includes("spool")) return true;
+
+    return false;
+  };
+
+  const findStationForMachine = (machineCode) => {
+    const normalizedMachine = normalizeMachine(machineCode || "");
+    return factoryStations.find((station) => {
+      const stationName = normalizeMachine(station.name || station.id || "");
+      return stationName === normalizedMachine;
+    });
+  };
+
+  const matchesOrderDepartment = (order) => {
+    if (selectedDepartment === "ALLES") return true;
+
+    const station = findStationForMachine(order.machine);
+    if (matchesSelectedDepartment(selectedDepartment, station?.departmentName, order.machine)) return true;
+    if (matchesDepartmentId(order.departmentId, selectedDepartment)) return true;
+    if (matchesDepartmentId(order.department, selectedDepartment)) return true;
+
+    return false;
+  };
+
+  const matchesSelectedDepartment = (selectedDept, stationDepartmentName, machineCode) => {
+    if (!selectedDept || normalizeDepartmentLabel(selectedDept) === "alles") return true;
+
+    const filter = normalizeDepartmentLabel(selectedDept);
+    const stationDept = normalizeDepartmentLabel(stationDepartmentName);
+    const inferredDept = inferDepartmentFromMachineCode(machineCode);
+
+    if (stationDept) {
+      if (stationDept === filter) return true;
+      if (stationDept.includes(filter) || filter.includes(stationDept)) return true;
+    }
+
+    if (inferredDept && inferredDept === filter) return true;
+
+    return false;
+  };
+
   // Calculate machine statistics
   const machineStats = useMemo(() => {
     // Use factory config as base, fallback to occupancy data if config not loaded
@@ -256,7 +336,9 @@ const ShopFloorMobileApp = () => {
     
     // Filter by Department
     if (selectedDepartment !== "ALLES") {
-      filtered = filtered.filter(m => m.department === selectedDepartment);
+      filtered = filtered.filter(m =>
+        matchesSelectedDepartment(selectedDepartment, m.department, m.machine || m.id)
+      );
     }
 
     // Filter by status
@@ -285,9 +367,7 @@ const ShopFloorMobileApp = () => {
     
     if (selectedDepartment !== "ALLES") {
       orders = orders.filter(o => {
-        // Find station in factoryStations to check department
-        const station = factoryStations.find(s => s.name === o.machine || s.id === o.machine);
-        return station ? station.departmentName === selectedDepartment : false;
+        return matchesOrderDepartment(o);
       });
     }
 
@@ -348,10 +428,107 @@ const ShopFloorMobileApp = () => {
       if (selectedDepartment === "ALLES") return true;
       
       const machine = p.machine || p.currentStation;
-      const station = factoryStations.find(s => s.name === machine || s.id === machine);
-      return station ? station.departmentName === selectedDepartment : false;
+      const station = findStationForMachine(machine);
+      return matchesSelectedDepartment(selectedDepartment, station?.departmentName, machine);
     }).length;
   }, [allTracked, selectedDepartment, factoryStations]);
+
+  // Get detailed order + product data for a specific machine (for TeamLeader view)
+  const getOrdersForMachine = (machineName) => {
+    const machineOrders = allOrders.filter(o => o.machine === machineName);
+    return machineOrders.map(order => ({
+      ...order,
+      products: allTracked.filter(p => p.orderId === order.orderId)
+    }));
+  };
+
+  const isTemporaryRejectedProduct = (product) => {
+    const status = String(product?.status || "").trim().toLowerCase();
+    const inspectionStatus = String(product?.inspection?.status || "").trim().toLowerCase();
+    return ["temp_reject", "temp_rejected", "tijdelijke afkeur", "tijdelijk_afkeur"].includes(status)
+      || inspectionStatus === "tijdelijke afkeur";
+  };
+
+  const isFinalRejectedProduct = (product) => {
+    const status = String(product?.status || "").trim().toLowerCase();
+    const step = String(product?.currentStep || "").trim().toUpperCase();
+    const inspectionStatus = String(product?.inspection?.status || "").trim().toLowerCase();
+    const archiveReason = String(product?.archiveReason || product?.archivedReason || "").trim().toLowerCase();
+
+    return ["rejected", "afkeur", "definitieve afkeur"].includes(status)
+      || step === "REJECTED"
+      || inspectionStatus === "afkeur"
+      || inspectionStatus === "definitieve afkeur"
+      || archiveReason === "rejected";
+  };
+
+  const ordersForKpis = useMemo(() => {
+    let orders = allOrders.map((order) => ({
+      ...order,
+      products: allTracked.filter((product) => product.orderId === order.orderId),
+    }));
+
+    if (selectedDepartment !== "ALLES") {
+      orders = orders.filter((order) => matchesOrderDepartment(order));
+    }
+
+    if (selectedMachineFilter) {
+      const filterNorm = normalizeMachine(selectedMachineFilter);
+      orders = orders.filter((order) => normalizeMachine(order.machine) === filterNorm);
+    }
+
+    return orders;
+  }, [allOrders, allTracked, selectedDepartment, selectedMachineFilter]);
+
+  // Get all orders with products for planning dashboard
+  const getDashboardOrders = useMemo(() => {
+    let orders = allOrders.map(order => ({
+      ...order,
+      products: allTracked.filter(p => p.orderId === order.orderId),
+      activeProductsCount: allTracked.filter(p => p.orderId === order.orderId && ['In Production', 'in_progress'].includes(p.status)).length,
+      defectCount: defectReports.filter(d => d.orderId === order.orderId && d.status === 'open').length,
+    }));
+
+    // Department filter
+    if (selectedDepartment !== "ALLES") {
+      orders = orders.filter((o) => matchesOrderDepartment(o));
+    }
+
+    // Status filter
+    if (orderStatusFilter !== "all") {
+      orders = orders.filter(o => {
+        if (orderStatusFilter === "active") return ['in_production', 'in_progress'].includes(o.status);
+        if (orderStatusFilter === "completed") return o.status === 'completed';
+        if (orderStatusFilter === "defect") return o.defectCount > 0;
+        if (orderStatusFilter === "temp_reject") return o.status === 'temp_reject' || o.status === 'rejected';
+        return true;
+      });
+    }
+
+    // Search filter
+    if (planningSearchTerm) {
+      const term = planningSearchTerm.toLowerCase();
+      orders = orders.filter(o => 
+        o.orderId?.toLowerCase().includes(term) ||
+        o.item?.toLowerCase().includes(term) ||
+        o.itemCode?.toLowerCase().includes(term) ||
+        o.machine?.toLowerCase().includes(term)
+      );
+    }
+
+    return orders.sort((a, b) => {
+      // Prioritize active orders
+      const aActive = ['in_production', 'in_progress'].includes(a.status);
+      const bActive = ['in_production', 'in_progress'].includes(b.status);
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      // Then by date
+      if (a.plannedDate?.seconds && b.plannedDate?.seconds) {
+        return a.plannedDate.seconds - b.plannedDate.seconds;
+      }
+      return 0;
+    });
+  }, [allOrders, allTracked, defectReports, factoryStations, selectedDepartment, orderStatusFilter, planningSearchTerm]);
 
   // Active issues summary
   const issuesSummary = useMemo(() => ({
@@ -360,6 +537,18 @@ const ShopFloorMobileApp = () => {
     machinesWithIssues: machineStats.filter(m => m.hasIssues).length,
     activeMachines: machineStats.filter(m => m.isActive).length
   }), [downtimeReports, defectReports, machineStats]);
+
+  const planningSummary = useMemo(() => ({
+    totalOrders: ordersForKpis.length,
+    activeOrders: ordersForKpis.filter((order) => ["in_production", "in_progress"].includes(String(order.status || "").toLowerCase())).length,
+    temporaryRejectedOrders: ordersForKpis.filter((order) => order.products?.some(isTemporaryRejectedProduct)).length,
+    finalRejectedOrders: ordersForKpis.filter((order) => {
+      const status = String(order.status || "").trim().toLowerCase();
+      return order.products?.some(isFinalRejectedProduct)
+        || ["rejected", "afkeur", "definitieve afkeur"].includes(status)
+        || Number(order.rejectedCount || 0) > 0;
+    }).length,
+  }), [ordersForKpis]);
 
   // Resolve downtime
   const resolveDowntime = async (downtimeId) => {
@@ -442,6 +631,36 @@ const ShopFloorMobileApp = () => {
         type: "unknown",
         code: scannedCode
       });
+    }
+  };
+
+  // Mark product as ready for next step
+  const markReadyForNextStep = async (product) => {
+    if (!product || !product.id) return;
+    try {
+      const nextState = getStepForStation(product.currentStation || "");
+      const productRef = doc(db, ...PATHS.TRACKING, product.id);
+      
+      await updateDoc(productRef, {
+        currentStep: nextState.currentStep || product.currentStep,
+        status: "ready_for_next_step",
+        readyForNextStepAt: serverTimestamp(),
+        markedReadyBy: user?.uid,
+        updatedAt: serverTimestamp()
+      });
+
+      await logActivity(
+        user?.uid,
+        "READY_FOR_NEXT_STEP",
+        `Product ${product.lotNumber} gereed voor volgende stap gemarkeerd door ${user?.displayName || 'Inspector'}`
+      );
+
+      notify(`✅ ${product.lotNumber} gereed voor volgende stap`);
+      setReadyForNextStepMode(null);
+      setScanResult(null);
+    } catch (err) {
+      console.error("Fout bij gereed markeren:", err);
+      notify("Fout bij gereed markeren");
     }
   };
 
@@ -953,147 +1172,176 @@ const ShopFloorMobileApp = () => {
       )}
 
       {/* Scrollable Content Container */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar pb-24">
+      <div ref={scrollContainerRef} onScroll={handleContainerScroll} className="flex-1 overflow-y-auto custom-scrollbar pb-24">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 p-6 shadow-lg sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
+      <div className={`bg-gradient-to-br from-slate-900 via-indigo-800 to-cyan-700 shadow-lg sticky top-0 z-30 transition-all duration-300 ${isHeaderCollapsed ? "px-3 py-2" : "px-4 py-4"}`}>
+        <div className={`flex items-center justify-between ${isHeaderCollapsed ? "mb-0" : "mb-4"}`}>
           <div>
-            <div className="text-white text-2xl font-black">{t("planning.shopFloor.mobileInspector", "Mobile Inspector")}</div>
-            <div className="text-indigo-200 text-sm font-bold mt-1">
-              {t("planning.shopFloor.floorOverview", "Werkvloer Overzicht")}
+            <div className={`text-white font-black transition-all duration-300 ${isHeaderCollapsed ? "text-lg" : "text-2xl"}`}>{t("planning.shopFloor.mobileInspector", "Mobile Inspector")}</div>
+            <div className={`text-indigo-200 font-bold mt-1 transition-all duration-300 overflow-hidden ${isHeaderCollapsed ? "text-[0px] max-h-0 opacity-0 mt-0" : "text-sm max-h-10 opacity-100"}`}>
+              {activeView === "planning"
+                ? "Planning, afkeur en doorstroom in je broekzak"
+                : t("planning.shopFloor.floorOverview", "Werkvloer Overzicht")}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowScanner(true)}
-              className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-colors"
+              className={`bg-white/20 hover:bg-white/30 rounded-xl transition-colors ${isHeaderCollapsed ? "p-2" : "p-3"}`}
             >
-              <ScanLine className="text-white" size={24} />
+              <ScanLine className="text-white" size={isHeaderCollapsed ? 18 : 24} />
             </button>
-            <div className="bg-white/20 px-4 py-2 rounded-xl">
+            <div className={`bg-white/20 px-4 py-2 rounded-xl transition-all duration-300 overflow-hidden ${isHeaderCollapsed ? "max-w-0 opacity-0 px-0 py-0" : "max-w-32 opacity-100"}`}>
               <div className="text-white text-xs font-bold">{user?.displayName?.split(' ')[0] || 'Inspector'}</div>
             </div>
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-            <div className="text-white/60 text-[10px] font-bold uppercase mb-1">{t("planning.shopFloor.active", "Actief")}</div>
-            <div className="text-white text-2xl font-black flex items-baseline gap-1">
-              {issuesSummary.activeMachines}
-              <span className="text-sm font-bold opacity-60">/ {activeProductsCount}</span>
-            </div>
-            <div className="text-[8px] text-white/40 font-bold uppercase mt-1">Machines / Producten</div>
-          </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-            <div className="text-white/60 text-[10px] font-bold uppercase mb-1">{t("planning.shopFloor.downtime", "Stilstand")}</div>
-            <div className="text-white text-2xl font-black">{issuesSummary.totalDowntime}</div>
-          </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-            <div className="text-white/60 text-[10px] font-bold uppercase mb-1">{t("planning.shopFloor.defects", "Defecten")}</div>
-            <div className="text-white text-2xl font-black">{issuesSummary.totalDefects}</div>
-          </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-            <div className="text-white/60 text-[10px] font-bold uppercase mb-1">{t("planning.shopFloor.issues", "Issues")}</div>
-            <div className="text-white text-2xl font-black">{issuesSummary.machinesWithIssues}</div>
-          </div>
+        <div className={`grid grid-cols-2 gap-2 overflow-hidden transition-all duration-300 ${isHeaderCollapsed ? "max-h-0 opacity-0 mt-0 pointer-events-none" : "max-h-[220px] opacity-100 mt-3"}`}>
+          <button
+            onClick={() => setActiveView("planning")}
+            className="bg-white/10 text-left backdrop-blur-sm rounded-2xl p-2.5 border border-white/10"
+          >
+            <div className="text-white/60 text-[10px] font-bold uppercase mb-1">Alle orders</div>
+            <div className="text-white text-xl font-black">{planningSummary.totalOrders}</div>
+            <div className="text-[10px] text-white/50 font-bold mt-1">Afdeling / machinefilter actief</div>
+          </button>
+          <button
+            onClick={() => {
+              setActiveView("planning");
+              setOrderStatusFilter("active");
+            }}
+            className="bg-white/10 text-left backdrop-blur-sm rounded-2xl p-2.5 border border-white/10"
+          >
+            <div className="text-white/60 text-[10px] font-bold uppercase mb-1">Lopende orders</div>
+            <div className="text-white text-xl font-black">{planningSummary.activeOrders}</div>
+            <div className="text-[10px] text-white/50 font-bold mt-1">In productie of in voortgang</div>
+          </button>
+          <button
+            onClick={() => {
+              setActiveView("planning");
+              setOrderStatusFilter("temp_reject");
+            }}
+            className="bg-amber-500/20 text-left backdrop-blur-sm rounded-2xl p-2.5 border border-amber-300/20"
+          >
+            <div className="text-amber-100 text-[10px] font-bold uppercase mb-1">Tijdelijke afkeur</div>
+            <div className="text-white text-xl font-black">{planningSummary.temporaryRejectedOrders}</div>
+            <div className="text-[10px] text-amber-100/80 font-bold mt-1">Orders met herstel of tijdelijke blokkade</div>
+          </button>
+          <button
+            onClick={() => setActiveView("quality")}
+            className="bg-rose-500/20 text-left backdrop-blur-sm rounded-2xl p-2.5 border border-rose-300/20"
+          >
+            <div className="text-rose-100 text-[10px] font-bold uppercase mb-1">Definitieve afkeur</div>
+            <div className="text-white text-xl font-black">{planningSummary.finalRejectedOrders}</div>
+            <div className="text-[10px] text-rose-100/80 font-bold mt-1">Definitief afgekeurde orders</div>
+          </button>
         </div>
+
       </div>
 
-      {/* Search and Filters */}
-      <div className="p-4 bg-white border-b border-slate-200 space-y-3">
-        {/* Department Selector */}
-        <div>
-           {isDeptLocked ? (
-             <div className="flex items-center gap-2 px-4 py-3 bg-slate-100 rounded-xl text-slate-600 font-bold text-sm w-full border border-slate-200">
-               <Building2 size={16} />
-               {selectedDepartment}
-               <span className="text-[10px] bg-slate-200 px-2 py-0.5 rounded text-slate-500 ml-auto uppercase tracking-wider">{t("planning.shopFloor.assigned", "Toegewezen")}</span>
-             </div>
-           ) : (
-             <div className="relative w-full">
-               <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-               <select
-                 value={selectedDepartment}
-                 onChange={(e) => setSelectedDepartment(e.target.value)}
-                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500 transition-all appearance-none"
-               >
-                 {departments.map(dept => (
-                   <option key={dept} value={dept}>{dept}</option>
-                 ))}
-               </select>
-             </div>
-           )}
-        </div>
+      <div className="bg-white border-b border-slate-200 shadow-sm">
+        <div className="p-4 space-y-3">
+          <div>
+             {isDeptLocked ? (
+               <div className="flex items-center gap-2 px-4 py-3 bg-slate-100 rounded-xl text-slate-600 font-bold text-sm w-full border border-slate-200">
+                 <Building2 size={16} />
+                 {selectedDepartment}
+                 <span className="text-[10px] bg-slate-200 px-2 py-0.5 rounded text-slate-500 ml-auto uppercase tracking-wider">{t("planning.shopFloor.assigned", "Toegewezen")}</span>
+               </div>
+             ) : (
+               <div className="relative w-full">
+                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                 <select
+                   value={selectedDepartment}
+                   onChange={(e) => setSelectedDepartment(e.target.value)}
+                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500 transition-all appearance-none"
+                 >
+                   {departments.map(dept => (
+                     <option key={dept} value={dept}>{dept}</option>
+                   ))}
+                 </select>
+               </div>
+             )}
+          </div>
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input
-            type="text"
-            placeholder={t("planning.shopFloor.searchPlaceholder", "Zoek machine, operator, order...")}
-            className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500 transition-all"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        
-        <div className="flex gap-2">
-          <button
-            onClick={() => setFilterStatus("all")}
-            className={`flex-1 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
-              filterStatus === "all"
-                ? "bg-indigo-600 text-white"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {t("planning.shopFloor.allMachines", "Alle", { count: machineStats.length })} ({machineStats.length})
-          </button>
-          <button
-            onClick={() => setFilterStatus("active")}
-            className={`flex-1 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
-              filterStatus === "active"
-                ? "bg-emerald-600 text-white"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {t("planning.shopFloor.active", "Actief")} ({issuesSummary.activeMachines})
-          </button>
-          <button
-            onClick={() => setFilterStatus("issues")}
-            className={`flex-1 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
-              filterStatus === "issues"
-                ? "bg-red-600 text-white"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {t("planning.shopFloor.issues", "Issues")} ({issuesSummary.machinesWithIssues})
-          </button>
-        </div>
-      </div>
+          {activeView === "overview" && (
+            <>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder={t("planning.shopFloor.searchPlaceholder", "Zoek machine, operator, order...")}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500 transition-all"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFilterStatus("all")}
+                  className={`flex-1 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
+                    filterStatus === "all"
+                      ? "bg-indigo-600 text-white"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  Alle ({machineStats.length})
+                </button>
+                <button
+                  onClick={() => setFilterStatus("active")}
+                  className={`flex-1 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
+                    filterStatus === "active"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  Actief ({issuesSummary.activeMachines})
+                </button>
+                <button
+                  onClick={() => setFilterStatus("issues")}
+                  className={`flex-1 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
+                    filterStatus === "issues"
+                      ? "bg-red-600 text-white"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  Issues ({issuesSummary.machinesWithIssues})
+                </button>
+              </div>
+            </>
+          )}
 
-      {/* View Tabs */}
-      <div className="bg-white border-b border-slate-200 px-4 py-2">
-        <div className="flex gap-2">
+          <div className="flex gap-2 overflow-x-auto custom-scrollbar">
+          <button
+            onClick={() => setActiveView("planning")}
+            className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+              activeView === "planning"
+                ? "bg-indigo-100 text-indigo-700"
+                : "text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            📋 Planning
+          </button>
           <button
             onClick={() => setActiveView("overview")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
               activeView === "overview"
                 ? "bg-indigo-100 text-indigo-700"
                 : "text-slate-500 hover:bg-slate-50"
             }`}
           >
-            {t("planning.shopFloor.overview", "Overzicht")}
+            🔧 Machines
           </button>
           <button
             onClick={() => setActiveView("downtime")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
               activeView === "downtime"
                 ? "bg-orange-100 text-orange-700"
                 : "text-slate-500 hover:bg-slate-50"
             }`}
           >
-            {t("planning.shopFloor.downtime", "Stilstand")} {issuesSummary.totalDowntime > 0 && (
+            ⏸️ Stilstand {issuesSummary.totalDowntime > 0 && (
               <span className="bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full">
                 {issuesSummary.totalDowntime}
               </span>
@@ -1101,33 +1349,85 @@ const ShopFloorMobileApp = () => {
           </button>
           <button
             onClick={() => setActiveView("quality")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
               activeView === "quality"
                 ? "bg-red-100 text-red-700"
                 : "text-slate-500 hover:bg-slate-50"
             }`}
           >
-            {t("planning.shopFloor.qc", "QC")} {issuesSummary.totalDefects > 0 && (
+            🚩 QC {issuesSummary.totalDefects > 0 && (
               <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">
                 {issuesSummary.totalDefects}
               </span>
             )}
           </button>
-          <button
-            onClick={() => { setActiveView("orders"); setSelectedMachineFilter(null); }}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeView === "orders"
-                ? "bg-blue-100 text-blue-700"
-                : "text-slate-500 hover:bg-slate-50"
-            }`}
-          >
-            {t("planning.shopFloor.orders", "Orders")}
-          </button>
+          </div>
         </div>
       </div>
 
       {/* Content Area */}
       <div className="p-4 space-y-3">
+        {/* PLANNING DASHBOARD */}
+        {activeView === "planning" && (
+          <>
+            {/* Planning Controls */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-sm">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="Zoek order ID, item code, machine..."
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500 transition-all"
+                  value={planningSearchTerm}
+                  onChange={(e) => setPlanningSearchTerm(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-2 flex-wrap">
+                {[
+                  { label: "Alle", value: "all" },
+                  { label: "🟢 Actief", value: "active" },
+                  { label: "✅ Gereed", value: "completed" },
+                  { label: "🚩 Afkeur", value: "defect" },
+                  { label: "❌ Geweigerd", value: "temp_reject" }
+                ].map(filter => (
+                  <button
+                    key={filter.value}
+                    onClick={() => setOrderStatusFilter(filter.value)}
+                    className={`px-3 py-2 rounded-lg text-[11px] font-bold transition-all ${
+                      orderStatusFilter === filter.value
+                        ? "bg-indigo-600 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Orders List */}
+            {getDashboardOrders.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <Package size={48} className="mx-auto mb-4 opacity-30" />
+                <div className="font-bold text-sm">Geen orders gevonden</div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {getDashboardOrders.map(order => (
+                  <PlanningOrderCard
+                    key={order.id}
+                    order={order}
+                    onSelectOrder={() => setSelectedOrder(order)}
+                    onScanReady={() => setReadyForNextStepMode(order.id)}
+                    t={t}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         {activeView === "overview" && (
           <>
             {filteredMachines.length === 0 ? (
@@ -1140,8 +1440,14 @@ const ShopFloorMobileApp = () => {
                 <div
                   key={machine.id}
                   onClick={() => {
-                    setSelectedMachineFilter(machine.machine);
-                    setActiveView("orders");
+                    // Teamleaders/Planners: open detailed machine view
+                    if (['teamleader', 'planner', 'admin'].includes(role)) {
+                      setSelectedMachineDetail(machine);
+                    } else {
+                      // Fallback for others
+                      setSelectedMachineFilter(machine.machine);
+                      setActiveView("orders");
+                    }
                   }}
                   className={`bg-white rounded-2xl border-2 p-4 transition-all cursor-pointer ${
                     machine.hasIssues 
@@ -1415,21 +1721,32 @@ const ShopFloorMobileApp = () => {
       </div>
 
       {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 flex justify-around shadow-lg z-20">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 grid grid-cols-4 gap-2 shadow-lg z-20">
+        <button
+          onClick={() => setActiveView("planning")}
+          className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-colors ${
+            activeView === "planning"
+              ? "bg-indigo-50 text-indigo-600"
+              : "text-slate-400"
+          }`}
+        >
+          <ClipboardCheck size={20} />
+          <span className="text-[10px] font-bold">Planning</span>
+        </button>
         <button
           onClick={() => setActiveView("overview")}
-          className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-colors ${
+          className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-colors ${
             activeView === "overview" 
               ? "bg-indigo-50 text-indigo-600" 
               : "text-slate-400"
           }`}
         >
           <Eye size={22} />
-          <span className="text-[10px] font-bold">Overzicht</span>
+          <span className="text-[10px] font-bold">Machines</span>
         </button>
         <button
           onClick={() => setActiveView("downtime")}
-          className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-colors relative ${
+          className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-colors relative ${
             activeView === "downtime" 
               ? "bg-orange-50 text-orange-600" 
               : "text-slate-400"
@@ -1445,7 +1762,7 @@ const ShopFloorMobileApp = () => {
         </button>
         <button
           onClick={() => setActiveView("quality")}
-          className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-colors relative ${
+          className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-colors relative ${
             activeView === "quality" 
               ? "bg-red-50 text-red-600" 
               : "text-slate-400"
@@ -1459,17 +1776,6 @@ const ShopFloorMobileApp = () => {
           <AlertTriangle size={22} />
           <span className="text-[10px] font-bold">QC</span>
         </button>
-        <button
-          onClick={() => { setActiveView("orders"); setSelectedMachineFilter(null); }}
-          className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-colors ${
-            activeView === "orders" 
-              ? "bg-blue-50 text-blue-600" 
-              : "text-slate-400"
-          }`}
-        >
-          <Package size={22} />
-          <span className="text-[10px] font-bold">Orders</span>
-        </button>
       </div>
 
       {/* Product Move Modal */}
@@ -1482,6 +1788,602 @@ const ShopFloorMobileApp = () => {
           currentDepartment={selectedDepartment !== "ALLES" ? selectedDepartment : null}
         />
       )}
+
+      {/* Teamleader: Machine Detail Modal */}
+      {selectedMachineDetail && ['teamleader', 'planner', 'admin'].includes(role) && (
+        <MachineDetailModal
+          machine={selectedMachineDetail}
+          orders={getOrdersForMachine(selectedMachineDetail.machine)}
+          onClose={() => setSelectedMachineDetail(null)}
+          onProductSelect={setSelectedProduct}
+          onProductMove={setProductToMove}
+          onRepairMode={setRepairMode}
+          logActivity={logActivity}
+          user={user}
+          t={t}
+        />
+      )}
+
+      {/* Product Dossier Modal */}
+      {selectedProduct && (
+        <ProductDossierModal
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          onMove={() => {
+            setProductToMove(selectedProduct);
+            setSelectedProduct(null);
+          }}
+          onRepair={() => {
+            setRepairMode(selectedProduct.id);
+            setSelectedProduct(null);
+          }}
+          t={t}
+        />
+      )}
+
+      {/* Repair Modal */}
+      {repairMode && (
+        <RepairModal
+          productId={repairMode}
+          product={allTracked.find(p => p.id === repairMode)}
+          onClose={() => setRepairMode(null)}
+          onSubmit={async (repairData) => {
+            try {
+              const productRef = doc(db, ...PATHS.TRACKING, repairMode);
+              await updateDoc(productRef, {
+                status: "in_repair",
+                repairReason: repairData.reason,
+                repairStartedAt: serverTimestamp(),
+                repairStartedBy: user.uid,
+                updatedAt: serverTimestamp()
+              });
+              await logActivity(
+                user?.uid,
+                "REPAIR_START",
+                `Reparatie gestart voor product ${repairMode} door ${user?.displayName || 'TeamLeader'}`
+              );
+              notify("Reparatie gestart");
+              setRepairMode(null);
+            } catch (err) {
+              console.error("Error starting repair:", err);
+              notify("Fout bij starten reparatie");
+            }
+          }}
+          t={t}
+        />
+      )}
+
+      {/* Ready for Next Step Modal */}
+      {readyForNextStepMode && (
+        <ReadyForNextStepModal
+          orderId={readyForNextStepMode}
+          order={allOrders.find(o => o.id === readyForNextStepMode)}
+          products={allTracked.filter(p => p.orderId === allOrders.find(o => o.id === readyForNextStepMode)?.orderId)}
+          onClose={() => setReadyForNextStepMode(null)}
+          onMarkReady={markReadyForNextStep}
+          t={t}
+        />
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// Teamleader Machine Detail Modal
+// ============================================
+const MachineDetailModal = ({ machine, orders, onClose, onProductSelect, onProductMove, onRepairMode, logActivity, user, t }) => {
+  const activeOrders = orders.filter(o => ['in_production', 'in_progress'].includes(o.status));
+  const plannedOrders = orders.filter(o => ['planned', 'pending'].includes(o.status));
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
+        
+        {/* Header */}
+        <div className="p-6 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white flex justify-between items-start">
+          <div>
+            <h2 className="text-3xl font-black mb-1">{machine.machine}</h2>
+            <div className="flex items-center gap-3 flex-wrap text-sm">
+              <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded">
+                <UserCheck size={14} /> {machine.operatorName || 'Geen operator'}
+              </div>
+              <div className={`px-2 py-1 rounded font-bold text-xs ${
+                machine.status === "issue" 
+                  ? "bg-red-500" 
+                  : machine.status === "active"
+                    ? "bg-emerald-500"
+                    : "bg-slate-500"
+              }`}>
+                {machine.status === "issue" ? "🔴 Issue" : machine.status === "active" ? "🟢 Actief" : "⚪ Idle"}
+              </div>
+              {machine.hasIssues && (
+                <div className="flex items-center gap-1 bg-red-500/20 text-red-100 px-2 py-1 rounded text-xs font-bold">
+                  {machine.downtimeCount > 0 && `${machine.downtimeCount} stilstanden`}
+                  {machine.defectCount > 0 && (machine.downtimeCount > 0 ? " • " : "") + `${machine.defectCount} defecten`}
+                </div>
+              )}
+            </div>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+          >
+            <X size={28} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-slate-200 flex sticky top-0 bg-slate-50 z-10">
+          <div className="flex-1 flex border-r border-slate-100">
+            <div className="flex-1 py-3 px-4 font-bold text-center bg-white border-b-2 border-indigo-600 text-indigo-600">
+              In Productie ({activeOrders.length})
+            </div>
+          </div>
+          <div className="flex-1 flex border-l border-slate-100">
+            <div className="flex-1 py-3 px-4 font-bold text-center text-slate-600 text-sm">
+              Gepland ({plannedOrders.length})
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+          
+          {/* Active Orders */}
+          {activeOrders.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <Package size={40} className="mx-auto mb-2 opacity-30" />
+              <div className="text-sm font-bold">Geen orders in productie</div>
+            </div>
+          ) : (
+            activeOrders.map(order => (
+              <OrderDetailCard
+                key={order.id}
+                order={order}
+                products={order.products || []}
+                onProductSelect={onProductSelect}
+                onProductMove={onProductMove}
+                onRepairMode={onRepairMode}
+                t={t}
+              />
+            ))
+          )}
+
+          {/* Planned Orders */}
+          {plannedOrders.length > 0 && (
+            <div className="pt-4 border-t border-slate-200">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3">📋 Geplande Orders</h3>
+              <div className="space-y-2">
+                {plannedOrders.map(order => (
+                  <div key={order.id} className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="font-bold text-sm text-slate-800">{order.orderId || order.item}</div>
+                      <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded">{order.status}</span>
+                    </div>
+                    <div className="text-xs text-slate-600">{order.plan} stuks • {order.itemCode}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-2">
+          <button 
+            onClick={onClose}
+            className="flex-1 py-3 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition-colors"
+          >
+            Sluiten
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Order Detail Card Component
+const OrderDetailCard = ({ order, products, onProductSelect, onProductMove, onRepairMode, t }) => {
+  return (
+    <div className="bg-white rounded-xl border-2 border-blue-100 overflow-hidden">
+      
+      {/* Order Header */}
+      <div className="bg-blue-50 p-4 border-b border-blue-100">
+        <div className="flex justify-between items-start mb-2">
+          <div>
+            <h4 className="text-lg font-black text-slate-800">{order.orderId || order.item}</h4>
+            <p className="text-sm text-slate-600">{order.itemCode}</p>
+          </div>
+          <div className="text-right">
+            <div className="font-black text-indigo-600 text-xl">{order.plan || 0}</div>
+            <div className="text-xs text-slate-500">stuks</div>
+          </div>
+        </div>
+        {order.notes && (
+          <div className="text-xs bg-yellow-50 border border-yellow-100 p-2 rounded text-slate-700 italic">
+            💡 {order.notes}
+          </div>
+        )}
+      </div>
+
+      {/* Products List */}
+      <div className="p-4 space-y-2">
+        {products.length === 0 ? (
+          <div className="text-sm text-slate-500 italic">Geen producten getrackt voor deze order</div>
+        ) : (
+          products.map(product => (
+            <div key={product.id} className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex items-center justify-between">
+              <div className="flex-1">
+                <div className="font-bold text-sm text-slate-800">{product.lotNumber}</div>
+                <div className="text-xs text-slate-600">
+                  {product.currentStation} • {product.status}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onProductSelect(product)}
+                  className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                  title="Product dossier"
+                >
+                  <Eye size={16} />
+                </button>
+                {['In Production', 'in_progress'].includes(product.status) && (
+                  <>
+                    <button
+                      onClick={() => onProductMove(product)}
+                      className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors"
+                      title="Verplaatsen"
+                    >
+                      <ArrowRightLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => onRepairMode(product.id)}
+                      className="p-2 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-lg transition-colors"
+                      title="Reparatie"
+                    >
+                      <AlertTriangle size={16} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// Product Dossier Modal
+// ============================================
+const ProductDossierModal = ({ product, onClose, onMove, onRepair, t }) => {
+  return (
+    <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
+        
+        <div className="p-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-start">
+          <div>
+            <h2 className="text-2xl font-black mb-1">Product Dossier</h2>
+            <p className="text-blue-100 text-sm">{product.lotNumber}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg">
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
+          
+          {/* Lot Info */}
+          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs font-bold text-slate-500 uppercase mb-1">Lotnummer</div>
+                <div className="text-lg font-black text-slate-800">{product.lotNumber}</div>
+              </div>
+              <div>
+                <div className="text-xs font-bold text-slate-500 uppercase mb-1">Order</div>
+                <div className="text-lg font-black text-slate-800">{product.orderId || "N/A"}</div>
+              </div>
+              <div>
+                <div className="text-xs font-bold text-slate-500 uppercase mb-1">Status</div>
+                <div className="font-bold text-sm">{product.status}</div>
+              </div>
+              <div>
+                <div className="text-xs font-bold text-slate-500 uppercase mb-1">Huidige Station</div>
+                <div className="font-bold text-sm">{product.currentStation || "Onbekend"}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Timeline */}
+          {product.history && (
+            <div>
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3">📍 Geschiedenis</h3>
+              <div className="space-y-2 text-sm">
+                {product.history.slice(-5).reverse().map((entry, i) => (
+                  <div key={i} className="flex gap-2 text-slate-600">
+                    <div className="font-bold text-blue-600 min-w-[80px]">
+                      {entry.station || entry.step || "N/A"}
+                    </div>
+                    <div>{entry.timestamp ? new Date(entry.timestamp.toDate ? entry.timestamp.toDate() : entry.timestamp).toLocaleString() : "N/A"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Defects */}
+          {product.defects && product.defects.length > 0 && (
+            <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+              <h3 className="text-xs font-black text-red-700 uppercase mb-2">🚩 Geregistreerde Defecten</h3>
+              <div className="space-y-2">
+                {product.defects.map((defect, i) => (
+                  <div key={i} className="text-sm text-red-800">
+                    • {defect.description || defect.type}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-2">
+          <button onClick={onMove} className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
+            <ArrowRightLeft size={18} /> Verplaatsen
+          </button>
+          <button onClick={onRepair} className="flex-1 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors flex items-center justify-center gap-2">
+            <AlertTriangle size={18} /> Reparatie
+          </button>
+          <button onClick={onClose} className="flex-1 py-3 bg-slate-300 text-slate-700 rounded-lg font-bold hover:bg-slate-400 transition-colors">
+            Sluiten
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// Repair Modal
+// ============================================
+const RepairModal = ({ productId, product, onClose, onSubmit, t }) => {
+  const [reason, setReason] = useState("");
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+        
+        <div className="p-6 bg-orange-600 text-white">
+          <h2 className="text-2xl font-black mb-1">🔧 Reparatie Starten</h2>
+          <p className="text-orange-100">{product?.lotNumber || productId}</p>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Reparatie Reden</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Beschrijf het probleem..."
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:border-orange-500 outline-none resize-none"
+              rows="4"
+            />
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-2">
+          <button 
+            onClick={onClose}
+            className="flex-1 py-3 bg-slate-200 text-slate-700 rounded-lg font-bold hover:bg-slate-300 transition-colors"
+          >
+            Annuleren
+          </button>
+          <button 
+            onClick={() => onSubmit({ reason })}
+            className="flex-1 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors"
+          >
+            Start Reparatie
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// Planning Order Card Component
+// ============================================
+const PlanningOrderCard = ({ order, onSelectOrder, onScanReady, t }) => {
+  const getStatusColor = (status) => {
+    if (['in_production', 'in_progress'].includes(status)) return "bg-emerald-50 border-emerald-200";
+    if (['planned', 'pending'].includes(status)) return "bg-blue-50 border-blue-200";
+    if (status === 'completed') return "bg-slate-50 border-slate-200";
+    if (['temp_reject', 'rejected'].includes(status)) return "bg-red-50 border-red-200";
+    return "bg-slate-50 border-slate-200";
+  };
+
+  const getStatusLabel = (status) => {
+    if (['in_production', 'in_progress'].includes(status)) return "🟢 In Productie";
+    if (['planned', 'pending'].includes(status)) return "📋 Gepland";
+    if (status === 'completed') return "✅ Gereed";
+    if (['temp_reject', 'rejected'].includes(status)) return "❌ Afgewezen";
+    return status;
+  };
+
+  return (
+    <div 
+      onClick={onSelectOrder}
+      className={`bg-white rounded-2xl border-2 p-4 cursor-pointer transition-all active:scale-95 ${getStatusColor(order.status)}`}
+    >
+      <div className="flex items-start justify-between mb-3 gap-3">
+        <div className="flex-1 min-w-0 space-y-2">
+          <div>
+            <div className="text-[10px] font-black text-slate-400 uppercase mb-1">Ordernummer</div>
+            <h3 className="text-lg font-black text-slate-800 break-words">{order.orderId || "Onbekend"}</h3>
+          </div>
+          <div>
+            <div className="text-[10px] font-black text-slate-400 uppercase mb-1">Productnaam</div>
+            <p className="text-sm text-slate-700 font-bold break-words">{order.item || order.itemCode || "Onbekend product"}</p>
+          </div>
+        </div>
+        <span className="text-xs font-bold px-2 py-1 bg-white rounded border border-slate-200">
+          {order.plan || 0} stuks
+        </span>
+      </div>
+
+      {/* Status & Stats */}
+      <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-200">
+        <div className="text-sm font-bold text-slate-700">{getStatusLabel(order.status)}</div>
+        <div className="flex gap-3 text-xs">
+          {order.activeProductsCount > 0 && (
+            <div className="flex items-center gap-1 text-emerald-600 font-bold">
+              <Activity size={14} /> {order.activeProductsCount} actief
+            </div>
+          )}
+          {order.defectCount > 0 && (
+            <div className="flex items-center gap-1 text-red-600 font-bold">
+              <AlertTriangle size={14} /> {order.defectCount} afkeur
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Machine & Date */}
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-2 text-slate-600 font-bold">
+          <MapPin size={16} /> {order.machine || "Niet toegewezen"}
+        </div>
+        <div className="text-xs text-slate-500">
+          {order.plannedDate?.seconds 
+            ? format(new Date(order.plannedDate.seconds * 1000), 'dd MMM', { locale: nl })
+            : "Geen datum"}
+        </div>
+      </div>
+
+      {/* Quick Action Buttons */}
+      {['in_production', 'in_progress'].includes(order.status) && (
+        <div className="mt-3 pt-3 border-t border-slate-200 flex gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onScanReady();
+            }}
+            className="flex-1 py-2 px-3 bg-emerald-500 text-white text-xs font-bold rounded-lg hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2"
+          >
+            <CheckCircle size={16} /> Gereed volgende stap
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// Ready for Next Step Modal
+// ============================================
+const ReadyForNextStepModal = ({ orderId, order, products, onClose, onMarkReady, t }) => {
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [markMode, setMarkMode] = useState(false); // false = select | true = confirm
+
+  if (markMode && selectedProduct) {
+    return (
+      <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+          <div className="p-6 bg-emerald-600 text-white">
+            <h2 className="text-2xl font-black mb-1">✅ Gereed voor volgende stap</h2>
+            <p className="text-emerald-100">{selectedProduct.lotNumber}</p>
+          </div>
+
+          <div className="p-6 space-y-4">
+            <div>
+              <div className="text-sm font-bold text-slate-700 mb-2">Order:</div>
+              <div className="text-lg font-black text-slate-800">{order?.orderId}</div>
+            </div>
+            <div>
+              <div className="text-sm font-bold text-slate-700 mb-2">Huide Station:</div>
+              <div className="text-lg font-black text-slate-800">{selectedProduct.currentStation}</div>
+            </div>
+            <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+              <p className="text-sm text-emerald-800">
+                Status wordt ingesteld op <strong>"Gereed voor volgende stap"</strong> en kan verplaatst worden naar de volgende werkstation.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-2">
+            <button 
+              onClick={() => setMarkMode(false)}
+              className="flex-1 py-3 bg-slate-200 text-slate-700 rounded-lg font-bold hover:bg-slate-300 transition-colors"
+            >
+              Terug
+            </button>
+            <button 
+              onClick={() => {
+                onMarkReady(selectedProduct);
+                onClose();
+              }}
+              className="flex-1 py-3 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition-colors"
+            >
+              Bevestig ✅
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
+        <div className="p-6 bg-emerald-600 text-white flex justify-between items-start">
+          <div>
+            <h2 className="text-2xl font-black mb-1">Selecteer Product</h2>
+            <p className="text-emerald-100">{order?.orderId}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg">
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
+          {products.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <Package size={40} className="mx-auto mb-2 opacity-30" />
+              <div className="text-sm font-bold">Geen producten in deze order</div>
+            </div>
+          ) : (
+            products.map(product => (
+              <button
+                key={product.id}
+                onClick={() => {
+                  setSelectedProduct(product);
+                  setMarkMode(true);
+                }}
+                className="w-full text-left bg-slate-50 hover:bg-slate-100 p-4 rounded-xl border border-slate-200 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-bold text-slate-800">{product.lotNumber}</div>
+                  <span className="text-xs font-bold px-2 py-1 bg-white rounded border border-slate-200">{product.status}</span>
+                </div>
+                <div className="text-sm text-slate-600">
+                  {product.currentStation} • {product.currentStep || "Geen stap"}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="p-4 border-t border-slate-200 bg-slate-50">
+          <button 
+            onClick={onClose}
+            className="w-full py-3 bg-slate-300 text-slate-700 rounded-lg font-bold hover:bg-slate-400 transition-colors"
+          >
+            Annuleren
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
