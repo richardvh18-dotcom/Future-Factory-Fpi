@@ -1,3 +1,51 @@
+## Update sessie 78 (Opslaan voor morgen: uitvoerplan A/B/C bevestigd)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Bevestigde werkwijze (blijft leidend):**
+- Nieuwe en bestaande kritieke mutaties/features worden standaard via Cloud Functions gebouwd.
+- Frontend roept callables aan; backend valideert rollen/transities; repositorylaag blijft database-toegangspunt.
+
+**Opgeslagen voor volgende sessie (morgen):**
+1. **A - Wiring importflow:**
+    - `PlanningImportModal.jsx` migreren van directe `writeBatch(db)` writes naar backend callable (`importPlanning` pad).
+    - Frontend importstart wordt een callable-aanroep met duidelijke payload-validatie.
+2. **B - UI error handling:**
+    - Cloud Function fouten (bijv. rechten/validatie) zichtbaar maken in de import-logconsole/sidebar.
+    - `importing` state uitbreiden met expliciete API-foutstatus en duidelijke melding voor operator/planner.
+3. **C - Concurrency/transacties:**
+    - Firestore transacties toepassen in repository-paden waar uren/counters tegelijk aangepast kunnen worden.
+    - Doel: race conditions voorkomen bij gelijktijdige boekingen.
+
+**Status bij afsluiten:**
+- Functions runtime/deploy pad is werkend en geüpdatet (Node.js 22).
+- Cloud Functions deploy is succesvol uitgevoerd.
+- Runtime/deploy fix is apart gecommit en gepusht.
+- Verdere migratieclusters staan lokaal als vervolgstap en worden in volgende sessie gefaseerd afgerond.
+
+## Update sessie 77 (Cloud Functions-by-default beleid bevestigd)
+
+**Datum:** 11 april 2026 | **Branch:** `pilot-dev`
+
+**Besluit (expliciet vastgelegd):**
+- Vanaf nu wordt **alle nieuwe mutatielogica** in zowel frontend als backend via **Cloud Functions** opgezet.
+- Dit geldt ook voor **nieuwe features/functies**: geen directe kritieke client writes meer als primaire implementatie.
+- Patroon is voortaan standaard:
+    1. Frontend wrapper/service (`httpsCallable`) in `src/services/...`.
+    2. Backend callable entrypoint in `functions/src/callables/...`.
+    3. Domeinlogica in `functions/src/services/...` (+ repository/auth/config waar nodig).
+    4. Frontend UI gebruikt de service, niet direct destructieve writes voor kritieke flows.
+
+**Wat in deze iteratie aanvullend is geborgd:**
+- Firebase Functions deploymentpad opnieuw werkend gemaakt en uitgevoerd.
+- Runtime/deploy fix separaat gecommit en gepusht (`fc85f17`).
+- Functions draaien nu op Node.js 22 runtime.
+
+**Actuele richting voor vervolg:**
+1. Resterende write-clusters (o.a. Terminal, StationAssignment/LoanPersonnel, ProductionStart counters) gefaseerd migreren naar hetzelfde callable-patroon.
+2. Bij elke nieuwe functie eerst backend callable/service definiëren, daarna frontend integreren.
+3. Firestore rules blijven ondersteunend, maar kritieke business-transities worden server-side afgedwongen.
+
 ## Update sessie 76 (Start architectuurrefactor: backend lagen + planning vertical slice)
 
 **Datum:** 11 april 2026 | **Branch:** `pilot-dev`
