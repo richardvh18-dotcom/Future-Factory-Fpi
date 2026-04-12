@@ -16,7 +16,7 @@ import {
   Loader2,
   Database
 } from "lucide-react";
-import { collection, getDocs, query, where, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp, runTransaction, limit } from "firebase/firestore";
+import { collection, getDocs, query, where, onSnapshot, doc, limit } from "firebase/firestore";
 
 import { db, auth, logActivity } from "../../../config/firebase"; 
 import { PATHS, getArchiveItemsPath } from "../../../config/dbPaths";
@@ -29,6 +29,7 @@ import { useNotifications } from "../../../contexts/NotificationContext";
 import { generatePrintData, generateLotBatchZPL } from "../../../utils/zplHelper";
 import { getDriver } from "../../../utils/printerDrivers";
 import { queuePrintJob } from "../../../services/printService.js";
+import { reserveAutoLotNumberRange } from "../../../services/planningSecurityService";
 import AutoScaledLabelPreview from "../../printer/AutoScaledLabelPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
 import InternalQrImage from "../../../utils/InternalQrImage";
@@ -513,182 +514,14 @@ const ProductionStartModal = ({
     }
   };
 
-  const getHighestSequenceForBaseLot = async (baseLotStr, stationId, weekSuffix) => {
-    let maxSeq = 0;
-    
-    const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const counterDocId = `${safeStationId}_${weekSuffix}`;
-    const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
-
-    try {
-        const counterSnap = await getDoc(counterRef);
-        if (counterSnap.exists()) {
-            return counterSnap.data().lastSequence || 0;
-        }
-    } catch (e) {
-        console.error("Fout bij lezen counter:", e);
-    }
-
-    const extractSeq = (lot) => {
-        if (!lot || !lot.startsWith(baseLotStr)) return 0;
-        const seqStr = lot.substring(baseLotStr.length).replace(/[^0-9]/g, '');
-        const seq = parseInt(seqStr, 10);
-        return isNaN(seq) ? 0 : seq;
-    };
-
-    existingProducts?.forEach(p => {
-        const seq = extractSeq(p.lotNumber || p.activeLot);
-        if (seq > maxSeq) maxSeq = seq;
-    });
-
-    try {
-        const activePath = PATHS?.ACTIVE_PRODUCTION || ['future-factory', 'production', 'active'];
-        const activeRef = collection(db, ...activePath);
-        const activeSnap = await getDocs(activeRef);
-        activeSnap.forEach(doc => {
-            const data = doc.data();
-            const seq = extractSeq(data.lotNumber || data.activeLot);
-            if (seq > maxSeq) maxSeq = seq;
-        });
-
-        const archiveRef = collection(db, ...getArchiveItemsPath(new Date().getFullYear()));
-        const q = query(
-            archiveRef, 
-            where("lotNumber", ">=", baseLotStr),
-            where("lotNumber", "<=", baseLotStr + '\uf8ff')
-        );
-        const archiveSnap = await getDocs(q);
-        archiveSnap.forEach(doc => {
-            const seq = extractSeq(doc.data().lotNumber);
-            if (seq > maxSeq) maxSeq = seq;
-        });
-
-    } catch (error) {
-        console.error("Fout bij ophalen max sequence:", error);
-    }
-
-    try {
-        await setDoc(counterRef, { lastSequence: maxSeq, updatedAt: serverTimestamp() }, { merge: true });
-    } catch (e) { console.error("Kon counter niet initialiseren", e); }
-
-    return maxSeq;
-  };
-
-  const consumeRecycledSequence = async (baseLot, station, weekSuffix) => {
-    const safeStationId = (station || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const counterDocId = `${safeStationId}_${weekSuffix}`;
-    const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
-    const counterSnap = await getDoc(counterRef);
-    if (!counterSnap.exists()) return null;
-
-    const data = counterSnap.data() || {};
-    const recycled = Array.isArray(data.recycledSequences)
-      ? data.recycledSequences
-          .map((n) => Number(n))
-          .filter((n) => Number.isFinite(n) && n > 0)
-          .sort((a, b) => a - b)
-      : [];
-
-    for (const seq of recycled) {
-      const candidate = `${baseLot}${String(seq).padStart(4, '0')}`;
-      const exists = await checkLotNumberExists(candidate);
-      if (!exists) {
-        const nextRecycled = recycled.filter((n) => n !== seq);
-        await setDoc(counterRef, { recycledSequences: nextRecycled, updatedAt: serverTimestamp() }, { merge: true });
-        return candidate;
-      }
-    }
-
-    return null;
-  };
-
   const claimAutoLotRange = async (count = 1) => {
     const quantity = Math.max(1, parseInt(String(count || 1), 10) || 1);
-    const d = new Date();
-    const iso = getIsoWeekAndYear(d);
-
-    const bedrijf = "40";
-    const jaar = iso.year.slice(-2);
-    const week = iso.week;
-    const machine = getMachineCode(stationId);
-    const land = "40";
-
-    const baseLot = `${bedrijf}${jaar}${week}${machine}${land}`;
-    const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const counterDocId = `${safeStationId}_${jaar}${week}`;
-    const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
-
-    return runTransaction(db, async (tx) => {
-      const counterSnap = await tx.get(counterRef);
-      const counterData = counterSnap.exists() ? (counterSnap.data() || {}) : {};
-
-      const lastSequence = Number.isFinite(Number(counterData.lastSequence))
-        ? Number(counterData.lastSequence)
-        : 0;
-
-      const recycled = Array.isArray(counterData.recycledSequences)
-        ? Array.from(new Set(counterData.recycledSequences
-            .map((n) => Number(n))
-            .filter((n) => Number.isFinite(n) && n > 0)))
-            .sort((a, b) => a - b)
-        : [];
-
-      const maxAttempts = 250;
-      let attempts = 0;
-      let recycledIndex = 0;
-      let sequenceToTry = recycled.length > 0 && quantity === 1 ? recycled[0] : (lastSequence + 1);
-
-      while (attempts < maxAttempts) {
-        attempts += 1;
-        const usingRecycled = quantity === 1 && recycledIndex < recycled.length && sequenceToTry === recycled[recycledIndex];
-        let hasCollision = false;
-
-        if (sequenceToTry <= 0 || sequenceToTry + quantity - 1 > 9999) {
-          hasCollision = true;
-        }
-
-        if (!hasCollision) {
-          for (let i = 0; i < quantity; i++) {
-            const seq = sequenceToTry + i;
-            const candidateLot = `${baseLot}${String(seq).padStart(4, "0")}`;
-            const candidateRef = doc(db, ...PATHS.TRACKING, candidateLot);
-            const candidateSnap = await tx.get(candidateRef);
-            if (candidateSnap.exists()) {
-              hasCollision = true;
-              break;
-            }
-          }
-        }
-
-        if (!hasCollision) {
-          const nextRecycled = usingRecycled
-            ? recycled.filter((n) => n !== sequenceToTry)
-            : recycled;
-          const newLast = Math.max(lastSequence, sequenceToTry + quantity - 1);
-
-          tx.set(counterRef, {
-            lastSequence: newLast,
-            recycledSequences: nextRecycled,
-            updatedAt: serverTimestamp(),
-          }, { merge: true });
-
-          return `${baseLot}${String(sequenceToTry).padStart(4, "0")}`;
-        }
-
-        if (usingRecycled) {
-          recycledIndex += 1;
-          if (recycledIndex < recycled.length) {
-            sequenceToTry = recycled[recycledIndex];
-          } else {
-            sequenceToTry = Math.max(lastSequence + 1, sequenceToTry + 1);
-          }
-        } else {
-          sequenceToTry += 1;
-        }
-      }
-
-      throw new Error("Geen uniek lotnummer beschikbaar voor deze machine/week.");
+    const result = await reserveAutoLotNumberRange({
+      stationId,
+      count: quantity,
+      reserve: true,
     });
+    return String(result?.lotStart || "").trim();
   };
 
   useEffect(() => {
@@ -699,37 +532,14 @@ const ProductionStartModal = ({
       setIsCheckingLot(true);
 
       try {
-        const d = new Date();
-        const iso = getIsoWeekAndYear(d);
-        
-        const bedrijf = "40";
-        const jaar = iso.year.slice(-2);
-        const week = iso.week;
-        const machine = getMachineCode(stationId);
-        const land = "40";
-
-        const baseLot = `${bedrijf}${jaar}${week}${machine}${land}`;
-        const weekSuffix = `${jaar}${week}`;
-
-        const recycledLot = await consumeRecycledSequence(baseLot, stationId, weekSuffix);
-        if (recycledLot) {
-          if (isMounted) {
-            setLotNumber(recycledLot);
-            setLotError("");
-          }
-          return;
-        }
-
-        const highestSeq = await getHighestSequenceForBaseLot(baseLot, stationId, weekSuffix);
-        
-        let counter = highestSeq + 1;
-        
-        let newLotNumber = `${baseLot}${String(counter).padStart(4, '0')}`;
-
-        while (await checkLotNumberExists(newLotNumber)) {
-            counter++;
-            newLotNumber = `${baseLot}${String(counter).padStart(4, '0')}`;
-            if (counter > 9999) break; 
+        const preview = await reserveAutoLotNumberRange({
+          stationId,
+          count: 1,
+          reserve: false,
+        });
+        const newLotNumber = String(preview?.lotStart || "").trim();
+        if (!newLotNumber) {
+          throw new Error("Geen voorstel voor lotnummer ontvangen.");
         }
 
         if (isMounted) {
@@ -754,39 +564,6 @@ const ProductionStartModal = ({
 
     return () => { isMounted = false; };
   }, [isOpen, order, mode, stationId]);
-
-  const updateCounterOnStart = async (usedLotNumber, count) => {
-      if (!usedLotNumber || mode !== "auto") return;
-      try {
-          const d = new Date();
-          const iso = getIsoWeekAndYear(d);
-          const year = iso.year.slice(-2);
-          const week = iso.week;
-          
-          const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
-          const counterDocId = `${safeStationId}_${year}${week}`;
-          const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
-          
-          const currentSeq = parseInt(usedLotNumber.slice(-5), 10);
-          const newMax = currentSeq + (count - 1);
-          const counterSnap = await getDoc(counterRef);
-          const counterData = counterSnap.exists() ? (counterSnap.data() || {}) : {};
-          const recycled = Array.isArray(counterData.recycledSequences)
-            ? counterData.recycledSequences.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
-            : [];
-          const nextRecycled = recycled.filter((n) => n !== currentSeq);
-
-          await setDoc(counterRef, { lastSequence: newMax, recycledSequences: nextRecycled, updatedAt: serverTimestamp() }, { merge: true });
-
-          const twoWeeksAgo = new Date();
-          twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-          const isoOld = getIsoWeekAndYear(twoWeeksAgo);
-          const oldDocId = `${safeStationId}_${isoOld.year.slice(-2)}${isoOld.week}`;
-          
-          await deleteDoc(doc(db, "future-factory", "production", "counters", oldDocId)).catch(() => {});
-
-      } catch (e) { console.error("Kon counter niet updaten:", e); }
-  };
 
   const handleManualOrderChange = async (e) => {
     const value = e.target.value.toUpperCase();
@@ -852,7 +629,6 @@ const ProductionStartModal = ({
       let effectiveLotNumber = isManualMode ? manualLotInput.trim() : lotNumber;
       let printData = null;
       let lotBatchPrintData = null;
-      let counterClaimed = false;
       const totalToProduce = isManualMode
         ? Math.max(1, parseInt(stringCount, 10) || 1)
         : isFlangeOrder
@@ -869,7 +645,6 @@ const ProductionStartModal = ({
       if (!isManualMode) {
         targetPrinter = await resolveTargetPrinterAsync();
         effectiveLotNumber = await claimAutoLotRange(totalToProduce);
-        counterClaimed = true;
         setLotNumber(effectiveLotNumber);
 
         // Failsafe: ook na counter-claim expliciet controleren op bestaand lot (tracking + archief).
@@ -945,9 +720,6 @@ const ProductionStartModal = ({
         }
       }
 
-      if (!counterClaimed) {
-        await updateCounterOnStart(effectiveLotNumber, totalToProduce);
-      }
       await logActivity(auth.currentUser?.uid, "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
 
       await onStart(

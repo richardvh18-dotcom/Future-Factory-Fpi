@@ -11,17 +11,14 @@ import {
 import {
   collection,
   getDocs,
-  doc,
-  setDoc,
-  deleteDoc,
-  serverTimestamp,
   query,
   where,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { db, logActivity } from "../../../config/firebase";
+import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { useNotifications } from "../../../contexts/NotificationContext";
+import { assignPersonnelToStation, removePersonnelAssignment } from "../../../services/planningSecurityService";
 
 /**
  * StationAssignmentModal
@@ -100,30 +97,18 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
       const today = new Date().toISOString().split('T')[0];
       const currentWeek = new Date().getISOWeek ? new Date().getISOWeek() : 1;
       const operator = personnel.find(p => p.id === selectedOperator);
-
-      const docRef = doc(
-        collection(db, ...PATHS.OCCUPANCY),
-        `${stationId}-${selectedOperator}-${today}`
-      );
-
-      await setDoc(docRef, {
-        machineId: stationId,
-        operatorNumber: operator.employeeNumber || selectedOperator,
-        operatorName: operator.name,
+      await assignPersonnelToStation({
+        stationId,
+        operatorId: selectedOperator,
+        operatorNumber: operator?.employeeNumber || selectedOperator,
+        operatorName: operator?.name || selectedOperator,
         date: today,
-        week: currentWeek,
         departmentId: department,
-        hoursWorked: 8, // Default dagshift
+        hoursWorked: 8,
         shiftType: "DAG",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        source: "StationAssignmentModal",
+        actorLabel: auth.currentUser?.email,
       });
-
-      await logActivity(
-        auth.currentUser?.uid || "system",
-        "PERSONNEL_ASSIGN",
-        `Operator toegewezen: ${operator?.name || selectedOperator} -> station ${stationId} (${today})`
-      );
 
       setAssignments([
         ...assignments,
@@ -159,12 +144,12 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
     if (!confirmed) return;
 
     try {
-      await deleteDoc(doc(db, ...PATHS.OCCUPANCY, assignmentId));
-      await logActivity(
-        auth.currentUser?.uid || "system",
-        "PERSONNEL_UNASSIGN",
-        `Operator toewijzing verwijderd: ${assignmentId} op station ${stationId}`
-      );
+      await removePersonnelAssignment({
+        assignmentId,
+        stationId,
+        source: "StationAssignmentModal",
+        actorLabel: auth.currentUser?.email,
+      });
       setAssignments(assignments.filter(a => a.id !== assignmentId));
       setStatus({ type: "success", message: "Toewijzing verwijderd" });
       setTimeout(() => setStatus(null), 3000);

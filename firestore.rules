@@ -201,6 +201,54 @@ service cloud.firestore {
       );
     }
 
+    function isClientTempRejectMutation() {
+      return (
+        request.resource.data.currentStep == 'HOLD_AREA'
+        || request.resource.data.status == 'Tijdelijke afkeur'
+        || (
+          'inspection' in request.resource.data
+          && request.resource.data.inspection is map
+          && request.resource.data.inspection.status == 'Tijdelijke afkeur'
+        )
+      );
+    }
+
+    function isClientRepairCompleteMutation() {
+      return (
+        request.resource.data.currentStation == 'BM01'
+        && request.resource.data.currentStep == 'Eindinspectie'
+        && request.resource.data.status == 'Te Keuren'
+        && request.resource.data.diff(resource.data).changedKeys().hasAny([
+          'repairActive',
+          'timestamps',
+          'note'
+        ])
+      );
+    }
+
+    function isClientProtectedPlanningMutation() {
+      return (
+        request.resource.data.diff(resource.data).changedKeys().hasAny([
+          'priority',
+          'cancelledAt',
+          'cancelledBy',
+          'cancelledByLabel',
+          'cancellationReason',
+          'cancellationSource',
+          'delegatedTo',
+          'originalMachine',
+          'originalDepartment',
+          'returnStation',
+          'delegationDate',
+          'notes',
+          'poText',
+          'plan',
+          'previousStatus'
+        ])
+        || request.resource.data.status == 'on_hold'
+      );
+    }
+
     match /future-factory/Users/Accounts/{userId} {
       allow get: if isAdmin() || isOwnUserDoc(userId);
       allow list: if isAdmin();
@@ -261,17 +309,21 @@ service cloud.firestore {
       allow create, delete: if canOperateProduction();
       allow update: if canOperateProduction()
         && !isClientFinalRejectMutation()
+        && !isClientTempRejectMutation()
+        && !isClientRepairCompleteMutation()
         && !isClientProtectedManualMoveMutation();
     }
 
     match /future-factory/production/digital_planning/{document=**} {
       allow read: if hasUserRecord();
-      allow write: if canOperateProduction();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction() && !isClientProtectedPlanningMutation();
     }
 
     match /future-factory/production/data/digital_planning/orders/{orderId} {
       allow read: if hasUserRecord();
-      allow write: if canOperateProduction();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction() && !isClientProtectedPlanningMutation();
     }
 
     match /future-factory/production/{collectionId}/{document=**} {

@@ -1,3 +1,366 @@
+## Update sessie 88 (BM01 QC-notes + ProductionStartModal lot-counter writes naar callables)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De volgende resterende directe client writes uit planning/tracking flow verwijderen:
+    - BM01 QC-note append.
+    - ProductionStartModal lot counter reserve/claim pad.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callables toegevoegd:
+    - `appendQcNote`
+    - `reserveAutoLotNumberRange`
+- Nieuwe service-logica toegevoegd in `planningTransitionService`:
+    - `appendQcNoteService(...)`:
+        - append van `qcNotes` in tracking of archive-items (met optionele `archivedYear` hint).
+    - `reserveAutoLotNumberRangeService(...)`:
+        - server-side bepaling + (optionele) reservatie van uniek auto-lot bereik in counters,
+        - inclusief recycled-sequence handling en wekelijkse cleanup van oude counter docs.
+- Frontend wrappers toegevoegd in `planningSecurityService`:
+    - `appendQcNote(...)`
+    - `reserveAutoLotNumberRange(...)`
+- UI rewiring:
+    - `BM01Hub.jsx`: QC note flow gebruikt nu `appendQcNote(...)` i.p.v. directe `updateDoc/arrayUnion`.
+    - `ProductionStartModal.jsx`:
+        - client-side counter transacties/writes verwijderd;
+        - auto lot-preview gebruikt nu backend call met `reserve: false`;
+        - daadwerkelijke start claimt lot-range via backend met `reserve: true`.
+
+**Validatie:**
+- `get_errors` op gewijzigde frontend/backendbestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+- Backend syntaxcheck uitgevoerd op gewijzigde functions-bestanden (`node --check`): geen fouten.
+
+**Resultaat:**
+- BM01 QC-notes schrijven niet meer direct vanuit de client.
+- ProductionStartModal schrijft geen counter-documenten meer rechtstreeks vanuit de client; claim/reservatie loopt via callable.
+
+**Openstaand / eerstvolgende stap:**
+1. Nieuwe callables deployen zodat frontend wrappers productiepad gebruiken.
+2. Daarna Firestore rules verder aanscherpen rond `production/counters` en `qcNotes` writes.
+
+## Update sessie 87 (Vier resterende planning/tracking hotspots naar callables)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De eerstvolgende resterende directe client writes uit de hotspotscan migreren naar backend callables.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callables toegevoegd:
+    - `editTrackedProductLotNumber`
+    - `linkPlanningOrderProduct`
+    - `createPlanningOrderManual`
+    - `markMazakLabelsPrinted`
+- Server-side service-logica toegevoegd in `planningTransitionService` voor:
+    - lotnummerwijziging met reden + history-entry;
+    - koppelen van product aan planningorder;
+    - handmatig aanmaken van planningorder met duplicate-check op `orderId`;
+    - Mazak label-status/history updates voor meerdere lots.
+- Frontend wrappers toegevoegd in `planningSecurityService` en gekoppeld in UI:
+    - `OrderDetail.jsx`: lotnummerwijziging via `editTrackedProductLotNumber(...)`;
+    - `WorkstationHub.jsx`: order-product koppeling via `linkPlanningOrderProduct(...)`;
+    - `TeamleaderHub.jsx`: handmatig order aanmaken via `createPlanningOrderManual(...)`;
+    - `MazakView.jsx`: label metadata updates via `markMazakLabelsPrinted(...)`.
+- Kleine stabiliteitsfix meegenomen in `OrderDetail.jsx`:
+    - ontbrekende `copyToClipboard` helper en `parsedPlanDraft` variabele hersteld.
+
+**Validatie:**
+- `get_errors` op alle gewijzigde backend- en frontendbestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- De vier geprioriteerde hotspots uit de scan zijn nu backend-afgedwongen.
+- Directe writes voor deze flows lopen niet langer via `updateDoc/addDoc` in de genoemde componenten.
+
+**Openstaand / eerstvolgende stap:**
+1. Volgende batch hotspots oppakken: bijv. `BM01Hub` QC notes en lotcounter-updates in `ProductionStartModal`.
+2. Daarna rules verder aanscherpen voor de nieuw gemigreerde mutatievelden.
+
+## Update sessie 86 (WorkstationHub string-run start naar backend callable)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De resterende directe tracking/planning writes in de WorkstationHub startproductie-flow server-side afdwingen.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callable toegevoegd: `startWorkstationProductionRun`.
+- Server-side service-logica toegevoegd voor string-run start met:
+    - lotgeneratie op basis van startlot + aantal;
+    - overproduction-detectie (`NOG_TE_BEPALEN`) met `isOverproduction` metadata;
+    - tracking-doc updates inclusief label-ZPL/template/audit, personnel tracking en series metadata;
+    - planning order update van `started_*` teller en status (`in_progress`) in dezelfde backend flow.
+- Frontend gekoppeld via `planningSecurityService`:
+    - `WorkstationHub.jsx` gebruikt nu `startWorkstationProductionRun(...)` in plaats van directe `setDoc(...)` op tracking en directe planning `updateDoc(...)`.
+- Bestaande overflow notificatie/melding in de UI blijft behouden, maar gebruikt nu backend-resultaat (`overflowLots`).
+
+**Validatie:**
+- `get_errors` op gewijzigde backend- en frontendbestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- De grootste resterende directe writecluster in `handleStartProduction` is nu server-side gemigreerd.
+- WorkstationHub productie-start volgt nu hetzelfde callable/service patroon als de eerdere transitie-, repair-, pause- en reminderflows.
+
+**Openstaand / eerstvolgende stap:**
+1. Firestore rules verder aanscherpen voor deze nu gemigreerde startflow (tracking/planning velden die hiervoor nog client-writable zijn).
+2. Nog één keer repo-breed scannen op resterende directe kritieke tracking/planning writes en die laatste restpunten migreren.
+
+## Update sessie 85 (WorkstationHub pause/resume + reminder metadata via backend)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De volgende niet-routing WorkstationHub trackingupdates centraliseren: pauzeren/hervatten en reminder-flag updates.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callables toegevoegd:
+    - `toggleTrackedProductPause`
+    - `markTrackedProductReminder`
+- Server-side service-logica toegevoegd voor:
+    - pause/resume statuswissel (`PAUSED` <-> `In Production`) met history + activity logging;
+    - reminder metadata (`reminderSent`, `reminderSentAt`) met centrale history-entry.
+- Frontend gekoppeld via `planningSecurityService`:
+    - `WorkstationHub.jsx` gebruikt nu `toggleTrackedProductPause(...)` i.p.v. directe status `updateDoc`;
+    - `WorkstationHub.jsx` gebruikt nu `markTrackedProductReminder(...)` i.p.v. directe reminder metadata `updateDoc`.
+
+**Validatie:**
+- `get_errors` op gewijzigde backend- en frontendbestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- Nog een deel van de losse WorkstationHub trackingmutaties is nu server-side afgedwongen.
+- De combinatie van routing/transities/temp-reject/repair/pause/reminder draait nu grotendeels via callables.
+
+**Openstaand / eerstvolgende stap:**
+1. Overige directe tracking-mutaties in WorkstationHub inventariseren die nog niet in bovenstaande clusters vallen (bijv. specifieke flags/history updates buiten de kerntransities).
+2. Daarna Firestore rules verder versmallen voor deze inmiddels gemigreerde velden.
+
+## Update sessie 84 (WorkstationHub routing naar Lossen + manual resume via backend)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- De resterende directe WorkstationHub routingwrites verder reduceren, specifiek:
+    - hervatten na handmatige verplaatsing;
+    - bulk-routing van producten naar Lossen.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callable toegevoegd: `routeTrackedProductsToLossen`.
+- Backend service toegevoegd voor bulk-routing naar Lossen met:
+    - server-side routebepaling centraal/lokaal op basis van item/origin;
+    - update van `currentStation`, `currentStep`, `status`, `timestamps.lossen_start`;
+    - optionele `personnelTracking.LOSSEN` toewijzing.
+- `WorkstationHub.jsx` aangepast:
+    - bulk-routing naar Lossen loopt nu via `routeTrackedProductsToLossen(...)`;
+    - hervatten van een item met `isManualMove` loopt nu via bestaande `advanceTrackedProduct(...)` in plaats van directe `updateDoc(...)`.
+- Kleine backendfix meegenomen:
+    - `planningTransitionService.js` importeert nu expliciet `clampText`, wat al in de service werd gebruikt.
+
+**Validatie:**
+- `get_errors` op gewijzigde backend- en frontendbestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- De resterende WorkstationHub routingpaden voor Lossen en manual resume lopen nu server-side.
+- In WorkstationHub blijven nog wel enkele directe trackingupdates over, maar dat zijn geen routingtransities uit deze cluster (bijv. pause/resume en bepaalde losse metadata-updates).
+
+**Openstaand / eerstvolgende stap:**
+1. De resterende directe trackingupdates in WorkstationHub groeperen per intentie, bijvoorbeeld pause/resume of losse metadata/history mutaties.
+2. Daarna pas generieke tracking-rules verder versmallen, omdat routingtransities nu grotendeels server-side zitten maar niet alle niet-routing updates al zijn gemigreerd.
+
+## Update sessie 83 (Approved forwarding + repair complete verder naar backend callables)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Verdergaan op de resterende directe trackingtransities door approved/forwarding paden en reparatie-afronding verder server-side te centraliseren.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callables toegevoegd:
+    - `advanceTrackedProduct`
+    - `completeTrackedProductRepair`
+- Server-side service-logica toegevoegd voor:
+    - generieke trackingtransitie met centrale update van `currentStation`, `currentStep`, `status`, history, timestamps, notities en optionele measurements;
+    - reparatie-afronding terug naar BM01/Eindinspectie inclusief `repairActive`, repair timestamps en history.
+- Frontend gekoppeld via `planningSecurityService` in deze paden:
+    - `ProductReleaseModal.jsx` approved/forwarding route loopt nu via `advanceTrackedProduct(...)`;
+    - `LossenView.jsx` basic completed route loopt nu via `advanceTrackedProduct(...)`;
+    - `WorkstationHub.jsx` reparatie-afronding loopt nu via `completeTrackedProductRepair(...)`;
+    - `Terminal.jsx` reparatie-afronding loopt nu via `completeTrackedProductRepair(...)`.
+- Firestore rules gericht aangescherpt voor directe client-side repair-complete mutaties naar `BM01` / `Eindinspectie` / `Te Keuren`.
+
+**Validatie:**
+- `get_errors` op gewijzigde backend-, frontend- en rules-bestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- Een extra deel van de trackingtransitie-logica loopt nu via backend callables in plaats van losse client `updateDoc(...)` paden.
+- Reparatie-afronding is nu ook rule-technisch verder afgedekt.
+
+**Openstaand / eerstvolgende stap:**
+1. De resterende directe transitieroutes inventariseren die nog tracking `currentStation/currentStep/status` aanpassen, met name bulk/route-specifieke WorkstationHub-paden naar Lossen of volgende stations.
+2. Daarna pas bredere rules voor generieke trackingtransities verder versmallen, zodra die laatste clientflows ook zijn gemigreerd.
+
+## Update sessie 82 (Tijdelijke afkeur/HOLD_AREA naar backend callable getrokken)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Volgende kritieke tracking-statuscluster server-side afdwingen: tijdelijke afkeur (`HOLD_AREA` / `Tijdelijke afkeur`) die nog in meerdere schermen direct vanuit de client werd geschreven.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callable toegevoegd: `tempRejectTrackedProduct`.
+- Server-side service toegevoegd voor tijdelijke afkeur op tracked products met:
+    - centrale validatie van product + redenen;
+    - consistente update van `inspection`, `status`, `currentStep`, `processedBy`, history en optioneel `previousStep/previousStatus`;
+    - centrale activity-log registratie.
+- Frontend gekoppeld via `planningSecurityService` in meerdere schermen:
+    - `BM01Hub.jsx`
+    - `LossenView.jsx`
+    - `MazakView.jsx`
+    - `WorkstationHub.jsx`
+    - `ProductReleaseModal.jsx`
+- In `ProductReleaseModal` loopt de `temp_reject` tak nu ook via callable in plaats van directe tracking-update per geselecteerd lot.
+- Firestore rules aangescherpt:
+    - directe client updates naar `HOLD_AREA` / `Tijdelijke afkeur` / `inspection.status == Tijdelijke afkeur` op tracked products worden nu geblokkeerd.
+
+**Validatie:**
+- `get_errors` op gewijzigde backend-, frontend- en rules-bestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- Tijdelijke afkeur is nu een server-side afgedwongen vertical slice in plaats van losse client-mutaties verspreid over meerdere views.
+- Rules sluiten het oude writepad nu ook echt af, in lijn met het Cloud Functions-by-default beleid.
+
+**Openstaand / eerstvolgende stap:**
+1. Resterende directe tracking status-overgangen inventariseren, vooral de approved/forwarding paden die nog `currentStation/currentStep/status` rechtstreeks aanpassen.
+2. Daarna dezelfde aanpak toepassen op de volgende post-processing cluster, zodat trackingtransities stapsgewijs volledig server-side afdwingbaar worden.
+
+## Update sessie 81 (Teamleader overproduction-linkflow naar backend callable)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Stap 1 vervolgen door een resterende Teamleader-planningflow met directe `machine`/`status` writes server-side te trekken.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callable toegevoegd: `assignOverproduction`.
+- Server-side service toegevoegd voor overproduction-linking vanuit Teamleader:
+    - tracked products opnieuw koppelen aan doelorder;
+    - route/station server-side bepalen naar status/stap-mutatie;
+    - doelorder updaten met `machine`, `status` en overproduction-metadata;
+    - originele order `started_*` teller verlagen waar van toepassing;
+    - systeemmelding en activity-log server-side registreren.
+- Frontend gekoppeld via `planningSecurityService`:
+    - `TeamleaderHub.jsx` gebruikt nu `assignOverproduction(...)` in plaats van een directe Firestore batch op tracking + planning.
+- Kleine cleanup uitgevoerd:
+    - ongebruikte `getStepForStation` import uit `TeamleaderHub.jsx` verwijderd.
+
+**Validatie:**
+- `get_errors` op gewijzigde backend- en frontendbestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- Een extra Teamleader-flow met directe `machine`/`status` planningwrites is nu via backend-callable afgedwongen.
+- De overproduction-koppeling volgt nu hetzelfde patroon als de eerdere planningmigraties: frontend service -> callable -> service/repositorylaag.
+
+**Openstaand / eerstvolgende stap:**
+1. Volgende resterende Teamleader/planning cluster kiezen waar nog directe status/machine-updates bestaan.
+2. Daarna pas rules verder aanscherpen voor bredere planning/status-writes, zodat nog open clientflows niet per ongeluk breken.
+
+## Update sessie 80 (Order-admin flows naar callables + priority-regressie hersteld)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Verdere backend/frontend migratie voor planningorders zelf, zodat order-admin acties niet meer primair via directe client-updates lopen.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callables toegevoegd voor planningorder-acties:
+    - `movePlanningOrder`
+    - `retrievePlanningOrder`
+    - `togglePlanningOrderHold`
+    - `updatePlanningOrderDetails`
+- Bijbehorende service-logica toegevoegd in `functions/src/services/planningTransitionService.js`.
+- `OrderDetail.jsx` gemigreerd van directe Firestore-updates naar `planningSecurityService` wrappers voor:
+    - order verplaatsen / aanbieden;
+    - order terughalen;
+    - on-hold hervatten/toggelen;
+    - ordernotitie en plan-aantal opslaan.
+- Priority-regressie uit de vorige migratie opgelost:
+    - backend/frontend accepteren nu weer `high`, `urgent`, `immediate` en `false`;
+    - bestaande priority-knoppen in `OrderDetail`, `TeamleaderOrderDetailModal` en `ProductDossierModal` blijven daardoor functioneel.
+- Firestore rules gericht aangescherpt voor planningvelden die nu via callables lopen:
+    - prioriteit;
+    - annuleringmetadata;
+    - delegation/retrieve velden;
+    - hold-gerelateerde `previousStatus` / `status == on_hold`;
+    - ordernotitie (`notes`, `poText`) en `plan`.
+
+**Validatie:**
+- `get_errors` op gewijzigde backend-, frontend- en rules-bestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- Een extra planningcluster is nu end-to-end via backend callables afgedwongen.
+- De recente priority-API mismatch is opgelost, waardoor de UI niet meer stukloopt op `urgent` of `immediate`.
+- Rules blokkeren nu een deel van de oude client-writepaden voor order-admin velden die naar de backend zijn verhuisd.
+
+**Openstaand / eerstvolgende stap:**
+1. Resterende brede order/status-mutaties inventariseren die nog direct vanuit client lopen, met name paden waar `machine` en `status` nog rechtstreeks worden aangepast.
+2. Overproduction- en overige Teamleader-planningflows naar dezelfde callable-architectuur trekken voordat die rule-technisch verder worden dichtgezet.
+3. Daarna de planning-rules verder versmallen voor machine/status-updates zonder de nog open clientflows te breken.
+
+## Update sessie 79 (Nieuwe planning writeflows verder naar backend callables getrokken)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Verdergaan op het Cloud Functions-by-default beleid door extra planningmutaties uit de client te halen en server-side te centraliseren.
+
+**Wat is afgerond in deze batch:**
+- Backend callable-laag uitgebreid met nieuwe planningflows:
+    - `cancelTrackedProduction`
+    - `updatePlanningOrderPriority`
+    - `cancelPlanningOrder`
+    - `assignPersonnelToStation`
+    - `removePersonnelAssignment`
+    - `loanPersonnelToDepartment`
+    - `startProductionLots`
+- `functions/index.js` en `functions/src/callables/planningCallables.js` zijn omgezet naar `firebase-functions/v1` voor consistente callable-registratie in deze refactorlijn.
+- Domeinlogica toegevoegd in `functions/src/services/planningTransitionService.js` voor:
+    - productie-annulering inclusief teller-correctie, recycle pool update en pending print-queue cleanup;
+    - order-prioriteit server-side inclusief history-update;
+    - order-annulering met centrale status/cancellation metadata;
+    - personeelsbezetting (toewijzen, verwijderen, uitlenen) inclusief activity logging;
+    - productie-start van meerdere lots inclusief tracking-docs en planningstatus-update.
+- Frontend gekoppeld aan centrale service `src/services/planningSecurityService.js` in plaats van directe kritieke writes vanuit UI-componenten.
+- Directe Firestore-mutaties verwijderd of teruggebracht in o.a.:
+    - `OrderDetail.jsx`
+    - `TeamleaderOrderDetailModal.jsx`
+    - `ProductDossierModal.jsx`
+    - `Terminal.jsx`
+    - `WorkstationHub.jsx`
+    - `StationAssignmentModal.jsx`
+    - `LoanPersonnelModal.jsx`
+
+**Validatie:**
+- `get_errors` op alle gewijzigde backend- en frontendbestanden: geen fouten.
+- Frontend productiebuild uitgevoerd: succesvol (`npm run build`, alleen bestaande chunk-size waarschuwingen).
+
+**Resultaat:**
+- Extra kritieke planning-writeflows lopen nu via backend-validatie in plaats van losse client-side Firestore-writes.
+- De refactor breidt de layered architecture concreet uit voorbij de eerste planning-slice uit sessie 76.
+- Productiestart, annuleringen, prioriteitswissels en personeelsbezetting zijn nu consistenter te auditen en server-side af te dwingen.
+
+**Openstaand / eerstvolgende stap:**
+1. Firestore rules verder aanscherpen zodat de oude client-writepaden ook rule-technisch dichtgezet worden waar deze migraties nu server-side bestaan.
+2. Overgebleven planning/statusflows inventariseren die nog directe writes gebruiken en deze in dezelfde callable/service/repository-structuur trekken.
+3. Optioneel: aanvullende regressiechecks voor `functions/` toevoegen zodat deze nieuwe callables sneller te valideren zijn dan alleen via frontend build + diagnostics.
+
 ## Update sessie 78 (Opslaan voor morgen: uitvoerplan A/B/C bevestigd)
 
 **Datum:** 11 april 2026 | **Branch:** `pilot-dev`

@@ -9,7 +9,7 @@ import {
   Loader2,
   Save,
 } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, increment, addDoc, collection } from "firebase/firestore";
+import { serverTimestamp, addDoc, collection } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS } from "../../../utils/workstationLogic";
@@ -59,18 +59,7 @@ const PostProcessingFinishModal = ({
     }
     setIsProcessing(true);
 
-    // CRITICAL: Update de moeder-order bij definitieve afkeur zodat deze weer in de planning komt
-    if (status === "rejected" && product?.orderId) {
-      try {
-        const orderRef = doc(db, ...PATHS.PLANNING, product.orderId);
-        await updateDoc(orderRef, {
-          rejectedCount: increment(1),
-          lastUpdated: serverTimestamp()
-        });
-      } catch (e) {
-        console.error("Kon order niet updaten na afkeur:", e);
-      }
-    }
+    // Definitieve afkeur + order-update lopen server-side via callable in onConfirm.
 
     // Stuur notificatie naar teamleider bij afkeur
     if (status === "rejected" || status === "temp_reject") {

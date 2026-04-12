@@ -1,3 +1,4 @@
+import { updatePlanningOrderPriority } from "../../../services/planningSecurityService";
 import React, { useState, useMemo, useRef, useEffect as useResizeEffect } from "react";
 import {
   X,
@@ -22,9 +23,8 @@ import {
 import StatusBadge from "../common/StatusBadge";
 import { WORKSTATIONS, REJECTION_REASONS } from "../../../utils/workstationLogic";
 import { format } from "date-fns";
-import { getISOWeekInfo } from "../../../utils/hubHelpers";
 import { findDrawingForOrder, syncOrderDrawing } from "../../../utils/drawingLinker.jsx";
-import { collection, query, where, getDocs, getDoc, doc, updateDoc, arrayUnion, limit } from "firebase/firestore";
+import { collection, query, where, getDocs, getDoc, doc, arrayUnion, limit } from "firebase/firestore";
 import { db, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
@@ -142,28 +142,13 @@ const ProductDossierModal = ({
     const newPriority = currentPrio === level ? false : level;
 
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
-      await updateDoc(orderRef, {
+      await updatePlanningOrderPriority({
+        orderDocId: parentOrder.id,
         priority: newPriority,
-        lastUpdated: new Date()
+        productDocId: product.id || "",
+        source: "ProductDossierModal",
+        actorLabel: user?.email || role || "Admin",
       });
-
-      // Update history in the product dossier (Tracked Product)
-      if (product.id) {
-        const collectionPath = product.id === parentOrder.id ? PATHS.PLANNING : PATHS.TRACKING;
-        const productRef = doc(db, ...collectionPath, product.id);
-
-        await updateDoc(productRef, {
-          history: arrayUnion({
-            station: "PLANNING",
-            user: role || "Admin",
-            action: "Prioriteit Wijziging",
-            details: `Prioriteit gewijzigd naar: ${newPriority ? (newPriority === true ? "HIGH" : newPriority.toUpperCase()) : "NORMAAL"}`,
-            time: new Date().toISOString()
-          }),
-          lastUpdated: new Date()
-        });
-      }
 
       await logActivity(
         user?.uid || "system",
@@ -402,12 +387,6 @@ const ProductDossierModal = ({
     return String(val);
   };
 
-  const normalizeMachine = (val) => {
-    if (!val) return "-";
-    const str = String(val).toUpperCase();
-    return str.startsWith("40") ? str.substring(2) : str;
-  };
-
   const handleDefinitiveRejection = async () => {
     if (!product?.id || rejectReasons.length === 0) return;
     setRejectLoading(true);
@@ -446,20 +425,7 @@ const ProductDossierModal = ({
       repairInstruction: repairInstruction.trim(),
     });
 
-    // Update de planningorder voor terminal/views; tracking historie gaat nu server-side via callable.
-    if (parentOrder.id) {
-      const now = new Date();
-      const { week: currentWeek, year: currentYear } = getISOWeekInfo(now);
-      const planningOrderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
-      await updateDoc(planningOrderRef, {
-        machine: targetStation,
-        normMachine: normalizeMachine(targetStation),
-        isMoved: true,
-        weekNumber: currentWeek,
-        weekYear: currentYear,
-        lastUpdated: new Date(),
-      });
-    }
+    // Planning order machine/week updates lopen nu server-side via moveTrackedProductManual callable.
 
     await logActivity(
       user?.uid || "system",

@@ -1,4 +1,4 @@
-const functions = require('firebase-functions');
+const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const XLSX = require('xlsx');
 
@@ -31,9 +31,34 @@ const AI_MAX_CLIENT_ERROR_MSG = 1600;
 const AI_MAX_CLIENT_ERROR_STACK = 4000;
 const {
   rejectTrackedProductFinal,
+  tempRejectTrackedProduct,
+  advanceTrackedProduct,
+  completeTrackedProductRepair,
+  routeTrackedProductsToLossen,
+  startWorkstationProductionRun,
+  toggleTrackedProductPause,
+  markTrackedProductReminder,
   moveTrackedProductManual,
   archivePlanningOrder,
   completeTrackedProduct,
+  cancelTrackedProduction,
+  updatePlanningOrderPriority,
+  movePlanningOrder,
+  retrievePlanningOrder,
+  togglePlanningOrderHold,
+  updatePlanningOrderDetails,
+  assignOverproduction,
+  cancelPlanningOrder,
+  assignPersonnelToStation,
+  removePersonnelAssignment,
+  loanPersonnelToDepartment,
+  startProductionLots,
+  editTrackedProductLotNumber,
+  linkPlanningOrderProduct,
+  createPlanningOrderManual,
+  markMazakLabelsPrinted,
+  appendQcNote,
+  reserveAutoLotNumberRange,
 } = require('./src/callables/planningCallables');
 
 const clean = (val) => String(val || '').trim();
@@ -804,9 +829,34 @@ exports.cleanupUserAuth = functions.firestore
  * Planning mutation callables zijn verplaatst naar de modulaire backend-lagen.
  */
 exports.rejectTrackedProductFinal = rejectTrackedProductFinal;
+exports.tempRejectTrackedProduct = tempRejectTrackedProduct;
+exports.advanceTrackedProduct = advanceTrackedProduct;
+exports.completeTrackedProductRepair = completeTrackedProductRepair;
+exports.routeTrackedProductsToLossen = routeTrackedProductsToLossen;
+exports.startWorkstationProductionRun = startWorkstationProductionRun;
+exports.toggleTrackedProductPause = toggleTrackedProductPause;
+exports.markTrackedProductReminder = markTrackedProductReminder;
 exports.moveTrackedProductManual = moveTrackedProductManual;
 exports.archivePlanningOrder = archivePlanningOrder;
 exports.completeTrackedProduct = completeTrackedProduct;
+exports.cancelTrackedProduction = cancelTrackedProduction;
+exports.updatePlanningOrderPriority = updatePlanningOrderPriority;
+exports.movePlanningOrder = movePlanningOrder;
+exports.retrievePlanningOrder = retrievePlanningOrder;
+exports.togglePlanningOrderHold = togglePlanningOrderHold;
+exports.updatePlanningOrderDetails = updatePlanningOrderDetails;
+exports.assignOverproduction = assignOverproduction;
+exports.cancelPlanningOrder = cancelPlanningOrder;
+exports.assignPersonnelToStation = assignPersonnelToStation;
+exports.removePersonnelAssignment = removePersonnelAssignment;
+exports.loanPersonnelToDepartment = loanPersonnelToDepartment;
+exports.startProductionLots = startProductionLots;
+exports.editTrackedProductLotNumber = editTrackedProductLotNumber;
+exports.linkPlanningOrderProduct = linkPlanningOrderProduct;
+exports.createPlanningOrderManual = createPlanningOrderManual;
+exports.markMazakLabelsPrinted = markMazakLabelsPrinted;
+exports.appendQcNote = appendQcNote;
+exports.reserveAutoLotNumberRange = reserveAutoLotNumberRange;
 
 /**
  * Backend AI proxy: voorkomt dat API keys in de frontend staan.

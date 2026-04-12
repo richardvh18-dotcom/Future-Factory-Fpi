@@ -18,7 +18,7 @@ import {
   Layers,
   Factory,
 } from "lucide-react";
-import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, addDoc, getDocs, getDoc, limit, increment } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, getDocs, getDoc, limit, increment } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek, addWeeks } from "date-fns";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
@@ -29,7 +29,6 @@ import * as XLSX from "xlsx";
 import StationDetailModal from "./modals/StationDetailModal";
 import TraceModal from "./modals/TraceModal";
 import PlanningImportModal from "./modals/PlanningImportModal";
-import { getStepForStation } from "../../utils/workstationLogic";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
 import { useNotifications } from "../../contexts/NotificationContext";
@@ -43,7 +42,7 @@ import PlanningSidebar from "./PlanningSidebar";
 import OrderDetail from "./OrderDetail";
 import ProductDossierModal from "./modals/ProductDossierModal.jsx";
 import AiPredictionView from "./AiPredictionView";
-import { moveTrackedProductManual } from "../../services/planningSecurityService";
+import { moveTrackedProductManual, assignOverproduction, createPlanningOrderManual } from "../../services/planningSecurityService";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -673,69 +672,15 @@ const TeamleaderHub = React.memo(({
 
     setAssigningOverproduction(true);
     try {
-      const batch = writeBatch(db);
-      const routeState = getStepForStation(route.station);
-      const nowIso = new Date().toISOString();
-
-      selectedOverproductionGroup.products.forEach((product) => {
-        batch.update(doc(db, ...PATHS.TRACKING, product.id), {
-          orderId: targetOrder.orderId,
-          currentStation: route.station,
-          currentStep: routeState.currentStep || "Nabewerking",
-          status: routeState.status || "Te Nabewerken",
-          updatedAt: serverTimestamp(),
-          overproductionResolvedAt: serverTimestamp(),
-          overproductionResolvedBy: user?.email || "planner",
-          overproductionAssignedOrderId: targetOrder.orderId,
-          overproductionRoutingStation: route.station,
-          note: t('teamleader.overproduction_linked_note', 'Overproduction linked to order {{orderId}} and forwarded to {{station}}', {
-            orderId: targetOrder.orderId,
-            station: route.station,
-          }),
-          "timestamps.overproduction_assigned": serverTimestamp(),
-          "timestamps.routing_override": nowIso,
-        });
-      });
-
-      batch.update(doc(db, ...PATHS.PLANNING, targetOrder.id), {
-        machine: route.station,
-        status: routeState.status || "Te Nabewerken",
-        lastUpdated: serverTimestamp(),
-        overproductionLinkedCount: increment(selectedOverproductionGroup.count),
-        overproductionLastLinkedAt: serverTimestamp(),
-        overproductionSourceOrderId: selectedOverproductionGroup.originalOrderId,
-      });
-
-      const originalOrder = rawOrders.find((order) => String(order.orderId || "").trim() === selectedOverproductionGroup.originalOrderId);
-      if (originalOrder?.id) {
-        const startedField = `started_${String(selectedOverproductionGroup.originMachine || "").replace(/[^a-zA-Z0-9]/g, "_")}`;
-        const currentStarted = Number(originalOrder[startedField] || 0);
-        batch.update(doc(db, ...PATHS.PLANNING, originalOrder.id), {
-          [startedField]: Math.max(0, currentStarted - selectedOverproductionGroup.count),
-          lastUpdated: serverTimestamp(),
-        });
-      }
-
-      await batch.commit();
-
-      await addDoc(collection(db, ...PATHS.MESSAGES), {
-        to: user?.email?.toLowerCase() || "admin",
-        from: "SYSTEM",
-        senderId: "system-auto",
-        subject: t('teamleader.overproduction_linked_subject', 'Overproduction linked: {{orderId}}', {
-          orderId: targetOrder.orderId,
-        }),
-        content: t('teamleader.overproduction_linked_content', '{{count}} extra products from {{sourceOrderId}} have been linked to {{targetOrderId}} and forwarded to {{station}}.', {
-          count: selectedOverproductionGroup.count,
-          sourceOrderId: selectedOverproductionGroup.originalOrderId,
-          targetOrderId: targetOrder.orderId,
-          station: route.station,
-        }),
-        timestamp: serverTimestamp(),
-        read: false,
-        archived: false,
-        priority: "normal",
-        type: "system",
+      await assignOverproduction({
+        targetOrderDocId: targetOrder.id,
+        targetOrderId: targetOrder.orderId,
+        productIds: selectedOverproductionGroup.products.map((product) => product.id),
+        routeStation: route.station,
+        sourceOrderId: selectedOverproductionGroup.originalOrderId,
+        originMachine: selectedOverproductionGroup.originMachine,
+        source: "TeamleaderHub",
+        actorLabel: user?.email || "planner",
       });
 
       await logActivity(
@@ -1678,15 +1623,11 @@ const TeamleaderHub = React.memo(({
     }
     setCreatingOrder(true);
     try {
-      await addDoc(collection(db, ...PATHS.PLANNING), {
+      await createPlanningOrderManual({
         orderId: newOrderData.orderId,
         item: newOrderData.item,
         machine: newOrderData.machine,
         plan: Number(newOrderData.plan),
-        status: "planned",
-        createdAt: serverTimestamp(),
-        week: getISOWeek(new Date()),
-        year: new Date().getFullYear(),
       });
       await logActivity(
         user?.uid || "system",

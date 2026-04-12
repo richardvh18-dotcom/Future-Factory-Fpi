@@ -5,11 +5,7 @@ import {
   onSnapshot,
   query,
   where,
-  doc,
-  updateDoc,
-  serverTimestamp,
   getDocs,
-  arrayUnion,
 } from "firebase/firestore";
 import {
   Package,
@@ -28,7 +24,7 @@ import {
 import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { normalizeMachine } from "../../utils/hubHelpers";
-import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
+import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, markMazakLabelsPrinted } from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import { queuePrintJob } from "../../services/printService";
@@ -414,22 +410,15 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
         );
       });
 
-      const trackingUpdates = itemsToPrint.map((item) => {
-        const productRef = doc(db, ...PATHS.TRACKING, item.id || item.lotNumber);
-        return updateDoc(productRef, {
-          mazakLabelPrinted: true,
-          updatedAt: serverTimestamp(),
-          history: arrayUnion({
-            action: isReprint ? "Label Herprint" : "Labels Geprint",
-            timestamp: new Date().toISOString(),
-            user: user?.email || "Mazak Operator",
-            station: stationId,
-            details: isReprint ? "Label opnieuw naar print queue verstuurd" : "Label(s) verstuurd naar print queue"
-          })
-        });
-      });
+      await Promise.all(batchTasks);
 
-      await Promise.all([...batchTasks, ...trackingUpdates]);
+      await markMazakLabelsPrinted({
+        productIds: itemsToPrint.map((item) => item.id || item.lotNumber).filter(Boolean),
+        stationId,
+        isReprint,
+        source: "MazakView",
+        actorLabel: user?.email || "Mazak Operator",
+      });
 
       await logActivity(
         user?.uid || "system",
@@ -493,28 +482,14 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
         return;
       }
 
-      // temp_reject: directe updateDoc
-      const productRef = doc(db, ...PATHS.TRACKING, productId);
-      const updates = {
-        updatedAt: serverTimestamp(),
+      await tempRejectTrackedProduct({
+        productId,
+        reasons: data.reasons || [],
         note: data.note || "",
-        processedBy: user?.email || "Unknown",
-        history: arrayUnion({
-          action: "Tijdelijke Afkeur",
-          timestamp: new Date().toISOString(),
-          user: user?.email || "Operator",
-          station: stationId,
-          details: `Reden: ${data.reasons?.join(", ")}`,
-        }),
-        inspection: {
-          status: "Tijdelijke afkeur",
-          reasons: data.reasons,
-          timestamp: new Date().toISOString(),
-        },
-        currentStep: "HOLD_AREA",
-      };
-
-      await updateDoc(productRef, updates);
+        station: stationId,
+        actorLabel: user?.email || "Operator",
+        source: "MazakView",
+      });
       await logActivity(
         user?.uid || "system",
         "QUALITY_TEMP_REJECT",
