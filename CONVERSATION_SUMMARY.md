@@ -3333,3 +3333,67 @@ Made changes.
 **Validatie:**
 - `node --check functions/index.js` succesvol.
 - Meerdere keren `npm run build` succesvol na wijzigingen.
+
+---
+
+### Update sessie 90-92 (Medium writes naar callables + deploy)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Alle **medium-priority** frontend writes migreren van directe Firestore-mutaties naar backend-callables.
+
+**Uitgevoerd:**
+
+1. **Nieuwe backend service-functies toegevoegd** in `functions/src/services/planningTransitionService.js`
+- `addOrderDependencyService`
+- `removeOrderDependencyService`
+- `updateOrderPlannedDateService`
+- `updateOrderKanbanStatusService`
+- `markReadyForNextStepService`
+- `startTrackedProductRepairService`
+- `reportShopFloorIssueService`
+- `resolveShopFloorIssueService`
+
+2. **Nieuwe callables toegevoegd en geëxporteerd**
+- `functions/src/callables/planningCallables.js`
+- `functions/index.js`
+
+3. **Frontend callable wrappers toegevoegd** in `src/services/planningSecurityService.js`
+- `addOrderDependency`
+- `removeOrderDependency`
+- `updateOrderPlannedDate`
+- `updateOrderKanbanStatus`
+- `markReadyForNextStep`
+- `startTrackedProductRepair`
+- `reportShopFloorIssue`
+- `resolveShopFloorIssue`
+
+4. **Medium views gemigreerd naar wrappers/callables**
+- `src/components/planning/OrderDependenciesView.jsx`
+- `src/components/planning/GanttChartView.jsx`
+- `src/components/planning/KanbanBoardView.jsx`
+- `src/components/planning/ShopFloorMobileApp.jsx`
+
+5. **Firebase deploy uitgevoerd (geslaagd)**
+- `addOrderDependency`
+- `removeOrderDependency`
+- `updateOrderPlannedDate`
+- `updateOrderKanbanStatus`
+- `markReadyForNextStep`
+- `startTrackedProductRepair`
+- `reportShopFloorIssue`
+- `resolveShopFloorIssue`
+
+6. **Git status**
+- Commit: `7c61629`
+- Message: `Migrate medium planning writes to secure callables`
+- Push: `pilot-dev` succesvol geüpdatet (`03fdeb3 -> 7c61629`)
+
+7. **Nacontrole**
+- Lint-error in `ShopFloorMobileApp.jsx` (`commonData is not defined`) direct opgelost.
+- `firebase-debug.log` verwijdering teruggedraaid; worktree weer schoon.
+
+**Resultaat:**
+- Medium-priority planning/shopfloor writes lopen nu via backend + callable boundary.
+- Branch staat gesynchroniseerd op GitHub en deploy is live.
