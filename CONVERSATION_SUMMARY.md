@@ -1,3 +1,30 @@
+## Update sessie 89 (Firestore rules hardening na callable-migraties)
+
+**Datum:** 12 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Security boundary aanscherpen nu extra planning/tracking flows via callables lopen.
+
+**Wat is afgerond in deze batch:**
+- `firestore.rules` verder aangescherpt:
+    - Directe client updates van `qcNotes` geblokkeerd op:
+        - `production/tracked_products/*`
+        - `production/archive/{year}/{collection}/{doc}`
+    - Directe client writes op `production/counters/*` volledig geblokkeerd (`allow write: if false`).
+    - Generieke fallbackregel voor `production/{collectionId}` aangepast zodat `archive` en `counters` daar niet langer impliciet client-writable zijn.
+
+**Validatie & deploy:**
+- Rules compileren succesvol.
+- Deploy uitgevoerd: `firebase deploy --only firestore:rules` succesvol.
+
+**Resultaat:**
+- Counter-reservatie/claim kan nu alleen via backend-callables.
+- QC-note mutaties lopen nu rule-technisch ook via backend in plaats van directe client updates.
+
+**Openstaand / eerstvolgende stap:**
+1. Resterende niet-kritieke directe writes (o.a. occupancy/messages) classificeren: backend vereist of bewust client-side.
+2. Daarna laatste frontend lint/runtime regressies in gemigreerde views opruimen en opnieuw commit/pushen.
+
 ## Update sessie 88 (BM01 QC-notes + ProductionStartModal lot-counter writes naar callables)
 
 **Datum:** 12 april 2026 | **Branch:** `pilot-dev`

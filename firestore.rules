@@ -249,6 +249,10 @@ service cloud.firestore {
       );
     }
 
+    function isClientProtectedQcNotesMutation() {
+      return request.resource.data.diff(resource.data).changedKeys().hasAny(['qcNotes']);
+    }
+
     match /future-factory/Users/Accounts/{userId} {
       allow get: if isAdmin() || isOwnUserDoc(userId);
       allow list: if isAdmin();
@@ -311,7 +315,19 @@ service cloud.firestore {
         && !isClientFinalRejectMutation()
         && !isClientTempRejectMutation()
         && !isClientRepairCompleteMutation()
+        && !isClientProtectedQcNotesMutation()
         && !isClientProtectedManualMoveMutation();
+    }
+
+    match /future-factory/production/archive/{year}/{archiveCollection}/{docId} {
+      allow read: if hasUserRecord();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction() && !isClientProtectedQcNotesMutation();
+    }
+
+    match /future-factory/production/counters/{counterId} {
+      allow read: if canOperateProduction();
+      allow write: if false;
     }
 
     match /future-factory/production/digital_planning/{document=**} {
@@ -334,9 +350,7 @@ service cloud.firestore {
           'efficiency_hours',
           'time_logs',
           'downtime_reports',
-          'defect_reports',
-          'archive',
-          'counters'
+          'defect_reports'
         ] && canOperateProduction()
       ) || (
         collectionId in [
