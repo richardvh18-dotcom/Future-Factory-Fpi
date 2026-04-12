@@ -11,13 +11,11 @@ import {
   doc,
   updateDoc,
   serverTimestamp,
-  setDoc,
   getDoc,
   getDocs,
   query,
   where,
   arrayUnion,
-  increment
 } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
@@ -42,6 +40,8 @@ import MalOptimizationPanel from "./MalOptimizationPanel";
 import MazakView from "./MazakView";
 import RepairModal from "./modals/RepairModal";
 import { useNotifications } from '../../contexts/NotificationContext';
+import { startProductionLots } from "../../services/planningSecurityService";
+import { completeTrackedProductRepair } from "../../services/planningSecurityService";
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
 const GEREED_TAB_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"]);
@@ -771,97 +771,34 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     startOptions = {}
   ) => {
     try {
-      const timestamp = serverTimestamp();
-      const nowIso = new Date().toISOString();
       const cleanOrderId = String(order.orderId).trim();
       const cleanItemCode = String(order.itemCode || order.productId).trim();
       const totalToProduce = Math.max(1, parseInt(_stringCount, 10) || 1);
       const startLot = String(lot || "").trim().toUpperCase();
-      const hasLabel = typeof labelZplData === "string" && !!labelZplData.trim();
-      const lotMatch = startLot.match(/^(.*?)(\d+)$/);
       const seriesGroupId =
         startOptions?.seriesGroupId ||
         (totalToProduce > 1
           ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${startLot}`
           : null);
-
-      const buildLotNumber = (offset) => {
-        if (!lotMatch) {
-          return offset === 0 ? startLot : `${startLot}_${offset + 1}`;
-        }
-        const prefix = lotMatch[1] || "";
-        const numericPart = lotMatch[2] || "";
-        const width = numericPart.length;
-        const startSequence = Number(numericPart);
-        if (!Number.isFinite(startSequence)) {
-          return offset === 0 ? startLot : `${startLot}_${offset + 1}`;
-        }
-        return `${prefix}${String(startSequence + offset).padStart(width, "0")}`;
-      };
-
-      const buildLotSpecificLabelZpl = (targetLot) => {
-        if (!hasLabel) return null;
-        if (!startLot || targetLot === startLot) return labelZplData;
-        return labelZplData.split(startLot).join(targetLot);
-      };
-
-      const createdLots = [];
-
-      for (let i = 0; i < totalToProduce; i++) {
-        const currentLot = buildLotNumber(i);
-        const docId = `${cleanOrderId}_${cleanItemCode}_${currentLot}`.replace(/[^a-zA-Z0-9]/g, "_");
-        const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLot);
-
-        await setDoc(doc(db, ...PATHS.TRACKING, docId), {
-          id: docId,
-          orderId: order.orderId,
-          lotNumber: currentLot,
-          itemCode: cleanItemCode,
-          machine: effectiveStationId,
-          stationLabel: stationName,
-          status: "In Production",
-          currentStation: effectiveStationId,
-          currentStep: "Wikkelen",
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          history: [{
-            action: "Start Wikkelen",
-            station: stationName,
-            timestamp: new Date().toISOString(),
-            user: user?.email || "Operator",
-          }],
-          item: order.item || "",
-          labelZPL: lotSpecificLabelZpl,
-          labelTemplateId: labelTemplateId || null,
-          labelLastPrint: lotSpecificLabelZpl
-            ? {
-                timestamp: nowIso,
-                user: user?.email || "Operator",
-                station: effectiveStationId,
-                source: "production_start",
-                templateId: labelTemplateId || null,
-              }
-            : null,
-          ...(seriesGroupId
-            ? {
-                seriesGroupId,
-                seriesIndex: i + 1,
-                seriesSize: totalToProduce,
-                seriesOrderNumber: order.orderId,
-                isFlangeSeries: !!startOptions?.isFlangeSeries,
-              }
-            : {}),
-        });
-
-        createdLots.push(currentLot);
-      }
-
-      await updateDoc(doc(db, ...PATHS.PLANNING, order.id), {
-        status: "in_progress",
-        activeLot: createdLots[0] || startLot,
-        actualStart: timestamp,
-        [stationCounterField]: increment(totalToProduce),
+      const startResult = await startProductionLots({
+        orderDocId: order.id,
+        orderId: cleanOrderId,
+        itemCode: cleanItemCode,
+        item: order.item || "",
+        lotStart: startLot,
+        totalToProduce,
+        stationId: effectiveStationId,
+        stationLabel: stationName,
+        actorLabel: user?.email || "Operator",
+        labelZplData: typeof labelZplData === "string" ? labelZplData : "",
+        labelTemplateId: labelTemplateId || "",
+        seriesGroupId,
+        isFlangeSeries: !!startOptions?.isFlangeSeries,
       });
+
+      const createdLots = Array.isArray(startResult?.createdLots)
+        ? startResult.createdLots
+        : [startResult?.firstLot || startLot].filter(Boolean);
 
       await logActivity(
         user?.uid || "system",
@@ -884,24 +821,14 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   const handleRepairComplete = async (data) => {
     if (!itemToRepair) return;
     try {
-        const productRef = doc(db, ...PATHS.TRACKING, itemToRepair.id || itemToRepair.lotNumber);
-        
-        const updates = {
-            currentStation: "BM01",
-            currentStep: "Eindinspectie",
-            status: "Te Keuren",
-            updatedAt: serverTimestamp(),
-            note: itemToRepair.note ? `${itemToRepair.note}\nReparatie: ${data.notes}` : `Reparatie: ${data.notes}`,
-            history: arrayUnion({
-                action: "Reparatie Voltooid",
-                timestamp: new Date().toISOString(),
-                user: user?.email || "Operator",
-                station: effectiveStationId,
-                details: `Acties: ${data.actions.join(", ")}. ${data.notes}`
-            })
-        };
-
-        await updateDoc(productRef, updates);
+      await completeTrackedProductRepair({
+        productId: itemToRepair.id || itemToRepair.lotNumber,
+        station: effectiveStationId,
+        actions: data.actions || [],
+        note: data.notes || "",
+        actorLabel: user?.email || "Operator",
+        source: "Terminal",
+      });
 
         await logActivity(
           user?.uid || "system",

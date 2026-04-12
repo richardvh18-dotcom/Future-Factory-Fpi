@@ -1,11 +1,11 @@
 const { admin, db } = require('../config/firebase');
-const { BASE, TRACKING_COLLECTION } = require('../config/planningConstants');
+const { BASE, TRACKING_COLLECTION, PLANNING_COLLECTION } = require('../config/planningConstants');
 const {
   getPlanningOrderDocByOrderId,
   getTrackedProductDocByIdOrLot,
   getPlanningOrderDocById,
 } = require('../repositories/planningRepository');
-const { clean } = require('../utils/text');
+const { clean, clampText } = require('../utils/text');
 
 const normalizeMachineForCounter = (stationName = '') => {
   const normalized = String(stationName || '').trim().replace(/\s+/g, '').toUpperCase();
@@ -22,6 +22,22 @@ const getStartedCounterFieldServer = (stationName = '') => {
   return `started_${safeKey}`;
 };
 
+const normalizeMachineForPlanningServer = (val = '') => {
+  let str = clean(val).toUpperCase();
+  if (str === 'BM18') str = 'BH18';
+  if (str === '40BM18') str = '40BH18';
+  return str || '-';
+};
+
+const getISOWeekInfoServer = (date) => {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return { week, year: d.getUTCFullYear() };
+};
+
 const getStepForStationServer = (stationName = '') => {
   const name = String(stationName || '').toUpperCase();
 
@@ -36,6 +52,69 @@ const getStepForStationServer = (stationName = '') => {
   if (name.startsWith('BH')) return { status: 'In Productie', currentStep: 'Wikkelen' };
 
   return { status: 'In Productie', currentStep: 'Onbekend' };
+};
+
+const getActorLabel = (auth, actorLabel) => {
+  return actorLabel || clean(auth?.token?.name) || clean(auth?.token?.email) || auth?.uid;
+};
+
+const getPriorityLabel = (priorityValue) => {
+  if (priorityValue === 'immediate') return '1E PRIO';
+  if (priorityValue === 'urgent') return 'SPOED';
+  if (priorityValue === 'high') return 'HIGH';
+  return 'NORMAAL';
+};
+
+const getSafeStartedField = (stationName = '') => {
+  const safeKey = String(stationName || '').replace(/[^a-zA-Z0-9]/g, '_');
+  return safeKey ? `started_${safeKey}` : '';
+};
+
+const getMachineCodeForLotServer = (stationName = '') => {
+  if (!stationName) return '999';
+  const normalized = String(stationName || '').toUpperCase().trim();
+  const baseStation = normalized.startsWith('40') ? normalized.substring(2) : normalized;
+  const map = {
+    BH11: '411',
+    BH12: '412',
+    BH15: '415',
+    BH16: '416',
+    BH17: '417',
+    BH18: '418',
+    BH31: '431',
+    BH05: '405',
+    BH07: '407',
+    BH08: '408',
+    BH09: '409',
+    BA05: '405',
+    BA07: '417',
+  };
+
+  if (map[baseStation]) return map[baseStation];
+
+  const digits = baseStation.replace(/\D/g, '');
+  if (!digits) return '999';
+  if (digits.length === 3) return digits;
+  if (digits.length === 1) return `40${digits}`;
+  return `4${digits.slice(-2).padStart(2, '0')}`;
+};
+
+const sanitizeMeasurements = (rawMeasurements) => {
+  if (!rawMeasurements || typeof rawMeasurements !== 'object' || Array.isArray(rawMeasurements)) {
+    return null;
+  }
+
+  const entries = Object.entries(rawMeasurements)
+    .filter(([key]) => clean(key).length > 0)
+    .slice(0, 24)
+    .map(([key, value]) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return [String(key), value];
+      if (typeof value === 'boolean') return [String(key), value];
+      if (value === null) return [String(key), null];
+      return [String(key), clampText(String(value || ''), 120)];
+    });
+
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
 };
 
 const rejectTrackedProductFinalService = async ({
@@ -197,6 +276,23 @@ const moveTrackedProductManualService = async ({
 
   await trackedDoc.ref.set(updatePayload, { merge: true });
 
+  const orderId = clean(trackedData.orderId);
+  if (orderId && orderId !== 'NOG_TE_BEPALEN') {
+    const planningOrderDoc = await getPlanningOrderDocByOrderId(orderId);
+    if (planningOrderDoc) {
+      const now = new Date();
+      const { week, year } = getISOWeekInfoServer(now);
+      await planningOrderDoc.ref.set({
+        machine: newStation,
+        normMachine: normalizeMachineForPlanningServer(newStation),
+        isMoved: true,
+        weekNumber: week,
+        weekYear: year,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+  }
+
   return {
     ok: true,
     productId: trackedDoc.id,
@@ -351,9 +447,1833 @@ const completeTrackedProductService = async ({
   throw new Error('INVALID_FINISH_TYPE');
 };
 
+const cancelTrackedProductionService = async ({
+  productId,
+  selectedStation,
+  source,
+  actorLabel,
+  auth,
+  userRole,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const productData = trackedDoc.data() || {};
+  const now = new Date();
+  const userLabel = actorLabel || clean(auth?.token?.name) || clean(auth?.token?.email) || auth?.uid;
+  const cancelledLot = clean(productData.lotNumber) || trackedDoc.id;
+  const orderId = clean(productData.orderId);
+  const stationForCounter = clean(selectedStation) || clean(productData.originMachine) || clean(productData.currentStation);
+
+  const lotSeq = Number.parseInt(String(cancelledLot).slice(-4), 10);
+  const lotWeekSuffix = String(cancelledLot).length >= 6 ? String(cancelledLot).slice(2, 6) : '';
+  const lotStation = String(
+    clean(productData.originMachine) || clean(selectedStation) || 'UNKNOWN'
+  )
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+  let orderUpdated = false;
+  let stationCounterDecremented = false;
+  let recycledSequenceAdded = false;
+  let removedQueueJobs = 0;
+
+  const batch = admin.firestore().batch();
+  batch.delete(trackedDoc.ref);
+
+  if (orderId && orderId !== 'NOG_TE_BEPALEN') {
+    const orderDoc = await getPlanningOrderDocByOrderId(orderId);
+    if (orderDoc) {
+      const stationField = getStartedCounterFieldServer(stationForCounter);
+      const orderUpdates = {
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (stationField) {
+        orderUpdates[stationField] = admin.firestore.FieldValue.increment(-1);
+        stationCounterDecremented = true;
+      }
+
+      batch.set(orderDoc.ref, orderUpdates, { merge: true });
+      orderUpdated = true;
+    }
+  }
+
+  if (lotWeekSuffix && Number.isFinite(lotSeq) && lotSeq > 0) {
+    const counterDocId = `${lotStation}_${lotWeekSuffix}`;
+    const counterRef = admin.firestore().doc(`${BASE}/production/counters/${counterDocId}`);
+    const counterSnap = await counterRef.get();
+    const existing = counterSnap.exists && Array.isArray(counterSnap.data()?.recycledSequences)
+      ? counterSnap
+        .data()
+        .recycledSequences.map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const nextRecycled = Array.from(new Set([...existing, lotSeq])).sort((a, b) => a - b);
+
+    batch.set(counterRef, {
+      recycledSequences: nextRecycled,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    recycledSequenceAdded = true;
+  }
+
+  const queueSnap = await admin
+    .firestore()
+    .collection(`${BASE}/production/print_queue`)
+    .where('status', '==', 'pending')
+    .limit(200)
+    .get();
+
+  const lotUpper = String(cancelledLot).toUpperCase();
+  const orderUpper = String(orderId || '').toUpperCase();
+
+  queueSnap.docs.forEach((d) => {
+    const data = d.data() || {};
+    const md = data.metadata || {};
+    const mdLot = String(md.lotNumber || md.variables?.lotNumber || '').toUpperCase();
+    const mdOrder = String(md.orderId || md.variables?.orderNumber || '').toUpperCase();
+    const desc = String(md.description || data.description || '').toUpperCase();
+
+    const lotMatch = lotUpper && (mdLot === lotUpper || desc.includes(lotUpper));
+    const orderMatch = orderUpper && (mdOrder === orderUpper || desc.includes(orderUpper));
+
+    if (lotMatch || orderMatch) {
+      batch.delete(d.ref);
+      removedQueueJobs += 1;
+    }
+  });
+
+  await batch.commit();
+
+  await admin
+    .firestore()
+    .collection(`${BASE}/logs/activity_logs`)
+    .add({
+      userId: auth?.uid || 'system',
+      action: 'PRODUCTION_CANCEL',
+      details: `Production cancelled for lot ${cancelledLot}; station=${clean(selectedStation) || 'unknown'}; queue jobs removed=${removedQueueJobs}`,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      source: source || null,
+      actorLabel: userLabel,
+      actorRole: userRole,
+      orderId: orderId || null,
+      productId: trackedDoc.id,
+    });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    lotNumber: cancelledLot,
+    orderUpdated,
+    stationCounterDecremented,
+    recycledSequenceAdded,
+    removedQueueJobs,
+    cancelledAt: now.toISOString(),
+  };
+};
+
+const updatePlanningOrderPriorityService = async ({
+  orderDocId,
+  priority,
+  productDocId,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const userLabel = getActorLabel(auth, actorLabel);
+  const orderData = orderDoc.data() || {};
+  const normalizedPriority = priority === false ? false : clean(priority).toLowerCase();
+  const priorityValue = ['high', 'urgent', 'immediate'].includes(normalizedPriority)
+    ? normalizedPriority
+    : false;
+  const nowIso = new Date().toISOString();
+
+  const batch = admin.firestore().batch();
+  batch.set(orderDoc.ref, {
+    priority: priorityValue,
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  let productHistoryUpdated = false;
+  const cleanProductDocId = clean(productDocId);
+  if (cleanProductDocId) {
+    const planningLikeDoc = await getPlanningOrderDocById(cleanProductDocId);
+    if (planningLikeDoc) {
+      batch.set(planningLikeDoc.ref, {
+        history: admin.firestore.FieldValue.arrayUnion({
+          station: 'PLANNING',
+          user: userLabel,
+          action: 'Prioriteit Wijziging',
+          details: `Prioriteit gewijzigd naar: ${getPriorityLabel(priorityValue)}`,
+          time: nowIso,
+          source: source || null,
+        }),
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      productHistoryUpdated = true;
+    } else {
+      const trackedDoc = await getTrackedProductDocByIdOrLot(cleanProductDocId);
+      if (trackedDoc) {
+        batch.set(trackedDoc.ref, {
+          history: admin.firestore.FieldValue.arrayUnion({
+            station: 'PLANNING',
+            user: userLabel,
+            action: 'Prioriteit Wijziging',
+            details: `Prioriteit gewijzigd naar: ${getPriorityLabel(priorityValue)}`,
+            time: nowIso,
+            source: source || null,
+          }),
+          lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        productHistoryUpdated = true;
+      }
+    }
+  }
+
+  await batch.commit();
+
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId: clean(orderData.orderId) || orderDoc.id,
+    priority: priorityValue,
+    productHistoryUpdated,
+  };
+};
+
+const movePlanningOrderService = async ({
+  orderDocId,
+  targetType,
+  targetId,
+  currentDepartment,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const orderData = orderDoc.data() || {};
+  const safeTargetType = clean(targetType).toLowerCase();
+  const safeTargetId = clean(targetId);
+  const safeCurrentDepartment = clean(currentDepartment).toLowerCase();
+
+  if (!['department', 'station'].includes(safeTargetType) || !safeTargetId) {
+    throw new Error('INVALID_MOVE_TARGET');
+  }
+
+  const updates = {
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  let messagePayload = null;
+
+  if (safeTargetType === 'department') {
+    const targetUpper = safeTargetId.toUpperCase();
+    const targetDepartment = safeTargetId.toLowerCase();
+    updates.machine = `${targetUpper}_INBOX`;
+    updates.originalMachine = clean(orderData.machine) || null;
+    updates.originalDepartment = clean(orderData.department) || safeCurrentDepartment || 'fittings';
+    updates.returnStation = clean(orderData.machine) || 'BH11';
+    updates.delegatedTo = targetUpper;
+    updates.department = targetDepartment;
+    updates.delegationDate = admin.firestore.FieldValue.serverTimestamp();
+    updates.status = 'delegated';
+
+    messagePayload = {
+      to: `${targetUpper}_TEAM`,
+      from: 'SYSTEM',
+      senderId: 'system-auto',
+      subject: `Nieuwe Order: ${clean(orderData.orderId) || orderDoc.id}`,
+      content: `Order ${clean(orderData.orderId) || orderDoc.id} is vanuit ${clean(orderData.department) || safeCurrentDepartment || 'fittings'} aangeboden voor ${safeTargetId}.`,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      read: false,
+      archived: false,
+      priority: 'normal',
+      type: 'system',
+      targetGroup: `${targetUpper}_TEAM`,
+    };
+  } else {
+    updates.machine = safeTargetId;
+    updates.status = 'planned';
+    updates.delegatedTo = null;
+    updates.department = safeCurrentDepartment || clean(orderData.department) || 'fittings';
+  }
+
+  const batch = admin.firestore().batch();
+  batch.set(orderDoc.ref, updates, { merge: true });
+  if (messagePayload) {
+    const messageRef = admin.firestore().collection(`${BASE}/messages`).doc();
+    batch.set(messageRef, messagePayload);
+  }
+  await batch.commit();
+
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId: clean(orderData.orderId) || orderDoc.id,
+    targetType: safeTargetType,
+    targetId: safeTargetId,
+    machine: updates.machine,
+    status: updates.status || clean(orderData.status),
+    actorLabel: getActorLabel(auth, actorLabel),
+    source: source || null,
+  };
+};
+
+const retrievePlanningOrderService = async ({ orderDocId, auth, actorLabel, source }) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const orderData = orderDoc.data() || {};
+  const nextMachine = clean(orderData.returnStation) || clean(orderData.originalMachine) || 'BH11';
+  const nextDepartment = clean(orderData.originalDepartment).toLowerCase() || 'fittings';
+
+  await orderDoc.ref.set({
+    machine: nextMachine,
+    department: nextDepartment,
+    delegatedTo: null,
+    status: 'planned',
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId: clean(orderData.orderId) || orderDoc.id,
+    machine: nextMachine,
+    department: nextDepartment,
+    actorLabel: getActorLabel(auth, actorLabel),
+    source: source || null,
+  };
+};
+
+const togglePlanningOrderHoldService = async ({ orderDocId, auth, actorLabel, source }) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const orderData = orderDoc.data() || {};
+  const currentStatus = clean(orderData.status).toLowerCase();
+  const isOnHold = currentStatus === 'on_hold';
+  const nextStatus = isOnHold
+    ? clean(orderData.previousStatus).toLowerCase() || 'waiting'
+    : 'on_hold';
+
+  const updates = {
+    status: nextStatus,
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (!isOnHold) {
+    updates.previousStatus = currentStatus || 'waiting';
+  }
+
+  await orderDoc.ref.set(updates, { merge: true });
+
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId: clean(orderData.orderId) || orderDoc.id,
+    status: nextStatus,
+    wasOnHold: isOnHold,
+    actorLabel: getActorLabel(auth, actorLabel),
+    source: source || null,
+  };
+};
+
+const updatePlanningOrderDetailsService = async ({
+  orderDocId,
+  notes,
+  plan,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const updates = {
+    notes: clean(notes),
+    poText: clean(notes),
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (Number.isFinite(plan)) {
+    updates.plan = plan;
+  }
+
+  await orderDoc.ref.set(updates, { merge: true });
+
+  const orderData = orderDoc.data() || {};
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId: clean(orderData.orderId) || orderDoc.id,
+    notes: updates.notes,
+    plan: Number.isFinite(plan) ? plan : Number(orderData.plan || 0),
+    actorLabel: getActorLabel(auth, actorLabel),
+    source: source || null,
+  };
+};
+
+const assignOverproductionService = async ({
+  targetOrderDocId,
+  targetOrderId,
+  productIds,
+  routeStation,
+  sourceOrderId,
+  originMachine,
+  actorLabel,
+  source,
+  auth,
+  userRole,
+}) => {
+  const targetOrderDoc = await getPlanningOrderDocById(targetOrderDocId);
+  if (!targetOrderDoc) {
+    throw new Error('NOT_FOUND_TARGET_ORDER');
+  }
+
+  const safeTargetOrderId = clean(targetOrderId);
+  const safeRouteStation = clean(routeStation);
+  const safeSourceOrderId = clean(sourceOrderId);
+  const safeOriginMachine = clean(originMachine);
+  const userLabel = getActorLabel(auth, actorLabel);
+  const routeState = getStepForStationServer(safeRouteStation);
+  const productIdList = Array.from(new Set((Array.isArray(productIds) ? productIds : []).map((id) => clean(id)).filter(Boolean)));
+
+  if (!safeTargetOrderId || !safeRouteStation || productIdList.length === 0) {
+    throw new Error('INVALID_OVERPRODUCTION_PAYLOAD');
+  }
+
+  const targetOrderData = targetOrderDoc.data() || {};
+  const productSnapshots = await Promise.all(
+    productIdList.map(async (productId) => {
+      const snap = await db.collection(TRACKING_COLLECTION).doc(productId).get();
+      return snap.exists ? snap : null;
+    })
+  );
+  const existingProducts = productSnapshots.filter(Boolean);
+
+  if (existingProducts.length === 0) {
+    throw new Error('NOT_FOUND_OVERPRODUCTION_PRODUCTS');
+  }
+
+  const nowIso = new Date().toISOString();
+  const batch = db.batch();
+
+  existingProducts.forEach((productSnap) => {
+    batch.set(productSnap.ref, {
+      orderId: safeTargetOrderId,
+      currentStation: safeRouteStation,
+      currentStep: routeState.currentStep || 'Nabewerking',
+      status: routeState.status || 'Te Nabewerken',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      overproductionResolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+      overproductionResolvedBy: userLabel,
+      overproductionAssignedOrderId: safeTargetOrderId,
+      overproductionRoutingStation: safeRouteStation,
+      note: `Overproduction linked to order ${safeTargetOrderId} and forwarded to ${safeRouteStation}`,
+      'timestamps.overproduction_assigned': admin.firestore.FieldValue.serverTimestamp(),
+      'timestamps.routing_override': nowIso,
+      history: admin.firestore.FieldValue.arrayUnion({
+        action: 'Overproduction Linked',
+        timestamp: nowIso,
+        user: userLabel,
+        station: safeRouteStation,
+        details: `Linked to order ${safeTargetOrderId} via ${safeRouteStation}`,
+        source: source || null,
+      }),
+    }, { merge: true });
+  });
+
+  batch.set(targetOrderDoc.ref, {
+    machine: safeRouteStation,
+    status: routeState.status || 'Te Nabewerken',
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+    overproductionLinkedCount: admin.firestore.FieldValue.increment(existingProducts.length),
+    overproductionLastLinkedAt: admin.firestore.FieldValue.serverTimestamp(),
+    overproductionSourceOrderId: safeSourceOrderId || null,
+  }, { merge: true });
+
+  if (safeSourceOrderId) {
+    const originalOrderDoc = await getPlanningOrderDocByOrderId(safeSourceOrderId);
+    if (originalOrderDoc) {
+      const startedField = getSafeStartedField(safeOriginMachine);
+      const currentStarted = Number((originalOrderDoc.data() || {})[startedField] || 0);
+      if (startedField) {
+        batch.set(originalOrderDoc.ref, {
+          [startedField]: Math.max(0, currentStarted - existingProducts.length),
+          lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+    }
+  }
+
+  const messageRef = db.collection(`${BASE}/messages`).doc();
+  batch.set(messageRef, {
+    to: clean(auth?.token?.email).toLowerCase() || 'admin',
+    from: 'SYSTEM',
+    senderId: 'system-auto',
+    subject: `Overproduction linked: ${safeTargetOrderId}`,
+    content: `${existingProducts.length} extra products from ${safeSourceOrderId || 'unknown'} have been linked to ${safeTargetOrderId} and forwarded to ${safeRouteStation}.`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    read: false,
+    archived: false,
+    priority: 'normal',
+    type: 'system',
+  });
+
+  await batch.commit();
+
+  await db.collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'OVERPRODUCTION_ASSIGN',
+    details: `Overproduction linked: ${existingProducts.length} pieces from ${safeSourceOrderId || 'unknown'} -> ${safeTargetOrderId}, station ${safeRouteStation}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: userLabel,
+    actorRole: userRole,
+    targetOrderId: safeTargetOrderId,
+    sourceOrderId: safeSourceOrderId || null,
+    routeStation: safeRouteStation,
+    linkedCount: existingProducts.length,
+  });
+
+  return {
+    ok: true,
+    targetOrderDocId: targetOrderDoc.id,
+    targetOrderId: clean(targetOrderData.orderId) || safeTargetOrderId,
+    routeStation: safeRouteStation,
+    linkedCount: existingProducts.length,
+  };
+};
+
+const tempRejectTrackedProductService = async ({
+  productId,
+  reasons,
+  note,
+  station,
+  actorLabel,
+  previousStep,
+  previousStatus,
+  source,
+  auth,
+  userRole,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const trackedData = trackedDoc.data() || {};
+  const userLabel = getActorLabel(auth, actorLabel);
+  const timestampIso = new Date().toISOString();
+  const stationLabel = clean(station) || clean(trackedData.currentStation) || clean(trackedData.machine) || 'Onbekend';
+
+  const updatePayload = {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    note: clean(note) || '',
+    processedBy: userLabel,
+    status: 'Tijdelijke afkeur',
+    currentStep: 'HOLD_AREA',
+    inspection: {
+      status: 'Tijdelijke afkeur',
+      reasons,
+      timestamp: timestampIso,
+    },
+    history: admin.firestore.FieldValue.arrayUnion({
+      action: 'Tijdelijke Afkeur',
+      timestamp: timestampIso,
+      user: userLabel,
+      station: stationLabel,
+      details: `Reden: ${reasons.join(', ')}${note ? ` - ${note}` : ''}`,
+      source: source || null,
+    }),
+  };
+
+  const safePreviousStep = clean(previousStep);
+  const safePreviousStatus = clean(previousStatus);
+  if (safePreviousStep) updatePayload.previousStep = safePreviousStep;
+  if (safePreviousStatus) updatePayload.previousStatus = safePreviousStatus;
+
+  await trackedDoc.ref.set(updatePayload, { merge: true });
+
+  await db.collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'QUALITY_TEMP_REJECT',
+    details: `Temporary reject for lot ${clean(trackedData.lotNumber) || trackedDoc.id} at ${stationLabel}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: userLabel,
+    actorRole: userRole,
+    productId: trackedDoc.id,
+    orderId: clean(trackedData.orderId) || null,
+  });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    lotNumber: clean(trackedData.lotNumber) || trackedDoc.id,
+    currentStep: 'HOLD_AREA',
+    status: 'Tijdelijke afkeur',
+  };
+};
+
+const advanceTrackedProductService = async ({
+  productId,
+  nextStation,
+  nextStep,
+  nextStatus,
+  lastStation,
+  note,
+  actorLabel,
+  previousStep,
+  historyAction,
+  historyDetails,
+  clearManualMove,
+  measurements,
+  source,
+  auth,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const trackedData = trackedDoc.data() || {};
+  const userLabel = getActorLabel(auth, actorLabel);
+  const safeNextStep = clean(nextStep);
+  const safeNextStatus = clean(nextStatus);
+  const safeNextStation = clean(nextStation);
+  const safeLastStation = clean(lastStation) || clean(trackedData.currentStation) || clean(trackedData.machine) || 'Onbekend';
+  const safePreviousStep = clean(previousStep);
+  const safeNote = clean(note);
+  const safeHistoryAction = clean(historyAction) || 'Stap Voltooid';
+  const safeHistoryDetails = clampText(historyDetails, 600) || `Doorgestuurd naar ${safeNextStep}`;
+
+  if (!safeNextStep || !safeNextStatus) {
+    throw new Error('INVALID_ADVANCE_TARGET');
+  }
+
+  const updatePayload = {
+    currentStep: safeNextStep,
+    status: safeNextStatus,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    note: safeNote,
+    history: admin.firestore.FieldValue.arrayUnion({
+      action: safeHistoryAction,
+      timestamp: new Date().toISOString(),
+      user: userLabel,
+      details: safeHistoryDetails,
+      station: safeLastStation,
+      source: source || null,
+    }),
+  };
+
+  if (safeNextStation) {
+    updatePayload.currentStation = safeNextStation;
+  }
+
+  if (safeLastStation) {
+    updatePayload.lastStation = safeLastStation;
+  }
+
+  if (safePreviousStep) {
+    updatePayload[`timestamps.${safePreviousStep.toLowerCase()}_end`] = admin.firestore.FieldValue.serverTimestamp();
+  }
+
+  if (safeNextStep) {
+    updatePayload[`timestamps.${safeNextStep.toLowerCase()}_start`] = admin.firestore.FieldValue.serverTimestamp();
+  }
+
+  if (clearManualMove) {
+    updatePayload.isManualMove = false;
+  }
+
+  const safeMeasurements = sanitizeMeasurements(measurements);
+  if (safeMeasurements) {
+    updatePayload.measurements = safeMeasurements;
+  }
+
+  await trackedDoc.ref.set(updatePayload, { merge: true });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    lotNumber: clean(trackedData.lotNumber) || trackedDoc.id,
+    currentStep: safeNextStep,
+    status: safeNextStatus,
+    currentStation: safeNextStation || clean(trackedData.currentStation) || null,
+  };
+};
+
+const completeTrackedProductRepairService = async ({
+  productId,
+  station,
+  actions,
+  note,
+  actorLabel,
+  source,
+  auth,
+  userRole,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const trackedData = trackedDoc.data() || {};
+  const userLabel = getActorLabel(auth, actorLabel);
+  const safeStation = clean(station) || 'BH31';
+  const safeActions = Array.isArray(actions)
+    ? actions.map((entry) => clampText(entry, 120)).filter(Boolean).slice(0, 20)
+    : [];
+  const safeNote = clampText(note, 600);
+  const existingNote = clampText(trackedData.note, 1200);
+  const mergedNote = [existingNote, safeNote ? `Reparatie: ${safeNote}` : 'Reparatie voltooid']
+    .filter(Boolean)
+    .join('\n');
+
+  await trackedDoc.ref.set({
+    currentStation: 'BM01',
+    currentStep: 'Eindinspectie',
+    status: 'Te Keuren',
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    repairActive: false,
+    note: mergedNote,
+    'timestamps.bm01_start': admin.firestore.FieldValue.serverTimestamp(),
+    'timestamps.repair_end': admin.firestore.FieldValue.serverTimestamp(),
+    history: admin.firestore.FieldValue.arrayUnion({
+      action: 'Reparatie Voltooid',
+      timestamp: new Date().toISOString(),
+      user: userLabel,
+      station: safeStation,
+      details: `Acties: ${safeActions.join(', ')}${safeNote ? `. ${safeNote}` : ''}`,
+      source: source || null,
+    }),
+  }, { merge: true });
+
+  await db.collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'QUALITY_REPAIR_COMPLETE',
+    details: `Repair complete for lot ${clean(trackedData.lotNumber) || trackedDoc.id}: ${safeStation} -> BM01`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: userLabel,
+    actorRole: userRole,
+    productId: trackedDoc.id,
+    orderId: clean(trackedData.orderId) || null,
+  });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    lotNumber: clean(trackedData.lotNumber) || trackedDoc.id,
+    currentStation: 'BM01',
+    currentStep: 'Eindinspectie',
+    status: 'Te Keuren',
+  };
+};
+
+const routeTrackedProductsToLossenService = async ({
+  productIds,
+  originStation,
+  centralStation,
+  centralOperators,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const safeOriginStation = clean(originStation) || 'LOSSEN';
+  const safeCentralStation = clean(centralStation) || 'LOSSEN';
+  const safeOperators = Array.isArray(centralOperators)
+    ? Array.from(new Set(centralOperators.map((entry) => clean(entry)).filter(Boolean))).slice(0, 50)
+    : [];
+  const uniqueProductIds = Array.from(new Set((Array.isArray(productIds) ? productIds : []).map((entry) => clean(entry)).filter(Boolean)));
+
+  if (uniqueProductIds.length === 0) {
+    throw new Error('NO_PRODUCTS_TO_ROUTE');
+  }
+
+  const userLabel = getActorLabel(auth, actorLabel);
+  const batch = db.batch();
+  let routedCount = 0;
+  let localRouteCount = 0;
+
+  for (const productId of uniqueProductIds) {
+    const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+    if (!trackedDoc) continue;
+
+    const trackedData = trackedDoc.data() || {};
+    const itemText = `${trackedData.item || ''} ${trackedData.description || ''} ${trackedData.itemCode || ''}`;
+    const lossenRoute = getLossenRouteServer(itemText, safeOriginStation);
+    const nextStation = lossenRoute.mode === 'STATION'
+      ? clean(lossenRoute.station) || safeCentralStation
+      : safeOriginStation;
+
+    if (lossenRoute.mode !== 'STATION') {
+      localRouteCount += 1;
+    }
+
+    batch.set(trackedDoc.ref, {
+      currentStation: nextStation,
+      currentStep: 'Wacht op Lossen',
+      status: 'Te Lossen',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      'timestamps.lossen_start': admin.firestore.FieldValue.serverTimestamp(),
+      ...(safeOperators.length > 0 ? { 'personnelTracking.LOSSEN': safeOperators } : {}),
+      history: admin.firestore.FieldValue.arrayUnion({
+        action: 'Stap Voltooid',
+        timestamp: new Date().toISOString(),
+        user: userLabel,
+        details: `Doorgestuurd naar lossen via ${nextStation}`,
+        station: safeOriginStation,
+        source: source || null,
+      }),
+    }, { merge: true });
+
+    routedCount += 1;
+  }
+
+  if (routedCount === 0) {
+    throw new Error('NO_PRODUCTS_FOUND');
+  }
+
+  await batch.commit();
+
+  return {
+    ok: true,
+    routedCount,
+    localRouteCount,
+    switchedToLossenTab: localRouteCount > 0,
+  };
+};
+
+const startWorkstationProductionRunService = async ({
+  orderDocId,
+  lotStart,
+  stringCount,
+  stationId,
+  actorLabel,
+  labelZplData,
+  labelTemplateId,
+  seriesGroupId,
+  isFlangeSeries,
+  stationOperators,
+  source,
+  auth,
+}) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const orderData = orderDoc.data() || {};
+  const safeLotStart = clean(lotStart).toUpperCase();
+  const safeStationId = clean(stationId);
+  const qty = Math.max(1, parseInt(String(stringCount || 1), 10) || 1);
+  const safeLabelTemplateId = clean(labelTemplateId);
+  const safeSeriesGroupId = clean(seriesGroupId);
+  const safeOperators = Array.isArray(stationOperators)
+    ? Array.from(new Set(stationOperators.map((entry) => clean(entry)).filter(Boolean))).slice(0, 50)
+    : [];
+
+  if (!safeLotStart || !safeStationId) {
+    throw new Error('INVALID_WORKSTATION_START_PAYLOAD');
+  }
+
+  const lotMatch = safeLotStart.match(/^(.*?)(\d+)$/);
+  if (!lotMatch) {
+    throw new Error('INVALID_LOT_FORMAT');
+  }
+
+  const prefix = lotMatch[1] || '';
+  const startSeq = Number(lotMatch[2]);
+  if (!Number.isFinite(startSeq)) {
+    throw new Error('INVALID_LOT_SEQUENCE');
+  }
+
+  const orderId = clean(orderData.orderId);
+  const item = clean(orderData.item);
+  const drawing = clean(orderData.drawing);
+  const userLabel = getActorLabel(auth, actorLabel);
+  const nowIso = new Date().toISOString();
+  const stationField = getStartedCounterFieldServer(safeStationId);
+  const persistedStartedCount = Number(orderData[stationField] || 0);
+
+  const activeStartedSnap = await db
+    .collection(TRACKING_COLLECTION)
+    .where('orderId', '==', orderId)
+    .where('originMachine', '==', safeStationId)
+    .limit(600)
+    .get();
+
+  const activeStartedCount = activeStartedSnap.docs.filter((snap) => {
+    const data = snap.data() || {};
+    const statusUpper = clean(data.status).toUpperCase();
+    const stepUpper = clean(data.currentStep).toUpperCase();
+    return statusUpper !== 'REJECTED' && stepUpper !== 'REJECTED';
+  }).length;
+
+  const currentStartedCount = Math.max(persistedStartedCount, activeStartedCount);
+  const plannedAmount = Number(orderData.plan || 0);
+
+  const buildLotSpecificLabelZpl = (targetLotNumber) => {
+    const baseZpl = typeof labelZplData === 'string' ? labelZplData : '';
+    if (!baseZpl.trim()) return null;
+    if (!safeLotStart || targetLotNumber === safeLotStart) return baseZpl;
+    return baseZpl.split(safeLotStart).join(targetLotNumber);
+  };
+
+  const createdLots = [];
+  const overflowLots = [];
+  const batch = db.batch();
+  const flowState = getNextFlowStateServer('START_WINDING');
+
+  for (let i = 0; i < qty; i += 1) {
+    const currentSeq = startSeq + i;
+    const currentLotNumber = `${prefix}${String(currentSeq).padStart(4, '0')}`;
+    const isOverflow = currentStartedCount + i + 1 > plannedAmount;
+    const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLotNumber);
+    const labelAudit = lotSpecificLabelZpl
+      ? {
+        timestamp: nowIso,
+        user: userLabel,
+        station: safeStationId,
+        source: 'production_start',
+        templateId: safeLabelTemplateId || null,
+      }
+      : null;
+
+    const unitData = {
+      lotNumber: currentLotNumber,
+      orderId: isOverflow ? 'NOG_TE_BEPALEN' : orderId,
+      item,
+      drawing,
+      originMachine: safeStationId,
+      currentStation: safeStationId,
+      currentStep: flowState.currentStep || 'Wikkelen',
+      status: flowState.status || 'In Productie',
+      startTime: nowIso,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      operator: userLabel,
+      timestamps: {
+        wikkelen_start: admin.firestore.FieldValue.serverTimestamp(),
+        station_start: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      personnelTracking: {
+        [safeStationId]: safeOperators,
+      },
+      labelZPL: lotSpecificLabelZpl,
+      labelTemplateId: safeLabelTemplateId || null,
+      labelLastPrint: labelAudit,
+    };
+
+    if (safeSeriesGroupId) {
+      unitData.seriesGroupId = safeSeriesGroupId;
+      unitData.seriesIndex = i + 1;
+      unitData.seriesSize = qty;
+      unitData.seriesOrderNumber = orderId;
+      unitData.isFlangeSeries = Boolean(isFlangeSeries);
+    }
+
+    if (isOverflow) {
+      unitData.isOverproduction = true;
+      unitData.originalOrderId = orderId;
+      unitData.note = 'Overproductie uit string-run';
+      overflowLots.push(currentLotNumber);
+    }
+
+    batch.set(db.collection(TRACKING_COLLECTION).doc(currentLotNumber), unitData, { merge: true });
+    createdLots.push(currentLotNumber);
+  }
+
+  if (clean(orderData.status).toLowerCase() !== 'completed') {
+    batch.set(orderDoc.ref, {
+      status: 'in_progress',
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      ...(stationField ? { [stationField]: currentStartedCount + qty } : {}),
+    }, { merge: true });
+  }
+
+  await batch.commit();
+
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId,
+    createdLots,
+    overflowLots,
+    plannedAmount,
+    currentStartedCount,
+    stationField,
+    source: source || null,
+  };
+};
+
+const getNextFlowStateServer = (eventType = '') => {
+  const type = String(eventType || '').toUpperCase();
+  if (type === 'START_WINDING') {
+    return { currentStep: 'Wikkelen', status: 'In Productie' };
+  }
+  if (type === 'FINISH_WINDING') {
+    return { currentStep: 'Wacht op Lossen', status: 'Te Lossen' };
+  }
+  return { currentStep: 'Wikkelen', status: 'In Productie' };
+};
+
+const toggleTrackedProductPauseService = async ({
+  productId,
+  note,
+  actorLabel,
+  source,
+  auth,
+  userRole,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const trackedData = trackedDoc.data() || {};
+  const currentStatus = clean(trackedData.status);
+  const isPaused = currentStatus === 'PAUSED';
+  const nextStatus = isPaused ? 'In Production' : 'PAUSED';
+  const userLabel = getActorLabel(auth, actorLabel);
+  const safeNote = clean(note);
+
+  await trackedDoc.ref.set({
+    status: nextStatus,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    ...(safeNote ? { note: safeNote } : {}),
+    history: admin.firestore.FieldValue.arrayUnion({
+      action: isPaused ? 'Productie Hervat' : 'Productie Gepauzeerd',
+      timestamp: new Date().toISOString(),
+      user: userLabel,
+      station: clean(trackedData.currentStation) || clean(trackedData.machine) || 'Onbekend',
+      details: safeNote || null,
+      source: source || null,
+    }),
+  }, { merge: true });
+
+  await db.collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: isPaused ? 'PRODUCTION_RESUME' : 'PRODUCTION_PAUSE',
+    details: `Tracked product ${clean(trackedData.lotNumber) || trackedDoc.id} status: ${currentStatus || 'unknown'} -> ${nextStatus}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: userLabel,
+    actorRole: userRole,
+    productId: trackedDoc.id,
+    orderId: clean(trackedData.orderId) || null,
+  });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    status: nextStatus,
+    wasPaused: isPaused,
+  };
+};
+
+const markTrackedProductReminderService = async ({
+  productId,
+  reminderSent,
+  source,
+  actorLabel,
+  auth,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const safeReminderSent = reminderSent !== false;
+  const userLabel = getActorLabel(auth, actorLabel);
+
+  await trackedDoc.ref.set({
+    reminderSent: safeReminderSent,
+    reminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    history: admin.firestore.FieldValue.arrayUnion({
+      action: 'Reminder Status Bijgewerkt',
+      timestamp: new Date().toISOString(),
+      user: userLabel,
+      station: clean(trackedDoc.data()?.currentStation) || clean(trackedDoc.data()?.machine) || 'Onbekend',
+      details: `reminderSent=${safeReminderSent}`,
+      source: source || null,
+    }),
+  }, { merge: true });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    reminderSent: safeReminderSent,
+  };
+};
+
+const getLossenRouteServer = (itemText, originStation = '') => {
+  const originNorm = String(originStation || '').toUpperCase().replace(/\s/g, '');
+  if (['BH12', 'BH15', 'BH17'].includes(originNorm)) {
+    return { mode: 'STATION', station: 'LOSSEN 12/18' };
+  }
+
+  const text = String(itemText || '').toUpperCase();
+  const isTB = text.includes('TB');
+  const isCB = text.includes('CB');
+  const isELB = text.includes('ELB');
+  const isAB = /\bAB\b/.test(text) || text.includes('ABAB');
+  const isSB = /\bSB\b/.test(text);
+  const isElbow = isELB || isCB;
+  if (isElbow && (isAB || isSB)) return { mode: 'STATION', station: 'LOSSEN' };
+
+  const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((match) => Number(match[0]));
+  const candidates = numberMatches.filter((value) => Number.isFinite(value) && value >= 25 && value <= 2000);
+  const diameter = candidates.length > 0 ? candidates[0] : 0;
+
+  if (isTB && diameter >= 300) return { mode: 'STATION', station: 'LOSSEN' };
+  if ((isCB || isELB) && diameter >= 350) return { mode: 'STATION', station: 'LOSSEN' };
+
+  return { mode: 'TAB', station: originNorm || '' };
+};
+
+const cancelPlanningOrderService = async ({
+  orderDocId,
+  reason,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const userLabel = actorLabel || clean(auth?.token?.name) || clean(auth?.token?.email) || auth?.uid;
+  const cleanReason = clean(reason);
+
+  await orderDoc.ref.set({
+    status: 'cancelled',
+    cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+    cancelledBy: auth.uid,
+    cancelledByLabel: userLabel,
+    cancellationReason: cleanReason || null,
+    cancellationSource: source || null,
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  const orderData = orderDoc.data() || {};
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId: clean(orderData.orderId) || orderDoc.id,
+    status: 'cancelled',
+  };
+};
+
+const assignPersonnelToStationService = async ({
+  stationId,
+  operatorId,
+  operatorNumber,
+  operatorName,
+  date,
+  departmentId,
+  hoursWorked,
+  shiftType,
+  source,
+  actorLabel,
+  auth,
+  userRole,
+}) => {
+  const safeDate = clean(date);
+  const machineId = clean(stationId);
+  const opId = clean(operatorId);
+  const assignmentId = `${machineId}-${opId}-${safeDate}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const occupancyRef = admin.firestore().doc(`${BASE}/production/machine_occupancy/${assignmentId}`);
+
+  const parsedDate = new Date(`${safeDate}T00:00:00.000Z`);
+  const { week, year } = Number.isNaN(parsedDate.getTime())
+    ? getISOWeekInfoServer(new Date())
+    : getISOWeekInfoServer(parsedDate);
+
+  await occupancyRef.set({
+    machineId,
+    operatorNumber: clean(operatorNumber) || opId,
+    operatorName: clean(operatorName) || opId,
+    date: safeDate,
+    week,
+    weekYear: year,
+    departmentId: clean(departmentId) || null,
+    hoursWorked: Number.isFinite(Number(hoursWorked)) ? Number(hoursWorked) : 8,
+    shiftType: clean(shiftType) || 'DAG',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'PERSONNEL_ASSIGN',
+    details: `Operator toegewezen: ${clean(operatorName) || opId} -> station ${machineId} (${safeDate})`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: actorLabel || null,
+    actorRole: userRole,
+    assignmentId,
+  });
+
+  return {
+    ok: true,
+    assignmentId,
+    stationId: machineId,
+    operatorId: opId,
+  };
+};
+
+const removePersonnelAssignmentService = async ({
+  assignmentId,
+  stationId,
+  source,
+  actorLabel,
+  auth,
+  userRole,
+}) => {
+  const safeAssignmentId = clean(assignmentId);
+  const occupancyRef = admin.firestore().doc(`${BASE}/production/machine_occupancy/${safeAssignmentId}`);
+  const snap = await occupancyRef.get();
+  if (!snap.exists) {
+    throw new Error('NOT_FOUND_ASSIGNMENT');
+  }
+
+  await occupancyRef.delete();
+
+  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'PERSONNEL_UNASSIGN',
+    details: `Operator toewijzing verwijderd: ${safeAssignmentId} op station ${clean(stationId) || 'onbekend'}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: actorLabel || null,
+    actorRole: userRole,
+    assignmentId: safeAssignmentId,
+  });
+
+  return {
+    ok: true,
+    assignmentId: safeAssignmentId,
+    removed: true,
+  };
+};
+
+const loanPersonnelService = async ({
+  operatorNumber,
+  operatorName,
+  targetDepartment,
+  targetStation,
+  date,
+  shiftLabel,
+  shiftStart,
+  shiftEnd,
+  hoursWorked,
+  isPloeg,
+  loanFromDepartment,
+  loanFromStation,
+  originalShift,
+  source,
+  actorLabel,
+  auth,
+  userRole,
+}) => {
+  const safeDate = clean(date);
+  const loanRef = admin.firestore().collection(`${BASE}/production/machine_occupancy`).doc();
+
+  await loanRef.set({
+    operatorNumber: clean(operatorNumber),
+    operatorName: clean(operatorName),
+    machineId: clean(targetStation),
+    departmentId: clean(targetDepartment),
+    date: safeDate,
+    shift: clean(shiftLabel),
+    shiftStart: clean(shiftStart),
+    shiftEnd: clean(shiftEnd),
+    hoursWorked: Number.isFinite(Number(hoursWorked)) ? Number(hoursWorked) : 8,
+    isPloeg: Boolean(isPloeg),
+    isLoan: true,
+    loanFromDepartment: clean(loanFromDepartment),
+    loanFromStation: clean(loanFromStation),
+    originalShift: clean(originalShift),
+    timestamp: new Date().toISOString(),
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'PERSONNEL_LOAN',
+    details: `Personeel uitgeleend: ${clean(operatorName) || clean(operatorNumber)} van ${clean(loanFromDepartment)} naar ${clean(targetDepartment)} (${clean(targetStation)}, ${clean(shiftLabel)})`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: actorLabel || null,
+    actorRole: userRole,
+    assignmentId: loanRef.id,
+  });
+
+  return {
+    ok: true,
+    assignmentId: loanRef.id,
+    stationId: clean(targetStation),
+    departmentId: clean(targetDepartment),
+  };
+};
+
+const startProductionLotsService = async ({
+  orderDocId,
+  orderId,
+  itemCode,
+  item,
+  lotStart,
+  totalToProduce,
+  stationId,
+  stationLabel,
+  actorLabel,
+  labelZplData,
+  labelTemplateId,
+  seriesGroupId,
+  isFlangeSeries,
+}) => {
+  const safeOrderDocId = clean(orderDocId);
+  const safeOrderId = clean(orderId);
+  const safeItemCode = clean(itemCode);
+  const safeLotStart = clean(lotStart).toUpperCase();
+  const safeStationId = clean(stationId);
+  const safeStationLabel = clean(stationLabel);
+  const qty = Math.max(1, parseInt(String(totalToProduce || 1), 10) || 1);
+
+  const lotMatch = safeLotStart.match(/^(.*?)(\d+)$/);
+  const buildLotNumber = (offset) => {
+    if (!lotMatch) {
+      return offset === 0 ? safeLotStart : `${safeLotStart}_${offset + 1}`;
+    }
+    const prefix = lotMatch[1] || '';
+    const numericPart = lotMatch[2] || '';
+    const width = numericPart.length;
+    const startSequence = Number(numericPart);
+    if (!Number.isFinite(startSequence)) {
+      return offset === 0 ? safeLotStart : `${safeLotStart}_${offset + 1}`;
+    }
+    return `${prefix}${String(startSequence + offset).padStart(width, '0')}`;
+  };
+
+  const buildLotSpecificLabelZpl = (targetLot) => {
+    const cleanZpl = typeof labelZplData === 'string' ? labelZplData : '';
+    if (!cleanZpl) return null;
+    if (!safeLotStart || targetLot === safeLotStart) return cleanZpl;
+    return cleanZpl.split(safeLotStart).join(targetLot);
+  };
+
+  const createdLots = [];
+  const nowIso = new Date().toISOString();
+  const batch = admin.firestore().batch();
+
+  for (let i = 0; i < qty; i += 1) {
+    const currentLot = buildLotNumber(i);
+    const docId = `${safeOrderId}_${safeItemCode}_${currentLot}`.replace(/[^a-zA-Z0-9]/g, '_');
+    const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLot);
+
+    batch.set(admin.firestore().doc(`${TRACKING_COLLECTION}/${docId}`), {
+      id: docId,
+      orderId: safeOrderId,
+      lotNumber: currentLot,
+      itemCode: safeItemCode,
+      machine: safeStationId,
+      stationLabel: safeStationLabel,
+      status: 'In Production',
+      currentStation: safeStationId,
+      currentStep: 'Wikkelen',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      history: [{
+        action: 'Start Wikkelen',
+        station: safeStationLabel,
+        timestamp: nowIso,
+        user: actorLabel || 'Operator',
+      }],
+      item: clean(item),
+      labelZPL: lotSpecificLabelZpl,
+      labelTemplateId: labelTemplateId || null,
+      labelLastPrint: lotSpecificLabelZpl
+        ? {
+          timestamp: nowIso,
+          user: actorLabel || 'Operator',
+          station: safeStationId,
+          source: 'production_start',
+          templateId: labelTemplateId || null,
+        }
+        : null,
+      ...(seriesGroupId
+        ? {
+          seriesGroupId,
+          seriesIndex: i + 1,
+          seriesSize: qty,
+          seriesOrderNumber: safeOrderId,
+          isFlangeSeries: Boolean(isFlangeSeries),
+        }
+        : {}),
+    });
+
+    createdLots.push(currentLot);
+  }
+
+  const startedCounterField = getStartedCounterFieldServer(safeStationId);
+  const planningRef = safeOrderDocId
+    ? admin.firestore().doc(`${BASE}/production/digital_planning/${safeOrderDocId}`)
+    : null;
+  if (planningRef) {
+    const planningUpdates = {
+      status: 'in_progress',
+      activeLot: createdLots[0] || safeLotStart,
+      actualStart: admin.firestore.FieldValue.serverTimestamp(),
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (startedCounterField) {
+      planningUpdates[startedCounterField] = admin.firestore.FieldValue.increment(qty);
+    }
+    batch.set(planningRef, planningUpdates, { merge: true });
+  }
+
+  await batch.commit();
+
+  return {
+    ok: true,
+    createdLots,
+    totalCreated: createdLots.length,
+    firstLot: createdLots[0] || safeLotStart,
+    startedCounterField,
+  };
+};
+
+const editTrackedProductLotNumberService = async ({
+  productId,
+  newLotNumber,
+  reason,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const trackedData = trackedDoc.data() || {};
+  const oldLotNumber = clean(trackedData.lotNumber) || trackedDoc.id;
+  const safeNewLotNumber = clean(newLotNumber).toUpperCase();
+  const safeReason = clampText(reason, 300);
+
+  if (!safeNewLotNumber || !safeReason) {
+    throw new Error('INVALID_LOT_EDIT_PAYLOAD');
+  }
+  if (safeNewLotNumber === oldLotNumber) {
+    throw new Error('LOT_NUMBER_UNCHANGED');
+  }
+
+  const duplicateSnap = await db
+    .collection(TRACKING_COLLECTION)
+    .where('lotNumber', '==', safeNewLotNumber)
+    .limit(5)
+    .get();
+  const duplicateExists = duplicateSnap.docs.some((docSnap) => docSnap.id !== trackedDoc.id);
+  if (duplicateExists) {
+    throw new Error('LOT_NUMBER_EXISTS');
+  }
+
+  const userLabel = getActorLabel(auth, actorLabel);
+  const historyEntry = {
+    action: 'Lotnummer gewijzigd',
+    timestamp: new Date().toISOString(),
+    station: clean(trackedData.currentStation) || 'Teamleader',
+    user: userLabel,
+    details: `${oldLotNumber} -> ${safeNewLotNumber} | Reden: ${safeReason}`,
+    source: source || null,
+  };
+
+  await trackedDoc.ref.set({
+    lotNumber: safeNewLotNumber,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    history: admin.firestore.FieldValue.arrayUnion(historyEntry),
+  }, { merge: true });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    oldLotNumber,
+    lotNumber: safeNewLotNumber,
+  };
+};
+
+const linkPlanningOrderProductService = async ({
+  orderDocId,
+  productId,
+  productImage,
+}) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  await orderDoc.ref.set({
+    linkedProductId: clean(productId),
+    linkedProductImage: clampText(productImage, 600),
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    linkedProductId: clean(productId),
+  };
+};
+
+const createPlanningOrderManualService = async ({
+  orderId,
+  item,
+  machine,
+  plan,
+}) => {
+  const safeOrderId = clean(orderId);
+  const safeItem = clampText(item, 220);
+  const safeMachine = clean(machine);
+  const safePlan = Number(plan);
+
+  if (!safeOrderId || !safeItem || !safeMachine || !Number.isFinite(safePlan) || safePlan <= 0) {
+    throw new Error('INVALID_MANUAL_ORDER_PAYLOAD');
+  }
+
+  const existingSnap = await db
+    .collection(PLANNING_COLLECTION)
+    .where('orderId', '==', safeOrderId)
+    .limit(1)
+    .get();
+  if (!existingSnap.empty) {
+    throw new Error('ORDER_ALREADY_EXISTS');
+  }
+
+  const now = new Date();
+  const { week, year } = getISOWeekInfoServer(now);
+  const newDocRef = db.collection(PLANNING_COLLECTION).doc();
+
+  await newDocRef.set({
+    orderId: safeOrderId,
+    item: safeItem,
+    machine: safeMachine,
+    plan: safePlan,
+    status: 'planned',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+    week,
+    year,
+  }, { merge: true });
+
+  return {
+    ok: true,
+    orderDocId: newDocRef.id,
+    orderId: safeOrderId,
+  };
+};
+
+const markMazakLabelsPrintedService = async ({
+  productIds,
+  stationId,
+  isReprint,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const ids = Array.from(new Set((Array.isArray(productIds) ? productIds : []).map((entry) => clean(entry)).filter(Boolean))).slice(0, 200);
+  if (ids.length === 0) {
+    throw new Error('NO_PRODUCTS_TO_UPDATE');
+  }
+
+  const userLabel = getActorLabel(auth, actorLabel);
+  const safeStation = clean(stationId) || 'Mazak';
+  const batch = db.batch();
+  let updatedCount = 0;
+
+  for (const id of ids) {
+    const trackedDoc = await getTrackedProductDocByIdOrLot(id);
+    if (!trackedDoc) continue;
+    updatedCount += 1;
+
+    batch.set(trackedDoc.ref, {
+      mazakLabelPrinted: true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      history: admin.firestore.FieldValue.arrayUnion({
+        action: isReprint ? 'Label Herprint' : 'Labels Geprint',
+        timestamp: new Date().toISOString(),
+        user: userLabel,
+        station: safeStation,
+        details: isReprint ? 'Label opnieuw naar print queue verstuurd' : 'Label(s) verstuurd naar print queue',
+        source: source || null,
+      }),
+    }, { merge: true });
+  }
+
+  if (updatedCount === 0) {
+    throw new Error('NO_PRODUCTS_FOUND');
+  }
+
+  await batch.commit();
+
+  return {
+    ok: true,
+    updatedCount,
+  };
+};
+
+const appendQcNoteService = async ({
+  productId,
+  note,
+  archivedYear,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const safeProductId = clean(productId);
+  const safeNote = clampText(note, 800);
+  const safeYear = Number(archivedYear);
+
+  if (!safeProductId || !safeNote) {
+    throw new Error('INVALID_QC_NOTE_PAYLOAD');
+  }
+
+  const noteObj = {
+    text: safeNote,
+    timestamp: new Date().toISOString(),
+    user: getActorLabel(auth, actorLabel),
+    source: source || null,
+  };
+
+  const trackingRef = db.collection(TRACKING_COLLECTION).doc(safeProductId);
+  const trackingSnap = await trackingRef.get();
+  if (trackingSnap.exists) {
+    await trackingRef.set({
+      qcNotes: admin.firestore.FieldValue.arrayUnion(noteObj),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return {
+      ok: true,
+      productId: safeProductId,
+      target: 'tracking',
+      note: noteObj,
+    };
+  }
+
+  let archiveRef = null;
+  const currentYear = new Date().getFullYear();
+  const yearsToCheck = Number.isFinite(safeYear)
+    ? [safeYear]
+    : Array.from({ length: 7 }, (_, idx) => currentYear - idx);
+
+  for (const year of yearsToCheck) {
+    const candidateRef = db.collection(`${BASE}/production/archive/${year}/items`).doc(safeProductId);
+    const candidateSnap = await candidateRef.get();
+    if (candidateSnap.exists) {
+      archiveRef = candidateRef;
+      break;
+    }
+  }
+
+  if (!archiveRef) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  await archiveRef.set({
+    qcNotes: admin.firestore.FieldValue.arrayUnion(noteObj),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return {
+    ok: true,
+    productId: safeProductId,
+    target: 'archive',
+    note: noteObj,
+  };
+};
+
+const reserveAutoLotNumberRangeService = async ({
+  stationId,
+  count,
+  reserve,
+}) => {
+  const qty = Math.max(1, parseInt(String(count || 1), 10) || 1);
+  if (qty > 200) {
+    throw new Error('INVALID_LOT_RANGE_SIZE');
+  }
+
+  const now = new Date();
+  const iso = getISOWeekInfoServer(now);
+  const yearShort = String(iso.year).slice(-2);
+  const week = String(iso.week).padStart(2, '0');
+  const machine = getMachineCodeForLotServer(stationId);
+  const baseLot = `40${yearShort}${week}${machine}40`;
+
+  const safeStationId = String(stationId || 'UNKNOWN').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const counterDocId = `${safeStationId}_${yearShort}${week}`;
+  const counterRef = db.collection(`${BASE}/production/counters`).doc(counterDocId);
+
+  const result = await db.runTransaction(async (tx) => {
+    const counterSnap = await tx.get(counterRef);
+    const counterData = counterSnap.exists ? (counterSnap.data() || {}) : {};
+
+    const lastSequence = Number.isFinite(Number(counterData.lastSequence))
+      ? Number(counterData.lastSequence)
+      : 0;
+    const recycled = Array.isArray(counterData.recycledSequences)
+      ? Array.from(new Set(counterData.recycledSequences
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0)))
+        .sort((a, b) => a - b)
+      : [];
+
+    const existsInTracking = async (seqStart) => {
+      for (let i = 0; i < qty; i += 1) {
+        const seq = seqStart + i;
+        const candidateLot = `${baseLot}${String(seq).padStart(4, '0')}`;
+        const dupSnap = await tx.get(
+          db.collection(TRACKING_COLLECTION)
+            .where('lotNumber', '==', candidateLot)
+            .limit(1)
+        );
+        if (!dupSnap.empty) return true;
+      }
+      return false;
+    };
+
+    const maxAttempts = 300;
+    let attempts = 0;
+    let recycledIndex = 0;
+    let sequenceToTry = recycled.length > 0 && qty === 1 ? recycled[0] : (lastSequence + 1);
+
+    while (attempts < maxAttempts) {
+      attempts += 1;
+      const usingRecycled = qty === 1
+        && recycledIndex < recycled.length
+        && sequenceToTry === recycled[recycledIndex];
+
+      if (sequenceToTry <= 0 || sequenceToTry + qty - 1 > 9999) {
+        if (usingRecycled) {
+          recycledIndex += 1;
+          sequenceToTry = recycledIndex < recycled.length
+            ? recycled[recycledIndex]
+            : Math.max(lastSequence + 1, sequenceToTry + 1);
+        } else {
+          sequenceToTry += 1;
+        }
+        continue;
+      }
+
+      const collision = await existsInTracking(sequenceToTry);
+      if (!collision) {
+        const lotStart = `${baseLot}${String(sequenceToTry).padStart(4, '0')}`;
+
+        if (reserve !== false) {
+          const nextRecycled = usingRecycled
+            ? recycled.filter((n) => n !== sequenceToTry)
+            : recycled;
+          const newLast = Math.max(lastSequence, sequenceToTry + qty - 1);
+
+          tx.set(counterRef, {
+            lastSequence: newLast,
+            recycledSequences: nextRecycled,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+
+        return {
+          lotStart,
+          baseLot,
+          sequence: sequenceToTry,
+          week,
+          yearShort,
+          counterDocId,
+          reserved: reserve !== false,
+        };
+      }
+
+      if (usingRecycled) {
+        recycledIndex += 1;
+        sequenceToTry = recycledIndex < recycled.length
+          ? recycled[recycledIndex]
+          : Math.max(lastSequence + 1, sequenceToTry + 1);
+      } else {
+        sequenceToTry += 1;
+      }
+    }
+
+    throw new Error('NO_UNIQUE_LOT_AVAILABLE');
+  });
+
+  if (reserve !== false) {
+    const twoWeeksAgo = new Date(now);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const oldIso = getISOWeekInfoServer(twoWeeksAgo);
+    const oldDocId = `${safeStationId}_${String(oldIso.year).slice(-2)}${String(oldIso.week).padStart(2, '0')}`;
+    if (oldDocId !== result.counterDocId) {
+      await db.collection(`${BASE}/production/counters`).doc(oldDocId).delete().catch(() => {});
+    }
+  }
+
+  return {
+    ok: true,
+    ...result,
+  };
+};
+
 module.exports = {
   rejectTrackedProductFinalService,
   moveTrackedProductManualService,
   archivePlanningOrderService,
   completeTrackedProductService,
+  cancelTrackedProductionService,
+  updatePlanningOrderPriorityService,
+  movePlanningOrderService,
+  retrievePlanningOrderService,
+  togglePlanningOrderHoldService,
+  updatePlanningOrderDetailsService,
+  assignOverproductionService,
+  tempRejectTrackedProductService,
+  advanceTrackedProductService,
+  completeTrackedProductRepairService,
+  routeTrackedProductsToLossenService,
+  toggleTrackedProductPauseService,
+  markTrackedProductReminderService,
+  startWorkstationProductionRunService,
+  cancelPlanningOrderService,
+  assignPersonnelToStationService,
+  removePersonnelAssignmentService,
+  loanPersonnelService,
+  startProductionLotsService,
+  editTrackedProductLotNumberService,
+  linkPlanningOrderProductService,
+  createPlanningOrderManualService,
+  markMazakLabelsPrintedService,
+  appendQcNoteService,
+  reserveAutoLotNumberRangeService,
 };

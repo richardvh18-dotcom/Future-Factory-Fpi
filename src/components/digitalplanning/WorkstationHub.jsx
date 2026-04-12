@@ -1,11 +1,24 @@
-import { collection, query, onSnapshot, doc, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, deleteDoc, getDoc, setDoc, arrayUnion, increment } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, setDoc, arrayUnion, increment } from "firebase/firestore";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Loader2, Menu, X, Clock, Calendar, ScanBarcode, UserCheck } from "lucide-react";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
-import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
+import {
+  rejectTrackedProductFinal,
+  completeTrackedProduct,
+  cancelTrackedProduction,
+  moveTrackedProductManual,
+  tempRejectTrackedProduct,
+  advanceTrackedProduct,
+  startWorkstationProductionRun,
+  completeTrackedProductRepair,
+  routeTrackedProductsToLossen,
+  toggleTrackedProductPause,
+  markTrackedProductReminder,
+  linkPlanningOrderProduct,
+} from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
 import { useNotifications } from "../../contexts/NotificationContext";
@@ -14,8 +27,6 @@ import {
   WORKSTATIONS,
   getISOWeekInfo,
   isInspectionOverdue,
-  getNextFlowState,
-  getStepForStation,
 } from "../../utils/workstationLogic";
 import { normalizeMachine, FITTING_MACHINES, PIPE_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
 import { toDateSafe } from "../../utils/dateUtils";
@@ -32,7 +43,6 @@ import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";
 import BM01Hub from "./BM01Hub";
 import RepairModal from "./modals/RepairModal";
-import { moveTrackedProductManual } from "../../services/planningSecurityService";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -487,9 +497,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
             ...PATHS.TRACKING,
             item.id || item.lotNumber
           );
-          await updateDoc(productRef, {
+          await markTrackedProductReminder({
+            productId: item.id || item.lotNumber,
             reminderSent: true,
-            reminderSentAt: serverTimestamp(),
+            actorLabel: currentUser?.email || "Operator",
+            source: "WorkstationHub",
           });
         } catch (err) {
           console.error(t("digitalplanning.workstation.reminder_error"), err);
@@ -1270,118 +1282,41 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   ) => {
     if (!currentUser || !customLotNumber) return;
     try {
-      const now = new Date();
-      const prefix = customLotNumber.slice(0, -4);
-      const startSeq = parseInt(customLotNumber.slice(-4), 10);
       const seriesGroupId =
         startOptions?.seriesGroupId ||
         (Number(stringCount) > 1
-          ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${prefix}${String(startSeq).padStart(4, "0")}`
+          ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${String(customLotNumber || "LOT").replace(/[^a-zA-Z0-9]/g, "_")}`
           : null);
       let overflowItems = [];
 
-      const buildLotSpecificLabelZpl = (targetLotNumber) => {
-        if (typeof labelZplData !== "string" || !labelZplData.trim()) return null;
-        if (!customLotNumber || targetLotNumber === customLotNumber) return labelZplData;
-        // Bij string-runs vervangen we het start-lot in de ZPL zodat elk tracked item
-        // zijn eigen herprintbare labelinhoud bewaart.
-        return labelZplData.split(customLotNumber).join(targetLotNumber);
-      };
+      const stationOperators = occupancy
+        .filter((occ) => {
+          if (occ.station !== selectedStation) return false;
+          if (!occ.date) return false;
+          const occDate = occ.date.toDate ? occ.date.toDate() : new Date(occ.date);
+          occDate.setHours(0, 0, 0, 0);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          return occDate.getTime() === today.getTime() && isShiftActive(occ.shift);
+        })
+        .map((occ) => occ.operatorNumber)
+        .filter(Boolean);
 
-      for (let i = 0; i < stringCount; i++) {
-        const currentSeq = startSeq + i;
-        const currentLotNumber = `${prefix}${String(currentSeq).padStart(
-          4,
-          "0"
-        )}`;
-        const productRef = doc(
-          db,
-          ...PATHS.TRACKING,
-          currentLotNumber
-        );
+      const startResult = await startWorkstationProductionRun({
+        orderDocId: order.id,
+        lotStart: customLotNumber,
+        stringCount,
+        stationId: selectedStation,
+        actorLabel: currentUser?.email || "Operator",
+        labelZplData: typeof labelZplData === "string" ? labelZplData : "",
+        labelTemplateId: labelTemplateId || "",
+        seriesGroupId: seriesGroupId || "",
+        isFlangeSeries: !!startOptions?.isFlangeSeries,
+        stationOperators,
+        source: "WorkstationHub",
+      });
 
-        const stationField = getStartedCounterField(selectedStation);
-        const persistedStartedCount = Number(order[stationField] || 0);
-        const activeStartedCount = rawProducts.filter(
-          (p) =>
-            p.orderId === order.orderId &&
-            p.originMachine === selectedStation &&
-            p.status !== "rejected" &&
-            p.currentStep !== "REJECTED"
-        ).length;
-        const currentStartedCount = Math.max(
-          persistedStartedCount,
-          activeStartedCount
-        );
-        const plannedAmount = Number(order.plan || 0);
-        const isOverflow = currentStartedCount + i + 1 > plannedAmount;
-
-        // Haal personeelsnummers op voor dit station
-        const stationOperators = occupancy
-          .filter(occ => {
-            if (occ.station !== selectedStation) return false;
-            if (!occ.date) return false;
-            const occDate = occ.date.toDate ? occ.date.toDate() : new Date(occ.date);
-            occDate.setHours(0, 0, 0, 0);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            // Filter: Datum moet vandaag zijn EN de shift moet nu actief zijn
-            return occDate.getTime() === today.getTime() && isShiftActive(occ.shift);
-          })
-          .map(occ => occ.operatorNumber)
-          .filter(Boolean);
-
-        const flowState = getNextFlowState('START_WINDING');
-        const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLotNumber);
-        const labelAudit = lotSpecificLabelZpl
-          ? {
-              timestamp: now.toISOString(),
-              user: currentUser?.email || "Operator",
-              station: selectedStation,
-              source: "production_start",
-              templateId: labelTemplateId || null,
-            }
-          : null;
-
-        const unitData = {
-          lotNumber: currentLotNumber,
-          orderId: isOverflow ? "NOG_TE_BEPALEN" : order.orderId,
-          item: order.item,
-          drawing: order.drawing || "",
-          originMachine: selectedStation,
-          currentStation: selectedStation,
-          currentStep: flowState.currentStep || "Wikkelen",
-          status: flowState.status || "in_progress",
-          startTime: now.toISOString(),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          operator: currentUser.email,
-          timestamps: {
-            wikkelen_start: serverTimestamp(),
-            station_start: serverTimestamp(),
-          },
-          personnelTracking: {
-            [selectedStation]: stationOperators,
-          },
-          labelZPL: lotSpecificLabelZpl,
-          labelTemplateId: labelTemplateId || null,
-          labelLastPrint: labelAudit,
-        };
-        if (seriesGroupId) {
-          unitData.seriesGroupId = seriesGroupId;
-          unitData.seriesIndex = i + 1;
-          unitData.seriesSize = Number(stringCount) || 1;
-          unitData.seriesOrderNumber = order.orderId;
-          unitData.isFlangeSeries = !!startOptions?.isFlangeSeries;
-        }
-        if (isOverflow) {
-          unitData.isOverproduction = true;
-          unitData.originalOrderId = order.orderId;
-          unitData.note = "Overproductie uit string-run";
-          overflowItems.push(currentLotNumber);
-        }
-        await setDoc(productRef, unitData);
-      }
+      overflowItems = Array.isArray(startResult?.overflowLots) ? startResult.overflowLots : [];
 
       if (overflowItems.length > 0) {
         const plannerRecipientsSnap = await getDocs(
@@ -1440,20 +1375,6 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         );
       }
 
-      // Update order: decrease counter for this station
-      if (order.status !== "completed") {
-        const stationField = getStartedCounterField(selectedStation);
-        const currentStarted = order[stationField] || 0;
-        
-        await updateDoc(
-          doc(db, ...PATHS.PLANNING, order.id),
-          {
-            status: "in_progress",
-            lastUpdated: serverTimestamp(),
-            [stationField]: currentStarted + stringCount,
-          }
-        );
-      }
       await logActivity(
         currentUser?.uid || "system",
         "ORDER_RELEASE",
@@ -1497,12 +1418,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const handlePauseResume = async (product) => {
     if (!product) return;
     try {
-      const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
       const isPaused = product.status === "PAUSED";
-      
-      await updateDoc(productRef, {
-        status: isPaused ? "In Production" : "PAUSED",
-        updatedAt: serverTimestamp(),
+
+      await toggleTrackedProductPause({
+        productId: product.id || product.lotNumber,
+        actorLabel: currentUser?.email || "Operator",
+        source: "WorkstationHub",
       });
       await logActivity(
         currentUser?.uid || "system",
@@ -1520,14 +1441,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
   const handleLinkProduct = async (docId, product) => {
     try {
-      await updateDoc(
-        doc(db, ...PATHS.PLANNING, docId),
-        {
-          linkedProductId: product.id,
-          linkedProductImage: product.imageUrl,
-          lastUpdated: new Date(),
-        }
-      );
+      await linkPlanningOrderProduct({
+        orderDocId: docId,
+        productId: product.id,
+        productImage: product.imageUrl || "",
+      });
       await logActivity(
         currentUser?.uid || "system",
         "ORDER_LINK_PRODUCT",
@@ -1575,30 +1493,16 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         return;
       }
 
-      // temp_reject: directe updateDoc
-      const productRef = doc(db, ...PATHS.TRACKING, productId);
-      const updates = {
-        updatedAt: serverTimestamp(),
+      await tempRejectTrackedProduct({
+        productId,
+        reasons: data.reasons || [],
         note: data.note || "",
-        processedBy: currentUser?.email || "Unknown",
-        inspection: {
-          status: "Tijdelijke afkeur",
-          reasons: data.reasons,
-          timestamp: new Date().toISOString(),
-        },
-        currentStep: "HOLD_AREA",
+        station: selectedStation,
+        actorLabel: currentUser?.email || "Operator",
         previousStep: itemToFinish.currentStep,
         previousStatus: itemToFinish.status,
-        history: arrayUnion({
-          action: "Tijdelijke Afkeur",
-          timestamp: new Date().toISOString(),
-          user: currentUser?.email || "Operator",
-          station: selectedStation,
-          details: `Reden: ${data.reasons?.join(", ")}`,
-        }),
-      };
-
-      await updateDoc(productRef, updates);
+        source: "WorkstationHub",
+      });
       await logActivity(
         currentUser?.uid || "system",
         "QUALITY_TEMP_REJECT",
@@ -1638,15 +1542,21 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     if (product.isManualMove) {
       try {
         const targetStation = product.currentStation || selectedStation;
-        const nextState = getStepForStation(targetStation);
-        
-        const productRef = doc(db, ...PATHS.TRACKING, product.id || product.lotNumber);
-        await updateDoc(productRef, {
-          currentStep: nextState.currentStep,
-          status: nextState.status || "in_progress",
-          isManualMove: false,
-          updatedAt: serverTimestamp(),
-          note: product.note ? product.note + ` (Hervat op ${targetStation})` : `Hervat op ${targetStation}`
+        const targetProductId = product.id || product.lotNumber;
+
+        await advanceTrackedProduct({
+          productId: targetProductId,
+          nextStation: "",
+          nextStep: String(product.currentStep || "").trim() || "Wikkelen",
+          nextStatus: String(product.status || "").trim() || "In Production",
+          lastStation: targetStation,
+          note: product.note ? product.note + ` (Hervat op ${targetStation})` : `Hervat op ${targetStation}`,
+          actorLabel: currentUser?.email || "Operator",
+          previousStep: product.currentStep || "",
+          historyAction: "Handmatige Verplaatsing Hervat",
+          historyDetails: `Handmatige verplaatsing hervat op ${targetStation}`,
+          clearManualMove: true,
+          source: "WorkstationHub",
         });
         showSuccess(`Product ${product.lotNumber} correct ingesteld voor ${targetStation}`);
         return;
@@ -1680,50 +1590,21 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         .map(occ => occ.operatorNumber)
         .filter(Boolean);
 
-      const flowState = getNextFlowState('FINISH_WINDING');
-      let hasLocalLossenRoute = false;
-
-      for (const target of targets) {
-        const targetId = target?.id || target?.lotNumber;
-        if (!targetId) continue;
-
-        const productRef = doc(db, ...PATHS.TRACKING, targetId);
-        const lossenRoute = getLossenRoute(
-          `${target?.item || ""} ${target?.description || ""} ${target?.itemCode || ""}`,
-          selectedStation
-        );
-
-        const updates = {
-          currentStep: flowState.currentStep || "Wacht op Lossen",
-          status: flowState.status || "Te Lossen",
-          updatedAt: serverTimestamp(),
-          "timestamps.lossen_start": serverTimestamp(),
-        };
-
-        // Grote moffen gaan naar centraal station LOSSEN, kleine/middelgrote blijven lokaal
-        if (lossenRoute.mode === "STATION") {
-          updates.currentStation = lossenRoute.station || "LOSSEN";
-        } else {
-          // Houd lokale Lossen-tab robuust: zet expliciet station/step/status
-          updates.currentStation = selectedStation;
-          updates.currentStep = "Wacht op Lossen";
-          updates.status = "Te Lossen";
-          hasLocalLossenRoute = true;
-        }
-
-        if (lossenOperators.length > 0) {
-          updates[`personnelTracking.LOSSEN`] = lossenOperators;
-        }
-
-        await updateDoc(productRef, updates);
-      }
+      const routingResult = await routeTrackedProductsToLossen({
+        productIds: targets.map((target) => target?.id || target?.lotNumber).filter(Boolean),
+        originStation: selectedStation,
+        centralStation: "LOSSEN",
+        centralOperators: lossenOperators,
+        actorLabel: currentUser?.email || "Operator",
+        source: "WorkstationHub",
+      });
 
       await logActivity(
         currentUser?.uid || "system",
         "PRODUCT_TO_LOSSEN",
         `Doorgestuurd naar lossen: ${targets.length} lot(s), station ${selectedStation}`
       );
-      if (hasLocalLossenRoute) {
+      if (routingResult?.switchedToLossenTab) {
         setActiveTab("lossen");
       }
     } catch (error) {
@@ -1736,27 +1617,14 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const handleRepairComplete = async (data) => {
       if (!itemToRepair) return;
       try {
-          const productRef = doc(db, ...PATHS.TRACKING, itemToRepair.id || itemToRepair.lotNumber);
-          
-          const updates = {
-              currentStation: "BM01",
-              currentStep: "Eindinspectie",
-              status: "Te Keuren",
-              updatedAt: serverTimestamp(),
-              repairActive: false,
-              note: itemToRepair.note ? `${itemToRepair.note}\nReparatie: ${data.notes}` : `Reparatie: ${data.notes}`,
-              "timestamps.bm01_start": serverTimestamp(),
-              "timestamps.repair_end": serverTimestamp(),
-              history: arrayUnion({
-                  action: "Reparatie Voltooid",
-                  timestamp: new Date().toISOString(),
-                  user: currentUser?.email || "Operator",
-                  station: "BH31",
-                  details: `Acties: ${data.actions.join(", ")}. ${data.notes}`
-              })
-          };
-
-          await updateDoc(productRef, updates);
+        await completeTrackedProductRepair({
+          productId: itemToRepair.id || itemToRepair.lotNumber,
+          station: "BH31",
+          actions: data.actions || [],
+          note: data.notes || "",
+          actorLabel: currentUser?.email || "Operator",
+          source: "WorkstationHub",
+        });
           await logActivity(
             currentUser?.uid || "system",
             "QUALITY_REPAIR_COMPLETE",
@@ -1821,76 +1689,17 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     if (!cancelConfirmed) return;
 
     try {
-      const cancelledLot = String(product.lotNumber || "").trim();
-      const lotSeq = Number.parseInt(cancelledLot.slice(-4), 10);
-      const lotWeekSuffix = cancelledLot.length >= 6 ? cancelledLot.slice(2, 6) : "";
-      const lotStation = String(product.originMachine || selectedStation || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-      // 1) Verwijder het actieve product
-      const productRef = doc(db, ...PATHS.TRACKING, productId);
-      await deleteDoc(productRef);
-
-      // Update order teller in planning (verminder 'started' count)
-      if (product.orderId && product.orderId !== "NOG_TE_BEPALEN") {
-        const order = rawOrders.find(o => o.orderId === product.orderId);
-        if (order) {
-           const stationField = getStartedCounterField(selectedStation);
-           // Gebruik increment(-1) voor atomicity
-           await updateDoc(doc(db, ...PATHS.PLANNING, order.id), {
-             [stationField]: increment(-1),
-             lastUpdated: serverTimestamp()
-           }).catch(e => console.warn("Kon orderteller niet verlagen:", e));
-        }
-      }
-
-      // 2) Geef lotvolgnummer vrij voor hergebruik (recycled sequence pool)
-      if (lotWeekSuffix && Number.isFinite(lotSeq) && lotSeq > 0) {
-        const counterDocId = `${lotStation}_${lotWeekSuffix}`;
-        const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
-        const counterSnap = await getDoc(counterRef);
-        const existing = counterSnap.exists() && Array.isArray(counterSnap.data()?.recycledSequences)
-          ? counterSnap.data().recycledSequences
-              .map((n) => Number(n))
-              .filter((n) => Number.isFinite(n) && n > 0)
-          : [];
-        const nextRecycled = Array.from(new Set([...existing, lotSeq])).sort((a, b) => a - b);
-        await setDoc(counterRef, {
-          recycledSequences: nextRecycled,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-      }
-
-      // 3) Verwijder pending print queue jobs voor dit lot/order
-      let removedQueueJobs = 0;
-      try {
-        const queueSnap = await getDocs(query(collection(db, ...PATHS.PRINT_QUEUE), where("status", "==", "pending"), limit(200)));
-        const lotUpper = cancelledLot.toUpperCase();
-        const orderUpper = String(product.orderId || "").toUpperCase();
-
-        const toDelete = queueSnap.docs.filter((d) => {
-          const data = d.data() || {};
-          const md = data.metadata || {};
-          const mdLot = String(md.lotNumber || md.variables?.lotNumber || "").toUpperCase();
-          const mdOrder = String(md.orderId || md.variables?.orderNumber || "").toUpperCase();
-          const desc = String(md.description || data.description || "").toUpperCase();
-
-          if (lotUpper && (mdLot === lotUpper || desc.includes(lotUpper))) return true;
-          if (orderUpper && (mdOrder === orderUpper || desc.includes(orderUpper))) return true;
-          return false;
-        });
-
-        for (const d of toDelete) {
-          await deleteDoc(doc(db, ...PATHS.PRINT_QUEUE, d.id));
-          removedQueueJobs += 1;
-        }
-      } catch (queueErr) {
-        console.warn("Queue cleanup bij annuleren mislukt:", queueErr);
-      }
+      await cancelTrackedProduction({
+        productId,
+        selectedStation,
+        source: "WorkstationHub",
+        actorLabel: currentUser?.email,
+      });
 
       await logActivity(
         currentUser?.uid,
         "PRODUCTION_CANCEL",
-        `Production cancelled for lot ${product.lotNumber} on ${selectedStation}; sequence recycled=${Number.isFinite(lotSeq) ? lotSeq : 'n/a'}; queue jobs removed=${removedQueueJobs}`
+        `Production cancelled for lot ${product.lotNumber} on ${selectedStation}`
       );
       showSuccess(t("digitalplanning.workstation.cancel_success", "Productie geannuleerd"));
     } catch (err) {

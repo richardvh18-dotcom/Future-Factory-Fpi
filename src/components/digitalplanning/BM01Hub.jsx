@@ -8,10 +8,10 @@ import OrderDetail from "./OrderDetail";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, onSnapshot, arrayUnion, limit } from "firebase/firestore";
+import { collection, query, where, getDocs, onSnapshot, limit } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
-import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
+import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, appendQcNote } from "../../services/planningSecurityService";
 import { getStartedCounterField } from "../../utils/hubHelpers";
 import InternalQrImage from "../../utils/InternalQrImage";
 import PlanningSidebar from "./PlanningSidebar";
@@ -436,24 +436,13 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         return;
       }
 
-      // temp_reject – directe Firestore update voor tijdelijk hold
-      const productRef = doc(db, ...PATHS.TRACKING, productId);
-      await updateDoc(productRef, {
-        updatedAt: serverTimestamp(),
-        note: data.note || "",
-        inspection: {
-          status: "Tijdelijke afkeur",
-          reasons: data.reasons,
-          timestamp: new Date().toISOString(),
-        },
-        currentStep: "HOLD_AREA",
-        history: arrayUnion({
-          action: "Tijdelijke Afkeur",
-          timestamp: new Date().toISOString(),
-          user: user?.email || "Operator",
-          station: "BM01",
-          details: `Reden: ${(data.reasons || []).join(", ")}`,
-        }),
+            await tempRejectTrackedProduct({
+                productId,
+                reasons: data.reasons || [],
+                note: data.note || "",
+                station: "BM01",
+                actorLabel: user?.email || "Operator",
+                source: "BM01Hub",
       });
       await logActivity(
         user?.uid || "system",
@@ -645,20 +634,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
       
       try {
           const product = viewingDossier;
-          let ref;
-          
-          // Check of het product in het archief zit (op basis van ID in de geladen archivedProducts lijst)
           const isArchived = archivedProducts.some(p => p.id === product.id);
-          
-          if (isArchived) {
-              // Bepaal jaar voor archief pad
-              const date = product.timestamps?.finished?.toDate ? product.timestamps.finished.toDate() : new Date(product.timestamps?.finished || product.updatedAt);
-              const year = date.getFullYear();
-              ref = doc(db, "future-factory", "production", "archive", String(year), "items", product.id);
-          } else {
-              // Actieve tracking
-              ref = doc(db, ...PATHS.TRACKING, product.id);
-          }
+          const date = product.timestamps?.finished?.toDate
+            ? product.timestamps.finished.toDate()
+            : new Date(product.timestamps?.finished || product.updatedAt || Date.now());
+          const archiveYear = isArchived && Number.isFinite(date.getFullYear()) ? date.getFullYear() : null;
 
           const noteObj = {
               text: noteText,
@@ -666,8 +646,12 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
               user: user?.email || "BM01 Operator"
           };
 
-          await updateDoc(ref, {
-              qcNotes: arrayUnion(noteObj)
+          await appendQcNote({
+              productId: product.id,
+              note: noteText,
+              archivedYear: archiveYear,
+              source: "bm01_hub",
+              actorLabel: user?.email || "BM01 Operator",
           });
                     await logActivity(
                         user?.uid || "system",

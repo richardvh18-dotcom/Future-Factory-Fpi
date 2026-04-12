@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, CheckCircle, ArrowRight, AlertTriangle, Ruler, AlertOctagon, FileText } from "lucide-react";
-import { doc, updateDoc, arrayUnion, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS, resolvePostLossenStation } from "../../../utils/workstationLogic";
 import { useNotifications } from '../../../contexts/NotificationContext';
-import { rejectTrackedProductFinal } from "../../../services/planningSecurityService";
+import { rejectTrackedProductFinal, tempRejectTrackedProduct, advanceTrackedProduct } from "../../../services/planningSecurityService";
 
 const PILOT_ALLOW_INCOMPLETE_LOSSEN_MEASUREMENTS = true;
 
@@ -242,13 +242,7 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
         const targetId = target?.id || target?.lotNumber;
         if (!targetId) continue;
 
-        const targetRef = doc(db, ...PATHS.TRACKING, targetId);
         const targetCurrentStep = target?.currentStep || currentStep;
-        const updates = {
-          lastUpdated: serverTimestamp(),
-          note: comment,
-          measurements: normalizedMeasurements,
-        };
 
         if (status === "approved") {
           let nextStep = nextStepDisplay;
@@ -290,37 +284,34 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
             nextStatus = "Te Nabewerken";
           }
 
-          updates.currentStep = nextStep;
-          updates.status = nextStatus;
-          updates[`timestamps.${String(targetCurrentStep).toLowerCase()}_end`] = serverTimestamp();
-          updates[`timestamps.${String(nextStep).toLowerCase()}_start`] = serverTimestamp();
-          updates.history = arrayUnion({
-            action: "Stap Voltooid",
-            timestamp: new Date(),
-            user: activeOperator,
-            details: `Doorgestuurd van ${targetCurrentStep} naar ${nextStep}`,
-            station: target.currentStation || target.machine || "Onbekend",
+          await advanceTrackedProduct({
+            productId: targetId,
+            nextStation: updateStation ? targetStation : "",
+            nextStep,
+            nextStatus,
+            lastStation: target.currentStation || target.machine || "Onbekend",
+            note: comment,
+            actorLabel: activeOperator,
+            previousStep: targetCurrentStep,
+            historyAction: "Stap Voltooid",
+            historyDetails: `Doorgestuurd van ${targetCurrentStep} naar ${nextStep}`,
+            clearManualMove: Boolean(target?.isManualMove),
+            measurements: normalizedMeasurements,
+            source: "ProductReleaseModal",
           });
-
-          if (updateStation) {
-            updates.currentStation = targetStation;
-            updates.lastStation = target.currentStation || target.machine || "Onbekend";
-          }
+          continue;
         } else if (status === "temp_reject") {
-          updates.status = "Tijdelijke afkeur";
-          updates.currentStep = "HOLD_AREA";
-          updates.inspection = {
-            status: "Tijdelijke afkeur",
+          await tempRejectTrackedProduct({
+            productId: targetId,
             reasons: selectedReasons,
-            timestamp: new Date().toISOString(),
-          };
-          updates.history = arrayUnion({
-            action: "Tijdelijke Afkeur",
-            timestamp: new Date(),
-            user: activeOperator,
-            details: `Reden: ${selectedReasons.map((r) => getReasonLabel(r)).join(", ")} - ${comment}`,
+            note: comment,
             station: target.currentStation || target.machine || "Onbekend",
+            actorLabel: activeOperator,
+            previousStep: targetCurrentStep,
+            previousStatus: target?.status || currentStep,
+            source: "ProductReleaseModal",
           });
+          continue;
         } else if (status === "rejected") {
           await rejectTrackedProductFinal({
             productId: targetId,
@@ -333,8 +324,6 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
           // Skip updateDoc, direct naar next target
           continue;
         }
-
-        await updateDoc(targetRef, updates);
       }
 
       await logActivity(

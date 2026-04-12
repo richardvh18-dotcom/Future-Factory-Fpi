@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, arrayUnion } from "firebase/firestore";
+import { collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { rejectTrackedProductFinal, completeTrackedProduct } from "../../services/planningSecurityService";
+import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, advanceTrackedProduct } from "../../services/planningSecurityService";
 import { Package,
     Loader2,
     ClipboardCheck,
@@ -515,36 +515,31 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         return;
       }
 
-      // temp_reject en basic-station completed: directe Firestore update
-      const productRef = doc(db, ...PATHS.TRACKING, productId);
-      const updates = {
-        updatedAt: serverTimestamp(),
-        note: data.note || "",
-        history: arrayUnion({
-          action: status === "completed" ? "Stap Voltooid" : "Tijdelijke Afkeur",
-          timestamp: new Date().toISOString(),
-          user: user?.email || "Operator",
-          station: stationId,
-          details: status === "completed" ? "Verwerking afgerond" : `Reden: ${(data.reasons || []).join(", ")}`,
-        }),
-      };
-
       if (status === "temp_reject") {
-        updates.inspection = {
-          status: "Tijdelijke afkeur",
-          reasons: data.reasons,
-          timestamp: new Date().toISOString(),
-        };
-        updates.currentStep = "HOLD_AREA";
+        await tempRejectTrackedProduct({
+          productId,
+          reasons: data.reasons || [],
+          note: data.note || "",
+          station: stationId,
+          actorLabel: user?.email || "Operator",
+          source: "LossenView",
+        });
       } else if (status === "completed" && !isAdvancedStation) {
         const flowState = getNextFlowState("FINISH_WINDING");
-        updates.currentStation = flowState.currentStation || stationId;
-        updates.currentStep = flowState.currentStep || "Lossen";
-        updates.status = flowState.status || "In Productie";
-        updates.lastStation = stationId;
+        await advanceTrackedProduct({
+          productId,
+          nextStation: flowState.currentStation || stationId,
+          nextStep: flowState.currentStep || "Lossen",
+          nextStatus: flowState.status || "In Productie",
+          lastStation: stationId,
+          note: data.note || "",
+          actorLabel: user?.email || "Operator",
+          previousStep: product.currentStep || stationId,
+          historyAction: "Stap Voltooid",
+          historyDetails: "Verwerking afgerond",
+          source: "LossenView",
+        });
       }
-
-      await updateDoc(productRef, updates);
       await logActivity(
         user?.uid || "system",
         status === "completed" ? "POST_PROCESS_COMPLETE" : "QUALITY_TEMP_REJECT",

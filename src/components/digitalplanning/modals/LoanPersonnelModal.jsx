@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { X, ArrowRight, Users, Building2, Clock } from "lucide-react";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
-import { db, auth, logActivity } from "../../../config/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db, auth } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { format, parse } from "date-fns";
 import { useNotifications } from '../../../contexts/NotificationContext';
+import { loanPersonnelToDepartment } from "../../../services/planningSecurityService";
 
 /**
  * LoanPersonnelModal - Personeel uitlenen aan andere afdelingen (V2)
@@ -75,31 +76,23 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
         return;
       }
 
-      // Maak een nieuwe occupancy record voor de doelstation met de NIEUWE shift-tijden
-      const loanId = `loan_${person.operatorNumber}_${targetDepartment}_${Date.now()}`;
-      await setDoc(doc(db, ...PATHS.OCCUPANCY, loanId), {
-        operatorNumber: person.operatorNumber,
-        operatorName: person.operatorName,
-        machineId: targetStation,
-        departmentId: targetDepartment,
+      await loanPersonnelToDepartment({
+        operatorNumber: person?.operatorNumber,
+        operatorName: person?.operatorName,
+        targetDepartment,
+        targetStation,
         date: todayStr,
-        shift: selectedShiftData.label,
+        shiftLabel: selectedShiftData.label,
         shiftStart: selectedShiftData.start,
         shiftEnd: selectedShiftData.end,
         hoursWorked: calculateShiftHours(selectedShiftData),
         isPloeg: selectedShiftData.id !== "DAGDIENST",
-        isLoan: true,
-        loanFromDepartment: currentDepartment.id,
-        loanFromStation: person.machineId,
-        originalShift: person.shift, // Bewaar originele shift voor referentie
-        timestamp: new Date().toISOString()
+        loanFromDepartment: currentDepartment?.id,
+        loanFromStation: person?.machineId,
+        originalShift: person?.shift,
+        source: "LoanPersonnelModal",
+        actorLabel: auth.currentUser?.email,
       });
-
-      await logActivity(
-        auth.currentUser?.uid || "system",
-        "PERSONNEL_LOAN",
-        `Personeel uitgeleend: ${person?.operatorName || person?.operatorNumber} van ${currentDepartment?.id || "onbekend"} naar ${targetDepartment} (${targetStation}, ${selectedShiftData.label})`
-      );
 
       onClose();
     } catch (error) {

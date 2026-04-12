@@ -15,12 +15,13 @@ import {
   Star,
   Ban
 } from "lucide-react";
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase.js";
 import { PATHS } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import { formatDateTimeSafe } from "../../../utils/dateUtils";
 import { resolvePostLossenStation } from "../../../utils/workstationLogic";
+import { updatePlanningOrderPriority, cancelPlanningOrder } from "../../../services/planningSecurityService";
 import StatusBadge from "../common/StatusBadge.jsx";
 import CancelOrderModal from "./CancelOrderModal";
 
@@ -131,10 +132,11 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
     const newPriority = currentPrio === level ? false : level;
 
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-      await updateDoc(orderRef, {
+      await updatePlanningOrderPriority({
+        orderDocId: order.id,
         priority: newPriority,
-        lastUpdated: new Date()
+        source: "TeamleaderOrderDetailModal",
+        actorLabel: auth.currentUser?.email,
       });
     } catch (e) {
       console.error("Fout bij wijzigen prioriteit:", e);
@@ -143,13 +145,11 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
 
   const handleCancelOrder = async (reason) => {
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-      await updateDoc(orderRef, {
-        status: 'cancelled',
-        cancelledAt: serverTimestamp(),
-        cancelledBy: auth.currentUser?.uid,
-        cancellationReason: reason,
-        lastUpdated: serverTimestamp()
+      await cancelPlanningOrder({
+        orderDocId: order.id,
+        reason,
+        source: "TeamleaderOrderDetailModal",
+        actorLabel: auth.currentUser?.email,
       });
 
       await logActivity(

@@ -31,9 +31,18 @@ import ConfirmationModal from "./modals/ConfirmationModal";
 import { FileImage } from "lucide-react";
 import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
-import { doc, updateDoc, serverTimestamp, collection, addDoc, getDoc, getDocs, query, where, limit, arrayUnion } from "firebase/firestore";
+import { collection, getDoc, getDocs, query, where, limit } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
+import {
+  updatePlanningOrderPriority,
+  cancelPlanningOrder,
+  movePlanningOrder,
+  retrievePlanningOrder,
+  togglePlanningOrderHold,
+  updatePlanningOrderDetails,
+  editTrackedProductLotNumber,
+} from "../../services/planningSecurityService";
 import { useNotifications } from "../../contexts/NotificationContext";
 import StatusBadge from "./common/StatusBadge";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
@@ -117,56 +126,14 @@ const OrderDetail = React.memo(({
     if (!order) return;
     
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-      const updates = {
-        lastUpdated: serverTimestamp()
-      };
-      
-      let messageContent = "";
-      let messageTarget = "";
-
-      if (targetType === "department") {
-        // Delegatie naar andere afdeling
-        const dept = targetId.toLowerCase(); 
-        const inbox = `${targetId.toUpperCase()}_INBOX`;
-        
-        updates.machine = inbox;
-        updates.originalMachine = order.machine;
-        updates.originalDepartment = order.department || "fittings";
-        updates.returnStation = order.machine;
-        updates.delegatedTo = targetId.toUpperCase();
-        updates.department = dept;
-        updates.delegationDate = serverTimestamp();
-        updates.status = "delegated";
-        
-        messageContent = `Order ${order.orderId} is vanuit ${order.department || 'Fittings'} aangeboden voor ${targetId}.`;
-        messageTarget = `${targetId.toUpperCase()}_TEAM`;
-        
-      } else if (targetType === "station") {
-        // Interne verplaatsing / Toewijzing
-        updates.machine = targetId;
-        updates.status = "planned"; 
-        updates.delegatedTo = null; 
-        updates.department = currentDepartment || "fittings";
-      }
-
-      await updateDoc(orderRef, updates);
-
-      if (messageTarget) {
-        await addDoc(collection(db, ...PATHS.MESSAGES), {
-          to: messageTarget,
-          from: "SYSTEM",
-          senderId: "system-auto",
-          subject: `Nieuwe Order: ${order.orderId}`,
-          content: messageContent,
-          timestamp: serverTimestamp(),
-          read: false,
-          archived: false,
-          priority: "normal",
-          type: "system",
-          targetGroup: messageTarget
-        });
-      }
+      await movePlanningOrder({
+        orderDocId: order.id,
+        targetType,
+        targetId,
+        currentDepartment: currentDepartment || order.department || "fittings",
+        source: "OrderDetail",
+        actorLabel: user?.email || auth.currentUser?.email,
+      });
 
       showSuccess(t("digitalplanning.order_detail.move_success", "Order succesvol verplaatst"));
       setShowOrderMoveModal(false);
@@ -189,13 +156,10 @@ const OrderDetail = React.memo(({
     if (!retrieveConfirmed) return;
 
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-      await updateDoc(orderRef, {
-        machine: order.returnStation || order.originalMachine || "BH11", // Fallback naar BH11 als origineel onbekend is
-        department: order.originalDepartment || "fittings",
-        delegatedTo: null,
-        status: "planned",
-        lastUpdated: serverTimestamp()
+      await retrievePlanningOrder({
+        orderDocId: order.id,
+        source: "OrderDetail",
+        actorLabel: user?.email || auth.currentUser?.email,
       });
       showSuccess(t("digitalplanning.order_detail.retrieve_success", "Order succesvol teruggehaald naar planning"));
       onClose();
@@ -207,17 +171,13 @@ const OrderDetail = React.memo(({
 
   const handleCancelOrder = async (reason) => {
     try {
-      // 1. Update de order status (Soft Delete)
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-      await updateDoc(orderRef, {
-        status: 'cancelled',
-        cancelledAt: serverTimestamp(),
-        cancelledBy: user?.uid || auth.currentUser?.uid,
-        cancellationReason: reason,
-        lastUpdated: serverTimestamp()
+      await cancelPlanningOrder({
+        orderDocId: order.id,
+        reason,
+        source: "OrderDetail",
+        actorLabel: user?.email || auth.currentUser?.email,
       });
 
-      // 2. Log de activiteit (ISO 9001 eis)
       await logActivity(
         user?.uid || auth.currentUser?.uid,
         "ORDER_CANCELLED", 
@@ -238,8 +198,12 @@ const OrderDetail = React.memo(({
     const currentPrio = order.priority === true ? "high" : order.priority;
     const newPriority = currentPrio === level ? false : level;
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-      await updateDoc(orderRef, { priority: newPriority, lastUpdated: serverTimestamp() });
+      await updatePlanningOrderPriority({
+        orderDocId: order.id,
+        priority: newPriority,
+        source: "OrderDetail",
+        actorLabel: user?.email || auth.currentUser?.email,
+      });
     } catch (e) {
       console.error("Fout bij wijzigen prioriteit:", e);
       showError("Kon prioriteit niet wijzigen");
@@ -249,12 +213,11 @@ const OrderDetail = React.memo(({
   const handleToggleHold = async () => {
     setHoldLoading(true);
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
       const isOnHold = order.status === 'on_hold';
-      await updateDoc(orderRef, {
-        status: isOnHold ? (order.previousStatus || 'waiting') : 'on_hold',
-        ...(isOnHold ? {} : { previousStatus: order.status || 'waiting' }),
-        lastUpdated: serverTimestamp(),
+      await togglePlanningOrderHold({
+        orderDocId: order.id,
+        source: "OrderDetail",
+        actorLabel: user?.email || auth.currentUser?.email,
       });
       await logActivity(
         user?.uid || auth.currentUser?.uid,
@@ -323,18 +286,13 @@ const OrderDetail = React.memo(({
 
     try {
       setIsSavingNote(true);
-      const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-      const updates = {
+      await updatePlanningOrderDetails({
+        orderDocId: order.id,
         notes: trimmedNote,
-        poText: trimmedNote,
-        lastUpdated: serverTimestamp()
-      };
-
-      if (hasPlanChanged) {
-        updates.plan = nextPlan;
-      }
-
-      await updateDoc(orderRef, updates);
+        plan: hasPlanChanged ? nextPlan : null,
+        source: "OrderDetail",
+        actorLabel: user?.email || auth.currentUser?.email,
+      });
       showSuccess("Wijzigingen opgeslagen");
     } catch (err) {
       console.error("Error saving order changes:", err);
@@ -411,19 +369,12 @@ const OrderDetail = React.memo(({
         return;
       }
 
-      const historyEntry = {
-        action: "Lotnummer gewijzigd",
-        timestamp: new Date().toISOString(),
-        station: lotEditTarget.currentStation || "Teamleader",
-        user: user?.email || auth.currentUser?.email || "Teamleader",
-        details: `${oldLot} -> ${newLot} | Reden: ${reason}`,
-      };
-
-      const productRef = doc(db, ...PATHS.TRACKING, lotEditTarget.id);
-      await updateDoc(productRef, {
-        lotNumber: newLot,
-        updatedAt: serverTimestamp(),
-        history: arrayUnion(historyEntry),
+      await editTrackedProductLotNumber({
+        productId: lotEditTarget.id,
+        newLotNumber: newLot,
+        reason,
+        source: "OrderDetail",
+        actorLabel: user?.email || auth.currentUser?.email || "Teamleader",
       });
 
       await logActivity(
