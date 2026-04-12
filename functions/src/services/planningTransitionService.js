@@ -2246,98 +2246,136 @@ const reserveAutoLotNumberRangeService = async ({
   };
 };
 
-// ── Extra collectiepaden (niet in planningConstants) ────────────────────────
 const DOWNTIME_COLLECTION = `${BASE}/production/downtime_reports`;
-const DEFECTS_COLLECTION  = `${BASE}/production/defect_reports`;
+const DEFECTS_COLLECTION = `${BASE}/production/defect_reports`;
 const MESSAGES_COLLECTION = `${BASE}/production/messages`;
 
-// ── Nieuwe service functies ──────────────────────────────────────────────────
-
 const addOrderDependencyService = async ({ orderId, dependencyId }) => {
-  const ref = db.collection(PLANNING_COLLECTION).doc(orderId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error('NOT_FOUND_ORDER');
-  await ref.update({ dependencies: admin.firestore.FieldValue.arrayUnion(dependencyId) });
+  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  await orderRef.set({
+    dependencies: admin.firestore.FieldValue.arrayUnion(dependencyId),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
   return { ok: true };
 };
 
 const removeOrderDependencyService = async ({ orderId, dependencyId }) => {
-  const ref = db.collection(PLANNING_COLLECTION).doc(orderId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error('NOT_FOUND_ORDER');
-  await ref.update({ dependencies: admin.firestore.FieldValue.arrayRemove(dependencyId) });
+  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  await orderRef.set({
+    dependencies: admin.firestore.FieldValue.arrayRemove(dependencyId),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
   return { ok: true };
 };
 
 const updateOrderPlannedDateService = async ({ orderId, plannedDate }) => {
-  const ref = db.collection(PLANNING_COLLECTION).doc(orderId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error('NOT_FOUND_ORDER');
-  await ref.update({
-    plannedDate: new Date(plannedDate),
+  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  await orderRef.set({
+    plannedDate,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  }, { merge: true });
+
   return { ok: true };
 };
 
 const updateOrderKanbanStatusService = async ({ orderId, status, auth }) => {
-  const ref = db.collection(PLANNING_COLLECTION).doc(orderId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error('NOT_FOUND_ORDER');
-  await ref.update({
+  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  await orderRef.set({
     status,
     statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
     statusUpdatedBy: getActorLabel(auth, null),
-  });
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
   return { ok: true };
 };
 
 const markReadyForNextStepService = async ({ productId, auth }) => {
-  const ref = db.collection(TRACKING_COLLECTION).doc(productId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error('NOT_FOUND_PRODUCT');
-  const data = snap.data() || {};
-  const nextState = getStepForStationServer(data.currentStation || '');
-  await ref.update({
-    currentStep: nextState.currentStep || data.currentStep,
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const trackedData = trackedDoc.data() || {};
+  const nextState = getStepForStationServer(trackedData.currentStation || trackedData.machine || '');
+  await trackedDoc.ref.set({
+    currentStep: nextState.currentStep || trackedData.currentStep,
     status: 'ready_for_next_step',
     readyForNextStepAt: admin.firestore.FieldValue.serverTimestamp(),
-    markedReadyBy: auth?.uid,
+    markedReadyBy: auth?.uid || null,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  }, { merge: true });
+
   return { ok: true };
 };
 
 const startTrackedProductRepairService = async ({ productId, repairReason, auth }) => {
-  const ref = db.collection(TRACKING_COLLECTION).doc(productId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error('NOT_FOUND_PRODUCT');
-  await ref.update({
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  await trackedDoc.ref.set({
     status: 'in_repair',
     repairReason: clampText(repairReason, 500),
     repairStartedAt: admin.firestore.FieldValue.serverTimestamp(),
-    repairStartedBy: auth?.uid,
+    repairStartedBy: auth?.uid || null,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  }, { merge: true });
+
   return { ok: true };
 };
 
 const reportShopFloorIssueService = async ({
-  type, machine, orderId, lotNumber, description, operatorName, auth,
+  type,
+  machine,
+  orderId,
+  lotNumber,
+  description,
+  operatorName,
+  auth,
 }) => {
-  if (!['downtime', 'defect'].includes(type)) throw new Error('INVALID_ISSUE_TYPE');
-  const now = admin.firestore.FieldValue.serverTimestamp();
+  if (!['downtime', 'defect'].includes(type)) {
+    throw new Error('INVALID_ISSUE_TYPE');
+  }
+
+  const safeMachine = clampText(machine, 120) || 'Onbekend';
+  const safeOperatorName = clampText(operatorName, 120) || 'Operator';
+  const safeDescription = clampText(description, 1000);
   const commonData = {
-    machine: clampText(machine, 100) || 'Onbekend',
-    createdAt: now,
-    createdBy: auth?.uid,
-    operatorName: clampText(operatorName, 100),
-    orderId: orderId || null,
+    machine: safeMachine,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: auth?.uid || null,
+    operatorName: safeOperatorName,
+    orderId: clean(orderId) || null,
   };
+
   if (type === 'downtime') {
     await db.collection(DOWNTIME_COLLECTION).add({
       ...commonData,
-      reason: clampText(description, 500) || 'Gemeld door operator',
+      reason: safeDescription || 'Gemeld door operator',
       status: 'active',
       type: 'unplanned',
     });
@@ -2345,40 +2383,48 @@ const reportShopFloorIssueService = async ({
     await db.collection(DEFECTS_COLLECTION).add({
       ...commonData,
       defectType: 'Operator Melding',
-      description: clampText(description, 500) || 'Defect gemeld via scanner',
+      description: safeDescription || 'Defect gemeld via scanner',
       severity: 'medium',
       status: 'open',
-      lotNumber: lotNumber || null,
+      lotNumber: clean(lotNumber) || null,
     });
   }
-  const issueLabel = type === 'downtime' ? 'stilstand' : 'defect';
-  const titleLabel = type === 'downtime' ? '⚠️ Stilstand Gemeld' : '🚩 Defect Gemeld';
+
   await db.collection(MESSAGES_COLLECTION).add({
-    title: titleLabel,
-    message: `${clampText(operatorName, 60) || 'Operator'} meldt ${issueLabel} op ${clampText(machine, 80) || 'onbekend'}: ${clampText(description, 200) || 'Geen toelichting'}`,
+    title: type === 'downtime' ? 'Stilstand Gemeld' : 'Defect Gemeld',
+    message: `${safeOperatorName} meldt ${type === 'downtime' ? 'stilstand' : 'defect'} op ${safeMachine}: ${safeDescription || 'Geen toelichting'}`,
     type: 'alert',
     priority: 'high',
     status: 'unread',
     read: false,
-    createdAt: now,
-    timestamp: now,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: 'ShopFloorMobile',
     targetGroup: 'TEAMLEADERS',
   });
+
   return { ok: true };
 };
 
 const resolveShopFloorIssueService = async ({ type, issueId, auth }) => {
-  if (!['downtime', 'defect'].includes(type)) throw new Error('INVALID_ISSUE_TYPE');
-  const col = type === 'downtime' ? DOWNTIME_COLLECTION : DEFECTS_COLLECTION;
-  const ref = db.collection(col).doc(issueId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error('NOT_FOUND_ISSUE');
-  await ref.update({
+  if (!['downtime', 'defect'].includes(type)) {
+    throw new Error('INVALID_ISSUE_TYPE');
+  }
+
+  const collectionName = type === 'downtime' ? DOWNTIME_COLLECTION : DEFECTS_COLLECTION;
+  const issueRef = db.collection(collectionName).doc(issueId);
+  const issueSnap = await issueRef.get();
+  if (!issueSnap.exists) {
+    throw new Error('NOT_FOUND_ISSUE');
+  }
+
+  await issueRef.set({
     status: 'resolved',
     resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
-    resolvedBy: auth?.uid,
-  });
+    resolvedBy: auth?.uid || null,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
   return { ok: true };
 };
 

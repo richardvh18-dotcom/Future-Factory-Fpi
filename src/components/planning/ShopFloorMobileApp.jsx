@@ -21,23 +21,23 @@ import {
   ArrowRight,
   ArrowRightLeft
 } from "lucide-react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import {
-  moveTrackedProductManual,
-  markReadyForNextStep as markReadyForNextStepCallable,
-  reportShopFloorIssue,
-  resolveShopFloorIssue,
-  startTrackedProductRepair,
-} from "../../services/planningSecurityService";
 import { format } from "date-fns";
 import { nl } from "date-fns/locale";
 import MobileScanner from "../digitalplanning/MobileScanner";
 import ProductMoveModal from "../digitalplanning/ProductMoveModal";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import StatusBadge from "../digitalplanning/common/StatusBadge";
+import {
+  moveTrackedProductManual,
+  markReadyForNextStep as markReadyForNextStepCallable,
+  startTrackedProductRepair,
+  reportShopFloorIssue,
+  resolveShopFloorIssue,
+} from "../../services/planningSecurityService";
 import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
@@ -399,8 +399,8 @@ const ShopFloorMobileApp = () => {
       await moveTrackedProductManual({
         productOrLotId: lotNumber,
         newStation,
-        source: 'ShopFloorMobile',
-        actorLabel: user?.email || 'Mobile User',
+        source: "ShopFloorMobile",
+        actorLabel: user?.email || "Mobile User",
       });
 
       await logActivity(
@@ -552,7 +552,11 @@ const ShopFloorMobileApp = () => {
 
   // Resolve downtime
   const resolveDowntime = async (downtimeId) => {
-    await resolveShopFloorIssue({ type: 'downtime', issueId: downtimeId });
+    await resolveShopFloorIssue({
+      type: "downtime",
+      issueId: downtimeId,
+    });
+
     await logActivity(
       user?.uid,
       "DOWNTIME_RESOLVE",
@@ -562,7 +566,11 @@ const ShopFloorMobileApp = () => {
 
   // Resolve defect
   const resolveDefect = async (defectId) => {
-    await resolveShopFloorIssue({ type: 'defect', issueId: defectId });
+    await resolveShopFloorIssue({
+      type: "defect",
+      issueId: defectId,
+    });
+
     await logActivity(
       user?.uid,
       "DEFECT_RESOLVE",
@@ -628,7 +636,9 @@ const ShopFloorMobileApp = () => {
   const markReadyForNextStep = async (product) => {
     if (!product || !product.id) return;
     try {
-      await markReadyForNextStepCallable({ productId: product.id });
+      await markReadyForNextStepCallable({
+        productId: product.id,
+      });
 
       await logActivity(
         user?.uid,
@@ -678,7 +688,7 @@ const ShopFloorMobileApp = () => {
       await logActivity(
         user?.uid,
         "MESSAGE_SEND",
-        `Teamleader-alert verzonden vanuit mobile app (${issueType}) voor machine ${scanResult.data.machine || 'onbekend'}`
+        `Teamleader-alert verzonden vanuit mobile app (${issueType}) voor machine ${scanResult.data.machine || t("planning.shopFloor.unknown", "Onbekend")}`
       );
       
       setShowIssueModal(false);

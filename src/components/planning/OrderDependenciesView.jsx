@@ -144,7 +144,10 @@ const OrderDependenciesView = () => {
       return;
     }
 
-    await addOrderDependency({ orderId: selectedOrder.id, dependencyId: potentialDependency });
+    await addOrderDependency({
+      orderId: selectedOrder.id,
+      dependencyId: potentialDependency,
+    });
 
     await logActivity(
       auth.currentUser?.uid,
@@ -158,7 +161,10 @@ const OrderDependenciesView = () => {
 
   // Remove dependency
   const removeDependency = async (orderId, depId) => {
-    await removeOrderDependency({ orderId, dependencyId: depId });
+    await removeOrderDependency({
+      orderId,
+      dependencyId: depId,
+    });
 
     await logActivity(
       auth.currentUser?.uid,

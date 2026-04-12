@@ -29,14 +29,14 @@ const createPlanningOrderManualCallable = httpsCallable(functions, "createPlanni
 const markMazakLabelsPrintedCallable = httpsCallable(functions, "markMazakLabelsPrinted");
 const appendQcNoteCallable = httpsCallable(functions, "appendQcNote");
 const reserveAutoLotNumberRangeCallable = httpsCallable(functions, "reserveAutoLotNumberRange");
-const addOrderDependencyCallable         = httpsCallable(functions, "addOrderDependency");
-const removeOrderDependencyCallable      = httpsCallable(functions, "removeOrderDependency");
-const updateOrderPlannedDateCallable     = httpsCallable(functions, "updateOrderPlannedDate");
-const updateOrderKanbanStatusCallable    = httpsCallable(functions, "updateOrderKanbanStatus");
-const markReadyForNextStepCallable       = httpsCallable(functions, "markReadyForNextStep");
-const startTrackedProductRepairCallable  = httpsCallable(functions, "startTrackedProductRepair");
-const reportShopFloorIssueCallable       = httpsCallable(functions, "reportShopFloorIssue");
-const resolveShopFloorIssueCallable      = httpsCallable(functions, "resolveShopFloorIssue");
+const addOrderDependencyCallable = httpsCallable(functions, "addOrderDependency");
+const removeOrderDependencyCallable = httpsCallable(functions, "removeOrderDependency");
+const updateOrderPlannedDateCallable = httpsCallable(functions, "updateOrderPlannedDate");
+const updateOrderKanbanStatusCallable = httpsCallable(functions, "updateOrderKanbanStatus");
+const markReadyForNextStepCallable = httpsCallable(functions, "markReadyForNextStep");
+const startTrackedProductRepairCallable = httpsCallable(functions, "startTrackedProductRepair");
+const reportShopFloorIssueCallable = httpsCallable(functions, "reportShopFloorIssue");
+const resolveShopFloorIssueCallable = httpsCallable(functions, "resolveShopFloorIssue");
 
 export const rejectTrackedProductFinal = async ({
   productId,
@@ -785,66 +785,101 @@ export const reserveAutoLotNumberRange = async ({
 };
 
 export const addOrderDependency = async ({ orderId, dependencyId }) => {
-  if (!orderId || !dependencyId) throw new Error("orderId en dependencyId zijn verplicht.");
-  const result = await addOrderDependencyCallable({ orderId, dependencyId });
+  const payload = {
+    orderId: String(orderId || "").trim(),
+    dependencyId: String(dependencyId || "").trim(),
+  };
+  if (!payload.orderId || !payload.dependencyId) {
+    throw new Error("orderId en dependencyId zijn verplicht.");
+  }
+  const result = await addOrderDependencyCallable(payload);
   return result?.data || { ok: false };
 };
 
 export const removeOrderDependency = async ({ orderId, dependencyId }) => {
-  if (!orderId || !dependencyId) throw new Error("orderId en dependencyId zijn verplicht.");
-  const result = await removeOrderDependencyCallable({ orderId, dependencyId });
+  const payload = {
+    orderId: String(orderId || "").trim(),
+    dependencyId: String(dependencyId || "").trim(),
+  };
+  if (!payload.orderId || !payload.dependencyId) {
+    throw new Error("orderId en dependencyId zijn verplicht.");
+  }
+  const result = await removeOrderDependencyCallable(payload);
   return result?.data || { ok: false };
 };
 
 export const updateOrderPlannedDate = async ({ orderId, plannedDate }) => {
-  if (!orderId || !plannedDate) throw new Error("orderId en plannedDate zijn verplicht.");
-  const result = await updateOrderPlannedDateCallable({
-    orderId,
-    plannedDate: plannedDate instanceof Date ? plannedDate.toISOString() : plannedDate,
-  });
+  const safeOrderId = String(orderId || "").trim();
+  if (!safeOrderId || !plannedDate) {
+    throw new Error("orderId en plannedDate zijn verplicht.");
+  }
+  const safeDate = plannedDate instanceof Date ? plannedDate.toISOString() : String(plannedDate);
+  const result = await updateOrderPlannedDateCallable({ orderId: safeOrderId, plannedDate: safeDate });
   return result?.data || { ok: false };
 };
 
 export const updateOrderKanbanStatus = async ({ orderId, status }) => {
-  if (!orderId || !status) throw new Error("orderId en status zijn verplicht.");
-  const result = await updateOrderKanbanStatusCallable({ orderId, status });
+  const payload = {
+    orderId: String(orderId || "").trim(),
+    status: String(status || "").trim(),
+  };
+  if (!payload.orderId || !payload.status) {
+    throw new Error("orderId en status zijn verplicht.");
+  }
+  const result = await updateOrderKanbanStatusCallable(payload);
   return result?.data || { ok: false };
 };
 
 export const markReadyForNextStep = async ({ productId }) => {
-  if (!productId) throw new Error("productId is verplicht.");
-  const result = await markReadyForNextStepCallable({ productId });
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) {
+    throw new Error("productId is verplicht.");
+  }
+  const result = await markReadyForNextStepCallable({ productId: safeProductId });
   return result?.data || { ok: false };
 };
 
-export const startTrackedProductRepair = async ({ productId, repairReason }) => {
-  if (!productId) throw new Error("productId is verplicht.");
+export const startTrackedProductRepair = async ({ productId, repairReason = "" }) => {
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) {
+    throw new Error("productId is verplicht.");
+  }
   const result = await startTrackedProductRepairCallable({
-    productId,
-    repairReason: repairReason || "",
+    productId: safeProductId,
+    repairReason: String(repairReason || "").trim(),
   });
   return result?.data || { ok: false };
 };
 
 export const reportShopFloorIssue = async ({
-  type, machine, orderId, lotNumber, description, operatorName,
+  type,
+  machine = "",
+  orderId = null,
+  lotNumber = null,
+  description = "",
+  operatorName = "",
 }) => {
-  if (!["downtime", "defect"].includes(type)) throw new Error('type moet "downtime" of "defect" zijn.');
+  const safeType = String(type || "").trim();
+  if (!["downtime", "defect"].includes(safeType)) {
+    throw new Error('type moet "downtime" of "defect" zijn.');
+  }
   const result = await reportShopFloorIssueCallable({
-    type,
-    machine: machine || "",
-    orderId: orderId || null,
-    lotNumber: lotNumber || null,
-    description: description || "",
-    operatorName: operatorName || "",
+    type: safeType,
+    machine: String(machine || "").trim(),
+    orderId: orderId ? String(orderId).trim() : "",
+    lotNumber: lotNumber ? String(lotNumber).trim() : "",
+    description: String(description || "").trim(),
+    operatorName: String(operatorName || "").trim(),
   });
   return result?.data || { ok: false };
 };
 
 export const resolveShopFloorIssue = async ({ type, issueId }) => {
-  if (!["downtime", "defect"].includes(type) || !issueId) {
+  const safeType = String(type || "").trim();
+  const safeIssueId = String(issueId || "").trim();
+  if (!["downtime", "defect"].includes(safeType) || !safeIssueId) {
     throw new Error("type en issueId zijn verplicht.");
   }
-  const result = await resolveShopFloorIssueCallable({ type, issueId });
+  const result = await resolveShopFloorIssueCallable({ type: safeType, issueId: safeIssueId });
   return result?.data || { ok: false };
 };

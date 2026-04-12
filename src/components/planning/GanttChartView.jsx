@@ -6,7 +6,7 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { getReadPaths } from "../../config/dbPaths";
 import { updateOrderPlannedDate } from "../../services/planningSecurityService";
@@ -331,7 +331,10 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
         
         if (dragState.orderId) {
           try {
-            await updateOrderPlannedDate({ orderId: dragState.orderId, plannedDate: newDate });
+            await updateOrderPlannedDate({
+              orderId: dragState.orderId,
+              plannedDate: newDate,
+            });
             await logActivity(
               auth.currentUser?.uid,
               "ORDER_DATE_MOVE",
