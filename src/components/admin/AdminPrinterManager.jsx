@@ -50,7 +50,7 @@ const parseUsbId = (idStr) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 };
 import { getDriver, applyCalibration, PRINTER_DRIVERS } from "../../utils/printerDrivers";
-import { queuePrintJob } from "../../services/printService";
+import { queuePrintJob } from "../../services/planningSecurityService";
 import PrintQueueAdminView from "../printer/PrintQueueAdminView";
 import InternalQrImage from "../../utils/InternalQrImage";
 

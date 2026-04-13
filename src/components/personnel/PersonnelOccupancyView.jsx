@@ -9,13 +9,13 @@ import {
 import { format, getISOWeek, parse, addDays } from "date-fns";
 import { db, auth, logActivity } from "../../config/firebase";
 import { 
-  collection, onSnapshot, doc, setDoc, addDoc,
-  deleteDoc, query, orderBy, serverTimestamp, updateDoc 
+  collection, onSnapshot, query, orderBy, doc
 } from "firebase/firestore";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { PATHS } from "../../config/dbPaths";
 import LoanPersonnelModal from "../digitalplanning/modals/LoanPersonnelModal";
 import { useNotifications } from '../../contexts/NotificationContext';
+import { savePersonnelRecord, saveOccupancyAssignment, deleteOccupancyAssignment } from "../../services/planningSecurityService";
 
 /**
  * Add/Edit Modal Component (Intern)
@@ -571,9 +571,14 @@ const PersonnelOccupancyView = ({
       };
 
       if (editingPerson) {
-        await updateDoc(doc(db, ...PATHS.PERSONNEL, editingPerson.id), {
+        await savePersonnelRecord({
+          personId: editingPerson.id,
+          data: {
           ...withNormalizedData,
-          updatedAt: serverTimestamp()
+          updatedAt: "__SERVER_TIMESTAMP__",
+        },
+          source: "PersonnelOccupancyView.savePerson.update",
+          actorLabel: auth.currentUser?.email || "system",
         });
         await logActivity(
           auth.currentUser?.uid || "system",
@@ -581,9 +586,14 @@ const PersonnelOccupancyView = ({
           `Personeel bijgewerkt: ${data?.name || editingPerson.id}`
         );
       } else {
-        await addDoc(collection(db, ...PATHS.PERSONNEL), {
+        await savePersonnelRecord({
+          data: {
           ...withNormalizedData,
-          createdAt: serverTimestamp()
+          createdAt: "__SERVER_TIMESTAMP__",
+          updatedAt: "__SERVER_TIMESTAMP__",
+        },
+          source: "PersonnelOccupancyView.savePerson.create",
+          actorLabel: auth.currentUser?.email || "system",
         });
         await logActivity(
           auth.currentUser?.uid || "system",
@@ -601,7 +611,11 @@ const PersonnelOccupancyView = ({
 
   const handleDeleteOccupancy = async (occ) => {
     try {
-      await deleteDoc(doc(db, ...PATHS.OCCUPANCY, occ.id));
+      await deleteOccupancyAssignment({
+        assignmentId: occ.id,
+        source: "PersonnelOccupancyView.deleteOccupancy",
+        actorLabel: auth.currentUser?.email || "system",
+      });
       await logActivity(
         auth.currentUser?.uid || "system",
         "OCCUPANCY_DELETE",
@@ -939,18 +953,24 @@ const PersonnelOccupancyView = ({
                       const occId = `${selectedDept.id}-${selectedStation.id}-${person.id}-${timestamp}`;
                       
                       try {
-                        await setDoc(doc(db, ...PATHS.OCCUPANCY, occId), {
+                        await saveOccupancyAssignment({
+                          assignmentId: occId,
+                          data: {
                         departmentId: selectedDept.id,
                         machineId: selectedStation.name || selectedStation.id,
                         operatorNumber: person.employeeNumber || person.id,
                         operatorName: person.name,
                         date: dateToUse,
                         hoursWorked: parseFloat(assignHours) || 0,
-                        startTime: serverTimestamp(),
+                        startTime: "__SERVER_TIMESTAMP__",
                         isPloeg: isPloeg,
                         shift: shift ? shift.label : "DAGDIENST",
                         isLoan: false,
-                      }, { merge: true });
+                        updatedAt: "__SERVER_TIMESTAMP__",
+                      },
+                          source: "PersonnelOccupancyView.addAssignment",
+                          actorLabel: auth.currentUser?.email || "system",
+                        });
                         await logActivity(
                           auth.currentUser?.uid || "system",
                           "OCCUPANCY_ASSIGN",
@@ -1031,8 +1051,14 @@ const PersonnelOccupancyView = ({
               <button 
                 onClick={async () => {
                   try {
-                    await updateDoc(doc(db, ...PATHS.OCCUPANCY, selectedAssignment.id), {
-                      hoursWorked: parseFloat(selectedAssignment.hoursWorked) || 0
+                    await saveOccupancyAssignment({
+                      assignmentId: selectedAssignment.id,
+                      data: {
+                        hoursWorked: parseFloat(selectedAssignment.hoursWorked) || 0,
+                        updatedAt: "__SERVER_TIMESTAMP__",
+                      },
+                      source: "PersonnelOccupancyView.editHours",
+                      actorLabel: auth.currentUser?.email || "system",
                     });
                     await logActivity(
                       auth.currentUser?.uid || "system",
@@ -1110,11 +1136,16 @@ const PersonnelOccupancyView = ({
                       onClick={async () => {
                         try {
                           const manualHours = parseFloat(closedHoursDraft[entry.id]);
-                          await updateDoc(doc(db, ...PATHS.OCCUPANCY, entry.id), {
-                            hoursWorked: Number.isFinite(manualHours) ? manualHours : 0,
-                            manualHoursOverride: true,
-                            manualHoursOverrideAt: serverTimestamp(),
-                            updatedAt: serverTimestamp(),
+                          await saveOccupancyAssignment({
+                            assignmentId: entry.id,
+                            data: {
+                              hoursWorked: Number.isFinite(manualHours) ? manualHours : 0,
+                              manualHoursOverride: true,
+                              manualHoursOverrideAt: "__SERVER_TIMESTAMP__",
+                              updatedAt: "__SERVER_TIMESTAMP__",
+                            },
+                            source: "PersonnelOccupancyView.closedHoursOverride",
+                            actorLabel: auth.currentUser?.email || "system",
                           });
                           await logActivity(
                             auth.currentUser?.uid || "system",

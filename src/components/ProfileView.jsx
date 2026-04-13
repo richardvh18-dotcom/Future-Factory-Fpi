@@ -29,11 +29,12 @@ import {
 } from "lucide-react";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 import { PATHS } from "../config/dbPaths";
-import { db, auth, logActivity } from "../config/firebase";
+import { db, auth } from "../config/firebase";
 import { updatePassword, updateProfile } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import RoleSwitcher from "./admin/RoleSwitcher";
 import { useNotifications } from '../contexts/NotificationContext';
+import { updateUserProfile, clearPasswordChangeFlag } from '../services/planningSecurityService';
 
 /**
  * ProfileView V2.1 - Robuuste Identiteit Guard
@@ -107,7 +108,7 @@ const ProfileView = () => {
     loadPrefs();
   }, [user]);
 
-  // 2. Opslaan Algemene Instellingen & Naam (Robuuste versie)
+  // 2. Opslaan Algemene Instellingen & Naam (via backend callable)
   const handleSaveGeneral = async () => {
     if (!user?.uid) return;
     setSaving(true);
@@ -118,31 +119,18 @@ const ProfileView = () => {
         await updateProfile(auth.currentUser, { displayName: displayName });
       }
 
-      // B. Update Firestore Document (Database)
-      // We gebruiken setDoc met merge: true zodat het document wordt aangemaakt als het nog niet bestond.
-      const userRef = doc(db, ...PATHS.USERS, user.uid);
-      await setDoc(
-        userRef,
-        {
-          uid: user.uid,
-          email: user.email,
-          name: displayName,
-          receivesValidationAlerts: preferences.emailNotifications,
-          systemAlerts: preferences.systemAlerts,
-          language: preferences.language,
-          darkMode: preferences.darkMode,
-          phoneNumber: preferences.phoneNumber,
-          signature: preferences.signature,
-          lastUpdated: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-
-      await logActivity(
-        user.uid,
-        "PROFILE_UPDATE",
-        `Profielinstellingen bijgewerkt voor ${user.email || user.uid}`
-      );
+      // B. Update Firestore via backend callable (server-side authorized)
+      await updateUserProfile({
+        name: displayName,
+        email: user.email,
+        emailNotifications: preferences.emailNotifications,
+        systemAlerts: preferences.systemAlerts,
+        language: preferences.language,
+        darkMode: preferences.darkMode,
+        phoneNumber: preferences.phoneNumber,
+        department: preferences.department,
+        signature: preferences.signature,
+      });
 
       // Update ook direct de actieve taal
       i18n.changeLanguage(preferences.language);
@@ -173,13 +161,8 @@ const ProfileView = () => {
     setPwLoading(true);
     try {
       await updatePassword(auth.currentUser, passwordData.newPassword);
-      const userRef = doc(db, ...PATHS.USERS, user.uid);
-      await setDoc(userRef, { requirePasswordChange: false }, { merge: true });
-      await logActivity(
-        user.uid,
-        "PASSWORD_CHANGE",
-        "Wachtwoord gewijzigd en requirePasswordChange uitgezet"
-      );
+      // Clear the requirePasswordChange flag via backend callable
+      await clearPasswordChangeFlag();
 
       setPwSuccess(true);
       setPasswordData({ newPassword: "", confirmPassword: "" });

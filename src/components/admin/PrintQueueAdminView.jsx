@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { db, auth, logActivity } from '../../config/firebase';
-import { collection, onSnapshot, orderBy, query, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { PATHS } from '../../config/dbPaths';
 import { formatDistanceToNow } from 'date-fns';
 import { nl } from 'date-fns/locale';
 import { Loader2, RefreshCw, Trash2, Wifi, WifiOff, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useNotifications } from '../../contexts/NotificationContext';
+import { requeuePrintQueueJob, deletePrintQueueJob } from '../../services/planningSecurityService';
 
 const StatusBadge = ({ status }) => {
   const config = {
@@ -57,13 +58,10 @@ const PrintQueueAdminView = () => {
     });
     if (!confirmed) return;
     try {
-      const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
-      await updateDoc(jobRef, { status: 'pending', retries: (printJobs.find(j => j.id === jobId)?.retries || 0) + 1 });
-      await logActivity(
-        auth.currentUser?.uid,
-        'PRINT_REQUEUE',
-        `Printtaak opnieuw in wachtrij: ${jobId}`
-      );
+      await requeuePrintQueueJob({
+        jobId,
+        source: 'AdminPrintQueueAdminView',
+      });
     } catch (e) {
       console.error(e);
       showError("Fout bij opnieuw printen");
@@ -80,13 +78,10 @@ const PrintQueueAdminView = () => {
     });
     if (!confirmed) return;
     try {
-      const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
-      await deleteDoc(jobRef);
-      await logActivity(
-        auth.currentUser?.uid,
-        'PRINT_QUEUE_DELETE',
-        `Printtaak verwijderd: ${jobId}`
-      );
+      await deletePrintQueueJob({
+        jobId,
+        source: 'AdminPrintQueueAdminView',
+      });
     } catch (e) {
       console.error(e);
       showError("Fout bij verwijderen");

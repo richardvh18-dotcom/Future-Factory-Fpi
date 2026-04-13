@@ -2,9 +2,7 @@ import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useMessages } from "../hooks/useMessages";
-import { doc, updateDoc } from "firebase/firestore";
-import { db, auth, logActivity } from "../config/firebase";
-import { PATHS } from "../config/dbPaths";
+import { updateUserLanguage } from '../services/planningSecurityService';
 import {
   LayoutGrid,
   Package,
@@ -76,16 +74,10 @@ const Sidebar = ({
     i18n.changeLanguage(lang);
     setShowLangMenu(false);
 
-    // Sla voorkeur op in Firestore
+    // Sla voorkeur op via backend callable
     if (user?.uid) {
       try {
-        const userRef = doc(db, ...PATHS.USERS, user.uid);
-        await updateDoc(userRef, { language: lang });
-        await logActivity(
-          auth.currentUser?.uid,
-          "LANGUAGE_UPDATE",
-          `Taalvoorkeur aangepast via sidebar: ${lang}`
-        );
+        await updateUserLanguage(lang);
       } catch (error) {
         console.error("Kon taalvoorkeur niet opslaan:", error);
       }

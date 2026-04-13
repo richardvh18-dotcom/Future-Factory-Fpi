@@ -1,11 +1,24 @@
 const { admin, db } = require('../config/firebase');
-const { BASE, TRACKING_COLLECTION, PLANNING_COLLECTION } = require('../config/planningConstants');
+const { BASE, TRACKING_COLLECTION, PLANNING_COLLECTION, USER_ACCOUNTS_COLLECTION } = require('../config/planningConstants');
 const {
   getPlanningOrderDocByOrderId,
   getTrackedProductDocByIdOrLot,
   getPlanningOrderDocById,
 } = require('../repositories/planningRepository');
 const { clean, clampText } = require('../utils/text');
+
+const EFFICIENCY_COLLECTION = `${BASE}/production/efficiency_hours`;
+const OCCUPANCY_COLLECTION = `${BASE}/production/machine_occupancy`;
+const PERSONNEL_COLLECTION = `${BASE}/Users/Personnel`;
+const PRINT_QUEUE_COLLECTION = `${BASE}/production/print_queue`;
+const SERVER_TIMESTAMP_TOKEN = '__SERVER_TIMESTAMP__';
+const LN_UPDATABLE_FIELDS_SERVER = [
+  'quantity', 'toDoQty', 'plan', 'notes', 'deliveryDate', 'plannedDeliveryDate',
+  'weekNumber', 'orderStatus', 'totalPlannedHours', 'totalActualHours',
+  'itemDescription', 'item', 'itemCode', 'extraCode', 'drawing',
+  'project', 'projectDesc', 'orderCreationDate', 'machine', 'sourceType',
+  'operations',
+];
 
 const normalizeMachineForCounter = (stationName = '') => {
   const normalized = String(stationName || '').trim().replace(/\s+/g, '').toUpperCase();
@@ -115,6 +128,349 @@ const sanitizeMeasurements = (rawMeasurements) => {
     });
 
   return entries.length > 0 ? Object.fromEntries(entries) : null;
+};
+
+const toServerTimestampIfRequested = (value) => {
+  if (value === SERVER_TIMESTAMP_TOKEN) {
+    return admin.firestore.FieldValue.serverTimestamp();
+  }
+  return value;
+};
+
+const assignIfDefined = (target, key, value) => {
+  if (value !== undefined) {
+    target[key] = value;
+  }
+};
+
+const sanitizeOccupancyData = (rawData = {}) => {
+  const data = rawData && typeof rawData === 'object' && !Array.isArray(rawData) ? rawData : {};
+  const updates = {};
+
+  assignIfDefined(updates, 'departmentId', data.departmentId === null ? null : clampText(data.departmentId, 80));
+  assignIfDefined(updates, 'machineId', data.machineId === null ? null : clampText(data.machineId, 120));
+  assignIfDefined(updates, 'operatorNumber', data.operatorNumber === null ? null : clampText(data.operatorNumber, 80));
+  assignIfDefined(updates, 'operatorName', data.operatorName === null ? null : clampText(data.operatorName, 140));
+  assignIfDefined(updates, 'date', data.date === null ? null : clampText(data.date, 20));
+  assignIfDefined(updates, 'shift', data.shift === null ? null : clampText(data.shift, 80));
+  assignIfDefined(updates, 'shiftKey', data.shiftKey === null ? null : clampText(data.shiftKey, 40));
+  assignIfDefined(updates, 'shiftType', data.shiftType === null ? null : clampText(data.shiftType, 40));
+  assignIfDefined(updates, 'primaryStation', data.primaryStation === null ? null : clampText(data.primaryStation, 120));
+  assignIfDefined(updates, 'source', data.source === null ? null : clampText(data.source, 80));
+  assignIfDefined(updates, 'movedToMachineId', data.movedToMachineId === null ? null : clampText(data.movedToMachineId, 120));
+  assignIfDefined(updates, 'loanFromDepartment', data.loanFromDepartment === null ? null : clampText(data.loanFromDepartment, 80));
+  assignIfDefined(updates, 'loanFromStation', data.loanFromStation === null ? null : clampText(data.loanFromStation, 120));
+  assignIfDefined(updates, 'originalShift', data.originalShift === null ? null : clampText(data.originalShift, 120));
+  assignIfDefined(updates, 'shiftStart', data.shiftStart === null ? null : clampText(data.shiftStart, 12));
+  assignIfDefined(updates, 'shiftEnd', data.shiftEnd === null ? null : clampText(data.shiftEnd, 12));
+  assignIfDefined(updates, 'autoCheckoutShift', data.autoCheckoutShift === null ? null : clampText(data.autoCheckoutShift, 40));
+  assignIfDefined(updates, 'timestamp', data.timestamp === null ? null : clampText(data.timestamp, 80));
+
+  ['week', 'weekYear', 'hoursWorked', 'hoursWorkedGross', 'breakDeductedHours'].forEach((key) => {
+    if (data[key] !== undefined && data[key] !== null && data[key] !== '') {
+      const parsed = Number(data[key]);
+      if (Number.isFinite(parsed)) updates[key] = parsed;
+    } else if (data[key] === null) {
+      updates[key] = null;
+    }
+  });
+
+  ['isPloeg', 'isLoan', 'isSecondary', 'isActive', 'autoCheckout', 'manualHoursOverride'].forEach((key) => {
+    if (data[key] !== undefined) updates[key] = Boolean(data[key]);
+  });
+
+  ['checkedInAt', 'checkedOutAt', 'updatedAt', 'createdAt', 'startTime', 'manualHoursOverrideAt'].forEach((key) => {
+    if (data[key] !== undefined) {
+      const mapped = toServerTimestampIfRequested(data[key]);
+      updates[key] = mapped;
+    }
+  });
+
+  if (updates.date && (updates.week === undefined || updates.weekYear === undefined)) {
+    const parsedDate = new Date(`${updates.date}T00:00:00.000Z`);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      const { week, year } = getISOWeekInfoServer(parsedDate);
+      if (updates.week === undefined) updates.week = week;
+      if (updates.weekYear === undefined) updates.weekYear = year;
+    }
+  }
+
+  return updates;
+};
+
+const sanitizePersonnelData = (rawData = {}) => {
+  const data = rawData && typeof rawData === 'object' && !Array.isArray(rawData) ? rawData : {};
+  const updates = {};
+
+  assignIfDefined(updates, 'name', data.name === null ? null : clampText(data.name, 140));
+  assignIfDefined(updates, 'employeeNumber', data.employeeNumber === null ? null : clampText(data.employeeNumber, 80));
+  assignIfDefined(updates, 'departmentId', data.departmentId === null ? null : clampText(data.departmentId, 80));
+  assignIfDefined(updates, 'linkedUserId', data.linkedUserId === null ? null : clampText(data.linkedUserId, 120));
+  assignIfDefined(updates, 'shiftId', data.shiftId === null ? null : clampText(data.shiftId, 80));
+  assignIfDefined(updates, 'role', data.role === null ? null : clampText(data.role, 80));
+  assignIfDefined(updates, 'currentMachineId', data.currentMachineId === null ? null : clampText(data.currentMachineId, 120));
+  assignIfDefined(updates, 'lastBadgeScanBy', data.lastBadgeScanBy === null ? null : clampText(data.lastBadgeScanBy, 120));
+  assignIfDefined(updates, 'signature', data.signature === null ? null : clampText(data.signature, 600));
+
+  if (data.isActive !== undefined) updates.isActive = Boolean(data.isActive);
+  if (data.temporaryShiftOverride !== undefined && data.temporaryShiftOverride && typeof data.temporaryShiftOverride === 'object' && !Array.isArray(data.temporaryShiftOverride)) {
+    updates.temporaryShiftOverride = data.temporaryShiftOverride;
+  }
+  if (data.loan !== undefined && data.loan && typeof data.loan === 'object' && !Array.isArray(data.loan)) {
+    updates.loan = data.loan;
+  }
+
+  ['updatedAt', 'createdAt', 'lastBadgeScanAt'].forEach((key) => {
+    if (data[key] !== undefined) {
+      updates[key] = toServerTimestampIfRequested(data[key]);
+    }
+  });
+
+  return updates;
+};
+
+const sanitizeNestedValue = (value, depth = 0) => {
+  if (depth > 4 || value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'string') return clampText(value, 2000);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => sanitizeNestedValue(entry, depth + 1))
+      .filter((entry) => entry !== undefined)
+      .slice(0, 100);
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([key]) => clean(key).length > 0)
+      .slice(0, 50)
+      .map(([key, nestedValue]) => [String(key), sanitizeNestedValue(nestedValue, depth + 1)])
+      .filter(([, nestedValue]) => nestedValue !== undefined);
+    return entries.length ? Object.fromEntries(entries) : {};
+  }
+  return undefined;
+};
+
+const uniqueLowercaseEmails = (values = []) => Array.from(new Set(
+  values
+    .map((value) => clean(value).toLowerCase())
+    .filter((value) => value.includes('@'))
+));
+
+const resolveTargetRoleEmails = async (targetRoles = []) => {
+  const roles = Array.from(new Set(
+    (Array.isArray(targetRoles) ? targetRoles : [])
+      .map((role) => clean(role).toLowerCase())
+      .filter(Boolean)
+  )).slice(0, 10);
+
+  if (!roles.length) return [];
+
+  const snapshot = await db
+    .collection(USER_ACCOUNTS_COLLECTION)
+    .where('role', 'in', roles)
+    .get();
+
+  return uniqueLowercaseEmails(
+    snapshot.docs.map((userDoc) => userDoc.data()?.email)
+  );
+};
+
+const writeActivityLog = async ({ auth, action, details, extra = {} }) => {
+  await db.collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action,
+    details: clampText(details, 1000),
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    ...extra,
+  });
+};
+
+const classifyByWcServer = (wc = '') => {
+  const upper = String(wc || '').toUpperCase();
+  if (upper.includes('BM01') || upper.includes('BA01')) return 'qc';
+  if (upper.includes('NABEWERK') || upper.includes('NABEW')) return 'post';
+  return null;
+};
+
+const classifyReferenceOperationServer = (refOp, wc) => {
+  const wcBucket = classifyByWcServer(wc);
+  if (wcBucket) return wcBucket;
+  const digits = Number.parseInt(String(refOp || '').replace(/\D/g, ''), 10);
+  if (Number.isNaN(digits)) return 'production';
+  const opCode = digits % 100;
+  if (opCode === 60) return 'qc';
+  if (opCode === 30) return 'post';
+  return 'production';
+};
+
+const getSplitPlannedHoursServer = (operations, fallbackTotalHours) => {
+  const split = { productionHours: 0, postHours: 0, qcHours: 0 };
+  const entries = Object.entries(operations || {});
+
+  if (entries.length === 0) {
+    split.productionHours = Number(fallbackTotalHours) || 0;
+    return split;
+  }
+
+  entries.forEach(([refOp, values]) => {
+    const planned = Number(values?.planned || 0);
+    const bucket = classifyReferenceOperationServer(refOp, values?.wc);
+    if (bucket === 'qc') split.qcHours += planned;
+    else if (bucket === 'post') split.postHours += planned;
+    else split.productionHours += planned;
+  });
+
+  if (split.productionHours === 0 && split.postHours === 0 && split.qcHours === 0) {
+    split.productionHours = Number(fallbackTotalHours) || 0;
+  }
+
+  return split;
+};
+
+const buildReferenceOperationSummaryServer = (operations = {}) => {
+  const byCode = {};
+
+  Object.entries(operations || {}).forEach(([refOp, values]) => {
+    const planned = Number(values?.planned || 0);
+    const actual = Number(values?.actual || 0);
+    const wc = normalizeMachineForPlanningServer(values?.wc || '');
+    const bucket = classifyReferenceOperationServer(refOp, wc);
+
+    byCode[refOp] = {
+      plannedHours: planned,
+      actualHours: actual,
+      workCenter: wc,
+      bucket,
+    };
+  });
+
+  return byCode;
+};
+
+const bulkImportPlanningOrdersService = async ({
+  orders,
+  importMode,
+}) => {
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const safeImportMode = String(importMode || 'new_only').trim().toLowerCase();
+
+  let createdCount = 0;
+  let updatedCount = 0;
+  let processedCount = 0;
+
+  const CHUNK = 350;
+  for (let i = 0; i < safeOrders.length; i += CHUNK) {
+    const chunk = safeOrders.slice(i, i + CHUNK);
+    const batch = db.batch();
+
+    chunk.forEach((rawItem) => {
+      const item = rawItem && typeof rawItem === 'object' ? rawItem : null;
+      const docId = clean(item?.id);
+      if (!item || !docId) return;
+
+      const dbData = { ...item };
+      delete dbData.isValidForImport;
+      delete dbData.isExistingOrder;
+      delete dbData.planningVisible;
+
+      const normalizedItem = clean(dbData.item || dbData.itemDescription || '');
+      const normalizedItemDescription = clean(dbData.itemDescription || dbData.item || '');
+      const { productionHours, postHours, qcHours } = getSplitPlannedHoursServer(item.operations, item.totalPlannedHours || 0);
+      const operationByCode = buildReferenceOperationSummaryServer(item.operations);
+
+      const isExistingOrder = Boolean(item.isExistingOrder);
+      const isSmartUpdate = safeImportMode === 'smart_update' && isExistingOrder;
+      const planningDocRef = db.collection(PLANNING_COLLECTION).doc(docId);
+
+      if (isSmartUpdate) {
+        const lnPayload = {};
+        LN_UPDATABLE_FIELDS_SERVER.forEach((field) => {
+          if (dbData[field] !== undefined) lnPayload[field] = dbData[field];
+        });
+
+        batch.set(
+          planningDocRef,
+          {
+            ...lnPayload,
+            item: normalizedItem,
+            itemDescription: normalizedItemDescription,
+            plannedHoursBH: productionHours,
+            plannedHoursNabewerken: postHours,
+            plannedHoursBM01: qcHours,
+            plannedMinutesBH: productionHours * 60,
+            plannedMinutesNabewerken: postHours * 60,
+            plannedMinutesBM01: qcHours * 60,
+            referenceOperationTimes: operationByCode,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        batch.set(
+          planningDocRef,
+          {
+            ...dbData,
+            item: normalizedItem,
+            itemDescription: normalizedItemDescription,
+            plannedHoursBH: productionHours,
+            plannedHoursNabewerken: postHours,
+            plannedHoursBM01: qcHours,
+            plannedMinutesBH: productionHours * 60,
+            plannedMinutesNabewerken: postHours * 60,
+            plannedMinutesBM01: qcHours * 60,
+            referenceOperationTimes: operationByCode,
+            planningHidden: item.planningVisible === false,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
+      const productionMinutes = productionHours * 60;
+      const postProcessingMinutes = postHours * 60;
+      const qcMinutes = qcHours * 60;
+      const standardMinutes = productionMinutes + postProcessingMinutes;
+      const actualMinutes = (Number(item.totalActualHours) || 0) * 60;
+      const qty = Number(item.quantity) || Number(item.toDoQty) || 1;
+
+      batch.set(
+        db.collection(EFFICIENCY_COLLECTION).doc(docId),
+        {
+          orderId: docId,
+          itemCode: clean(item.itemCode),
+          itemDescription: normalizedItemDescription,
+          machine: clean(item.machine),
+          standardTimeTotal: standardMinutes,
+          productionTimeTotal: productionMinutes,
+          actualTimeTotal: actualMinutes,
+          qcTimeTotal: qcMinutes,
+          postProcessingTimeTotal: postProcessingMinutes,
+          quantity: qty,
+          minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
+          status: 'active',
+          source: isSmartUpdate ? 'ln_smart_sync' : 'ln_import',
+          lastSync: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      processedCount += 1;
+      if (isExistingOrder) updatedCount += 1;
+      else createdCount += 1;
+    });
+
+    await batch.commit();
+  }
+
+  return {
+    ok: true,
+    importMode: safeImportMode,
+    processedCount,
+    createdCount,
+    updatedCount,
+  };
 };
 
 const rejectTrackedProductFinalService = async ({
@@ -830,6 +1186,171 @@ const updatePlanningOrderDetailsService = async ({
     actorLabel: getActorLabel(auth, actorLabel),
     source: source || null,
   };
+};
+
+const patchPlanningOrderMetadataService = async ({
+  orderDocId,
+  patch,
+  actorLabel,
+  source,
+  auth,
+}) => {
+  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  if (!orderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const safePatch = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {};
+  const updates = {};
+
+  if ('articleCode' in safePatch) updates.articleCode = clampText(safePatch.articleCode, 120);
+  if ('isConverted' in safePatch) updates.isConverted = Boolean(safePatch.isConverted);
+  if ('drawingUrl' in safePatch) updates.drawingUrl = clampText(safePatch.drawingUrl, 1500);
+  if ('hasDrawing' in safePatch) updates.hasDrawing = Boolean(safePatch.hasDrawing);
+  if ('description' in safePatch) updates.description = clampText(safePatch.description, 600);
+  if ('drawing' in safePatch) updates.drawing = clampText(safePatch.drawing, 600);
+  if ('lastSync' in safePatch) updates.lastSync = clampText(safePatch.lastSync, 80);
+  if ('quantity' in safePatch) {
+    const q = Number(safePatch.quantity);
+    if (!Number.isFinite(q) || q < 0 || q > 1000000) {
+      throw new Error('INVALID_PATCH_QUANTITY');
+    }
+    updates.quantity = q;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    throw new Error('INVALID_PATCH_PAYLOAD');
+  }
+
+  updates.lastUpdated = admin.firestore.FieldValue.serverTimestamp();
+  await orderDoc.ref.set(updates, { merge: true });
+
+  const orderData = orderDoc.data() || {};
+  return {
+    ok: true,
+    orderDocId: orderDoc.id,
+    orderId: clean(orderData.orderId) || orderDoc.id,
+    patchedFields: Object.keys(updates).filter((key) => key !== 'lastUpdated'),
+    actorLabel: getActorLabel(auth, actorLabel),
+    source: source || null,
+  };
+};
+
+const saveOccupancyAssignmentsService = async ({
+  records,
+  source,
+  actorLabel,
+  auth,
+  userRole,
+}) => {
+  const safeRecords = Array.isArray(records) ? records : [];
+  if (safeRecords.length === 0) {
+    throw new Error('INVALID_OCCUPANCY_RECORDS');
+  }
+
+  const batch = admin.firestore().batch();
+  let processedCount = 0;
+
+  safeRecords.slice(0, 500).forEach((entry) => {
+    const assignmentId = clean(entry?.assignmentId);
+    if (!assignmentId) return;
+
+    const updates = sanitizeOccupancyData(entry?.data || {});
+    if (Object.keys(updates).length === 0) return;
+
+    const ref = admin.firestore().doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`);
+    if (updates.updatedAt === undefined) {
+      updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+    batch.set(ref, updates, { merge: true });
+    processedCount += 1;
+  });
+
+  if (processedCount === 0) {
+    throw new Error('INVALID_OCCUPANCY_RECORDS');
+  }
+
+  await batch.commit();
+  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'OCCUPANCY_SAVE_BATCH',
+    details: `Occupancy records opgeslagen: ${processedCount}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: actorLabel || null,
+    actorRole: userRole,
+  });
+
+  return { ok: true, processedCount };
+};
+
+const deleteOccupancyAssignmentsService = async ({
+  assignmentIds,
+  source,
+  actorLabel,
+  auth,
+  userRole,
+}) => {
+  const safeIds = Array.isArray(assignmentIds)
+    ? Array.from(new Set(assignmentIds.map((entry) => clean(entry)).filter(Boolean))).slice(0, 500)
+    : [];
+  if (safeIds.length === 0) {
+    throw new Error('INVALID_OCCUPANCY_ASSIGNMENT_IDS');
+  }
+
+  const batch = admin.firestore().batch();
+  safeIds.forEach((assignmentId) => {
+    batch.delete(admin.firestore().doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`));
+  });
+  await batch.commit();
+
+  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'OCCUPANCY_DELETE_BATCH',
+    details: `Occupancy records verwijderd: ${safeIds.length}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: actorLabel || null,
+    actorRole: userRole,
+  });
+
+  return { ok: true, deletedCount: safeIds.length };
+};
+
+const savePersonnelRecordService = async ({
+  personId,
+  data,
+  source,
+  actorLabel,
+  auth,
+  userRole,
+}) => {
+  const updates = sanitizePersonnelData(data || {});
+  if (Object.keys(updates).length === 0) {
+    throw new Error('INVALID_PERSONNEL_PAYLOAD');
+  }
+
+  const ref = personId
+    ? admin.firestore().doc(`${PERSONNEL_COLLECTION}/${clean(personId)}`)
+    : admin.firestore().collection(PERSONNEL_COLLECTION).doc();
+
+  if (updates.updatedAt === undefined) {
+    updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+
+  await ref.set(updates, { merge: true });
+  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: personId ? 'PERSONNEL_SAVE' : 'PERSONNEL_CREATE',
+    details: `Personeelsrecord opgeslagen: ${clean(updates.name) || ref.id}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: actorLabel || null,
+    actorRole: userRole,
+    personId: ref.id,
+  });
+
+  return { ok: true, personId: ref.id };
 };
 
 const assignOverproductionService = async ({
@@ -2312,6 +2833,203 @@ const updateOrderKanbanStatusService = async ({ orderId, status, auth }) => {
   return { ok: true };
 };
 
+const createProductionMessagesService = async ({ messages, auth, source, actorLabel }) => {
+  const safeMessages = Array.isArray(messages) ? messages.slice(0, 50) : [];
+  if (!safeMessages.length) {
+    throw new Error('INVALID_MESSAGES_PAYLOAD');
+  }
+
+  const actor = getActorLabel(auth, actorLabel);
+  let createdCount = 0;
+
+  for (const entry of safeMessages) {
+    const rawEntry = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+    const title = clampText(rawEntry.title, 180);
+    const message = clampText(rawEntry.message, 1500);
+    const subject = clampText(rawEntry.subject, 180) || title;
+    const content = clampText(rawEntry.content, 2000) || message;
+
+    if (!subject && !content && !title && !message) {
+      continue;
+    }
+
+    const explicitRecipients = uniqueLowercaseEmails([
+      ...(Array.isArray(rawEntry.recipients) ? rawEntry.recipients : []),
+      rawEntry.to,
+    ]);
+    const roleRecipients = await resolveTargetRoleEmails(rawEntry.targetRoles);
+    const recipients = uniqueLowercaseEmails([...explicitRecipients, ...roleRecipients]);
+    const finalRecipients = recipients.length > 0 ? recipients : (rawEntry.broadcastToAll === true ? ['all'] : []);
+
+    if (!finalRecipients.length) {
+      continue;
+    }
+
+    const payloadBase = {
+      senderId: clean(rawEntry.senderId) || auth?.uid || 'system',
+      from: clampText(rawEntry.from, 120) || 'SYSTEM',
+      subject,
+      content,
+      title,
+      message,
+      type: clampText(rawEntry.type, 80) || 'system',
+      priority: clampText(rawEntry.priority, 40) || 'normal',
+      status: clampText(rawEntry.status, 40) || 'unread',
+      read: rawEntry.read === true,
+      archived: rawEntry.archived === true,
+      source: clampText(rawEntry.source, 80) || clampText(source, 80) || 'BackendCommand',
+      relatedLot: rawEntry.relatedLot ? clampText(rawEntry.relatedLot, 120) : null,
+      targetGroup: rawEntry.targetGroup ? clampText(rawEntry.targetGroup, 120) : null,
+      metadata: sanitizeNestedValue(rawEntry.metadata) || null,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: auth?.uid || null,
+      actorLabel: actor,
+    };
+
+    await Promise.all(finalRecipients.map((recipient) => db.collection(MESSAGES_COLLECTION).add({
+      ...payloadBase,
+      to: recipient,
+    })));
+
+    createdCount += finalRecipients.length;
+  }
+
+  await writeActivityLog({
+    auth,
+    action: 'PRODUCTION_MESSAGE_CREATE',
+    details: `${createdCount} productieberichten aangemaakt via ${clampText(source, 80) || 'backend-command'}`,
+    extra: { source: clampText(source, 80) || null, actorLabel: actor },
+  });
+
+  return { ok: true, createdCount };
+};
+
+const transitionPrintQueueJobStatusService = async ({ jobId, status, error, auth, source, actorLabel }) => {
+  const safeJobId = clean(jobId);
+  const nextStatus = clean(status).toLowerCase();
+  const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
+  const jobSnap = await jobRef.get();
+
+  if (!jobSnap.exists) {
+    throw new Error('NOT_FOUND_PRINT_JOB');
+  }
+
+  const currentStatus = clean(jobSnap.data()?.status).toLowerCase();
+  const validTransition = (
+    (currentStatus === 'pending' && ['printing', 'cancelled', 'error'].includes(nextStatus))
+    || (currentStatus === 'printing' && ['completed', 'error'].includes(nextStatus))
+    || (currentStatus === 'error' && ['pending', 'cancelled'].includes(nextStatus))
+  );
+
+  if (!validTransition) {
+    throw new Error('INVALID_PRINT_QUEUE_TRANSITION');
+  }
+
+  const updates = {
+    status: nextStatus,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (nextStatus === 'printing') {
+    updates.processedAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.error = admin.firestore.FieldValue.delete();
+  }
+  if (nextStatus === 'completed') {
+    updates.printedAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.error = admin.firestore.FieldValue.delete();
+  }
+  if (nextStatus === 'error') {
+    updates.error = clampText(error, 1000) || 'Onbekende printfout';
+  }
+  if (nextStatus === 'pending') {
+    updates.error = admin.firestore.FieldValue.delete();
+  }
+
+  await jobRef.set(updates, { merge: true });
+
+  await writeActivityLog({
+    auth,
+    action: `PRINT_QUEUE_${nextStatus.toUpperCase()}`,
+    details: `Printjob ${safeJobId} status gewijzigd van ${currentStatus || 'unknown'} naar ${nextStatus}`,
+    extra: {
+      source: clampText(source, 80) || null,
+      actorLabel: getActorLabel(auth, actorLabel),
+      jobId: safeJobId,
+    },
+  });
+
+  return { ok: true, jobId: safeJobId, status: nextStatus };
+};
+
+const requeuePrintQueueJobService = async ({ jobId, auth, source, actorLabel }) => {
+  const safeJobId = clean(jobId);
+  const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
+  const jobSnap = await jobRef.get();
+
+  if (!jobSnap.exists) {
+    throw new Error('NOT_FOUND_PRINT_JOB');
+  }
+
+  const current = jobSnap.data() || {};
+  const nextRetryCount = Math.max(
+    Number(current.retryCount || 0),
+    Number(current.retries || 0),
+  ) + 1;
+
+  await jobRef.set({
+    status: 'pending',
+    retryCount: nextRetryCount,
+    retries: nextRetryCount,
+    reprintedAt: admin.firestore.FieldValue.serverTimestamp(),
+    reprintedBy: {
+      uid: auth?.uid || null,
+      email: clean(auth?.token?.email) || null,
+    },
+    error: admin.firestore.FieldValue.delete(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  await writeActivityLog({
+    auth,
+    action: 'PRINT_QUEUE_REQUEUE',
+    details: `Printjob ${safeJobId} opnieuw in wachtrij gezet`,
+    extra: {
+      source: clampText(source, 80) || null,
+      actorLabel: getActorLabel(auth, actorLabel),
+      jobId: safeJobId,
+      retryCount: nextRetryCount,
+    },
+  });
+
+  return { ok: true, jobId: safeJobId, retryCount: nextRetryCount };
+};
+
+const deletePrintQueueJobService = async ({ jobId, auth, source, actorLabel }) => {
+  const safeJobId = clean(jobId);
+  const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
+  const jobSnap = await jobRef.get();
+
+  if (!jobSnap.exists) {
+    throw new Error('NOT_FOUND_PRINT_JOB');
+  }
+
+  await jobRef.delete();
+
+  await writeActivityLog({
+    auth,
+    action: 'PRINT_QUEUE_DELETE',
+    details: `Printjob ${safeJobId} verwijderd`,
+    extra: {
+      source: clampText(source, 80) || null,
+      actorLabel: getActorLabel(auth, actorLabel),
+      jobId: safeJobId,
+    },
+  });
+
+  return { ok: true, jobId: safeJobId };
+};
+
 const markReadyForNextStepService = async ({ productId, auth }) => {
   const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
   if (!trackedDoc) {
@@ -2439,6 +3157,7 @@ module.exports = {
   retrievePlanningOrderService,
   togglePlanningOrderHoldService,
   updatePlanningOrderDetailsService,
+  patchPlanningOrderMetadataService,
   assignOverproductionService,
   tempRejectTrackedProductService,
   advanceTrackedProductService,
@@ -2458,12 +3177,20 @@ module.exports = {
   markMazakLabelsPrintedService,
   appendQcNoteService,
   reserveAutoLotNumberRangeService,
+  saveOccupancyAssignmentsService,
+  deleteOccupancyAssignmentsService,
+  savePersonnelRecordService,
   addOrderDependencyService,
   removeOrderDependencyService,
   updateOrderPlannedDateService,
   updateOrderKanbanStatusService,
+  createProductionMessagesService,
+  transitionPrintQueueJobStatusService,
+  requeuePrintQueueJobService,
+  deletePrintQueueJobService,
   markReadyForNextStepService,
   startTrackedProductRepairService,
   reportShopFloorIssueService,
   resolveShopFloorIssueService,
+  bulkImportPlanningOrdersService,
 };

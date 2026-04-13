@@ -1,4 +1,4 @@
-import { collection, query, onSnapshot, doc, serverTimestamp, updateDoc, where, addDoc, limit, getDocs, getDoc, setDoc, arrayUnion, increment } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, serverTimestamp, where, limit, getDocs, getDoc, arrayUnion, increment } from "firebase/firestore";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -18,6 +18,10 @@ import {
   toggleTrackedProductPause,
   markTrackedProductReminder,
   linkPlanningOrderProduct,
+  saveOccupancyAssignments,
+  saveOccupancyAssignment,
+  savePersonnelRecord,
+  createProductionMessages,
 } from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
@@ -478,25 +482,29 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
       for (const item of overdueItems) {
         try {
-          await addDoc(
-            collection(db, ...PATHS.MESSAGES),
-            {
+          await createProductionMessages({
+            messages: [{
               title: t("digitalplanning.workstation.reminder_title"),
               message: t("digitalplanning.workstation.reminder_message", { lot: item.lotNumber, station: selectedStation }),
+              subject: t("digitalplanning.workstation.reminder_title"),
+              content: t("digitalplanning.workstation.reminder_message", { lot: item.lotNumber, station: selectedStation }),
               type: "alert",
-              status: "unread",
-              read: false,
-              createdAt: serverTimestamp(),
+              priority: "high",
               source: "WorkstationHub",
               relatedLot: item.lotNumber,
-            }
-          );
+              targetRoles: ["teamleader", "admin"],
+              targetGroup: "TEAMLEADERS",
+              broadcastToAll: true,
+              metadata: {
+                kind: "inspection_overdue",
+                station: selectedStation,
+                lotNumber: item.lotNumber,
+              },
+            }],
+            source: "WorkstationHub",
+            actorLabel: currentUser?.email || "Operator",
+          });
 
-          const productRef = doc(
-            db,
-            ...PATHS.TRACKING,
-            item.id || item.lotNumber
-          );
           await markTrackedProductReminder({
             productId: item.id || item.lotNumber,
             reminderSent: true,
@@ -668,31 +676,35 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         // productieve uren afgaat. VROEG en LAAT zijn 8 uur incl. pauze (geen aftrek).
         const breakHours = (SHIFT_CONFIG[targetBucket]?.breakMinutes ?? 0) / 60;
 
-        await Promise.all(
-          toCheckout.map(async (entry) => {
+        await saveOccupancyAssignments({
+          records: toCheckout.map((entry) => {
             const previousHours = Number(entry.hoursWorked || 0);
             const checkedInDate = toDateSafe(entry.checkedInAt);
             const elapsedHours = checkedInDate
               ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000)
               : 0;
             const grossHours = Number((previousHours + elapsedHours).toFixed(2));
-            // Secundaire koppeling (LOSSEN 12/18 auto-login): uren al geteld bij primair station
             const finalHours = entry.isSecondary
               ? 0
               : Math.max(0, Number((grossHours - breakHours).toFixed(2)));
 
-            await updateDoc(doc(db, ...PATHS.OCCUPANCY, entry.id), {
-              hoursWorked: finalHours,
-              hoursWorkedGross: entry.isSecondary ? 0 : grossHours,
-              ...(breakHours > 0 && !entry.isSecondary ? { breakDeductedHours: breakHours } : {}),
-              checkedOutAt: serverTimestamp(),
-              isActive: false,
-              autoCheckout: true,
-              autoCheckoutShift: targetBucket,
-              updatedAt: serverTimestamp(),
-            });
-          })
-        );
+            return {
+              assignmentId: entry.id,
+              data: {
+                hoursWorked: finalHours,
+                hoursWorkedGross: entry.isSecondary ? 0 : grossHours,
+                ...(breakHours > 0 && !entry.isSecondary ? { breakDeductedHours: breakHours } : {}),
+                checkedOutAt: "__SERVER_TIMESTAMP__",
+                isActive: false,
+                autoCheckout: true,
+                autoCheckoutShift: targetBucket,
+                updatedAt: "__SERVER_TIMESTAMP__",
+              },
+            };
+          }),
+          source: "WorkstationHub.autoCheckout",
+          actorLabel: currentUser?.email || "Operator",
+        });
 
         if (toCheckout.length > 0) {
           setCheckedInOperator(null);
@@ -765,23 +777,28 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           return sameOperator && isActive;
         });
 
-      await Promise.all(
-        activeEntries.map(async (entry) => {
-          const previousHours = Number(entry.hoursWorked || 0);
-          const checkedInDate = toDateSafe(entry.checkedInAt);
-          const elapsedHours = checkedInDate ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000) : 0;
-          // Secundaire koppeling (LOSSEN 12/18 auto-login): uren niet dubbeltellen
-          const finalHours = entry.isSecondary ? 0 : Number((previousHours + elapsedHours).toFixed(2));
-
-          await updateDoc(doc(db, ...PATHS.OCCUPANCY, entry.id), {
-            hoursWorked: finalHours,
-            checkedOutAt: serverTimestamp(),
-            isActive: false,
-            movedToMachineId: selectedStation,
-            updatedAt: serverTimestamp(),
-          });
-        })
-      );
+      if (activeEntries.length > 0) {
+        await saveOccupancyAssignments({
+          records: activeEntries.map((entry) => {
+            const previousHours = Number(entry.hoursWorked || 0);
+            const checkedInDate = toDateSafe(entry.checkedInAt);
+            const elapsedHours = checkedInDate ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000) : 0;
+            const finalHours = entry.isSecondary ? 0 : Number((previousHours + elapsedHours).toFixed(2));
+            return {
+              assignmentId: entry.id,
+              data: {
+                hoursWorked: finalHours,
+                checkedOutAt: "__SERVER_TIMESTAMP__",
+                isActive: false,
+                movedToMachineId: selectedStation,
+                updatedAt: "__SERVER_TIMESTAMP__",
+              },
+            };
+          }),
+          source: "WorkstationHub.operatorCheckin.closePrevious",
+          actorLabel: currentUser?.email || "Operator",
+        });
+      }
 
       // Bepaal dienst o.b.v. personeelsbestand (person.shiftId), kloktijd als fallback.
       const personShiftKey = resolveShiftKeyFromPerson(person);
@@ -790,7 +807,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       const machineNorm = (normalizeMachine(selectedStation) || selectedStation || "").replace(/[^a-zA-Z0-9]/g, "_");
       const occId = `${todayStr}_${machineNorm}_${operatorNumber}_${Date.now()}`;
 
-      await setDoc(doc(db, ...PATHS.OCCUPANCY, occId), {
+      await saveOccupancyAssignment({
+        assignmentId: occId,
+        data: {
         departmentId: person.departmentId || "fittings",
         machineId: selectedStation,
         operatorNumber,
@@ -801,12 +820,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         shift: personShiftLabel,
         shiftKey: personShiftKey,
         isLoan: false,
-        checkedInAt: serverTimestamp(),
         checkedOutAt: null,
         isActive: true,
         source: "workstation_checkin",
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+        checkedInAt: "__SERVER_TIMESTAMP__",
+        updatedAt: "__SERVER_TIMESTAMP__",
+      },
+        source: "WorkstationHub.operatorCheckin.primary",
+        actorLabel: currentUser?.email || "Operator",
+      });
 
       await logActivity(
         currentUser?.uid || "system",
@@ -815,10 +837,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       );
 
       if (person.id) {
-        await updateDoc(doc(db, ...PATHS.PERSONNEL, person.id), {
-          currentMachineId: selectedStation,
-          lastBadgeScanAt: serverTimestamp(),
-          lastBadgeScanBy: currentUser?.uid || null,
+        await savePersonnelRecord({
+          personId: person.id,
+          data: {
+            currentMachineId: selectedStation,
+            lastBadgeScanAt: "__SERVER_TIMESTAMP__",
+            lastBadgeScanBy: currentUser?.uid || null,
+          },
+          source: "WorkstationHub.operatorCheckin.personnel",
+          actorLabel: currentUser?.email || "Operator",
         }).catch(() => {});
       }
 
@@ -856,7 +883,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           if (!alreadyAtLossen1218) {
             const lossen1218Norm = (normalizeMachine(LOSSEN_1218_STATION_NAME) || LOSSEN_1218_STATION_NAME).replace(/[^a-zA-Z0-9]/g, "_");
             const lossen1218OccId = `${todayStr}_${lossen1218Norm}_${operatorNumber}_auto_${Date.now()}`;
-            await setDoc(doc(db, ...PATHS.OCCUPANCY, lossen1218OccId), {
+            await saveOccupancyAssignment({
+              assignmentId: lossen1218OccId,
+              data: {
               departmentId: person.departmentId || "fittings",
               machineId: LOSSEN_1218_STATION_NAME,
               operatorNumber,
@@ -869,12 +898,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               isLoan: false,
               isSecondary: true,        // Uren niet dubbeltellen
               primaryStation: selectedStation,
-              checkedInAt: serverTimestamp(),
               checkedOutAt: null,
               isActive: true,
               source: "auto_lossen1218",
-              updatedAt: serverTimestamp(),
-            }, { merge: true });
+              checkedInAt: "__SERVER_TIMESTAMP__",
+              updatedAt: "__SERVER_TIMESTAMP__",
+            },
+              source: "WorkstationHub.operatorCheckin.secondaryLossen1218",
+              actorLabel: currentUser?.email || "Operator",
+            });
           }
         } catch (err) {
           console.warn("Auto-login LOSSEN 12/18 mislukt (niet kritiek):", err);
@@ -1319,56 +1351,31 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       overflowItems = Array.isArray(startResult?.overflowLots) ? startResult.overflowLots : [];
 
       if (overflowItems.length > 0) {
-        const plannerRecipientsSnap = await getDocs(
-          query(collection(db, ...PATHS.USERS), where("role", "in", ["planner", "admin"]))
-        ).catch(() => null);
-
-        const plannerRecipients = plannerRecipientsSnap
-          ? Array.from(
-              new Set(
-                plannerRecipientsSnap.docs
-                  .map((userDoc) => String(userDoc.data()?.email || "").trim().toLowerCase())
-                  .filter(Boolean)
-              )
-            )
-          : [];
-
-        const messagePayload = {
-          from: "SYSTEM",
-          senderId: currentUser?.uid || "system-auto",
-          subject: `Overproductie op ${selectedStation}`,
-          content: `${overflowItems.length} extra producten zijn aangemaakt vanuit order ${order.orderId}. Koppel deze aan een nieuw LN-ordernummer zodra beschikbaar. Lotnummers: ${overflowItems.join(", ")}`,
-          timestamp: serverTimestamp(),
-          read: false,
-          archived: false,
-          priority: "high",
-          type: "warning",
+        await createProductionMessages({
+          messages: [{
+            from: "SYSTEM",
+            senderId: currentUser?.uid || "system-auto",
+            subject: `Overproductie op ${selectedStation}`,
+            content: `${overflowItems.length} extra producten zijn aangemaakt vanuit order ${order.orderId}. Koppel deze aan een nieuw LN-ordernummer zodra beschikbaar. Lotnummers: ${overflowItems.join(", ")}`,
+            title: `Overproductie op ${selectedStation}`,
+            message: `${overflowItems.length} extra producten vanuit order ${order.orderId}. Lots: ${overflowItems.join(", ")}`,
+            priority: "high",
+            type: "warning",
+            source: "WorkstationHub",
+            targetRoles: ["planner", "admin"],
+            targetGroup: "PLANNERS_AND_ADMINS",
+            broadcastToAll: true,
+            metadata: {
+              kind: "overproduction",
+              originalOrderId: order.orderId,
+              originStation: selectedStation,
+              lotNumbers: overflowItems,
+              count: overflowItems.length,
+            },
+          }],
           source: "WorkstationHub",
-          metadata: {
-            kind: "overproduction",
-            originalOrderId: order.orderId,
-            originStation: selectedStation,
-            lotNumbers: overflowItems,
-            count: overflowItems.length,
-          },
-        };
-
-        if (plannerRecipients.length > 0) {
-          await Promise.all(
-            plannerRecipients.map((email) =>
-              addDoc(collection(db, ...PATHS.MESSAGES), {
-                ...messagePayload,
-                to: email,
-              })
-            )
-          );
-        } else {
-          await addDoc(collection(db, ...PATHS.MESSAGES), {
-            ...messagePayload,
-            to: "admin",
-            targetGroup: "admins",
-          });
-        }
+          actorLabel: currentUser?.email || "Operator",
+        });
 
         notify(
           `Let op: Er zijn ${overflowItems.length} producten meer gemaakt dan gepland.`

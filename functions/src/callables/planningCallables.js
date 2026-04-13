@@ -30,6 +30,7 @@ const {
   retrievePlanningOrderService,
   togglePlanningOrderHoldService,
   updatePlanningOrderDetailsService,
+  patchPlanningOrderMetadataService,
   assignOverproductionService,
   tempRejectTrackedProductService,
   advanceTrackedProductService,
@@ -49,15 +50,33 @@ const {
   markMazakLabelsPrintedService,
   appendQcNoteService,
   reserveAutoLotNumberRangeService,
+  saveOccupancyAssignmentsService,
+  deleteOccupancyAssignmentsService,
+  savePersonnelRecordService,
   addOrderDependencyService,
   removeOrderDependencyService,
   updateOrderPlannedDateService,
   updateOrderKanbanStatusService,
+  createProductionMessagesService,
+  transitionPrintQueueJobStatusService,
+  requeuePrintQueueJobService,
+  deletePrintQueueJobService,
   markReadyForNextStepService,
   startTrackedProductRepairService,
   reportShopFloorIssueService,
   resolveShopFloorIssueService,
+  bulkImportPlanningOrdersService,
 } = require('../services/planningTransitionService');
+
+const { queuePrintJobService } = require('../services/printingService');
+const {
+  updateUserProfileService,
+  clearPasswordChangeFlagService,
+  submitAccountRequestService,
+  updateUserLanguageService,
+} = require('../services/adminService');
+
+const IMPORT_ALLOWED_MODES = new Set(['new_only', 'overwrite', 'smart_update']);
 
 const sanitizeRejectReasons = (rawReasons) => {
   if (!Array.isArray(rawReasons) || rawReasons.length === 0) {
@@ -790,6 +809,44 @@ const updatePlanningOrderDetails = functions.https.onCall(async (data, context) 
   }
 });
 
+const patchPlanningOrderMetadata = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!ORDER_EDIT_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten om planningmetadata te wijzigen.');
+  }
+
+  const orderDocId = clean(data?.orderDocId);
+  const patch = data?.patch && typeof data.patch === 'object' ? data.patch : null;
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  if (!orderDocId || !patch) {
+    throw new functions.https.HttpsError('invalid-argument', 'orderDocId en patch zijn verplicht.');
+  }
+
+  try {
+    return await patchPlanningOrderMetadataService({
+      orderDocId,
+      patch,
+      source,
+      actorLabel,
+      auth: context.auth,
+    });
+  } catch (error) {
+    if (error?.message === 'NOT_FOUND_ORDER') {
+      throw new functions.https.HttpsError('not-found', 'Planning-order niet gevonden.');
+    }
+    if (error?.message === 'INVALID_PATCH_PAYLOAD' || error?.message === 'INVALID_PATCH_QUANTITY') {
+      throw new functions.https.HttpsError('invalid-argument', 'Ongeldige planning patch payload.');
+    }
+    throw error;
+  }
+});
+
 const assignOverproduction = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
@@ -1007,6 +1064,241 @@ const loanPersonnelToDepartment = functions.https.onCall(async (data, context) =
     auth: context.auth,
     userRole,
   });
+});
+
+const saveOccupancyAssignments = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!OCCUPANCY_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten voor occupancy-mutaties.');
+  }
+
+  const records = Array.isArray(data?.records) ? data.records : [];
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  try {
+    return await saveOccupancyAssignmentsService({
+      records,
+      source,
+      actorLabel,
+      auth: context.auth,
+      userRole,
+    });
+  } catch (error) {
+    if (error?.message === 'INVALID_OCCUPANCY_RECORDS') {
+      throw new functions.https.HttpsError('invalid-argument', 'Ongeldige occupancy records.');
+    }
+    throw error;
+  }
+});
+
+const deleteOccupancyAssignments = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!OCCUPANCY_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten voor occupancy-mutaties.');
+  }
+
+  const assignmentIds = Array.isArray(data?.assignmentIds) ? data.assignmentIds : [];
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  try {
+    return await deleteOccupancyAssignmentsService({
+      assignmentIds,
+      source,
+      actorLabel,
+      auth: context.auth,
+      userRole,
+    });
+  } catch (error) {
+    if (error?.message === 'INVALID_OCCUPANCY_ASSIGNMENT_IDS') {
+      throw new functions.https.HttpsError('invalid-argument', 'Ongeldige occupancy assignment ids.');
+    }
+    throw error;
+  }
+});
+
+const savePersonnelRecord = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!OCCUPANCY_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten voor personeelsmutaties.');
+  }
+
+  const personId = clean(data?.personId);
+  const payload = data?.data && typeof data.data === 'object' ? data.data : null;
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  if (!payload) {
+    throw new functions.https.HttpsError('invalid-argument', 'data is verplicht.');
+  }
+
+  try {
+    return await savePersonnelRecordService({
+      personId,
+      data: payload,
+      source,
+      actorLabel,
+      auth: context.auth,
+      userRole,
+    });
+  } catch (error) {
+    if (error?.message === 'INVALID_PERSONNEL_PAYLOAD') {
+      throw new functions.https.HttpsError('invalid-argument', 'Ongeldige personnel payload.');
+    }
+    throw error;
+  }
+});
+
+const createProductionMessages = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!START_PRODUCTION_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten om productieberichten aan te maken.');
+  }
+
+  const messages = Array.isArray(data?.messages) ? data.messages.slice(0, 50) : [];
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  if (!messages.length) {
+    throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 bericht is verplicht.');
+  }
+
+  try {
+    return await createProductionMessagesService({
+      messages,
+      source,
+      actorLabel,
+      auth: context.auth,
+    });
+  } catch (error) {
+    if (error?.message === 'INVALID_MESSAGES_PAYLOAD') {
+      throw new functions.https.HttpsError('invalid-argument', 'Ongeldige messages payload.');
+    }
+    throw error;
+  }
+});
+
+const transitionPrintQueueJobStatus = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!START_PRODUCTION_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten voor print queue mutaties.');
+  }
+
+  const jobId = clean(data?.jobId);
+  const status = clean(data?.status);
+  const errorMessage = clampText(data?.error, 1000);
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  if (!jobId || !status) {
+    throw new functions.https.HttpsError('invalid-argument', 'jobId en status zijn verplicht.');
+  }
+
+  try {
+    return await transitionPrintQueueJobStatusService({
+      jobId,
+      status,
+      error: errorMessage,
+      source,
+      actorLabel,
+      auth: context.auth,
+    });
+  } catch (error) {
+    if (error?.message === 'NOT_FOUND_PRINT_JOB') {
+      throw new functions.https.HttpsError('not-found', 'Printjob niet gevonden.');
+    }
+    if (error?.message === 'INVALID_PRINT_QUEUE_TRANSITION') {
+      throw new functions.https.HttpsError('failed-precondition', 'Ongeldige print queue statusovergang.');
+    }
+    throw error;
+  }
+});
+
+const requeuePrintQueueJob = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!START_PRODUCTION_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten voor print queue mutaties.');
+  }
+
+  const jobId = clean(data?.jobId);
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  if (!jobId) {
+    throw new functions.https.HttpsError('invalid-argument', 'jobId is verplicht.');
+  }
+
+  try {
+    return await requeuePrintQueueJobService({
+      jobId,
+      source,
+      actorLabel,
+      auth: context.auth,
+    });
+  } catch (error) {
+    if (error?.message === 'NOT_FOUND_PRINT_JOB') {
+      throw new functions.https.HttpsError('not-found', 'Printjob niet gevonden.');
+    }
+    throw error;
+  }
+});
+
+const deletePrintQueueJob = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (userRole !== 'admin') {
+    throw new functions.https.HttpsError('permission-denied', 'Alleen admins mogen printjobs verwijderen.');
+  }
+
+  const jobId = clean(data?.jobId);
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  if (!jobId) {
+    throw new functions.https.HttpsError('invalid-argument', 'jobId is verplicht.');
+  }
+
+  try {
+    return await deletePrintQueueJobService({
+      jobId,
+      source,
+      actorLabel,
+      auth: context.auth,
+    });
+  } catch (error) {
+    if (error?.message === 'NOT_FOUND_PRINT_JOB') {
+      throw new functions.https.HttpsError('not-found', 'Printjob niet gevonden.');
+    }
+    throw error;
+  }
 });
 
 const startProductionLots = functions.https.onCall(async (data, context) => {
@@ -1512,6 +1804,98 @@ const resolveShopFloorIssue = functions.https.onCall(async (data, context) => {
   }
 });
 
+const importPlanningOrders = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!ORDER_EDIT_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten om planning te importeren.');
+  }
+
+  const importMode = clean(data?.importMode).toLowerCase() || 'new_only';
+  if (!IMPORT_ALLOWED_MODES.has(importMode)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Ongeldige importMode.');
+  }
+
+  const orders = Array.isArray(data?.orders) ? data.orders.slice(0, 1500) : [];
+  if (orders.length === 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 order is verplicht.');
+  }
+
+  return bulkImportPlanningOrdersService({
+    orders,
+    importMode,
+  });
+});
+
+const queuePrintJob = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const printerId = clean(data?.printerId);
+  const zplData = clean(data?.zplData);
+  const metadata = (typeof data?.metadata === 'object' && data.metadata) || {};
+
+  if (!printerId) {
+    throw new functions.https.HttpsError('invalid-argument', 'printerId is verplicht.');
+  }
+
+  if (!zplData) {
+    throw new functions.https.HttpsError('invalid-argument', 'zplData is verplicht.');
+  }
+
+  return queuePrintJobService(printerId, zplData, metadata, context);
+});
+
+const updateUserProfile = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const profileData = (typeof data?.profileData === 'object' && data.profileData) || {};
+  
+  if (!profileData.name || !profileData.language) {
+    throw new functions.https.HttpsError('invalid-argument', 'name en language zijn verplicht.');
+  }
+
+  return updateUserProfileService(context.auth.uid, profileData);
+});
+
+const clearPasswordChangeFlag = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  return clearPasswordChangeFlagService(context.auth.uid);
+});
+
+const submitAccountRequest = functions.https.onCall(async (data, context) => {
+  const requestData = (typeof data?.requestData === 'object' && data.requestData) || {};
+
+  if (!requestData.name || !requestData.email) {
+    throw new functions.https.HttpsError('invalid-argument', 'Naam en e-mailadres zijn verplicht.');
+  }
+
+  return submitAccountRequestService(requestData);
+});
+
+const updateUserLanguage = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const language = clean(data?.language);
+
+  if (!language) {
+    throw new functions.https.HttpsError('invalid-argument', 'language is verplicht.');
+  }
+
+  return updateUserLanguageService(context.auth.uid, language);
+});
+
 module.exports = {
   rejectTrackedProductFinal,
   tempRejectTrackedProduct,
@@ -1530,11 +1914,19 @@ module.exports = {
   retrievePlanningOrder,
   togglePlanningOrderHold,
   updatePlanningOrderDetails,
+  patchPlanningOrderMetadata,
   assignOverproduction,
   cancelPlanningOrder,
   assignPersonnelToStation,
   removePersonnelAssignment,
   loanPersonnelToDepartment,
+  saveOccupancyAssignments,
+  deleteOccupancyAssignments,
+  savePersonnelRecord,
+  createProductionMessages,
+  transitionPrintQueueJobStatus,
+  requeuePrintQueueJob,
+  deletePrintQueueJob,
   startProductionLots,
   editTrackedProductLotNumber,
   linkPlanningOrderProduct,
@@ -1550,4 +1942,10 @@ module.exports = {
   startTrackedProductRepair,
   reportShopFloorIssue,
   resolveShopFloorIssue,
+  importPlanningOrders,
+  queuePrintJob,
+  updateUserProfile,
+  clearPasswordChangeFlag,
+  submitAccountRequest,
+  updateUserLanguage,
 };
