@@ -81,6 +81,7 @@ const {
   clearPasswordChangeFlag,
   submitAccountRequest,
   updateUserLanguage,
+  executeAutomationRule,
 } = require('./src/callables/planningCallables');
 
 const clean = (val) => String(val || '').trim();
@@ -901,6 +902,7 @@ exports.updateUserProfile = updateUserProfile;
 exports.clearPasswordChangeFlag = clearPasswordChangeFlag;
 exports.submitAccountRequest = submitAccountRequest;
 exports.updateUserLanguage = updateUserLanguage;
+exports.executeAutomationRule = executeAutomationRule;
 
 /**
  * Backend AI proxy: voorkomt dat API keys in de frontend staan.

@@ -11,6 +11,7 @@ import {
 import { db, logActivity } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import i18n from "../i18n";
+import { executeAutomationRule as executeAutomationRuleBackend } from "../services/planningSecurityService";
 
 /**
  * Automation Engine - Centralized rule evaluation and execution
@@ -636,74 +637,5 @@ export const checkDebounce = async (ruleId, debounceMinutes = 60) => {
  * Execute rule with logging and debouncing
  */
 export const executeRuleWithLogging = async (rule) => {
-  // Check debounce
-  if (rule.debounceMinutes && await checkDebounce(rule.id, rule.debounceMinutes)) {
-    return {
-      skipped: true,
-      message: i18n.t("automation.skipped_debounce", "Skipped due to recent execution (debounce)")
-    };
-  }
-  
-  try {
-    const result = await evaluateRule(rule);
-    
-    // Log execution
-    await addDoc(collection(db, ...PATHS.AUTOMATION_EXECUTIONS), {
-      ruleId: rule.id,
-      ruleName: rule.name,
-      trigger: rule.trigger,
-      action: rule.action,
-      status: result.triggered ? "success" : "no_trigger",
-      message: result.message || i18n.t("automation.no_trigger_match", "No trigger match"),
-      data: result.data || null,
-      actionResult: result.actionResult || null,
-      executedAt: serverTimestamp()
-    });
-
-    await logActivity(
-      "system",
-      "AUTOMATION_EXECUTION_LOG",
-      `Rule uitvoering gelogd: ${rule.name} (${result.triggered ? "success" : "no_trigger"})`
-    );
-    
-    // Update rule execution count
-    if (result.triggered) {
-      const ruleRef = doc(db, ...PATHS.AUTOMATION_RULES, rule.id);
-      await updateDoc(ruleRef, {
-        executionCount: (rule.executionCount || 0) + 1,
-        lastExecuted: serverTimestamp()
-      });
-      await logActivity(
-        "system",
-        "AUTOMATION_RULE_COUNTER_UPDATE",
-        `Execution teller bijgewerkt voor rule ${rule.id}`
-      );
-    }
-    
-    return result;
-  } catch (error) {
-    console.error(`Error executing rule ${rule.name}:`, error);
-    
-    // Log error
-    await addDoc(collection(db, ...PATHS.AUTOMATION_EXECUTIONS), {
-      ruleId: rule.id,
-      ruleName: rule.name,
-      trigger: rule.trigger,
-      action: rule.action,
-      status: "error",
-      message: error.message,
-      executedAt: serverTimestamp()
-    });
-
-    await logActivity(
-      "system",
-      "AUTOMATION_EXECUTION_ERROR",
-      `Rule fout gelogd: ${rule.name} - ${error.message}`
-    );
-    
-    return {
-      triggered: false,
-      error: error.message
-    };
-  }
+  return executeAutomationRuleBackend(rule);
 };

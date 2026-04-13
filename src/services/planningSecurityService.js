@@ -51,6 +51,7 @@ const updateUserProfileCallable = httpsCallable(functions, "updateUserProfile");
 const clearPasswordChangeFlagCallable = httpsCallable(functions, "clearPasswordChangeFlag");
 const submitAccountRequestCallable = httpsCallable(functions, "submitAccountRequest");
 const updateUserLanguageCallable = httpsCallable(functions, "updateUserLanguage");
+const executeAutomationRuleCallable = httpsCallable(functions, "executeAutomationRule");
 
 export const rejectTrackedProductFinal = async ({
   productId,
@@ -1197,4 +1198,13 @@ export const updateUserLanguage = async (language) => {
 
   const result = await updateUserLanguageCallable(payload);
   return result?.data || { ok: false };
+};
+
+export const executeAutomationRule = async (rule) => {
+  if (!rule || typeof rule !== "object") {
+    throw new Error("rule is verplicht.");
+  }
+
+  const result = await executeAutomationRuleCallable({ rule });
+  return result?.data || { triggered: false, error: "Lege automation response" };
 };

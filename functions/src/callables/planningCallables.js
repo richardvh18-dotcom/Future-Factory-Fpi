@@ -75,6 +75,7 @@ const {
   submitAccountRequestService,
   updateUserLanguageService,
 } = require('../services/adminService');
+const { executeAutomationRuleService } = require('../services/automationService');
 
 const IMPORT_ALLOWED_MODES = new Set(['new_only', 'overwrite', 'smart_update']);
 
@@ -1896,6 +1897,19 @@ const updateUserLanguage = functions.https.onCall(async (data, context) => {
   return updateUserLanguageService(context.auth.uid, language);
 });
 
+const executeAutomationRule = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const rule = (typeof data?.rule === 'object' && data.rule) || null;
+  if (!rule) {
+    throw new functions.https.HttpsError('invalid-argument', 'rule is verplicht.');
+  }
+
+  return executeAutomationRuleService(rule);
+});
+
 module.exports = {
   rejectTrackedProductFinal,
   tempRejectTrackedProduct,
@@ -1948,4 +1962,5 @@ module.exports = {
   clearPasswordChangeFlag,
   submitAccountRequest,
   updateUserLanguage,
+  executeAutomationRule,
 };
