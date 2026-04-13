@@ -1,7 +1,8 @@
 // Service voor het koppelen van tekeningen aan orders
-import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { db, auth, logActivity } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
+import { patchPlanningOrderMetadata } from "../services/planningSecurityService";
 import i18n from "../i18n";
 
 const normalizeCode = (value) => String(value || "").trim().toUpperCase();
@@ -136,10 +137,12 @@ export const findDrawingForOrder = async (order) => {
 export const syncOrderDrawing = async (orderId, drawing) => {
   if (!orderId || !drawing) return;
   try {
-    const orderRef = doc(db, ...PATHS.PLANNING, orderId);
-    await updateDoc(orderRef, { 
+    await patchPlanningOrderMetadata({
+      orderDocId: orderId,
+      patch: {
       drawing: drawing,
-      lastUpdated: new Date() 
+      },
+      source: "drawingLinker",
     });
     await logActivity(
       auth.currentUser?.uid || "system",

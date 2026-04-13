@@ -1,3 +1,221 @@
+## Update sessie 93 (Migratie Admin/Account Paden naar Backend Callables)
+
+**Datum:** 13 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Prioriteit 1 uit hotspotscan C afhandelen: Admin & Account paden centraliseren
+
+**Wat is afgerond in deze batch:**
+
+### Backend Services (`adminService.js`) ✅
+- `updateUserProfileService`: setDoc user profile (name, email, preferences, language, etc.)
+- `clearPasswordChangeFlagService`: setDoc requirePasswordChange: false
+- `submitAccountRequestService`: addDoc new account request
+- `updateUserLanguageService`: updateDoc language voorkeur + validation
+
+### Backend Callables (in `planningCallables.js`) ✅
+```
+- updateUserProfile (requires auth)
+- clearPasswordChangeFlag (requires auth)
+- submitAccountRequest (public, no auth required)
+- updateUserLanguage (requires auth)
+```
+
+### Frontend Wrappers in `planningSecurityService.js` ✅
+```
+export const updateUserProfile(profileData)
+export const clearPasswordChangeFlag()
+export const submitAccountRequest(requestData)
+export const updateUserLanguage(language)
+```
+
+### Component Migration ✅
+1. **ProfileView.jsx**:
+   - Import: `{ updateUserProfile, clearPasswordChangeFlag }`
+   - handleSaveGeneral: nu via `updateUserProfile()` callable
+   - handleUpdatePassword: nu via `clearPasswordChangeFlag()` callable
+   - Verwijderd: directe setDoc/updateDoc calls
+
+2. **ForcePasswordChangeView.jsx**:
+   - Import: `{ clearPasswordChangeFlag }`
+   - handleUpdate: nu via `clearPasswordChangeFlag()` callable
+   - Verwijderd: directe updateDoc call
+
+3. **AccountRequestModal.jsx**:
+   - Import: `{ submitAccountRequest }`
+   - handleSubmit: nu via `submitAccountRequest()` callable
+   - Verwijderd: directe addDoc call
+
+4. **Sidebar.jsx**:
+   - Import: `{ updateUserLanguage }`
+   - handleLanguageSelect: nu via `updateUserLanguage()` callable
+   - Verwijderd: directe updateDoc call
+
+**Validatie:**
+- `get_errors`: geen fouten op gewijzigde bestanden
+- `npm run build`: succesvol (17.54s, main bundle 398KB)
+- Backend syntax: geen fouten
+
+**Resultaat:**
+- 4 componenten: directe Firestore write → backend-callable migration
+- Alle user profile/account/preferences writes nu server-side authorized
+- Avatar user account self-service paden nu backend-controlled
+
+**Openstaand / Eerstvolgende Prioriteiten:**
+1. (Optioneel) Functions deployen + test admin flows in productie
+2. Prioriteit 2: automationEngine.jsx (rule creation/logging)
+3. Prioriteit 3: Utility flows (conversionLogic, infor_sync, productHelpers)
+
+## Update sessie 92 (Finish Backend-Write Migratie Batch 3 + Hotspotscan C)
+
+**Datum:** 13 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Taak A: Firebase functions deployment valideren
+- Taak B: Print queue aanmaak (printService) via backend-callable centraliseren
+- Taak C: Resterende directe client writes scannen en prioriteren
+
+**Wat is afgerond in deze sessie:**
+
+### Taak A: Functions Deploy ✅
+- `firebase deploy --only functions` succesvol afgerond
+- 50+ callables live in productie (inclusief BatchWriter en journaal-management)
+- Specifieke nuevas functies nu actief:
+  - `createProductionMessages` (overproduction/reminder alerts)
+  - `transitionPrintQueueJobStatus`, `requeuePrintQueueJob`, `deletePrintQueueJob`
+  - `saveOccupancyAssignments`, `deleteOccupancyAssignments`
+  - `savePersonnelRecord`
+  - Alle Sessie 88-91 callables
+
+### Taak B: printService Queue-Aanmaak Migratie ✅
+- Nieuwe backend service: `functions/src/services/printingService.js`
+  - `queuePrintJobService`: server-side validatie + ZPL sanitation
+  - MAX_ZPL_LENGTH, MAX_METADATA_LENGTH, PRINTER_ID_PATTERN checks
+- Nieuwe backend callable: `queuePrintJob` in planningCallables.js
+- Frontend wrapper: `queuePrintJob()` in planningSecurityService.js
+- UI-rewiring afgerond in 5 componenten:
+  - `ProductDossierModal.jsx` (herprint labels)
+  - `MazakView.jsx` (labels printing)
+  - `ProductionStartModal.jsx` (lot initial print)
+  - `PrintQueueAdminView.jsx` (manual queue entry)
+  - `AdminPrinterManager.jsx` (test/admin print)
+- Validatie: geen lints/errors op gewijzigde bestanden
+
+**Resultaat van Taak B:**
+- Print queue aanmaak loopt nu volledig via backend-command
+- Alle ZPL + metadata validatie server-side afgedwongen
+- Directe printService.queuePrintJob calls in frontend verwijderd
+
+### Taak C: Hotspot Scan Resultaten ✅
+- **Gescand:** alle src/components + relevante src/utils
+- **Gemigreerd (✅):** planning/tracking/occupancy/personnel paden (Sessies 88-91)
+- **Nog Client-side (~50 matches):**
+  
+  **Prioriteit 1 (Admin/Account):**
+  - ProfileView.jsx: setDoc userProfile + password change
+  - ForcePasswordChangeView.jsx: requirePasswordChange flag
+  - AccountRequestModal.jsx: new request creation
+  - Sidebar.jsx: language preference update
+
+  **Prioriteit 2 (Automation):**
+  - automationEngine.jsx: rule creation/update + execution logging
+  - ~8 async operations met addDoc/updateDoc
+
+  **Prioriteit 3 (Utility/Data):**
+  - conversionLogic.jsx: writeBatch + setDoc (data imports)
+  - infor_sync_service.jsx: efficiency tracking
+  - productHelpers.jsx: product CRUD
+  - aiService.jsx: AI memory + learning
+
+  **Prioriteit 4 (AI Features, non-critical):**
+  - AiContextManager, AiChatView, AiDocumentUploadView
+  - AiTrainingView, FlashcardManager
+  - Kunnen client-side blijven als cache-safe
+
+  **Acceptabel (✅):**
+  - Logging (config/firebase, App, ErrorBoundary)
+  - Activity audit trail
+
+**Openstaand / Eerstvolgende Stap:**
+1. (Optioneel) Volgende batch migrëren: Admin/Account paden (ProfileView, etc.)
+2. (Optioneel) automationEngine autorisatie-checks sharpenen
+3. Firestore rules validatie voor nieuwe openstaande schrijven
+
+
+## Update sessie 91 (Pauzemoment na stap 2 backend-write migratie)
+
+**Datum:** 13 april 2026 | **Branch:** `pilot-dev`
+
+**Wat is afgerond vlak voor pauze:**
+- Stap 1 is vastgelegd in deze samenvatting (sessie 90).
+- Stap 2 is technisch doorgezet:
+    - `WorkstationHub` message writes lopen nu via backend-command.
+    - Print queue beheer-acties (statuswissel, requeue, delete) lopen nu via backend-callables.
+    - Nieuwe backend/bridge wiring toegevoegd in:
+        - `functions/src/services/planningTransitionService.js`
+        - `functions/src/callables/planningCallables.js`
+        - `functions/index.js`
+        - `src/services/planningSecurityService.js`
+        - `src/components/digitalplanning/WorkstationHub.jsx`
+        - `src/components/printer/PrintQueueAdminView.jsx`
+        - `src/components/admin/PrintQueueAdminView.jsx`
+
+**Status bij afsluiten sessie:**
+- Bestandsfoutcontrole op gewijzigde bestanden: geen errors.
+- Nog niet gedaan in deze sessie: functions deploy / end-to-end runtime test in productie-omgeving.
+
+**Startpunt voor volgende sessie:**
+1. Functions deployen zodat nieuwe callables actief zijn.
+2. End-to-end testen van WorkstationHub reminder/overproductie messaging en print queue flows.
+3. Eventueel volgende migratiestap: queue-aanmaakpad (`printService`) ook via backend-command centraliseren.
+
+## Update sessie 90 (Stap 1 shopfloor/personnel occupancy naar backend-commands)
+
+**Datum:** 13 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Eerste batch van de resterende directe shopfloor/personnel writes verwijderen, met focus op occupancy- en personeelsmutaties in de operationele hubs.
+
+**Wat is afgerond in deze batch:**
+- Nieuwe backend callables toegevoegd:
+    - `saveOccupancyAssignments`
+    - `deleteOccupancyAssignments`
+    - `savePersonnelRecord`
+- Nieuwe service-logica toegevoegd in `planningTransitionService` voor:
+    - server-side sanitizing en batch-save van occupancy records;
+    - server-side batch-delete van occupancy assignments;
+    - server-side create/update van personeelsrecords.
+- Frontend wrappers toegevoegd in `planningSecurityService`:
+    - `saveOccupancyAssignments(...)`
+    - `saveOccupancyAssignment(...)`
+    - `deleteOccupancyAssignments(...)`
+    - `deleteOccupancyAssignment(...)`
+    - `savePersonnelRecord(...)`
+- UI rewiring afgerond in drie kernschermen:
+    - `TeamleaderHub.jsx`:
+        - kopieer gisterbezetting via backend-command;
+        - wis dagbezetting via backend-command.
+    - `WorkstationHub.jsx`:
+        - auto-checkout en afsluiten vorige occupancy records;
+        - nieuwe primary/secondary occupancy records;
+        - personnel currentMachine/badge-scan updates.
+    - `PersonnelOccupancyView.jsx`:
+        - save/update personeelskaart;
+        - add/update/delete occupancy regels;
+        - handmatige uren- en closed-hours correcties.
+
+**Validatie:**
+- `get_errors` op gewijzigde backend- en frontendbestanden: geen fouten.
+- Focused scan bevestigt dat in deze drie views de eerder geprioriteerde occupancy/personnel writes niet langer direct via `setDoc/updateDoc/deleteDoc/writeBatch` lopen.
+
+**Resultaat:**
+- Stap 1 van de shopfloor/personnel migratie is afgerond.
+- Occupancy- en personeelsmutaties in de gekozen prioriteitsviews lopen nu via backend-commands in plaats van directe client writes.
+
+**Openstaand / eerstvolgende stap:**
+1. Stap 2 oppakken: resterende message writes in `WorkstationHub.jsx` naar backend-command migreren.
+2. Print queue beheerflows (`PrintQueueAdminView.jsx` en admin-variant) omzetten naar backend-commands voor statuswissels, requeue en delete.
+
 ## Update sessie 89 (Firestore rules hardening na callable-migraties)
 
 **Datum:** 12 april 2026 | **Branch:** `pilot-dev`

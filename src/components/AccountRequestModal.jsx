@@ -1,9 +1,7 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, UserPlus, Mail, User, Globe, Building2, Send, CheckCircle } from "lucide-react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db, logActivity } from "../config/firebase";
-import { PATHS } from "../config/dbPaths";
+import { submitAccountRequest } from '../services/planningSecurityService';
 
 /**
  * AccountRequestModal - Formulier voor account aanvraag
@@ -57,20 +55,13 @@ const AccountRequestModal = ({ isOpen, onClose }) => {
     setError(null);
 
     try {
-      // Sla aanvraag op in Firestore
-      await addDoc(collection(db, ...PATHS.ACCOUNT_REQUESTS), {
-        ...formData,
-        status: "pending",
-        requestedAt: serverTimestamp(),
-        processedAt: null,
-        processedBy: null,
+      // Submit via backend callable
+      await submitAccountRequest({
+        name: formData.name,
+        email: formData.email,
+        country: formData.country,
+        department: formData.department,
       });
-
-      await logActivity(
-        "system",
-        "ACCOUNT_REQUEST_CREATE",
-        `Accountaanvraag ontvangen voor ${formData.email}`
-      );
 
       setSubmitted(true);
       

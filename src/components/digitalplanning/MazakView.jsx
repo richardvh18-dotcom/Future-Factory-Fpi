@@ -24,10 +24,8 @@ import {
 import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { normalizeMachine } from "../../utils/hubHelpers";
-import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, markMazakLabelsPrinted } from "../../services/planningSecurityService";
+import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, markMazakLabelsPrinted, queuePrintJob } from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { getNextFlowState } from "../../utils/workstationLogic";
-import { queuePrintJob } from "../../services/printService";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import LabelVisualPreview from "../printer/LabelVisualPreview";
 import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";

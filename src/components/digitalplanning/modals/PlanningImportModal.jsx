@@ -10,13 +10,11 @@ import {
 } from "lucide-react";
 import {
   collection,
-  writeBatch,
-  doc,
-  serverTimestamp,
   getDocs,
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
+import { importPlanningOrders } from "../../../services/planningSecurityService";
 import * as XLSX from "xlsx";
 import { getISOWeek, format, startOfISOWeek, differenceInCalendarWeeks, parse, parseISO, isValid, subWeeks } from "date-fns";
 
@@ -358,50 +356,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return "production";
   };
 
-  const getSplitPlannedHours = (operations, fallbackTotalHours) => {
-    const split = { productionHours: 0, postHours: 0, qcHours: 0 };
-    const entries = Object.entries(operations || {});
-
-    if (entries.length === 0) {
-      split.productionHours = fallbackTotalHours || 0;
-      return split;
-    }
-
-    entries.forEach(([refOp, values]) => {
-      const planned = Number(values?.planned || 0);
-      const bucket = classifyReferenceOperation(refOp, values?.wc);
-      if (bucket === "qc") split.qcHours += planned;
-      else if (bucket === "post") split.postHours += planned;
-      else split.productionHours += planned;
-    });
-
-    // Veiligheidsnet: als er niets herkend is, val terug op totaal zodat tijd niet verdwijnt.
-    if (split.productionHours === 0 && split.postHours === 0 && split.qcHours === 0) {
-      split.productionHours = fallbackTotalHours || 0;
-    }
-
-    return split;
-  };
-
-  const buildReferenceOperationSummary = (operations = {}) => {
-    const byCode = {};
-
-    Object.entries(operations).forEach(([refOp, values]) => {
-      const planned = Number(values?.planned || 0);
-      const actual = Number(values?.actual || 0);
-      const wc = normalizeMachine(values?.wc || "");
-      const bucket = classifyReferenceOperation(refOp, wc);
-
-      byCode[refOp] = {
-        plannedHours: planned,
-        actualHours: actual,
-        workCenter: wc,
-        bucket,
-      };
-    });
-
-    return byCode;
-  };
 
   // LOGICA: Aggregatie van Operations per unieke Productie Order inclusief Creation Date
   const processRawLNDump = (rawRows) => {
@@ -896,15 +850,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return rows;
   }, [validOrders, machineGroupFilter, statusFilter, existingIds, selectedMachines, importMode, orderChangeMeta]);
 
-  // Velden die LN beheert en veilig bijgewerkt mogen worden op bestaande orders.
-  const LN_UPDATABLE_FIELDS = [
-    'quantity', 'toDoQty', 'plan', 'notes', 'deliveryDate', 'plannedDeliveryDate',
-    'weekNumber', 'orderStatus', 'totalPlannedHours', 'totalActualHours',
-    'itemDescription', 'item', 'itemCode', 'extraCode', 'drawing',
-    'project', 'projectDesc', 'orderCreationDate', 'machine', 'sourceType',
-    'operations',
-  ];
-
   const importCandidates = useMemo(() => {
     let rows;
     if (importMode === "smart_update") {
@@ -970,94 +915,20 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     try {
       const toImport = importCandidates;
 
-      // Schrijf in chunks van 400 (Firestore batch limiet is 500)
-      const CHUNK = 400;
+      // Callable in chunks om payload-grootte stabiel te houden.
+      const CHUNK = 250;
       for (let i = 0; i < toImport.length; i += CHUNK) {
         const chunk = toImport.slice(i, i + CHUNK);
-        const batch = writeBatch(db);
-        chunk.forEach(item => {
-          const dbData = { ...item };
-          delete dbData.isValidForImport;
-          const normalizedItem = dbData.item || dbData.itemDescription || "";
-          const normalizedItemDescription = dbData.itemDescription || dbData.item || "";
-          const { productionHours, postHours, qcHours } = getSplitPlannedHours(item.operations, item.totalPlannedHours || 0);
-          const operationByCode = buildReferenceOperationSummary(item.operations);
+        const payloadOrders = chunk.map((item) => ({
+          ...item,
+          isExistingOrder: existingIds.has(item.id),
+          planningVisible: selectedOrderIds.has(item.id),
+        }));
 
-          const isExistingOrder = existingIds.has(item.id);
-          const isSmartUpdate = importMode === "smart_update" && isExistingOrder;
-
-          if (isSmartUpdate) {
-            // Slimme Sync: alleen LN-gestuurde velden bijwerken.
-            // Status, planningHidden en andere app-beheerde velden blijven onaangeroerd.
-            const lnPayload = {};
-            LN_UPDATABLE_FIELDS.forEach((field) => {
-              if (dbData[field] !== undefined) lnPayload[field] = dbData[field];
-            });
-            batch.set(
-              doc(db, ...PATHS.PLANNING, item.id),
-              {
-                ...lnPayload,
-                item: normalizedItem,
-                itemDescription: normalizedItemDescription,
-                plannedHoursBH: productionHours,
-                plannedHoursNabewerken: postHours,
-                plannedHoursBM01: qcHours,
-                plannedMinutesBH: productionHours * 60,
-                plannedMinutesNabewerken: postHours * 60,
-                plannedMinutesBM01: qcHours * 60,
-                referenceOperationTimes: operationByCode,
-                updatedAt: serverTimestamp(),
-              },
-              { merge: true }
-            );
-          } else {
-            // Volledig importeren (nieuw order of Overschrijf Alles modus)
-            batch.set(
-              doc(db, ...PATHS.PLANNING, item.id),
-              {
-                ...dbData,
-                item: normalizedItem,
-                itemDescription: normalizedItemDescription,
-                plannedHoursBH: productionHours,
-                plannedHoursNabewerken: postHours,
-                plannedHoursBM01: qcHours,
-                plannedMinutesBH: productionHours * 60,
-                plannedMinutesNabewerken: postHours * 60,
-                plannedMinutesBM01: qcHours * 60,
-                referenceOperationTimes: operationByCode,
-                planningHidden: !selectedOrderIds.has(item.id),
-                updatedAt: serverTimestamp(),
-              },
-              { merge: true }
-            );
-          }
-
-          // Efficiency record: afgeleide LN-data, altijd bijwerken.
-          const productionMinutes = productionHours * 60;
-          const postProcessingMinutes = postHours * 60;
-          const qcMinutes = qcHours * 60;
-          const standardMinutes = productionMinutes + postProcessingMinutes;
-          const actualMinutes = (item.totalActualHours || 0) * 60;
-          const qty = item.quantity || item.toDoQty || 1;
-          const effData = {
-            orderId: item.id,
-            itemCode: item.itemCode || "",
-            itemDescription: normalizedItemDescription,
-            machine: item.machine || "",
-            standardTimeTotal: standardMinutes,
-            productionTimeTotal: productionMinutes,
-            actualTimeTotal: actualMinutes,
-            qcTimeTotal: qcMinutes,
-            postProcessingTimeTotal: postProcessingMinutes,
-            quantity: qty,
-            minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
-            status: "active",
-            source: isSmartUpdate ? "ln_smart_sync" : "ln_import",
-            lastSync: new Date().toISOString(),
-          };
-          batch.set(doc(db, ...PATHS.EFFICIENCY_HOURS, item.id), effData, { merge: true });
+        await importPlanningOrders({
+          orders: payloadOrders,
+          importMode,
         });
-        await batch.commit();
       }
 
       const newCount = toImport.filter((item) => !existingIds.has(item.id)).length;
@@ -1068,7 +939,11 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       addLog(t("digitalplanning.planning_import.logs.import_success", "Import succesvol!"), "success");
       await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", logMsg);
       setTimeout(() => { onSuccess?.(); onClose(); }, 1000);
-    } catch { addLog(t("digitalplanning.planning_import.logs.database_error", "Database fout."), "error"); } finally { setImporting(false); }
+    } catch {
+      addLog(t("digitalplanning.planning_import.logs.database_error", "Database fout."), "error");
+    } finally {
+      setImporting(false);
+    }
   };
 
   if (!isOpen) return null;

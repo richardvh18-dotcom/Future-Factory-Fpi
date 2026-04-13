@@ -47,11 +47,19 @@ const {
   retrievePlanningOrder,
   togglePlanningOrderHold,
   updatePlanningOrderDetails,
+  patchPlanningOrderMetadata,
   assignOverproduction,
   cancelPlanningOrder,
   assignPersonnelToStation,
   removePersonnelAssignment,
   loanPersonnelToDepartment,
+  saveOccupancyAssignments,
+  deleteOccupancyAssignments,
+  savePersonnelRecord,
+  createProductionMessages,
+  transitionPrintQueueJobStatus,
+  requeuePrintQueueJob,
+  deletePrintQueueJob,
   startProductionLots,
   editTrackedProductLotNumber,
   linkPlanningOrderProduct,
@@ -67,6 +75,12 @@ const {
   startTrackedProductRepair,
   reportShopFloorIssue,
   resolveShopFloorIssue,
+  importPlanningOrders,
+  queuePrintJob,
+  updateUserProfile,
+  clearPasswordChangeFlag,
+  submitAccountRequest,
+  updateUserLanguage,
 } = require('./src/callables/planningCallables');
 
 const clean = (val) => String(val || '').trim();
@@ -853,11 +867,19 @@ exports.movePlanningOrder = movePlanningOrder;
 exports.retrievePlanningOrder = retrievePlanningOrder;
 exports.togglePlanningOrderHold = togglePlanningOrderHold;
 exports.updatePlanningOrderDetails = updatePlanningOrderDetails;
+exports.patchPlanningOrderMetadata = patchPlanningOrderMetadata;
 exports.assignOverproduction = assignOverproduction;
 exports.cancelPlanningOrder = cancelPlanningOrder;
 exports.assignPersonnelToStation = assignPersonnelToStation;
 exports.removePersonnelAssignment = removePersonnelAssignment;
 exports.loanPersonnelToDepartment = loanPersonnelToDepartment;
+exports.saveOccupancyAssignments = saveOccupancyAssignments;
+exports.deleteOccupancyAssignments = deleteOccupancyAssignments;
+exports.savePersonnelRecord = savePersonnelRecord;
+exports.createProductionMessages = createProductionMessages;
+exports.transitionPrintQueueJobStatus = transitionPrintQueueJobStatus;
+exports.requeuePrintQueueJob = requeuePrintQueueJob;
+exports.deletePrintQueueJob = deletePrintQueueJob;
 exports.startProductionLots = startProductionLots;
 exports.editTrackedProductLotNumber = editTrackedProductLotNumber;
 exports.linkPlanningOrderProduct = linkPlanningOrderProduct;
@@ -873,6 +895,12 @@ exports.markReadyForNextStep = markReadyForNextStep;
 exports.startTrackedProductRepair = startTrackedProductRepair;
 exports.reportShopFloorIssue = reportShopFloorIssue;
 exports.resolveShopFloorIssue = resolveShopFloorIssue;
+exports.importPlanningOrders = importPlanningOrders;
+exports.queuePrintJob = queuePrintJob;
+exports.updateUserProfile = updateUserProfile;
+exports.clearPasswordChangeFlag = clearPasswordChangeFlag;
+exports.submitAccountRequest = submitAccountRequest;
+exports.updateUserLanguage = updateUserLanguage;
 
 /**
  * Backend AI proxy: voorkomt dat API keys in de frontend staan.

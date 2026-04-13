@@ -17,11 +17,19 @@ const movePlanningOrderCallable = httpsCallable(functions, "movePlanningOrder");
 const retrievePlanningOrderCallable = httpsCallable(functions, "retrievePlanningOrder");
 const togglePlanningOrderHoldCallable = httpsCallable(functions, "togglePlanningOrderHold");
 const updatePlanningOrderDetailsCallable = httpsCallable(functions, "updatePlanningOrderDetails");
+const patchPlanningOrderMetadataCallable = httpsCallable(functions, "patchPlanningOrderMetadata");
 const assignOverproductionCallable = httpsCallable(functions, "assignOverproduction");
 const cancelPlanningOrderCallable = httpsCallable(functions, "cancelPlanningOrder");
 const assignPersonnelToStationCallable = httpsCallable(functions, "assignPersonnelToStation");
 const removePersonnelAssignmentCallable = httpsCallable(functions, "removePersonnelAssignment");
 const loanPersonnelToDepartmentCallable = httpsCallable(functions, "loanPersonnelToDepartment");
+const saveOccupancyAssignmentsCallable = httpsCallable(functions, "saveOccupancyAssignments");
+const deleteOccupancyAssignmentsCallable = httpsCallable(functions, "deleteOccupancyAssignments");
+const savePersonnelRecordCallable = httpsCallable(functions, "savePersonnelRecord");
+const createProductionMessagesCallable = httpsCallable(functions, "createProductionMessages");
+const transitionPrintQueueJobStatusCallable = httpsCallable(functions, "transitionPrintQueueJobStatus");
+const requeuePrintQueueJobCallable = httpsCallable(functions, "requeuePrintQueueJob");
+const deletePrintQueueJobCallable = httpsCallable(functions, "deletePrintQueueJob");
 const startProductionLotsCallable = httpsCallable(functions, "startProductionLots");
 const editTrackedProductLotNumberCallable = httpsCallable(functions, "editTrackedProductLotNumber");
 const linkPlanningOrderProductCallable = httpsCallable(functions, "linkPlanningOrderProduct");
@@ -37,6 +45,12 @@ const markReadyForNextStepCallable = httpsCallable(functions, "markReadyForNextS
 const startTrackedProductRepairCallable = httpsCallable(functions, "startTrackedProductRepair");
 const reportShopFloorIssueCallable = httpsCallable(functions, "reportShopFloorIssue");
 const resolveShopFloorIssueCallable = httpsCallable(functions, "resolveShopFloorIssue");
+const importPlanningOrdersCallable = httpsCallable(functions, "importPlanningOrders");
+const queuePrintJobCallable = httpsCallable(functions, "queuePrintJob");
+const updateUserProfileCallable = httpsCallable(functions, "updateUserProfile");
+const clearPasswordChangeFlagCallable = httpsCallable(functions, "clearPasswordChangeFlag");
+const submitAccountRequestCallable = httpsCallable(functions, "submitAccountRequest");
+const updateUserLanguageCallable = httpsCallable(functions, "updateUserLanguage");
 
 export const rejectTrackedProductFinal = async ({
   productId,
@@ -466,6 +480,31 @@ export const updatePlanningOrderDetails = async ({
   return result?.data || { ok: false };
 };
 
+export const patchPlanningOrderMetadata = async ({
+  orderDocId,
+  patch,
+  source = "",
+  actorLabel = "",
+}) => {
+  const safeOrderDocId = String(orderDocId || "").trim();
+  if (!safeOrderDocId) {
+    throw new Error("orderDocId is verplicht.");
+  }
+
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new Error("patch is verplicht.");
+  }
+
+  const result = await patchPlanningOrderMetadataCallable({
+    orderDocId: safeOrderDocId,
+    patch,
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  });
+
+  return result?.data || { ok: false };
+};
+
 export const assignOverproduction = async ({
   targetOrderDocId,
   targetOrderId,
@@ -610,6 +649,185 @@ export const loanPersonnelToDepartment = async ({
   }
 
   const result = await loanPersonnelToDepartmentCallable(payload);
+  return result?.data || { ok: false };
+};
+
+export const saveOccupancyAssignments = async ({
+  records,
+  source = "",
+  actorLabel = "",
+}) => {
+  const safeRecords = Array.isArray(records)
+    ? records.filter((entry) => entry && typeof entry === "object")
+    : [];
+
+  if (safeRecords.length === 0) {
+    throw new Error("records is verplicht.");
+  }
+
+  const result = await saveOccupancyAssignmentsCallable({
+    records: safeRecords,
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  });
+
+  return result?.data || { ok: false };
+};
+
+export const saveOccupancyAssignment = async ({
+  assignmentId,
+  data,
+  source = "",
+  actorLabel = "",
+}) => {
+  const safeAssignmentId = String(assignmentId || "").trim();
+  if (!safeAssignmentId || !data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("assignmentId en data zijn verplicht.");
+  }
+
+  return saveOccupancyAssignments({
+    records: [{ assignmentId: safeAssignmentId, data }],
+    source,
+    actorLabel,
+  });
+};
+
+export const deleteOccupancyAssignments = async ({
+  assignmentIds,
+  source = "",
+  actorLabel = "",
+}) => {
+  const safeIds = Array.isArray(assignmentIds)
+    ? assignmentIds.map((entry) => String(entry || "").trim()).filter(Boolean)
+    : [];
+
+  if (safeIds.length === 0) {
+    throw new Error("assignmentIds is verplicht.");
+  }
+
+  const result = await deleteOccupancyAssignmentsCallable({
+    assignmentIds: safeIds,
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  });
+
+  return result?.data || { ok: false };
+};
+
+export const deleteOccupancyAssignment = async ({
+  assignmentId,
+  source = "",
+  actorLabel = "",
+}) => {
+  const safeAssignmentId = String(assignmentId || "").trim();
+  if (!safeAssignmentId) {
+    throw new Error("assignmentId is verplicht.");
+  }
+
+  return deleteOccupancyAssignments({
+    assignmentIds: [safeAssignmentId],
+    source,
+    actorLabel,
+  });
+};
+
+export const savePersonnelRecord = async ({
+  personId = "",
+  data,
+  source = "",
+  actorLabel = "",
+}) => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("data is verplicht.");
+  }
+
+  const result = await savePersonnelRecordCallable({
+    personId: String(personId || "").trim(),
+    data,
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  });
+
+  return result?.data || { ok: false };
+};
+
+export const createProductionMessages = async ({
+  messages,
+  source = "",
+  actorLabel = "",
+}) => {
+  const payload = {
+    messages: Array.isArray(messages) ? messages : [],
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  };
+
+  if (!payload.messages.length) {
+    throw new Error("Minimaal 1 bericht is verplicht.");
+  }
+
+  const result = await createProductionMessagesCallable(payload);
+  return result?.data || { ok: false };
+};
+
+export const transitionPrintQueueJobStatus = async ({
+  jobId,
+  status,
+  error = "",
+  source = "",
+  actorLabel = "",
+}) => {
+  const payload = {
+    jobId: String(jobId || "").trim(),
+    status: String(status || "").trim(),
+    error: String(error || "").trim(),
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  };
+
+  if (!payload.jobId || !payload.status) {
+    throw new Error("jobId en status zijn verplicht.");
+  }
+
+  const result = await transitionPrintQueueJobStatusCallable(payload);
+  return result?.data || { ok: false };
+};
+
+export const requeuePrintQueueJob = async ({
+  jobId,
+  source = "",
+  actorLabel = "",
+}) => {
+  const payload = {
+    jobId: String(jobId || "").trim(),
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  };
+
+  if (!payload.jobId) {
+    throw new Error("jobId is verplicht.");
+  }
+
+  const result = await requeuePrintQueueJobCallable(payload);
+  return result?.data || { ok: false };
+};
+
+export const deletePrintQueueJob = async ({
+  jobId,
+  source = "",
+  actorLabel = "",
+}) => {
+  const payload = {
+    jobId: String(jobId || "").trim(),
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  };
+
+  if (!payload.jobId) {
+    throw new Error("jobId is verplicht.");
+  }
+
+  const result = await deletePrintQueueJobCallable(payload);
   return result?.data || { ok: false };
 };
 
@@ -881,5 +1099,102 @@ export const resolveShopFloorIssue = async ({ type, issueId }) => {
     throw new Error("type en issueId zijn verplicht.");
   }
   const result = await resolveShopFloorIssueCallable({ type: safeType, issueId: safeIssueId });
+  return result?.data || { ok: false };
+};
+
+export const importPlanningOrders = async ({ orders, importMode = "new_only" }) => {
+  const safeMode = String(importMode || "new_only").trim().toLowerCase();
+  if (!["new_only", "overwrite", "smart_update"].includes(safeMode)) {
+    throw new Error("Ongeldige importMode.");
+  }
+
+  const safeOrders = Array.isArray(orders) ? orders.filter((entry) => entry && typeof entry === "object") : [];
+  if (safeOrders.length === 0) {
+    throw new Error("Minimaal 1 order is verplicht.");
+  }
+
+  const result = await importPlanningOrdersCallable({
+    orders: safeOrders,
+    importMode: safeMode,
+  });
+
+  return result?.data || { ok: false };
+};
+
+export const queuePrintJob = async (printerId, zplData, metadata = {}) => {
+  const payload = {
+    printerId: String(printerId || "").trim(),
+    zplData: String(zplData || "").trim(),
+    metadata: (typeof metadata === "object" && metadata) || {},
+  };
+
+  if (!payload.printerId) {
+    throw new Error("printerId is verplicht.");
+  }
+
+  if (!payload.zplData) {
+    throw new Error("zplData is verplicht.");
+  }
+
+  const result = await queuePrintJobCallable(payload);
+  return result?.data || null; // Returns document ID
+};
+
+export const updateUserProfile = async (profileData) => {
+  if (!profileData?.name || !profileData?.language) {
+    throw new Error("Naam en taal zijn verplicht.");
+  }
+
+  const payload = {
+    profileData: {
+      name: String(profileData.name || "").trim(),
+      email: String(profileData.email || "").trim(),
+      emailNotifications: Boolean(profileData.emailNotifications),
+      systemAlerts: Boolean(profileData.systemAlerts ?? true),
+      language: String(profileData.language || "nl").trim(),
+      darkMode: Boolean(profileData.darkMode),
+      phoneNumber: String(profileData.phoneNumber || "").trim(),
+      department: String(profileData.department || "").trim(),
+      signature: String(profileData.signature || "").trim(),
+    }
+  };
+
+  const result = await updateUserProfileCallable(payload);
+  return result?.data || { ok: false };
+};
+
+export const clearPasswordChangeFlag = async () => {
+  const result = await clearPasswordChangeFlagCallable({});
+  return result?.data || { ok: false };
+};
+
+export const submitAccountRequest = async (requestData) => {
+  if (!requestData?.name || !requestData?.email) {
+    throw new Error("Naam en e-mailadres zijn verplicht.");
+  }
+
+  const payload = {
+    requestData: {
+      name: String(requestData.name || "").trim(),
+      email: String(requestData.email || "").trim(),
+      country: String(requestData.country || "").trim(),
+      department: String(requestData.department || "").trim(),
+    }
+  };
+
+  const result = await submitAccountRequestCallable(payload);
+  return result?.data || { ok: false };
+};
+
+export const updateUserLanguage = async (language) => {
+  if (!language) {
+    throw new Error("Taalcode is verplicht.");
+  }
+
+  const payload = {
+    language: String(language || "nl").trim().toLowerCase(),
+  };
+
+  const result = await updateUserLanguageCallable(payload);
   return result?.data || { ok: false };
 };

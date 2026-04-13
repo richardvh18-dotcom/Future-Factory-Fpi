@@ -1,24 +1,29 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
-import { db, auth, logActivity } from '../../config/firebase';
-import { 
-  collection, onSnapshot, orderBy, query, doc, updateDoc, 
-  deleteDoc, where, serverTimestamp, getDocs, limit, getDoc, documentId
+import { db } from '../../config/firebase';
+import {
+  collection, onSnapshot, orderBy, query, doc,
+  where, getDocs, limit, getDoc, documentId
 } from 'firebase/firestore';
 import { PATHS } from '../../config/dbPaths';
 import { formatDistanceToNow } from 'date-fns';
 import { nl } from 'date-fns/locale';
-import { 
-  Loader2, RefreshCw, Trash2, AlertTriangle, CheckCircle, 
-  Printer, Usb, Play, ArrowLeft, Zap, Search, Hash, 
+import {
+  Loader2, RefreshCw, Trash2, AlertTriangle, CheckCircle,
+  Printer, Usb, Play, ArrowLeft, Zap, Search, Hash,
   RotateCcw, Eye, X, Tag, ChevronDown
 } from 'lucide-react';
 import { generatePrintData, generateLotBatchZPL } from '../../utils/zplHelper';
 import { getDriver } from '../../utils/printerDrivers';
 import { processLabelData, resolveLabelContent, applyLabelLogic, filterTempOrderLabelsByProduct } from '../../utils/labelHelpers';
 import { getISOWeekInfo, getStationMachineCode } from '../../utils/lotLogic';
-import { queuePrintJob } from '../../services/printService';
+import {
+  transitionPrintQueueJobStatus,
+  requeuePrintQueueJob,
+  deletePrintQueueJob,
+  queuePrintJob,
+} from '../../services/planningSecurityService';
 import { requestUsbDevice, printRawUsbToDevice, isUsbDirectSupported as usbDirectSupported } from '../../utils/usbPrintService';
 import AutoScaledLabelPreview from './AutoScaledLabelPreview';
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -978,33 +983,31 @@ const PrintQueueAdminView = () => {
 
   const handlePrintJob = async (job) => {
     if (!usbDevice) throw new Error("Geen USB printer verbonden.");
-    await updateDoc(doc(db, ...PATHS.PRINT_QUEUE, job.id), { status: 'printing', processedAt: serverTimestamp() });
-    await logActivity(
-      auth.currentUser?.uid || 'system',
-      'PRINT_QUEUE_PROCESS',
-      `Print gestart: job ${job.id}`
-    );
+    await transitionPrintQueueJobStatus({
+      jobId: job.id,
+      status: 'printing',
+      source: 'PrintQueueAdminView',
+    });
     try {
       // Use printData (standard) or zpl field
       const content = job.printData || job.zpl;
       if (!content) throw new Error("Geen printdata gevonden in job.");
       const quantity = getJobQuantity(job) || 1;
       const payload = normalizeQueuePrintPayload(content, quantity);
-      
+
       await printRawUsb(usbDevice, payload);
-      await updateDoc(doc(db, ...PATHS.PRINT_QUEUE, job.id), { status: 'completed', printedAt: serverTimestamp() });
-      await logActivity(
-        auth.currentUser?.uid || 'system',
-        'PRINT_QUEUE_COMPLETE',
-        `Print voltooid: job ${job.id}`
-      );
+      await transitionPrintQueueJobStatus({
+        jobId: job.id,
+        status: 'completed',
+        source: 'PrintQueueAdminView',
+      });
     } catch (e) {
-      await updateDoc(doc(db, ...PATHS.PRINT_QUEUE, job.id), { status: 'error', error: e.message });
-      await logActivity(
-        auth.currentUser?.uid || 'system',
-        'PRINT_QUEUE_ERROR',
-        `Print fout: job ${job.id}, fout: ${e.message}`
-      );
+      await transitionPrintQueueJobStatus({
+        jobId: job.id,
+        status: 'error',
+        error: e.message,
+        source: 'PrintQueueAdminView',
+      });
       throw e;
     }
   };
@@ -1018,21 +1021,10 @@ const PrintQueueAdminView = () => {
       tone: 'warning',
     });
     if (!confirmed) return;
-    const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
-    await updateDoc(jobRef, { 
-      status: 'pending', 
-      retries: (printJobs.find(j => j.id === jobId)?.retries || 0) + 1,
-      reprintedAt: serverTimestamp(),
-      reprintedBy: {
-        uid: auth.currentUser?.uid,
-        email: auth.currentUser?.email
-      }
+    await requeuePrintQueueJob({
+      jobId,
+      source: 'PrintQueueAdminView',
     });
-    await logActivity(
-      auth.currentUser?.uid || 'system',
-      'PRINT_QUEUE_REPRINT',
-      `Herprint aangevraagd: job ${jobId}`
-    );
   };
 
   const handleDelete = async (jobId) => {
@@ -1044,13 +1036,10 @@ const PrintQueueAdminView = () => {
       tone: 'danger',
     });
     if (!confirmed) return;
-    const jobRef = doc(db, ...PATHS.PRINT_QUEUE, jobId);
-    await deleteDoc(jobRef);
-    await logActivity(
-      auth.currentUser?.uid || 'system',
-      'PRINT_QUEUE_DELETE',
-      `Printtaak verwijderd: job ${jobId}`
-    );
+    await deletePrintQueueJob({
+      jobId,
+      source: 'PrintQueueAdminView',
+    });
   };
 
   const getJobSizeLabel = (job) => {

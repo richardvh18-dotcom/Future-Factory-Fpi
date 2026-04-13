@@ -33,9 +33,8 @@ import LabelVisualPreview from "../../printer/LabelVisualPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
 import ConfirmationModal from "./ConfirmationModal";
 import { formatDateTimeSafe, toDateSafe } from "../../../utils/dateUtils";
-import { queuePrintJob } from "../../../services/printService";
 import { useNotifications } from '../../../contexts/NotificationContext';
-import { rejectTrackedProductFinal } from "../../../services/planningSecurityService";
+import { rejectTrackedProductFinal, queuePrintJob } from "../../../services/planningSecurityService";
 
 /**
  * ProductDossierModal: Toont proces-stappen, kwaliteitsmetingen en order-info.

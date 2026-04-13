@@ -26,6 +26,18 @@ service cloud.firestore {
       return hasAnyRole(['admin']);
     }
 
+    function hasLegacyPilotClaim() {
+      return isSignedIn() && request.auth.token.legacyPilot == true;
+    }
+
+    function hasLegacyPilotFlag() {
+      return hasUserRecord() && get(userDocPath()).data.legacyPilotWrites == true;
+    }
+
+    function isLegacyPilotUser() {
+      return hasLegacyPilotClaim() || hasLegacyPilotFlag();
+    }
+
     function canOperateProduction() {
       return hasAnyRole([
         'admin',
@@ -305,39 +317,46 @@ service cloud.firestore {
     }
 
     match /future-factory/production/tracked_products/{document=**} {
-      allow read: if hasUserRecord();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction()
+      allow read: if hasUserRecord() || isLegacyPilotUser();
+      allow create, delete: if canOperateProduction() || isLegacyPilotUser();
+      allow update: if isLegacyPilotUser() || (
+        canOperateProduction()
         && !isClientFinalRejectMutation()
         && !isClientTempRejectMutation()
         && !isClientRepairCompleteMutation()
-        && !isClientProtectedManualMoveMutation();
+        && !isClientProtectedManualMoveMutation()
+      );
     }
 
     match /future-factory/production/digital_planning/{document=**} {
-      allow read: if hasUserRecord();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction() && !isClientProtectedPlanningMutation();
+      allow read: if hasUserRecord() || isLegacyPilotUser();
+      // Create/delete via backend commands; client-side only nog admin voor noodbeheer.
+      allow create, delete: if isAdmin() || isLegacyPilotUser();
+      allow update: if isLegacyPilotUser() || (canOperateProduction() && !isClientProtectedPlanningMutation());
     }
 
     match /future-factory/production/data/digital_planning/orders/{orderId} {
-      allow read: if hasUserRecord();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction() && !isClientProtectedPlanningMutation();
+      allow read: if hasUserRecord() || isLegacyPilotUser();
+      // Legacy pad: idem hardening als primaire planningcollectie.
+      allow create, delete: if isAdmin() || isLegacyPilotUser();
+      allow update: if isLegacyPilotUser() || (canOperateProduction() && !isClientProtectedPlanningMutation());
     }
 
     match /future-factory/production/{collectionId}/{document=**} {
-      allow read: if hasUserRecord();
+      allow read: if hasUserRecord() || isLegacyPilotUser();
       allow write: if (
         collectionId in [
           'machine_occupancy',
-          'efficiency_hours',
           'time_logs',
           'downtime_reports',
           'defect_reports',
           'archive',
           'counters'
         ] && canOperateProduction()
+      ) || (
+        collectionId in [
+          'efficiency_hours'
+        ] && (isAdmin() || isLegacyPilotUser())
       ) || (
         collectionId in [
           'products',

@@ -3,13 +3,13 @@ import {
   collection,
   getDocs,
   doc,
-  writeBatch,
   query,
   where,
   getDoc,
 } from "firebase/firestore";
 import { lookupProductByManufacturedId } from "./conversionLogic";
 import { PATHS } from "../config/dbPaths";
+import { patchPlanningOrderMetadata } from "../services/planningSecurityService";
 import i18n from "../i18n";
 
 /**
@@ -29,9 +29,6 @@ export const syncMissingDrawings = async (appId, onProgress) => {
 
     const total = ordersToCheck.length;
     console.log(`Start sync voor ${total} orders in digital_planning...`);
-
-    let batch = writeBatch(db);
-    let batchCount = 0;
 
     for (let i = 0; i < total; i++) {
       const order = ordersToCheck[i];
@@ -86,8 +83,6 @@ export const syncMissingDrawings = async (appId, onProgress) => {
           }
 
           // 2. Update Order (in digital_planning)
-          const orderRef = doc(db, ...PATHS.PLANNING, order.id);
-
           const updateData = {};
 
           if (conversion?.targetProductId) {
@@ -104,8 +99,11 @@ export const syncMissingDrawings = async (appId, onProgress) => {
             updateData.description = conversion.description;
 
           if (Object.keys(updateData).length > 0) {
-            batch.update(orderRef, updateData);
-            batchCount++;
+            await patchPlanningOrderMetadata({
+              orderDocId: order.id,
+              patch: updateData,
+              source: "planningSyncLogic",
+            });
             stats.updated++;
           }
         }
@@ -114,15 +112,6 @@ export const syncMissingDrawings = async (appId, onProgress) => {
       stats.checked++;
       if (onProgress) onProgress(Math.round((i / total) * 100));
 
-      if (batchCount >= 400) {
-        await batch.commit();
-        batch = writeBatch(db);
-        batchCount = 0;
-      }
-    }
-
-    if (batchCount > 0) {
-      await batch.commit();
     }
   } catch (error) {
     console.error(i18n.t("planning.sync_error", "Fout tijdens sync:"), error);

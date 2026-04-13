@@ -18,7 +18,7 @@ import {
   Layers,
   Factory,
 } from "lucide-react";
-import { collection, query, onSnapshot, doc, writeBatch, serverTimestamp, updateDoc, where, getDocs, getDoc, limit, increment } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, where, getDocs, getDoc, limit, increment } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek, addWeeks } from "date-fns";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
@@ -42,7 +42,7 @@ import PlanningSidebar from "./PlanningSidebar";
 import OrderDetail from "./OrderDetail";
 import ProductDossierModal from "./modals/ProductDossierModal.jsx";
 import AiPredictionView from "./AiPredictionView";
-import { moveTrackedProductManual, assignOverproduction, createPlanningOrderManual } from "../../services/planningSecurityService";
+import { moveTrackedProductManual, assignOverproduction, createPlanningOrderManual, saveOccupancyAssignments, deleteOccupancyAssignments } from "../../services/planningSecurityService";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -1528,13 +1528,21 @@ const TeamleaderHub = React.memo(({
 
     setIsCopying(true);
     try {
-      const batch = writeBatch(db);
-      yesterdayData.forEach((old) => {
-        const newId = `${currentDayStr}_${old.departmentId}_${old.machineId}_${old.operatorNumber}`.replace(/[^a-zA-Z0-9]/g, "_");
-        const newRef = doc(db, ...PATHS.OCCUPANCY, newId);
-        batch.set(newRef, { ...old, id: newId, date: currentDayStr, updatedAt: serverTimestamp() }, { merge: true });
+      await saveOccupancyAssignments({
+        records: yesterdayData.map((old) => {
+          const newId = `${currentDayStr}_${old.departmentId}_${old.machineId}_${old.operatorNumber}`.replace(/[^a-zA-Z0-9]/g, "_");
+          return {
+            assignmentId: newId,
+            data: {
+              ...old,
+              date: currentDayStr,
+              updatedAt: "__SERVER_TIMESTAMP__",
+            },
+          };
+        }),
+        source: "TeamleaderHub.copyYesterday",
+        actorLabel: user?.email || "Teamleader",
       });
-      await batch.commit();
       await logActivity(
         user?.uid || "system",
         "OCCUPANCY_COPY_YESTERDAY",
@@ -1569,12 +1577,11 @@ const TeamleaderHub = React.memo(({
 
     setIsClearing(true);
     try {
-      const batch = writeBatch(db);
-      todayData.forEach((docItem) => {
-        const ref = doc(db, ...PATHS.OCCUPANCY, docItem.id);
-        batch.delete(ref);
+      await deleteOccupancyAssignments({
+        assignmentIds: todayData.map((docItem) => docItem.id),
+        source: "TeamleaderHub.clearToday",
+        actorLabel: user?.email || "Teamleader",
       });
-      await batch.commit();
       await logActivity(
         user?.uid || "system",
         "OCCUPANCY_CLEAR_TODAY",

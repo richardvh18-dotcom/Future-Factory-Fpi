@@ -9,6 +9,7 @@ import {
   deleteDoc, addDoc, setDoc, getDoc 
 } from 'firebase/firestore';
 import { PATHS, getPlanningArchivePath, getEfficiencyArchivePath } from '../config/dbPaths';
+import { patchPlanningOrderMetadata } from '../services/planningSecurityService';
 import { logActivity } from '../config/firebase';
 
 // Aliassen voor kolomherkenning (flexibiliteit voor export variaties)
@@ -198,10 +199,14 @@ export const processInforUpdate = async (db, appId, csvData) => {
     } else {
       // Update Planning Doc
       const existingDoc = snap.docs[0];
-      await setDoc(existingDoc.ref, {
-        quantity: quantity,
-        lastSync: new Date().toISOString()
-      }, { merge: true });
+      await patchPlanningOrderMetadata({
+        orderDocId: existingDoc.id,
+        patch: {
+          quantity: quantity,
+          lastSync: new Date().toISOString(),
+        },
+        source: 'infor_sync_service',
+      });
       await logActivity('system', 'INFOR_PLANNING_UPDATE', `Planning bijgewerkt vanuit LN voor order ${orderId}`);
       countUpdated++;
     }
