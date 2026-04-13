@@ -88,6 +88,7 @@ const {
   upsertConversionBatchService,
 } = require('../services/conversionCatalogService');
 const { processInforUpdateService } = require('../services/inforSyncService');
+const auditService = require('../services/auditService');
 const {
   saveAiContextConfigService,
   createAiDocumentRecordService,
@@ -137,6 +138,8 @@ const rejectTrackedProductFinal = functions.https.onCall(async (data, context) =
   const source = clampText(data?.source, 80);
   const actorLabel = clampText(data?.actorLabel, 120);
 
+  auditService.logCallable(context, 'REJECT_PRODUCT_FINAL', { productId }, { category: 'QUALITY', severity: 'CRITICAL' });
+
   try {
     return await rejectTrackedProductFinalService({
       productId,
@@ -180,6 +183,8 @@ const tempRejectTrackedProduct = functions.https.onCall(async (data, context) =>
   const previousStep = clampText(data?.previousStep, 120);
   const previousStatus = clampText(data?.previousStatus, 120);
   const source = clampText(data?.source, 80);
+
+  auditService.logCallable(context, 'TEMP_REJECT_PRODUCT', { productId }, { category: 'QUALITY', severity: 'WARNING' });
 
   try {
     return await tempRejectTrackedProductService({
@@ -230,6 +235,8 @@ const advanceTrackedProduct = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'productId, nextStep en nextStatus zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'ADVANCE_PRODUCT', { productId, nextStep, nextStatus }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await advanceTrackedProductService({
       productId,
@@ -279,6 +286,8 @@ const completeTrackedProductRepair = functions.https.onCall(async (data, context
     throw new functions.https.HttpsError('invalid-argument', 'productId is verplicht.');
   }
 
+  auditService.logCallable(context, 'COMPLETE_REPAIR', { productId }, { category: 'QUALITY', severity: 'INFO' });
+
   try {
     return await completeTrackedProductRepairService({
       productId,
@@ -322,6 +331,8 @@ const routeTrackedProductsToLossen = functions.https.onCall(async (data, context
   if (productIds.length === 0) {
     throw new functions.https.HttpsError('invalid-argument', 'productIds is verplicht.');
   }
+
+  auditService.logCallable(context, 'ROUTE_TO_LOSSEN', { productCount: productIds.length, originStation }, { category: 'PRODUCTION', severity: 'INFO' });
 
   try {
     return await routeTrackedProductsToLossenService({
@@ -372,6 +383,8 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId, lotStart, stationId en geldige stringCount zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'START_PRODUCTION_RUN', { orderDocId, stationId, lotStart, stringCount }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await startWorkstationProductionRunService({
       orderDocId,
@@ -421,6 +434,8 @@ const toggleTrackedProductPause = functions.https.onCall(async (data, context) =
     throw new functions.https.HttpsError('invalid-argument', 'productId is verplicht.');
   }
 
+  auditService.logCallable(context, 'TOGGLE_PRODUCT_PAUSE', { productId }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await toggleTrackedProductPauseService({
       productId,
@@ -456,6 +471,8 @@ const markTrackedProductReminder = functions.https.onCall(async (data, context) 
   if (!productId) {
     throw new functions.https.HttpsError('invalid-argument', 'productId is verplicht.');
   }
+
+  auditService.logCallable(context, 'MARK_PRODUCT_REMINDER', { productId, reminderSent }, { category: 'PRODUCTION', severity: 'INFO' });
 
   try {
     return await markTrackedProductReminderService({
@@ -498,6 +515,8 @@ const moveTrackedProductManual = functions.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError('invalid-argument', 'Ongeldig doelstation.');
   }
 
+  auditService.logCallable(context, 'MOVE_PRODUCT_MANUAL', { productOrLotId, newStation }, { category: 'PRODUCTION', severity: 'WARNING' });
+
   try {
     return await moveTrackedProductManualService({
       productOrLotId,
@@ -537,6 +556,8 @@ const archivePlanningOrder = functions.https.onCall(async (data, context) => {
   if (!ALLOWED_ARCHIVE_REASONS.has(requestedReason)) {
     throw new functions.https.HttpsError('invalid-argument', 'Niet-toegestane archive reason.');
   }
+
+  auditService.logCallable(context, 'ARCHIVE_ORDER', { orderDocId, reason: requestedReason }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
     return await archivePlanningOrderService({
@@ -579,6 +600,8 @@ const completeTrackedProduct = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'Niet-toegestaan finishType. Gebruik "archive" of "forward".');
   }
 
+  auditService.logCallable(context, 'COMPLETE_PRODUCT', { productId, finishType }, { category: 'QUALITY', severity: 'INFO' });
+
   try {
     return await completeTrackedProductService({
       productId,
@@ -618,6 +641,8 @@ const cancelTrackedProduction = functions.https.onCall(async (data, context) => 
   if (!productId || productId.length > 200) {
     throw new functions.https.HttpsError('invalid-argument', 'Ongeldig productId.');
   }
+
+  auditService.logCallable(context, 'CANCEL_PRODUCTION', { productId, selectedStation }, { category: 'PRODUCTION', severity: 'WARNING' });
 
   try {
     return await cancelTrackedProductionService({
@@ -664,6 +689,8 @@ const updatePlanningOrderPriority = functions.https.onCall(async (data, context)
     throw new functions.https.HttpsError('invalid-argument', 'Priority moet "high", "urgent", "immediate" of false zijn.');
   }
 
+  auditService.logCallable(context, 'UPDATE_ORDER_PRIORITY', { orderDocId, priority: normalizedPriority }, { category: 'PLANNING', severity: 'INFO' });
+
   try {
     return await updatePlanningOrderPriorityService({
       orderDocId,
@@ -701,6 +728,8 @@ const movePlanningOrder = functions.https.onCall(async (data, context) => {
   if (!orderDocId || !targetId || !['department', 'station'].includes(targetType)) {
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId, targetType en targetId zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'MOVE_ORDER', { orderDocId, targetType, targetId }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
     return await movePlanningOrderService({
@@ -741,6 +770,8 @@ const retrievePlanningOrder = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId is verplicht.');
   }
 
+  auditService.logCallable(context, 'RETRIEVE_ORDER', { orderDocId }, { category: 'PLANNING', severity: 'INFO' });
+
   try {
     return await retrievePlanningOrderService({
       orderDocId,
@@ -773,6 +804,8 @@ const togglePlanningOrderHold = functions.https.onCall(async (data, context) => 
   if (!orderDocId) {
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId is verplicht.');
   }
+
+  auditService.logCallable(context, 'TOGGLE_ORDER_HOLD', { orderDocId }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
     return await togglePlanningOrderHoldService({
@@ -814,6 +847,8 @@ const updatePlanningOrderDetails = functions.https.onCall(async (data, context) 
     throw new functions.https.HttpsError('invalid-argument', 'plan moet een geldig getal van 0 of hoger zijn.');
   }
 
+  auditService.logCallable(context, 'UPDATE_ORDER_DETAILS', { orderDocId }, { category: 'PLANNING', severity: 'INFO' });
+
   try {
     return await updatePlanningOrderDetailsService({
       orderDocId,
@@ -849,6 +884,8 @@ const patchPlanningOrderMetadata = functions.https.onCall(async (data, context) 
   if (!orderDocId || !patch) {
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId en patch zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'PATCH_ORDER_METADATA', { orderDocId }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
     return await patchPlanningOrderMetadataService({
@@ -893,6 +930,8 @@ const assignOverproduction = functions.https.onCall(async (data, context) => {
   if (!targetOrderDocId || !targetOrderId || !routeStation || productIds.length === 0) {
     throw new functions.https.HttpsError('invalid-argument', 'targetOrderDocId, targetOrderId, routeStation en productIds zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'ASSIGN_OVERPRODUCTION', { targetOrderDocId, productCount: productIds.length }, { category: 'PRODUCTION', severity: 'WARNING' });
 
   try {
     return await assignOverproductionService({
@@ -940,6 +979,8 @@ const cancelPlanningOrder = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'Ongeldig orderDocId.');
   }
 
+  auditService.logCallable(context, 'CANCEL_ORDER', { orderDocId }, { category: 'PLANNING', severity: 'WARNING' });
+
   try {
     return await cancelPlanningOrderService({
       orderDocId,
@@ -981,6 +1022,8 @@ const assignPersonnelToStation = functions.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError('invalid-argument', 'stationId, operatorId en date zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'ASSIGN_PERSONNEL', { stationId, operatorId, date }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await assignPersonnelToStationService({
       stationId,
@@ -1019,6 +1062,8 @@ const removePersonnelAssignment = functions.https.onCall(async (data, context) =
   if (!assignmentId) {
     throw new functions.https.HttpsError('invalid-argument', 'assignmentId is verplicht.');
   }
+
+  auditService.logCallable(context, 'REMOVE_PERSONNEL', { assignmentId, stationId }, { category: 'PRODUCTION', severity: 'INFO' });
 
   try {
     return await removePersonnelAssignmentService({
@@ -1067,6 +1112,8 @@ const loanPersonnelToDepartment = functions.https.onCall(async (data, context) =
     throw new functions.https.HttpsError('invalid-argument', 'operatorNumber, targetDepartment, targetStation en date zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'LOAN_PERSONNEL', { operatorNumber, targetDepartment, targetStation, date }, { category: 'PRODUCTION', severity: 'INFO' });
+
   return loanPersonnelService({
     operatorNumber,
     operatorName,
@@ -1102,6 +1149,8 @@ const saveOccupancyAssignments = functions.https.onCall(async (data, context) =>
   const source = clampText(data?.source, 80);
   const actorLabel = clampText(data?.actorLabel, 120);
 
+  auditService.logCallable(context, 'SAVE_OCCUPANCY', { recordCount: records.length }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await saveOccupancyAssignmentsService({
       records,
@@ -1131,6 +1180,8 @@ const deleteOccupancyAssignments = functions.https.onCall(async (data, context) 
   const assignmentIds = Array.isArray(data?.assignmentIds) ? data.assignmentIds : [];
   const source = clampText(data?.source, 80);
   const actorLabel = clampText(data?.actorLabel, 120);
+
+  auditService.logCallable(context, 'DELETE_OCCUPANCY', { assignmentCount: assignmentIds.length }, { category: 'PRODUCTION', severity: 'WARNING' });
 
   try {
     return await deleteOccupancyAssignmentsService({
@@ -1167,6 +1218,8 @@ const savePersonnelRecord = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'data is verplicht.');
   }
 
+  auditService.logCallable(context, 'SAVE_PERSONNEL_RECORD', { personId }, { category: 'ADMIN', severity: 'INFO' });
+
   try {
     return await savePersonnelRecordService({
       personId,
@@ -1202,6 +1255,8 @@ const createProductionMessages = functions.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 bericht is verplicht.');
   }
 
+  auditService.logCallable(context, 'CREATE_PRODUCTION_MESSAGES', { messageCount: messages.length }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await createProductionMessagesService({
       messages,
@@ -1236,6 +1291,8 @@ const transitionPrintQueueJobStatus = functions.https.onCall(async (data, contex
   if (!jobId || !status) {
     throw new functions.https.HttpsError('invalid-argument', 'jobId en status zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'TRANSITION_PRINT_JOB', { jobId, status }, { category: 'SYSTEM', severity: 'INFO' });
 
   try {
     return await transitionPrintQueueJobStatusService({
@@ -1275,6 +1332,8 @@ const requeuePrintQueueJob = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'jobId is verplicht.');
   }
 
+  auditService.logCallable(context, 'REQUEUE_PRINT_JOB', { jobId }, { category: 'SYSTEM', severity: 'INFO' });
+
   try {
     return await requeuePrintQueueJobService({
       jobId,
@@ -1307,6 +1366,8 @@ const deletePrintQueueJob = functions.https.onCall(async (data, context) => {
   if (!jobId) {
     throw new functions.https.HttpsError('invalid-argument', 'jobId is verplicht.');
   }
+
+  auditService.logCallable(context, 'DELETE_PRINT_JOB', { jobId }, { category: 'ADMIN', severity: 'WARNING' });
 
   try {
     return await deletePrintQueueJobService({
@@ -1355,6 +1416,8 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'totalToProduce moet tussen 1 en 200 liggen.');
   }
 
+  auditService.logCallable(context, 'START_PRODUCTION_LOTS', { orderDocId, orderId, stationId, lotStart, totalToProduce }, { category: 'PRODUCTION', severity: 'INFO' });
+
   return startProductionLotsService({
     orderDocId,
     orderId,
@@ -1391,6 +1454,8 @@ const editTrackedProductLotNumber = functions.https.onCall(async (data, context)
   if (!productId || !newLotNumber || !reason) {
     throw new functions.https.HttpsError('invalid-argument', 'productId, newLotNumber en reason zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'EDIT_LOT_NUMBER', { productId, newLotNumber }, { category: 'QUALITY', severity: 'WARNING' });
 
   try {
     return await editTrackedProductLotNumberService({
@@ -1433,6 +1498,8 @@ const linkPlanningOrderProduct = functions.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId en productId zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'LINK_ORDER_PRODUCT', { orderDocId, productId }, { category: 'PLANNING', severity: 'INFO' });
+
   try {
     return await linkPlanningOrderProductService({
       orderDocId,
@@ -1465,6 +1532,8 @@ const createPlanningOrderManual = functions.https.onCall(async (data, context) =
   if (!orderId || !item || !machine || !Number.isFinite(plan) || plan <= 0) {
     throw new functions.https.HttpsError('invalid-argument', 'orderId, item, machine en geldige plan zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'CREATE_ORDER_MANUAL', { orderId, machine }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
     return await createPlanningOrderManualService({
@@ -1506,6 +1575,8 @@ const markMazakLabelsPrinted = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'productIds is verplicht.');
   }
 
+  auditService.logCallable(context, 'MARK_LABELS_PRINTED', { productCount: productIds.length, stationId, isReprint }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await markMazakLabelsPrintedService({
       productIds,
@@ -1546,6 +1617,8 @@ const appendQcNote = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'productId en note zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'APPEND_QC_NOTE', { productId }, { category: 'QUALITY', severity: 'INFO' });
+
   try {
     return await appendQcNoteService({
       productId,
@@ -1584,6 +1657,8 @@ const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) =
     throw new functions.https.HttpsError('invalid-argument', 'stationId en geldige count (1-200) zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'RESERVE_LOT_RANGE', { stationId, count }, { category: 'PRODUCTION', severity: 'INFO' });
+
   try {
     return await reserveAutoLotNumberRangeService({
       stationId,
@@ -1618,6 +1693,8 @@ const addOrderDependency = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'orderId en dependencyId zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'ADD_ORDER_DEPENDENCY', { orderId, dependencyId }, { category: 'PLANNING', severity: 'INFO' });
+
   try {
     return await addOrderDependencyService({ orderId, dependencyId });
   } catch (error) {
@@ -1644,6 +1721,8 @@ const removeOrderDependency = functions.https.onCall(async (data, context) => {
   if (!orderId || !dependencyId) {
     throw new functions.https.HttpsError('invalid-argument', 'orderId en dependencyId zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'REMOVE_ORDER_DEPENDENCY', { orderId, dependencyId }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
     return await removeOrderDependencyService({ orderId, dependencyId });
@@ -1673,6 +1752,8 @@ const updateOrderPlannedDate = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'orderId en geldige plannedDate zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'UPDATE_PLANNED_DATE', { orderId }, { category: 'PLANNING', severity: 'INFO' });
+
   try {
     return await updateOrderPlannedDateService({ orderId, plannedDate });
   } catch (error) {
@@ -1700,6 +1781,8 @@ const updateOrderKanbanStatus = functions.https.onCall(async (data, context) => 
     throw new functions.https.HttpsError('invalid-argument', 'orderId en geldige status zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'UPDATE_KANBAN_STATUS', { orderId, status }, { category: 'PLANNING', severity: 'INFO' });
+
   try {
     return await updateOrderKanbanStatusService({ orderId, status, auth: context.auth });
   } catch (error) {
@@ -1724,6 +1807,8 @@ const markReadyForNextStep = functions.https.onCall(async (data, context) => {
   if (!productId) {
     throw new functions.https.HttpsError('invalid-argument', 'productId is verplicht.');
   }
+
+  auditService.logCallable(context, 'MARK_READY_FOR_NEXT_STEP', { productId }, { category: 'PRODUCTION', severity: 'INFO' });
 
   try {
     return await markReadyForNextStepService({ productId, auth: context.auth });
@@ -1750,6 +1835,8 @@ const startTrackedProductRepair = functions.https.onCall(async (data, context) =
   if (!productId) {
     throw new functions.https.HttpsError('invalid-argument', 'productId is verplicht.');
   }
+
+  auditService.logCallable(context, 'START_REPAIR', { productId }, { category: 'QUALITY', severity: 'INFO' });
 
   try {
     return await startTrackedProductRepairService({
@@ -1786,6 +1873,8 @@ const reportShopFloorIssue = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'type moet downtime of defect zijn.');
   }
 
+  auditService.logCallable(context, 'REPORT_SHOP_FLOOR_ISSUE', { type, machine: clampText(data?.machine, 120), orderId: clean(data?.orderId) }, { category: 'QUALITY', severity: 'WARNING' });
+
   return reportShopFloorIssueService({
     type,
     machine,
@@ -1812,6 +1901,8 @@ const resolveShopFloorIssue = functions.https.onCall(async (data, context) => {
   if (!type || !issueId) {
     throw new functions.https.HttpsError('invalid-argument', 'type en issueId zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'RESOLVE_SHOP_FLOOR_ISSUE', { type, issueId }, { category: 'QUALITY', severity: 'INFO' });
 
   try {
     return await resolveShopFloorIssueService({ type, issueId, auth: context.auth });
@@ -1846,6 +1937,8 @@ const importPlanningOrders = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 order is verplicht.');
   }
 
+  auditService.logCallable(context, 'IMPORT_PLANNING_ORDERS', { orderCount: orders.length, importMode }, { category: 'PLANNING', severity: 'INFO' });
+
   return bulkImportPlanningOrdersService({
     orders,
     importMode,
@@ -1869,6 +1962,8 @@ const queuePrintJob = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'zplData is verplicht.');
   }
 
+  auditService.logCallable(context, 'QUEUE_PRINT_JOB', { printerId }, { category: 'SYSTEM', severity: 'INFO' });
+
   return queuePrintJobService(printerId, zplData, metadata, context);
 });
 
@@ -1883,6 +1978,8 @@ const updateUserProfile = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'name en language zijn verplicht.');
   }
 
+  auditService.logCallable(context, 'UPDATE_USER_PROFILE', { targetUid: context.auth.uid }, { category: 'ADMIN', severity: 'INFO' });
+
   return updateUserProfileService(context.auth.uid, profileData);
 });
 
@@ -1890,6 +1987,8 @@ const clearPasswordChangeFlag = functions.https.onCall(async (data, context) => 
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
+
+  auditService.logCallable(context, 'CLEAR_PASSWORD_FLAG', { targetUid: context.auth.uid }, { category: 'ADMIN', severity: 'INFO' });
 
   return clearPasswordChangeFlagService(context.auth.uid);
 });
@@ -1900,6 +1999,8 @@ const submitAccountRequest = functions.https.onCall(async (data, context) => {
   if (!requestData.name || !requestData.email) {
     throw new functions.https.HttpsError('invalid-argument', 'Naam en e-mailadres zijn verplicht.');
   }
+
+  auditService.logCallable(context, 'SUBMIT_ACCOUNT_REQUEST', { email: requestData.email }, { category: 'SECURITY', severity: 'INFO' });
 
   return submitAccountRequestService(requestData);
 });
@@ -1915,6 +2016,8 @@ const updateUserLanguage = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'language is verplicht.');
   }
 
+  auditService.logCallable(context, 'UPDATE_USER_LANGUAGE', { language }, { category: 'ADMIN', severity: 'INFO' });
+
   return updateUserLanguageService(context.auth.uid, language);
 });
 
@@ -1927,6 +2030,8 @@ const executeAutomationRule = functions.https.onCall(async (data, context) => {
   if (!rule) {
     throw new functions.https.HttpsError('invalid-argument', 'rule is verplicht.');
   }
+
+  auditService.logCallable(context, 'EXECUTE_AUTOMATION_RULE', { ruleId: rule?.id || 'unknown' }, { category: 'SYSTEM', severity: 'WARNING' });
 
   return executeAutomationRuleService(rule);
 });
@@ -1943,6 +2048,8 @@ const saveProductRecord = functions.https.onCall(async (data, context) => {
 
   const productId = clean(data?.productId);
   const productData = (typeof data?.productData === 'object' && data.productData) || {};
+
+  auditService.logCallable(context, 'SAVE_PRODUCT', { productId }, { category: 'ADMIN', severity: 'INFO' });
 
   return saveProductRecordService({
     productId,
@@ -1962,6 +2069,9 @@ const deleteProductRecord = functions.https.onCall(async (data, context) => {
   }
 
   const productId = clean(data?.productId);
+
+  auditService.logCallable(context, 'DELETE_PRODUCT', { productId }, { category: 'ADMIN', severity: 'WARNING' });
+
   return deleteProductRecordService({ productId });
 });
 
@@ -1981,6 +2091,9 @@ const verifyProductRecord = functions.https.onCall(async (data, context) => {
   }
 
   const actorName = clean(data?.actorName) || clean(context.auth?.token?.name) || clean(context.auth?.token?.email);
+
+  auditService.logCallable(context, 'VERIFY_PRODUCT', { productId }, { category: 'QUALITY', severity: 'INFO' });
+
   return verifyProductRecordService({
     productId,
     actor: {
@@ -2004,6 +2117,9 @@ const upsertConversionRecord = functions.https.onCall(async (data, context) => {
 
   const recordId = clean(data?.recordId);
   const recordData = (typeof data?.recordData === 'object' && data.recordData) || {};
+
+  auditService.logCallable(context, 'UPSERT_CONVERSION', { recordId }, { category: 'ADMIN', severity: 'INFO' });
+
   return upsertConversionRecordService({
     recordId,
     recordData,
@@ -2022,6 +2138,9 @@ const deleteConversionRecord = functions.https.onCall(async (data, context) => {
   }
 
   const recordId = clean(data?.recordId);
+
+  auditService.logCallable(context, 'DELETE_CONVERSION', { recordId }, { category: 'ADMIN', severity: 'WARNING' });
+
   return deleteConversionRecordService({ recordId });
 });
 
@@ -2034,6 +2153,8 @@ const deleteAllConversionRecords = functions.https.onCall(async (data, context) 
   if (userRole !== 'admin') {
     throw new functions.https.HttpsError('permission-denied', 'Alleen admins kunnen alle conversies verwijderen.');
   }
+
+  auditService.logCallable(context, 'DELETE_ALL_CONVERSIONS', {}, { category: 'ADMIN', severity: 'CRITICAL' });
 
   return deleteAllConversionRecordsService();
 });
@@ -2050,6 +2171,8 @@ const upsertConversionBatch = functions.https.onCall(async (data, context) => {
 
   const items = Array.isArray(data?.items) ? data.items : [];
   const mode = clean(data?.mode || 'merge');
+
+  auditService.logCallable(context, 'UPSERT_CONVERSION_BATCH', { itemCount: items.length, mode }, { category: 'ADMIN', severity: 'INFO' });
 
   return upsertConversionBatchService({
     items,
@@ -2073,6 +2196,8 @@ const processInforUpdate = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'csvData is verplicht.');
   }
 
+  auditService.logCallable(context, 'PROCESS_INFOR_UPDATE', { rowCount: csvData.length }, { category: 'PLANNING', severity: 'INFO' });
+
   return processInforUpdateService(csvData);
 });
 
@@ -2087,6 +2212,9 @@ const saveAiContextConfig = functions.https.onCall(async (data, context) => {
   }
 
   const systemPrompt = String(data?.systemPrompt || '');
+
+  auditService.logCallable(context, 'SAVE_AI_CONFIG', {}, { category: 'ADMIN', severity: 'WARNING' });
+
   return saveAiContextConfigService({
     systemPrompt,
     actorEmail: clean(context.auth?.token?.email),
@@ -2104,6 +2232,9 @@ const createAiDocumentRecord = functions.https.onCall(async (data, context) => {
   }
 
   const payload = (typeof data?.payload === 'object' && data.payload) || {};
+
+  auditService.logCallable(context, 'CREATE_AI_DOCUMENT', {}, { category: 'ADMIN', severity: 'INFO' });
+
   return createAiDocumentRecordService({
     payload,
     actorEmail: clean(context.auth?.token?.email),
@@ -2122,6 +2253,9 @@ const updateAiDocumentRecord = functions.https.onCall(async (data, context) => {
 
   const docId = clean(data?.docId);
   const patch = (typeof data?.patch === 'object' && data.patch) || {};
+
+  auditService.logCallable(context, 'UPDATE_AI_DOCUMENT', { docId }, { category: 'ADMIN', severity: 'INFO' });
+
   return updateAiDocumentRecordService({ docId, patch });
 });
 
@@ -2136,6 +2270,9 @@ const deleteAiDocumentRecord = functions.https.onCall(async (data, context) => {
   }
 
   const docId = clean(data?.docId);
+
+  auditService.logCallable(context, 'DELETE_AI_DOCUMENT', { docId }, { category: 'ADMIN', severity: 'WARNING' });
+
   return deleteAiDocumentRecordService({ docId });
 });
 
@@ -2151,6 +2288,9 @@ const verifyAiKnowledgeEntry = functions.https.onCall(async (data, context) => {
 
   const entryId = clean(data?.entryId);
   const correctedAnswer = data?.correctedAnswer || null;
+
+  auditService.logCallable(context, 'VERIFY_AI_KNOWLEDGE', { entryId }, { category: 'ADMIN', severity: 'INFO' });
+
   return verifyAiKnowledgeEntryService({
     entryId,
     correctedAnswer,
@@ -2169,6 +2309,9 @@ const deleteAiKnowledgeEntry = functions.https.onCall(async (data, context) => {
   }
 
   const entryId = clean(data?.entryId);
+
+  auditService.logCallable(context, 'DELETE_AI_KNOWLEDGE', { entryId }, { category: 'ADMIN', severity: 'WARNING' });
+
   return deleteAiKnowledgeEntryService({ entryId });
 });
 
@@ -2181,6 +2324,8 @@ const migrateAiKnowledgeFields = functions.https.onCall(async (data, context) =>
   if (userRole !== 'admin') {
     throw new functions.https.HttpsError('permission-denied', 'Alleen admins mogen AI kennis migratie uitvoeren.');
   }
+
+  auditService.logCallable(context, 'MIGRATE_AI_KNOWLEDGE', {}, { category: 'ADMIN', severity: 'CRITICAL' });
 
   return migrateAiKnowledgeFieldsService();
 });

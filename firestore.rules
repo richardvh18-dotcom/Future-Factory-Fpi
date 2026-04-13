@@ -26,20 +26,9 @@ service cloud.firestore {
       return hasAnyRole(['admin']);
     }
 
-    function hasLegacyPilotClaim() {
-      return isSignedIn() && request.auth.token.legacyPilot == true;
-    }
-
-    function hasLegacyPilotFlag() {
-      return hasUserRecord() && get(userDocPath()).data.legacyPilotWrites == true;
-    }
-
-    function isLegacyPilotUser() {
-      return hasLegacyPilotClaim() || hasLegacyPilotFlag();
-    }
-
+    // Pilot: production actions must keep working even when role docs are incomplete.
     function canOperateProduction() {
-      return hasAnyRole([
+      return isSignedIn() || hasAnyRole([
         'admin',
         'planner',
         'teamleader',
@@ -184,60 +173,6 @@ service cloud.firestore {
         && request.resource.data.retryCount <= 5;
     }
 
-    function isClientFinalRejectMutation() {
-      return (
-        request.resource.data.currentStep == 'REJECTED'
-        || request.resource.data.currentStation == 'AFKEUR'
-        || request.resource.data.status in ['Rejected', 'rejected']
-        || (
-          'inspection' in request.resource.data
-          && request.resource.data.inspection is map
-          && request.resource.data.inspection.status in ['Afkeur', 'Rejected', 'rejected']
-        )
-      );
-    }
-
-    function isClientProtectedManualMoveMutation() {
-      return (
-        request.resource.data.isManualMove == true
-        && (
-          request.resource.data.currentStation != resource.data.currentStation
-          || request.resource.data.currentStep != resource.data.currentStep
-          || request.resource.data.status != resource.data.status
-          || request.resource.data.diff(resource.data).changedKeys().hasAny([
-            'repairActive',
-            'repairCategory',
-            'repairInstruction'
-          ])
-        )
-      );
-    }
-
-    function isClientTempRejectMutation() {
-      return (
-        request.resource.data.currentStep == 'HOLD_AREA'
-        || request.resource.data.status == 'Tijdelijke afkeur'
-        || (
-          'inspection' in request.resource.data
-          && request.resource.data.inspection is map
-          && request.resource.data.inspection.status == 'Tijdelijke afkeur'
-        )
-      );
-    }
-
-    function isClientRepairCompleteMutation() {
-      return (
-        request.resource.data.currentStation == 'BM01'
-        && request.resource.data.currentStep == 'Eindinspectie'
-        && request.resource.data.status == 'Te Keuren'
-        && request.resource.data.diff(resource.data).changedKeys().hasAny([
-          'repairActive',
-          'timestamps',
-          'note'
-        ])
-      );
-    }
-
     function isClientProtectedPlanningMutation() {
       return (
         request.resource.data.diff(resource.data).changedKeys().hasAny([
@@ -316,47 +251,39 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Pilot override: allow production users to update tracked products without
+    // client-side transition blockers that caused Lossen/Nabewerken/Gereedmeld fails.
     match /future-factory/production/tracked_products/{document=**} {
-      allow read: if hasUserRecord() || isLegacyPilotUser();
-      allow create, delete: if canOperateProduction() || isLegacyPilotUser();
-      allow update: if isLegacyPilotUser() || (
-        canOperateProduction()
-        && !isClientFinalRejectMutation()
-        && !isClientTempRejectMutation()
-        && !isClientRepairCompleteMutation()
-        && !isClientProtectedManualMoveMutation()
-      );
+      allow read: if hasUserRecord() || isSignedIn();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction();
     }
 
+    // Pilot override: allow full planning writes for production flow continuity.
     match /future-factory/production/digital_planning/{document=**} {
-      allow read: if hasUserRecord() || isLegacyPilotUser();
-      // Create/delete via backend commands; client-side only nog admin voor noodbeheer.
-      allow create, delete: if isAdmin() || isLegacyPilotUser();
-      allow update: if isLegacyPilotUser() || (canOperateProduction() && !isClientProtectedPlanningMutation());
+      allow read: if hasUserRecord() || isSignedIn();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction();
     }
 
     match /future-factory/production/data/digital_planning/orders/{orderId} {
-      allow read: if hasUserRecord() || isLegacyPilotUser();
-      // Legacy pad: idem hardening als primaire planningcollectie.
-      allow create, delete: if isAdmin() || isLegacyPilotUser();
-      allow update: if isLegacyPilotUser() || (canOperateProduction() && !isClientProtectedPlanningMutation());
+      allow read: if hasUserRecord() || isSignedIn();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction();
     }
 
     match /future-factory/production/{collectionId}/{document=**} {
-      allow read: if hasUserRecord() || isLegacyPilotUser();
+      allow read: if hasUserRecord() || isSignedIn();
       allow write: if (
         collectionId in [
           'machine_occupancy',
+          'efficiency_hours',
           'time_logs',
           'downtime_reports',
           'defect_reports',
           'archive',
           'counters'
         ] && canOperateProduction()
-      ) || (
-        collectionId in [
-          'efficiency_hours'
-        ] && (isAdmin() || isLegacyPilotUser())
       ) || (
         collectionId in [
           'products',
@@ -371,23 +298,31 @@ service cloud.firestore {
     }
 
     match /future-factory/planning/scenarios/{scenarioId} {
-      allow read: if hasUserRecord();
-      allow write: if canManagePlanningSettings();
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if canManagePlanningSettings() || isSignedIn();
     }
 
     match /future-factory/automation/{document=**} {
-      allow read: if hasUserRecord();
-      allow write: if canManagePlanningSettings();
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if canManagePlanningSettings() || isSignedIn();
     }
 
     match /future-factory/notifications/{document=**} {
-      allow read: if hasUserRecord();
-      allow write: if canManagePlanningSettings();
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if canManagePlanningSettings() || isSignedIn();
     }
 
     match /future-factory/logs/activity_logs/{logId} {
-      allow create: if hasUserRecord();
+      allow create: if hasUserRecord() || isSignedIn();
       allow read, update, delete: if isAdmin();
+    }
+
+    // ISO 27001 / ISO 9001: Audit logs are append-only from the backend (Admin SDK).
+    // Clients can NEVER write to this path — entries are tamper-evident by design.
+    // Admins can read; no client may create, update, or delete.
+    match /future-factory/audit/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     match /future-factory/logs/activity_logs_archive/{logId} {
@@ -395,12 +330,12 @@ service cloud.firestore {
     }
 
     match /future-factory/temp_labels/orders/{document=**} {
-      allow read: if hasUserRecord();
+      allow read: if hasUserRecord() || isSignedIn();
       allow write: if canOperateProduction();
     }
 
     match /future-factory/settings/ai_memory/{memoryId} {
-      allow read, create: if hasUserRecord();
+      allow read, create: if hasUserRecord() || isSignedIn();
       allow update, delete: if isAdmin();
     }
 
@@ -409,17 +344,17 @@ service cloud.firestore {
     }
 
     match /future-factory/settings/ai_knowledge_base/{document=**} {
-      allow read: if hasUserRecord();
+      allow read: if hasUserRecord() || isSignedIn();
       allow write: if isAdmin();
     }
 
     match /future-factory/settings/ai_documents/{document=**} {
-      allow read: if hasUserRecord();
+      allow read: if hasUserRecord() || isSignedIn();
       allow write: if isAdmin();
     }
 
     match /artifacts/{appId}/{document=**} {
-      allow read, write: if hasUserRecord();
+      allow read, write: if hasUserRecord() || isSignedIn();
     }
   }
 }

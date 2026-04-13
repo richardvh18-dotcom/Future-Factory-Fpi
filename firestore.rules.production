@@ -317,6 +317,14 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
+    // ISO 27001 / ISO 9001: Audit logs are append-only from the backend (Admin SDK).
+    // Clients can NEVER write — entries are tamper-evident by design.
+    // Only admins and auditors can read.
+    match /future-factory/audit/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /future-factory/logs/activity_logs_archive/{logId} {
       allow read, write: if isAdmin();
     }
