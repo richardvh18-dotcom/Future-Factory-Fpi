@@ -372,6 +372,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           let { week, year } = getISOWeekInfo(dateObj);
           return {
             id: doc.id,
+            sourcePath: doc.ref.path,
+            _sourcePath: doc.ref.path,
             ...data,
             orderId: data.orderId || data.orderNumber || doc.id,
             item: data.item || data.productCode || t("digitalplanning.workstation.unknown_item"),
@@ -1339,6 +1341,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         lotStart: customLotNumber,
         stringCount,
         stationId: selectedStation,
+        orderSourcePath: order?.sourcePath || order?._sourcePath || "",
         actorLabel: currentUser?.email || "Operator",
         labelZplData: typeof labelZplData === "string" ? labelZplData : "",
         labelTemplateId: labelTemplateId || "",

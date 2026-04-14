@@ -10,9 +10,23 @@ const getArtifactsAppIdFromPaths = () => {
   return String(planningPath[1] || "").trim();
 };
 
-const getRuntimeDataSource = () => {
+const getRuntimeDataSource = (payload = null) => {
   if (typeof window === "undefined") {
     return { useArtifactsPaths: false, appId: "" };
+  }
+
+  const hintedPath = String(
+    payload?.orderSourcePath ||
+    payload?.sourcePath ||
+    payload?.planningSourcePath ||
+    ""
+  ).trim();
+  if (hintedPath.startsWith("artifacts/")) {
+    const parts = hintedPath.split("/");
+    const appIdFromHint = String(parts[1] || "").trim();
+    if (appIdFromHint) {
+      return { useArtifactsPaths: true, appId: appIdFromHint };
+    }
   }
 
   const studioAppId =
@@ -48,7 +62,7 @@ const getRuntimeDataSource = () => {
  * every payload, ensuring the backend writes to the correct database section.
  */
 const callableWithRuntime = (callable) => async (payload) =>
-  callable({ ...payload, runtimeDataSource: getRuntimeDataSource() });
+  callable({ ...payload, runtimeDataSource: getRuntimeDataSource(payload) });
 
 const rejectTrackedProductFinalCallable = callableWithRuntime(httpsCallable(functions, "rejectTrackedProductFinal"));
 const tempRejectTrackedProductCallable = callableWithRuntime(httpsCallable(functions, "tempRejectTrackedProduct"));
@@ -271,6 +285,7 @@ export const startWorkstationProductionRun = async ({
   lotStart,
   stringCount,
   stationId,
+  orderSourcePath = "",
   actorLabel = "",
   labelZplData = "",
   labelTemplateId = "",
@@ -284,6 +299,7 @@ export const startWorkstationProductionRun = async ({
     lotStart: String(lotStart || "").trim(),
     stringCount: Number(stringCount),
     stationId: String(stationId || "").trim(),
+    orderSourcePath: String(orderSourcePath || "").trim(),
     actorLabel: String(actorLabel || "").trim(),
     labelZplData: typeof labelZplData === "string" ? labelZplData : "",
     labelTemplateId: String(labelTemplateId || "").trim(),
@@ -293,7 +309,6 @@ export const startWorkstationProductionRun = async ({
       ? stationOperators.map((entry) => String(entry || "").trim()).filter(Boolean)
       : [],
     source: String(source || "").trim(),
-    runtimeDataSource: getRuntimeDataSource(),
   };
 
   if (!payload.orderDocId || !payload.lotStart || !payload.stationId || !Number.isFinite(payload.stringCount) || payload.stringCount < 1) {
