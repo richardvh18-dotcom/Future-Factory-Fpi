@@ -114,6 +114,17 @@ const extractRds = (data) => {
   return useArtifacts ? { useArtifactsPaths: true, appId } : null;
 };
 
+const extractRdsFromSourcePath = (data) => {
+  const hintedPath = clean(data?.orderSourcePath || data?.sourcePath || data?.planningSourcePath);
+  if (!hintedPath) return null;
+  const parts = hintedPath.split('/').filter(Boolean);
+  if (parts[0] !== 'artifacts') return null;
+  const appId = clean(parts[1]);
+  return appId ? { useArtifactsPaths: true, appId } : null;
+};
+
+const resolveRdsForRequest = (data) => extractRdsFromSourcePath(data) || extractRds(data);
+
 const sanitizeRejectReasons = (rawReasons) => {
   if (!Array.isArray(rawReasons) || rawReasons.length === 0) {
     throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 afkeurreden is verplicht.');
@@ -393,12 +404,7 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
   const seriesGroupId = clean(data?.seriesGroupId);
   const isFlangeSeries = Boolean(data?.isFlangeSeries);
   const source = clampText(data?.source, 80);
-  const runtimeDataSource = data?.runtimeDataSource && typeof data.runtimeDataSource === 'object'
-    ? {
-      useArtifactsPaths: data.runtimeDataSource.useArtifactsPaths === true,
-      appId: clean(data.runtimeDataSource.appId),
-    }
-    : null;
+  const runtimeDataSource = resolveRdsForRequest(data);
   const stationOperators = Array.isArray(data?.stationOperators)
     ? data.stationOperators.map((entry) => clampText(entry, 80)).filter(Boolean).slice(0, 50)
     : [];
@@ -424,7 +430,7 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
       source,
       auth: context.auth,
       runtimeDataSource,
-      dbCtx: resolveDbContext(extractRds(data)),
+      dbCtx: resolveDbContext(runtimeDataSource),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -2072,10 +2078,12 @@ const importPlanningOrders = functions.https.onCall(async (data, context) => {
 
   auditService.logCallable(context, 'IMPORT_PLANNING_ORDERS', { orderCount: orders.length, importMode }, { category: 'PLANNING', severity: 'INFO' });
 
+  const runtimeDataSource = resolveRdsForRequest(data);
+
   return bulkImportPlanningOrdersService({
     orders,
     importMode,
-    dbCtx: resolveDbContext(extractRds(data)),
+    dbCtx: resolveDbContext(runtimeDataSource),
   });
 });
 
