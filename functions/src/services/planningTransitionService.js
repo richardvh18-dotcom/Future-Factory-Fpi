@@ -2828,12 +2828,11 @@ const reserveAutoLotNumberRangeService = async ({
       for (let i = 0; i < qty; i += 1) {
         const seq = seqStart + i;
         const candidateLot = `${baseLot}${String(seq).padStart(4, '0')}`;
-        const dupSnap = await tx.get(
-          db.collection(ctx.trackingPath)
-            .where('lotNumber', '==', candidateLot)
-            .limit(1)
-        );
-        if (!dupSnap.empty) return true;
+
+        // Lotnummers worden als document-id opgeslagen; directe doc-lookup is veel sneller
+        // dan een query en voorkomt meerdere index-scans in de transactielus.
+        const directDoc = await tx.get(db.collection(ctx.trackingPath).doc(candidateLot));
+        if (directDoc.exists) return true;
       }
       return false;
     };
