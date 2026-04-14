@@ -646,20 +646,6 @@ const ProductionStartModal = ({
         effectiveLotNumber = await claimAutoLotRange(totalToProduce);
         setLotNumber(effectiveLotNumber);
 
-        // Failsafe: ook na counter-claim expliciet controleren op bestaand lot (tracking + archief).
-        const autoStartSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
-        if (!Number.isFinite(autoStartSeq)) {
-          throw new Error(t("productionStartModal.errors.cannotValidateLotRange"));
-        }
-
-        for (let i = 0; i < totalToProduce; i++) {
-          const candidateLot = `${String(effectiveLotNumber).slice(0, -4)}${String(autoStartSeq + i).padStart(4, "0")}`;
-          const exists = await checkLotNumberExists(candidateLot);
-          if (exists) {
-            throw new Error(t("productionStartModal.errors.lotAlreadyExistsRetry", { lot: candidateLot }));
-          }
-        }
-
         if (!isFlangeOrder && selectedLabel) {
           const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, DEFAULT_PRINTER_DPI);
           const printPreviewData = {
