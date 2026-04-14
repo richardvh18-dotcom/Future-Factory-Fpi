@@ -82,6 +82,7 @@ const AdminSettingsView = () => {
   });
 
   const isPilotReadMode = settings.adminDataSourceMode === "pilot-read";
+  const isPreviewMode = settings.adminDataSourceMode === "preview";
   const activeReadPaths = getReadPaths(isPilotReadMode);
 
   // 1. Live Sync met de Root
@@ -93,7 +94,8 @@ const AdminSettingsView = () => {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          const nextMode = data.adminDataSourceMode === "pilot-read" ? "pilot-read" : "current";
+          const nextMode = ["pilot-read", "preview"].includes(data.adminDataSourceMode)
+            ? data.adminDataSourceMode : "current";
           setLockedAdminDataSourceMode(nextMode);
           setSettings((prev) => ({
             ...prev,
@@ -129,7 +131,7 @@ const AdminSettingsView = () => {
         {
           ...settings,
           adminDataSourceMode: canManageDataSourceSwitch
-            ? (settings.adminDataSourceMode === "pilot-read" ? "pilot-read" : "current")
+            ? (["pilot-read", "preview"].includes(settings.adminDataSourceMode) ? settings.adminDataSourceMode : "current")
             : lockedAdminDataSourceMode,
           lastUpdated: serverTimestamp(),
           updatedBy: "Admin Hub",
@@ -352,19 +354,20 @@ const AdminSettingsView = () => {
                   type="button"
                   disabled={!canManageDataSourceSwitch}
                   onClick={() =>
-                    setSettings((prev) => ({
-                      ...prev,
-                      adminDataSourceMode:
-                        prev.adminDataSourceMode === "pilot-read" ? "current" : "pilot-read",
-                    }))
+                    setSettings((prev) => {
+                      const cycle = { current: "preview", preview: "pilot-read", "pilot-read": "current" };
+                      return { ...prev, adminDataSourceMode: cycle[prev.adminDataSourceMode] || "current" };
+                    })
                   }
                   className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-colors ${
                     isPilotReadMode
                       ? "bg-amber-50 text-amber-800 border-amber-300"
+                      : isPreviewMode
+                      ? "bg-blue-50 text-blue-800 border-blue-300"
                       : "bg-slate-100 text-slate-700 border-slate-300"
                   } ${!canManageDataSourceSwitch ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
-                  {isPilotReadMode ? "Pilot DB (Read Only)" : "Huidige DB"}
+                  {isPilotReadMode ? "Pilot DB (Read Only)" : isPreviewMode ? "Preview DB (Artifacts)" : "Auto DB"}
                 </button>
               </div>
 

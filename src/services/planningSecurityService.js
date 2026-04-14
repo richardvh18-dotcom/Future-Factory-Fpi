@@ -8,57 +8,80 @@ const getRuntimeDataSource = () => {
     return { useArtifactsPaths: false, appId: "" };
   }
 
-  const appId = String(window.__app_id || "").trim();
+  const envAppId = String(window.__app_id || "").trim();
+  const savedMode = window.localStorage.getItem("adminDataSourceMode") || "current";
+
+  // "pilot-read" → force production paths, no artifacts
+  if (savedMode === "pilot-read") {
+    return { useArtifactsPaths: false, appId: "" };
+  }
+
+  // "preview" → force artifacts with fallback appId
+  if (savedMode === "preview") {
+    const appId = envAppId || "fittings-app-v1";
+    return { useArtifactsPaths: true, appId };
+  }
+
+  // "current" (default) → use __app_id if set (Firebase Studio context)
+  const appId = envAppId;
   return {
     useArtifactsPaths: Boolean(appId),
     appId,
   };
 };
-const rejectTrackedProductFinalCallable = httpsCallable(functions, "rejectTrackedProductFinal");
-const tempRejectTrackedProductCallable = httpsCallable(functions, "tempRejectTrackedProduct");
-const advanceTrackedProductCallable = httpsCallable(functions, "advanceTrackedProduct");
-const completeTrackedProductRepairCallable = httpsCallable(functions, "completeTrackedProductRepair");
-const routeTrackedProductsToLossenCallable = httpsCallable(functions, "routeTrackedProductsToLossen");
-const startWorkstationProductionRunCallable = httpsCallable(functions, "startWorkstationProductionRun");
-const toggleTrackedProductPauseCallable = httpsCallable(functions, "toggleTrackedProductPause");
-const markTrackedProductReminderCallable = httpsCallable(functions, "markTrackedProductReminder");
-const moveTrackedProductManualCallable = httpsCallable(functions, "moveTrackedProductManual");
-const archiveRejectedTrackedProductCallable = httpsCallable(functions, "archiveRejectedTrackedProduct");
-const cancelTrackedProductionCallable = httpsCallable(functions, "cancelTrackedProduction");
-const updatePlanningOrderPriorityCallable = httpsCallable(functions, "updatePlanningOrderPriority");
-const movePlanningOrderCallable = httpsCallable(functions, "movePlanningOrder");
-const retrievePlanningOrderCallable = httpsCallable(functions, "retrievePlanningOrder");
-const togglePlanningOrderHoldCallable = httpsCallable(functions, "togglePlanningOrderHold");
-const updatePlanningOrderDetailsCallable = httpsCallable(functions, "updatePlanningOrderDetails");
-const patchPlanningOrderMetadataCallable = httpsCallable(functions, "patchPlanningOrderMetadata");
-const assignOverproductionCallable = httpsCallable(functions, "assignOverproduction");
-const cancelPlanningOrderCallable = httpsCallable(functions, "cancelPlanningOrder");
-const assignPersonnelToStationCallable = httpsCallable(functions, "assignPersonnelToStation");
-const removePersonnelAssignmentCallable = httpsCallable(functions, "removePersonnelAssignment");
-const loanPersonnelToDepartmentCallable = httpsCallable(functions, "loanPersonnelToDepartment");
-const saveOccupancyAssignmentsCallable = httpsCallable(functions, "saveOccupancyAssignments");
-const deleteOccupancyAssignmentsCallable = httpsCallable(functions, "deleteOccupancyAssignments");
-const savePersonnelRecordCallable = httpsCallable(functions, "savePersonnelRecord");
-const createProductionMessagesCallable = httpsCallable(functions, "createProductionMessages");
-const transitionPrintQueueJobStatusCallable = httpsCallable(functions, "transitionPrintQueueJobStatus");
-const requeuePrintQueueJobCallable = httpsCallable(functions, "requeuePrintQueueJob");
-const deletePrintQueueJobCallable = httpsCallable(functions, "deletePrintQueueJob");
-const startProductionLotsCallable = httpsCallable(functions, "startProductionLots");
-const editTrackedProductLotNumberCallable = httpsCallable(functions, "editTrackedProductLotNumber");
-const linkPlanningOrderProductCallable = httpsCallable(functions, "linkPlanningOrderProduct");
-const createPlanningOrderManualCallable = httpsCallable(functions, "createPlanningOrderManual");
-const markMazakLabelsPrintedCallable = httpsCallable(functions, "markMazakLabelsPrinted");
-const appendQcNoteCallable = httpsCallable(functions, "appendQcNote");
-const reserveAutoLotNumberRangeCallable = httpsCallable(functions, "reserveAutoLotNumberRange");
-const addOrderDependencyCallable = httpsCallable(functions, "addOrderDependency");
-const removeOrderDependencyCallable = httpsCallable(functions, "removeOrderDependency");
-const updateOrderPlannedDateCallable = httpsCallable(functions, "updateOrderPlannedDate");
-const updateOrderKanbanStatusCallable = httpsCallable(functions, "updateOrderKanbanStatus");
-const markReadyForNextStepCallable = httpsCallable(functions, "markReadyForNextStep");
-const startTrackedProductRepairCallable = httpsCallable(functions, "startTrackedProductRepair");
-const reportShopFloorIssueCallable = httpsCallable(functions, "reportShopFloorIssue");
-const resolveShopFloorIssueCallable = httpsCallable(functions, "resolveShopFloorIssue");
-const importPlanningOrdersCallable = httpsCallable(functions, "importPlanningOrders");
+
+/**
+ * Wraps a Firebase callable to automatically inject runtimeDataSource into
+ * every payload, ensuring the backend writes to the correct database section.
+ */
+const callableWithRuntime = (callable) => async (payload) =>
+  callable({ ...payload, runtimeDataSource: getRuntimeDataSource() });
+
+const rejectTrackedProductFinalCallable = callableWithRuntime(httpsCallable(functions, "rejectTrackedProductFinal"));
+const tempRejectTrackedProductCallable = callableWithRuntime(httpsCallable(functions, "tempRejectTrackedProduct"));
+const advanceTrackedProductCallable = callableWithRuntime(httpsCallable(functions, "advanceTrackedProduct"));
+const completeTrackedProductRepairCallable = callableWithRuntime(httpsCallable(functions, "completeTrackedProductRepair"));
+const routeTrackedProductsToLossenCallable = callableWithRuntime(httpsCallable(functions, "routeTrackedProductsToLossen"));
+const startWorkstationProductionRunCallable = callableWithRuntime(httpsCallable(functions, "startWorkstationProductionRun"));
+const toggleTrackedProductPauseCallable = callableWithRuntime(httpsCallable(functions, "toggleTrackedProductPause"));
+const markTrackedProductReminderCallable = callableWithRuntime(httpsCallable(functions, "markTrackedProductReminder"));
+const moveTrackedProductManualCallable = callableWithRuntime(httpsCallable(functions, "moveTrackedProductManual"));
+const archiveRejectedTrackedProductCallable = callableWithRuntime(httpsCallable(functions, "archiveRejectedTrackedProduct"));
+const cancelTrackedProductionCallable = callableWithRuntime(httpsCallable(functions, "cancelTrackedProduction"));
+const updatePlanningOrderPriorityCallable = callableWithRuntime(httpsCallable(functions, "updatePlanningOrderPriority"));
+const movePlanningOrderCallable = callableWithRuntime(httpsCallable(functions, "movePlanningOrder"));
+const retrievePlanningOrderCallable = callableWithRuntime(httpsCallable(functions, "retrievePlanningOrder"));
+const togglePlanningOrderHoldCallable = callableWithRuntime(httpsCallable(functions, "togglePlanningOrderHold"));
+const updatePlanningOrderDetailsCallable = callableWithRuntime(httpsCallable(functions, "updatePlanningOrderDetails"));
+const patchPlanningOrderMetadataCallable = callableWithRuntime(httpsCallable(functions, "patchPlanningOrderMetadata"));
+const assignOverproductionCallable = callableWithRuntime(httpsCallable(functions, "assignOverproduction"));
+const cancelPlanningOrderCallable = callableWithRuntime(httpsCallable(functions, "cancelPlanningOrder"));
+const assignPersonnelToStationCallable = callableWithRuntime(httpsCallable(functions, "assignPersonnelToStation"));
+const removePersonnelAssignmentCallable = callableWithRuntime(httpsCallable(functions, "removePersonnelAssignment"));
+const loanPersonnelToDepartmentCallable = callableWithRuntime(httpsCallable(functions, "loanPersonnelToDepartment"));
+const saveOccupancyAssignmentsCallable = callableWithRuntime(httpsCallable(functions, "saveOccupancyAssignments"));
+const deleteOccupancyAssignmentsCallable = callableWithRuntime(httpsCallable(functions, "deleteOccupancyAssignments"));
+const savePersonnelRecordCallable = callableWithRuntime(httpsCallable(functions, "savePersonnelRecord"));
+const createProductionMessagesCallable = callableWithRuntime(httpsCallable(functions, "createProductionMessages"));
+const transitionPrintQueueJobStatusCallable = callableWithRuntime(httpsCallable(functions, "transitionPrintQueueJobStatus"));
+const requeuePrintQueueJobCallable = callableWithRuntime(httpsCallable(functions, "requeuePrintQueueJob"));
+const deletePrintQueueJobCallable = callableWithRuntime(httpsCallable(functions, "deletePrintQueueJob"));
+const startProductionLotsCallable = callableWithRuntime(httpsCallable(functions, "startProductionLots"));
+const editTrackedProductLotNumberCallable = callableWithRuntime(httpsCallable(functions, "editTrackedProductLotNumber"));
+const linkPlanningOrderProductCallable = callableWithRuntime(httpsCallable(functions, "linkPlanningOrderProduct"));
+const createPlanningOrderManualCallable = callableWithRuntime(httpsCallable(functions, "createPlanningOrderManual"));
+const markMazakLabelsPrintedCallable = callableWithRuntime(httpsCallable(functions, "markMazakLabelsPrinted"));
+const appendQcNoteCallable = callableWithRuntime(httpsCallable(functions, "appendQcNote"));
+const reserveAutoLotNumberRangeCallable = callableWithRuntime(httpsCallable(functions, "reserveAutoLotNumberRange"));
+const addOrderDependencyCallable = callableWithRuntime(httpsCallable(functions, "addOrderDependency"));
+const removeOrderDependencyCallable = callableWithRuntime(httpsCallable(functions, "removeOrderDependency"));
+const updateOrderPlannedDateCallable = callableWithRuntime(httpsCallable(functions, "updateOrderPlannedDate"));
+const updateOrderKanbanStatusCallable = callableWithRuntime(httpsCallable(functions, "updateOrderKanbanStatus"));
+const markReadyForNextStepCallable = callableWithRuntime(httpsCallable(functions, "markReadyForNextStep"));
+const startTrackedProductRepairCallable = callableWithRuntime(httpsCallable(functions, "startTrackedProductRepair"));
+const reportShopFloorIssueCallable = callableWithRuntime(httpsCallable(functions, "reportShopFloorIssue"));
+const resolveShopFloorIssueCallable = callableWithRuntime(httpsCallable(functions, "resolveShopFloorIssue"));
+const importPlanningOrdersCallable = callableWithRuntime(httpsCallable(functions, "importPlanningOrders"));
 const queuePrintJobCallable = httpsCallable(functions, "queuePrintJob");
 const updateUserProfileCallable = httpsCallable(functions, "updateUserProfile");
 const clearPasswordChangeFlagCallable = httpsCallable(functions, "clearPasswordChangeFlag");

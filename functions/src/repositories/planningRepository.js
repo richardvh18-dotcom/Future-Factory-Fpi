@@ -1,5 +1,6 @@
 const { db } = require('../config/firebase');
 const {
+  BASE,
   TRACKING_COLLECTION,
   PLANNING_COLLECTION,
   PLANNING_COLLECTION_LEGACY,
@@ -90,8 +91,33 @@ const getPlanningOrderDocById = async (orderDocId, runtimeDataSource = null) => 
   return null;
 };
 
+/**
+ * Resolves all environment-aware collection paths for a single request.
+ * Returns path strings and a `_rds` back-reference for passing to repository functions.
+ */
+const resolveDbContext = (runtimeDataSource = null) => {
+  const appId = clean(runtimeDataSource?.appId);
+  const useArtifacts = Boolean(runtimeDataSource?.useArtifactsPaths && appId);
+  const artifactsBase = `artifacts/${appId}/public/data`;
+  const prodBase = `${BASE}/production`;
+  const base = useArtifacts ? artifactsBase : prodBase;
+  return {
+    trackingPath: useArtifacts ? `${artifactsBase}/tracked_products` : TRACKING_COLLECTION,
+    planningPath: useArtifacts ? `${artifactsBase}/digital_planning` : PLANNING_COLLECTION,
+    planningLegacyPath: useArtifacts ? null : PLANNING_COLLECTION_LEGACY,
+    efficiencyPath: `${base}/efficiency_hours`,
+    archiveItemsPath: (year) => `${base}/archive/${year}/items`,
+    archiveRejectedPath: (year) => `${base}/archive/${year}/rejected`,
+    archivePlanningPath: (year) => `${base}/archive/${year}/planning`,
+    occupancyPath: `${BASE}/production/machine_occupancy`,
+    printQueuePath: `${BASE}/production/print_queue`,
+    _rds: runtimeDataSource,
+  };
+};
+
 module.exports = {
   resolveRuntimeDataPaths,
+  resolveDbContext,
   getPlanningOrderDocByOrderId,
   getTrackedProductDocByIdOrLot,
   getPlanningOrderDocById,

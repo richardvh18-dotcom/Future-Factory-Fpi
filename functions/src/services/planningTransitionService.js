@@ -2,6 +2,7 @@ const { admin, db } = require('../config/firebase');
 const { BASE, TRACKING_COLLECTION, PLANNING_COLLECTION, USER_ACCOUNTS_COLLECTION } = require('../config/planningConstants');
 const {
   resolveRuntimeDataPaths,
+  resolveDbContext,
   getPlanningOrderDocByOrderId,
   getTrackedProductDocByIdOrLot,
   getPlanningOrderDocById,
@@ -368,7 +369,9 @@ const buildReferenceOperationSummaryServer = (operations = {}) => {
 const bulkImportPlanningOrdersService = async ({
   orders,
   importMode,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeOrders = Array.isArray(orders) ? orders : [];
   const safeImportMode = String(importMode || 'new_only').trim().toLowerCase();
 
@@ -398,7 +401,7 @@ const bulkImportPlanningOrdersService = async ({
 
       const isExistingOrder = Boolean(item.isExistingOrder);
       const isSmartUpdate = safeImportMode === 'smart_update' && isExistingOrder;
-      const planningDocRef = db.collection(PLANNING_COLLECTION).doc(docId);
+      const planningDocRef = db.collection(ctx.planningPath).doc(docId);
 
       if (isSmartUpdate) {
         const lnPayload = {};
@@ -452,7 +455,7 @@ const bulkImportPlanningOrdersService = async ({
       const qty = Number(item.quantity) || Number(item.toDoQty) || 1;
 
       batch.set(
-        db.collection(EFFICIENCY_COLLECTION).doc(docId),
+        db.collection(ctx.efficiencyPath).doc(docId),
         {
           orderId: docId,
           itemCode: clean(item.itemCode),
@@ -497,8 +500,10 @@ const rejectTrackedProductFinalService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const productRef = db.collection(TRACKING_COLLECTION).doc(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const productRef = db.collection(ctx.trackingPath).doc(productId);
   const productSnap = await productRef.get();
 
   if (!productSnap.exists) {
@@ -528,7 +533,7 @@ const rejectTrackedProductFinalService = async ({
   };
 
   const archiveRef = db
-    .collection(`${BASE}/production/archive/${year}/rejected`)
+    .collection(ctx.archiveRejectedPath(year))
     .doc(productId);
 
   const rejectionData = {
@@ -558,7 +563,7 @@ const rejectTrackedProductFinalService = async ({
   let orderUpdated = false;
   const orderId = clean(productData.orderId);
   if (orderId && orderId !== 'NOG_TE_BEPALEN') {
-    const orderDoc = await getPlanningOrderDocByOrderId(orderId);
+    const orderDoc = await getPlanningOrderDocByOrderId(orderId, ctx._rds);
     if (orderDoc) {
       const orderData = orderDoc.data() || {};
       const originStation =
@@ -606,8 +611,10 @@ const moveTrackedProductManualService = async ({
   isRepairMove,
   repairInstruction,
   auth,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productOrLotId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productOrLotId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_TRACKED');
   }
@@ -654,7 +661,7 @@ const moveTrackedProductManualService = async ({
 
   const orderId = clean(trackedData.orderId);
   if (orderId && orderId !== 'NOG_TE_BEPALEN') {
-    const planningOrderDoc = await getPlanningOrderDocByOrderId(orderId);
+    const planningOrderDoc = await getPlanningOrderDocByOrderId(orderId, ctx._rds);
     if (planningOrderDoc) {
       const now = new Date();
       const { week, year } = getISOWeekInfoServer(now);
@@ -680,14 +687,16 @@ const moveTrackedProductManualService = async ({
   };
 };
 
-const archivePlanningOrderService = async ({ orderDocId, requestedReason, source, auth, userRole }) => {  const orderDoc = await getPlanningOrderDocById(orderDocId);
+const archivePlanningOrderService = async ({ orderDocId, requestedReason, source, auth, userRole, dbCtx = null }) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
 
   const orderData = orderDoc.data() || {};
   const year = new Date().getFullYear();
-  const targetArchiveRef = db.collection(`${BASE}/production/archive/${year}/planning`).doc(orderDoc.id);
+  const targetArchiveRef = db.collection(ctx.archivePlanningPath(year)).doc(orderDoc.id);
 
   const archiveData = {
     ...orderData,
@@ -722,8 +731,10 @@ const completeTrackedProductService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -748,7 +759,7 @@ const completeTrackedProductService = async ({
 
   const incrementProducedOnOrder = async (batch) => {
     if (!orderId || orderId === 'NOG_TE_BEPALEN') return false;
-    const orderDoc = await getPlanningOrderDocByOrderId(orderId);
+    const orderDoc = await getPlanningOrderDocByOrderId(orderId, ctx._rds);
     if (!orderDoc) return false;
     const orderData = orderDoc.data() || {};
     const newProduced = (Number(orderData.produced) || 0) + 1;
@@ -767,7 +778,7 @@ const completeTrackedProductService = async ({
   if (finishType === 'archive') {
     const archiveRef = admin
       .firestore()
-      .collection(`${BASE}/production/archive/${year}/items`)
+      .collection(ctx.archiveItemsPath(year))
       .doc(trackedDoc.id);
 
     const archiveData = {
@@ -785,7 +796,7 @@ const completeTrackedProductService = async ({
       completedByRole: userRole,
     };
 
-    const batch = admin.firestore().batch();
+    const batch = db.batch();
     batch.set(archiveRef, archiveData);
     batch.delete(trackedDoc.ref);
     const producedIncremented = await incrementProducedOnOrder(batch);
@@ -812,7 +823,7 @@ const completeTrackedProductService = async ({
       updatePayload['timestamps.repair_end'] = admin.firestore.FieldValue.serverTimestamp();
     }
 
-    const batch = admin.firestore().batch();
+    const batch = db.batch();
     batch.set(trackedDoc.ref, updatePayload, { merge: true });
     const producedIncremented = await incrementProducedOnOrder(batch);
     await batch.commit();
@@ -830,8 +841,10 @@ const cancelTrackedProductionService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -856,11 +869,11 @@ const cancelTrackedProductionService = async ({
   let recycledSequenceAdded = false;
   let removedQueueJobs = 0;
 
-  const batch = admin.firestore().batch();
+  const batch = db.batch();
   batch.delete(trackedDoc.ref);
 
   if (orderId && orderId !== 'NOG_TE_BEPALEN') {
-    const orderDoc = await getPlanningOrderDocByOrderId(orderId);
+    const orderDoc = await getPlanningOrderDocByOrderId(orderId, ctx._rds);
     if (orderDoc) {
       const stationField = getStartedCounterFieldServer(stationForCounter);
       const orderUpdates = {
@@ -879,7 +892,7 @@ const cancelTrackedProductionService = async ({
 
   if (lotWeekSuffix && Number.isFinite(lotSeq) && lotSeq > 0) {
     const counterDocId = `${lotStation}_${lotWeekSuffix}`;
-    const counterRef = admin.firestore().doc(`${BASE}/production/counters/${counterDocId}`);
+    const counterRef = db.doc(`${BASE}/production/counters/${counterDocId}`);
     const counterSnap = await counterRef.get();
     const existing = counterSnap.exists && Array.isArray(counterSnap.data()?.recycledSequences)
       ? counterSnap
@@ -958,8 +971,10 @@ const updatePlanningOrderPriorityService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -972,7 +987,7 @@ const updatePlanningOrderPriorityService = async ({
     : false;
   const nowIso = new Date().toISOString();
 
-  const batch = admin.firestore().batch();
+  const batch = db.batch();
   batch.set(orderDoc.ref, {
     priority: priorityValue,
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
@@ -981,7 +996,7 @@ const updatePlanningOrderPriorityService = async ({
   let productHistoryUpdated = false;
   const cleanProductDocId = clean(productDocId);
   if (cleanProductDocId) {
-    const planningLikeDoc = await getPlanningOrderDocById(cleanProductDocId);
+    const planningLikeDoc = await getPlanningOrderDocById(cleanProductDocId, ctx._rds);
     if (planningLikeDoc) {
       batch.set(planningLikeDoc.ref, {
         history: admin.firestore.FieldValue.arrayUnion({
@@ -996,7 +1011,7 @@ const updatePlanningOrderPriorityService = async ({
       }, { merge: true });
       productHistoryUpdated = true;
     } else {
-      const trackedDoc = await getTrackedProductDocByIdOrLot(cleanProductDocId);
+      const trackedDoc = await getTrackedProductDocByIdOrLot(cleanProductDocId, ctx._rds);
       if (trackedDoc) {
         batch.set(trackedDoc.ref, {
           history: admin.firestore.FieldValue.arrayUnion({
@@ -1033,8 +1048,10 @@ const movePlanningOrderService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -1086,10 +1103,10 @@ const movePlanningOrderService = async ({
     updates.department = safeCurrentDepartment || clean(orderData.department) || 'fittings';
   }
 
-  const batch = admin.firestore().batch();
+  const batch = db.batch();
   batch.set(orderDoc.ref, updates, { merge: true });
   if (messagePayload) {
-    const messageRef = admin.firestore().collection(`${BASE}/messages`).doc();
+    const messageRef = db.collection(`${BASE}/messages`).doc();
     batch.set(messageRef, messagePayload);
   }
   await batch.commit();
@@ -1107,8 +1124,10 @@ const movePlanningOrderService = async ({
   };
 };
 
-const retrievePlanningOrderService = async ({ orderDocId, auth, actorLabel, source }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+const retrievePlanningOrderService = async ({ orderDocId, auth, actorLabel, source, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -1136,8 +1155,10 @@ const retrievePlanningOrderService = async ({ orderDocId, auth, actorLabel, sour
   };
 };
 
-const togglePlanningOrderHoldService = async ({ orderDocId, auth, actorLabel, source }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+const togglePlanningOrderHoldService = async ({ orderDocId, auth, actorLabel, source, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -1178,8 +1199,10 @@ const updatePlanningOrderDetailsService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -1214,8 +1237,10 @@ const patchPlanningOrderMetadataService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -1262,13 +1287,15 @@ const saveOccupancyAssignmentsService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeRecords = Array.isArray(records) ? records : [];
   if (safeRecords.length === 0) {
     throw new Error('INVALID_OCCUPANCY_RECORDS');
   }
 
-  const batch = admin.firestore().batch();
+  const batch = db.batch();
   let processedCount = 0;
 
   safeRecords.slice(0, 500).forEach((entry) => {
@@ -1278,7 +1305,7 @@ const saveOccupancyAssignmentsService = async ({
     const updates = sanitizeOccupancyData(entry?.data || {});
     if (Object.keys(updates).length === 0) return;
 
-    const ref = admin.firestore().doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`);
+    const ref = db.doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`);
     if (updates.updatedAt === undefined) {
       updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
     }
@@ -1291,7 +1318,7 @@ const saveOccupancyAssignmentsService = async ({
   }
 
   await batch.commit();
-  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+  await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
     action: 'OCCUPANCY_SAVE_BATCH',
     details: `Occupancy records opgeslagen: ${processedCount}`,
@@ -1310,7 +1337,9 @@ const deleteOccupancyAssignmentsService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeIds = Array.isArray(assignmentIds)
     ? Array.from(new Set(assignmentIds.map((entry) => clean(entry)).filter(Boolean))).slice(0, 500)
     : [];
@@ -1318,13 +1347,13 @@ const deleteOccupancyAssignmentsService = async ({
     throw new Error('INVALID_OCCUPANCY_ASSIGNMENT_IDS');
   }
 
-  const batch = admin.firestore().batch();
+  const batch = db.batch();
   safeIds.forEach((assignmentId) => {
-    batch.delete(admin.firestore().doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`));
+    batch.delete(db.doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`));
   });
   await batch.commit();
 
-  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+  await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
     action: 'OCCUPANCY_DELETE_BATCH',
     details: `Occupancy records verwijderd: ${safeIds.length}`,
@@ -1344,22 +1373,24 @@ const savePersonnelRecordService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const updates = sanitizePersonnelData(data || {});
   if (Object.keys(updates).length === 0) {
     throw new Error('INVALID_PERSONNEL_PAYLOAD');
   }
 
   const ref = personId
-    ? admin.firestore().doc(`${PERSONNEL_COLLECTION}/${clean(personId)}`)
-    : admin.firestore().collection(PERSONNEL_COLLECTION).doc();
+    ? db.doc(`${PERSONNEL_COLLECTION}/${clean(personId)}`)
+    : db.collection(PERSONNEL_COLLECTION).doc();
 
   if (updates.updatedAt === undefined) {
     updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
   }
 
   await ref.set(updates, { merge: true });
-  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+  await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
     action: personId ? 'PERSONNEL_SAVE' : 'PERSONNEL_CREATE',
     details: `Personeelsrecord opgeslagen: ${clean(updates.name) || ref.id}`,
@@ -1384,8 +1415,10 @@ const assignOverproductionService = async ({
   source,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const targetOrderDoc = await getPlanningOrderDocById(targetOrderDocId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const targetOrderDoc = await getPlanningOrderDocById(targetOrderDocId, ctx._rds);
   if (!targetOrderDoc) {
     throw new Error('NOT_FOUND_TARGET_ORDER');
   }
@@ -1405,7 +1438,7 @@ const assignOverproductionService = async ({
   const targetOrderData = targetOrderDoc.data() || {};
   const productSnapshots = await Promise.all(
     productIdList.map(async (productId) => {
-      const snap = await db.collection(TRACKING_COLLECTION).doc(productId).get();
+      const snap = await db.collection(ctx.trackingPath).doc(productId).get();
       return snap.exists ? snap : null;
     })
   );
@@ -1453,7 +1486,7 @@ const assignOverproductionService = async ({
   }, { merge: true });
 
   if (safeSourceOrderId) {
-    const originalOrderDoc = await getPlanningOrderDocByOrderId(safeSourceOrderId);
+    const originalOrderDoc = await getPlanningOrderDocByOrderId(safeSourceOrderId, ctx._rds);
     if (originalOrderDoc) {
       const startedField = getSafeStartedField(safeOriginMachine);
       const currentStarted = Number((originalOrderDoc.data() || {})[startedField] || 0);
@@ -1516,8 +1549,10 @@ const tempRejectTrackedProductService = async ({
   source,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -1591,8 +1626,10 @@ const advanceTrackedProductService = async ({
   measurements,
   source,
   auth,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -1677,8 +1714,10 @@ const completeTrackedProductRepairService = async ({
   source,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -1743,8 +1782,10 @@ const archiveRejectedTrackedProductService = async ({
   source,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -1794,7 +1835,9 @@ const routeTrackedProductsToLossenService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeOriginStation = clean(originStation) || 'LOSSEN';
   const safeCentralStation = clean(centralStation) || 'LOSSEN';
   const safeOperators = Array.isArray(centralOperators)
@@ -1812,7 +1855,7 @@ const routeTrackedProductsToLossenService = async ({
   let localRouteCount = 0;
 
   for (const productId of uniqueProductIds) {
-    const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+    const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
     if (!trackedDoc) continue;
 
     const trackedData = trackedDoc.data() || {};
@@ -1874,13 +1917,15 @@ const startWorkstationProductionRunService = async ({
   source,
   auth,
   runtimeDataSource,
+  dbCtx = null,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId, runtimeDataSource);
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
 
-  const { trackingCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+  // path resolved via ctx
   const orderData = orderDoc.data() || {};
   const safeLotStart = clean(lotStart).toUpperCase();
   const safeStationId = clean(stationId);
@@ -1915,7 +1960,7 @@ const startWorkstationProductionRunService = async ({
   const persistedStartedCount = Number(orderData[stationField] || 0);
 
   const activeStartedSnap = await db
-    .collection(trackingCollection)
+    .collection(ctx.trackingPath)
     .where('orderId', '==', orderId)
     .where('originMachine', '==', safeStationId)
     .limit(600)
@@ -1998,7 +2043,7 @@ const startWorkstationProductionRunService = async ({
       overflowLots.push(currentLotNumber);
     }
 
-    batch.set(db.collection(trackingCollection).doc(currentLotNumber), unitData, { merge: true });
+    batch.set(db.collection(ctx.trackingPath).doc(currentLotNumber), unitData, { merge: true });
     createdLots.push(currentLotNumber);
   }
 
@@ -2043,8 +2088,10 @@ const toggleTrackedProductPauseService = async ({
   source,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -2096,8 +2143,10 @@ const markTrackedProductReminderService = async ({
   source,
   actorLabel,
   auth,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -2157,8 +2206,10 @@ const cancelPlanningOrderService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -2198,12 +2249,14 @@ const assignPersonnelToStationService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeDate = clean(date);
   const machineId = clean(stationId);
   const opId = clean(operatorId);
   const assignmentId = `${machineId}-${opId}-${safeDate}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const occupancyRef = admin.firestore().doc(`${BASE}/production/machine_occupancy/${assignmentId}`);
+  const occupancyRef = db.doc(`${BASE}/production/machine_occupancy/${assignmentId}`);
 
   const parsedDate = new Date(`${safeDate}T00:00:00.000Z`);
   const { week, year } = Number.isNaN(parsedDate.getTime())
@@ -2224,7 +2277,7 @@ const assignPersonnelToStationService = async ({
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+  await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
     action: 'PERSONNEL_ASSIGN',
     details: `Operator toegewezen: ${clean(operatorName) || opId} -> station ${machineId} (${safeDate})`,
@@ -2250,9 +2303,11 @@ const removePersonnelAssignmentService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeAssignmentId = clean(assignmentId);
-  const occupancyRef = admin.firestore().doc(`${BASE}/production/machine_occupancy/${safeAssignmentId}`);
+  const occupancyRef = db.doc(`${BASE}/production/machine_occupancy/${safeAssignmentId}`);
   const snap = await occupancyRef.get();
   if (!snap.exists) {
     throw new Error('NOT_FOUND_ASSIGNMENT');
@@ -2260,7 +2315,7 @@ const removePersonnelAssignmentService = async ({
 
   await occupancyRef.delete();
 
-  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+  await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
     action: 'PERSONNEL_UNASSIGN',
     details: `Operator toewijzing verwijderd: ${safeAssignmentId} op station ${clean(stationId) || 'onbekend'}`,
@@ -2296,9 +2351,11 @@ const loanPersonnelService = async ({
   actorLabel,
   auth,
   userRole,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeDate = clean(date);
-  const loanRef = admin.firestore().collection(`${BASE}/production/machine_occupancy`).doc();
+  const loanRef = db.collection(`${BASE}/production/machine_occupancy`).doc();
 
   await loanRef.set({
     operatorNumber: clean(operatorNumber),
@@ -2320,7 +2377,7 @@ const loanPersonnelService = async ({
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  await admin.firestore().collection(`${BASE}/logs/activity_logs`).add({
+  await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
     action: 'PERSONNEL_LOAN',
     details: `Personeel uitgeleend: ${clean(operatorName) || clean(operatorNumber)} van ${clean(loanFromDepartment)} naar ${clean(targetDepartment)} (${clean(targetStation)}, ${clean(shiftLabel)})`,
@@ -2354,7 +2411,9 @@ const startProductionLotsService = async ({
   seriesGroupId,
   isFlangeSeries,
   runtimeDataSource,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeOrderDocId = clean(orderDocId);
   const safeOrderId = clean(orderId);
   const safeItemCode = clean(itemCode);
@@ -2385,17 +2444,17 @@ const startProductionLotsService = async ({
     return cleanZpl.split(safeLotStart).join(targetLot);
   };
 
-  const { trackingCollection, planningCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+  
   const createdLots = [];
   const nowIso = new Date().toISOString();
-  const batch = admin.firestore().batch();
+  const batch = db.batch();
 
   for (let i = 0; i < qty; i += 1) {
     const currentLot = buildLotNumber(i);
     const docId = `${safeOrderId}_${safeItemCode}_${currentLot}`.replace(/[^a-zA-Z0-9]/g, '_');
     const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLot);
 
-    batch.set(admin.firestore().doc(`${trackingCollection}/${docId}`), {
+    batch.set(db.doc(`${ctx.trackingPath}/${docId}`), {
       id: docId,
       orderId: safeOrderId,
       lotNumber: currentLot,
@@ -2441,7 +2500,7 @@ const startProductionLotsService = async ({
 
   const startedCounterField = getStartedCounterFieldServer(safeStationId);
   const planningRef = safeOrderDocId
-    ? admin.firestore().doc(`${planningCollection}/${safeOrderDocId}`)
+    ? db.doc(`${ctx.planningPath}/${safeOrderDocId}`)
     : null;
   if (planningRef) {
     const planningUpdates = {
@@ -2474,8 +2533,10 @@ const editTrackedProductLotNumberService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -2530,8 +2591,10 @@ const linkPlanningOrderProductService = async ({
   orderDocId,
   productId,
   productImage,
+  dbCtx = null,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
@@ -2554,7 +2617,9 @@ const createPlanningOrderManualService = async ({
   item,
   machine,
   plan,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeOrderId = clean(orderId);
   const safeItem = clampText(item, 220);
   const safeMachine = clean(machine);
@@ -2575,7 +2640,7 @@ const createPlanningOrderManualService = async ({
 
   const now = new Date();
   const { week, year } = getISOWeekInfoServer(now);
-  const newDocRef = db.collection(PLANNING_COLLECTION).doc();
+  const newDocRef = db.collection(ctx.planningPath).doc();
 
   await newDocRef.set({
     orderId: safeOrderId,
@@ -2603,7 +2668,9 @@ const markMazakLabelsPrintedService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const ids = Array.from(new Set((Array.isArray(productIds) ? productIds : []).map((entry) => clean(entry)).filter(Boolean))).slice(0, 200);
   if (ids.length === 0) {
     throw new Error('NO_PRODUCTS_TO_UPDATE');
@@ -2615,7 +2682,7 @@ const markMazakLabelsPrintedService = async ({
   let updatedCount = 0;
 
   for (const id of ids) {
-    const trackedDoc = await getTrackedProductDocByIdOrLot(id);
+    const trackedDoc = await getTrackedProductDocByIdOrLot(id, ctx._rds);
     if (!trackedDoc) continue;
     updatedCount += 1;
 
@@ -2652,7 +2719,9 @@ const appendQcNoteService = async ({
   actorLabel,
   source,
   auth,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeProductId = clean(productId);
   const safeNote = clampText(note, 800);
   const safeYear = Number(archivedYear);
@@ -2668,7 +2737,7 @@ const appendQcNoteService = async ({
     source: source || null,
   };
 
-  const trackingRef = db.collection(TRACKING_COLLECTION).doc(safeProductId);
+  const trackingRef = db.collection(ctx.trackingPath).doc(safeProductId);
   const trackingSnap = await trackingRef.get();
   if (trackingSnap.exists) {
     await trackingRef.set({
@@ -2691,7 +2760,7 @@ const appendQcNoteService = async ({
     : Array.from({ length: 7 }, (_, idx) => currentYear - idx);
 
   for (const year of yearsToCheck) {
-    const candidateRef = db.collection(`${BASE}/production/archive/${year}/items`).doc(safeProductId);
+    const candidateRef = db.collection(ctx.archiveItemsPath(year)).doc(safeProductId);
     const candidateSnap = await candidateRef.get();
     if (candidateSnap.exists) {
       archiveRef = candidateRef;
@@ -2721,13 +2790,15 @@ const reserveAutoLotNumberRangeService = async ({
   count,
   reserve,
   runtimeDataSource,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const qty = Math.max(1, parseInt(String(count || 1), 10) || 1);
   if (qty > 200) {
     throw new Error('INVALID_LOT_RANGE_SIZE');
   }
 
-  const { trackingCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+  // path resolved via ctx
   const now = new Date();
   const iso = getISOWeekInfoServer(now);
   const yearShort = String(iso.year).slice(-2);
@@ -2758,7 +2829,7 @@ const reserveAutoLotNumberRangeService = async ({
         const seq = seqStart + i;
         const candidateLot = `${baseLot}${String(seq).padStart(4, '0')}`;
         const dupSnap = await tx.get(
-          db.collection(trackingCollection)
+          db.collection(ctx.trackingPath)
             .where('lotNumber', '==', candidateLot)
             .limit(1)
         );
@@ -2851,8 +2922,10 @@ const DOWNTIME_COLLECTION = `${BASE}/production/downtime_reports`;
 const DEFECTS_COLLECTION = `${BASE}/production/defect_reports`;
 const MESSAGES_COLLECTION = `${BASE}/production/messages`;
 
-const addOrderDependencyService = async ({ orderId, dependencyId }) => {
-  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+const addOrderDependencyService = async ({ orderId, dependencyId, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderRef = db.collection(ctx.planningPath).doc(orderId);
   const orderSnap = await orderRef.get();
   if (!orderSnap.exists) {
     throw new Error('NOT_FOUND_ORDER');
@@ -2866,8 +2939,10 @@ const addOrderDependencyService = async ({ orderId, dependencyId }) => {
   return { ok: true };
 };
 
-const removeOrderDependencyService = async ({ orderId, dependencyId }) => {
-  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+const removeOrderDependencyService = async ({ orderId, dependencyId, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderRef = db.collection(ctx.planningPath).doc(orderId);
   const orderSnap = await orderRef.get();
   if (!orderSnap.exists) {
     throw new Error('NOT_FOUND_ORDER');
@@ -2881,8 +2956,10 @@ const removeOrderDependencyService = async ({ orderId, dependencyId }) => {
   return { ok: true };
 };
 
-const updateOrderPlannedDateService = async ({ orderId, plannedDate }) => {
-  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+const updateOrderPlannedDateService = async ({ orderId, plannedDate, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderRef = db.collection(ctx.planningPath).doc(orderId);
   const orderSnap = await orderRef.get();
   if (!orderSnap.exists) {
     throw new Error('NOT_FOUND_ORDER');
@@ -2896,8 +2973,10 @@ const updateOrderPlannedDateService = async ({ orderId, plannedDate }) => {
   return { ok: true };
 };
 
-const updateOrderKanbanStatusService = async ({ orderId, status, auth }) => {
-  const orderRef = db.collection(PLANNING_COLLECTION).doc(orderId);
+const updateOrderKanbanStatusService = async ({ orderId, status, auth, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const orderRef = db.collection(ctx.planningPath).doc(orderId);
   const orderSnap = await orderRef.get();
   if (!orderSnap.exists) {
     throw new Error('NOT_FOUND_ORDER');
@@ -2913,7 +2992,9 @@ const updateOrderKanbanStatusService = async ({ orderId, status, auth }) => {
   return { ok: true };
 };
 
-const createProductionMessagesService = async ({ messages, auth, source, actorLabel }) => {
+const createProductionMessagesService = async ({ messages, auth, source, actorLabel, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeMessages = Array.isArray(messages) ? messages.slice(0, 50) : [];
   if (!safeMessages.length) {
     throw new Error('INVALID_MESSAGES_PAYLOAD');
@@ -2985,7 +3066,9 @@ const createProductionMessagesService = async ({ messages, auth, source, actorLa
   return { ok: true, createdCount };
 };
 
-const transitionPrintQueueJobStatusService = async ({ jobId, status, error, auth, source, actorLabel }) => {
+const transitionPrintQueueJobStatusService = async ({ jobId, status, error, auth, source, actorLabel, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeJobId = clean(jobId);
   const nextStatus = clean(status).toLowerCase();
   const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
@@ -3042,7 +3125,9 @@ const transitionPrintQueueJobStatusService = async ({ jobId, status, error, auth
   return { ok: true, jobId: safeJobId, status: nextStatus };
 };
 
-const requeuePrintQueueJobService = async ({ jobId, auth, source, actorLabel }) => {
+const requeuePrintQueueJobService = async ({ jobId, auth, source, actorLabel, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeJobId = clean(jobId);
   const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
   const jobSnap = await jobRef.get();
@@ -3085,7 +3170,9 @@ const requeuePrintQueueJobService = async ({ jobId, auth, source, actorLabel }) 
   return { ok: true, jobId: safeJobId, retryCount: nextRetryCount };
 };
 
-const deletePrintQueueJobService = async ({ jobId, auth, source, actorLabel }) => {
+const deletePrintQueueJobService = async ({ jobId, auth, source, actorLabel, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
   const safeJobId = clean(jobId);
   const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
   const jobSnap = await jobRef.get();
@@ -3110,8 +3197,10 @@ const deletePrintQueueJobService = async ({ jobId, auth, source, actorLabel }) =
   return { ok: true, jobId: safeJobId };
 };
 
-const markReadyForNextStepService = async ({ productId, auth }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+const markReadyForNextStepService = async ({ productId, auth, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -3129,8 +3218,10 @@ const markReadyForNextStepService = async ({ productId, auth }) => {
   return { ok: true };
 };
 
-const startTrackedProductRepairService = async ({ productId, repairReason, auth }) => {
-  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+const startTrackedProductRepairService = async ({ productId, repairReason, auth, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
   if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
@@ -3154,7 +3245,9 @@ const reportShopFloorIssueService = async ({
   description,
   operatorName,
   auth,
+  dbCtx = null,
 }) => {
+  const ctx = dbCtx || resolveDbContext(null);
   if (!['downtime', 'defect'].includes(type)) {
     throw new Error('INVALID_ISSUE_TYPE');
   }
@@ -3204,7 +3297,9 @@ const reportShopFloorIssueService = async ({
   return { ok: true };
 };
 
-const resolveShopFloorIssueService = async ({ type, issueId, auth }) => {
+const resolveShopFloorIssueService = async ({ type, issueId, auth, dbCtx = null,
+}) => {
+  const ctx = dbCtx || resolveDbContext(null);
   if (!['downtime', 'defect'].includes(type)) {
     throw new Error('INVALID_ISSUE_TYPE');
   }

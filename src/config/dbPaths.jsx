@@ -19,7 +19,8 @@ const ARTIFACT_EFFICIENCY_HOURS_PATH = ["artifacts", ARTIFACT_APP_ID, "public", 
 let ADMIN_DATA_SOURCE_MODE = "current";
 
 const shouldUseArtifactsPaths = () =>
-  USE_ARTIFACTS_PATHS && ADMIN_DATA_SOURCE_MODE !== "pilot-read";
+  ADMIN_DATA_SOURCE_MODE === "preview" ||
+  (USE_ARTIFACTS_PATHS && ADMIN_DATA_SOURCE_MODE === "current");
 
 let PLANNING_PATH = shouldUseArtifactsPaths()
   ? ARTIFACT_PLANNING_PATH
@@ -114,7 +115,9 @@ const refreshRuntimeDataPaths = () => {
 };
 
 export const setAdminDataSourceMode = (mode = "current") => {
-  ADMIN_DATA_SOURCE_MODE = mode === "pilot-read" ? "pilot-read" : "current";
+  if (mode === "pilot-read") ADMIN_DATA_SOURCE_MODE = "pilot-read";
+  else if (mode === "preview") ADMIN_DATA_SOURCE_MODE = "preview";
+  else ADMIN_DATA_SOURCE_MODE = "current";
   refreshRuntimeDataPaths();
 
   if (typeof window !== "undefined") {
@@ -129,6 +132,8 @@ export const setAdminDataSourceMode = (mode = "current") => {
 export const getAdminDataSourceMode = () => ADMIN_DATA_SOURCE_MODE;
 
 export const isPilotReadDataSource = () => ADMIN_DATA_SOURCE_MODE === "pilot-read";
+
+export const isPreviewDataSource = () => ADMIN_DATA_SOURCE_MODE === "preview";
 
 // Fixed read-only paths to the pilot/live production collections.
 const PILOT_PLANNING_PATH = PILOT_PLANNING_PATH_PRIMARY;
@@ -155,7 +160,7 @@ export const getPilotPlanningReadPathCandidates = () => [
 // Initialiseer runtime-data bron op basis van persistente admin instelling.
 if (typeof window !== "undefined") {
   const savedMode = window.localStorage.getItem("adminDataSourceMode");
-  setAdminDataSourceMode(savedMode === "pilot-read" ? "pilot-read" : "current");
+  setAdminDataSourceMode(["pilot-read", "preview"].includes(savedMode) ? savedMode : "current");
 }
 
 /**

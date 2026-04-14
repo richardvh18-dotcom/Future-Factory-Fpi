@@ -19,6 +19,7 @@ const {
 } = require('../config/planningConstants');
 const { clean, clampText } = require('../utils/text');
 const { resolveUserRoleForContext } = require('../auth/resolveUserRole');
+const { resolveDbContext } = require('../repositories/planningRepository');
 const {
   rejectTrackedProductFinalService,
   archiveRejectedTrackedProductService,
@@ -102,6 +103,17 @@ const {
 
 const IMPORT_ALLOWED_MODES = new Set(['new_only', 'overwrite', 'smart_update']);
 
+/**
+ * Extracts runtimeDataSource from callable payload → null = production paths.
+ */
+const extractRds = (data) => {
+  const rds = data?.runtimeDataSource;
+  if (!rds || typeof rds !== 'object') return null;
+  const appId = clean(rds.appId);
+  const useArtifacts = rds.useArtifactsPaths === true && Boolean(appId);
+  return useArtifacts ? { useArtifactsPaths: true, appId } : null;
+};
+
 const sanitizeRejectReasons = (rawReasons) => {
   if (!Array.isArray(rawReasons) || rawReasons.length === 0) {
     throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 afkeurreden is verplicht.');
@@ -150,6 +162,7 @@ const rejectTrackedProductFinal = functions.https.onCall(async (data, context) =
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -199,6 +212,7 @@ const tempRejectTrackedProduct = functions.https.onCall(async (data, context) =>
       source,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -254,6 +268,7 @@ const advanceTrackedProduct = functions.https.onCall(async (data, context) => {
       measurements,
       source,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -299,6 +314,7 @@ const completeTrackedProductRepair = functions.https.onCall(async (data, context
       source,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -344,6 +360,7 @@ const routeTrackedProductsToLossen = functions.https.onCall(async (data, context
       actorLabel,
       source,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NO_PRODUCTS_TO_ROUTE') {
@@ -407,6 +424,7 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
       source,
       auth: context.auth,
       runtimeDataSource,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -452,6 +470,7 @@ const toggleTrackedProductPause = functions.https.onCall(async (data, context) =
       source,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -489,6 +508,7 @@ const markTrackedProductReminder = functions.https.onCall(async (data, context) 
       actorLabel,
       source,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -534,6 +554,7 @@ const moveTrackedProductManual = functions.https.onCall(async (data, context) =>
       isRepairMove,
       repairInstruction,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_TRACKED') {
@@ -570,6 +591,7 @@ const archiveRejectedTrackedProduct = functions.https.onCall(async (data, contex
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -610,6 +632,7 @@ const archivePlanningOrder = functions.https.onCall(async (data, context) => {
       source,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -655,6 +678,7 @@ const completeTrackedProduct = functions.https.onCall(async (data, context) => {
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -696,6 +720,7 @@ const cancelTrackedProduction = functions.https.onCall(async (data, context) => 
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -743,6 +768,7 @@ const updatePlanningOrderPriority = functions.https.onCall(async (data, context)
       actorLabel,
       source,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -784,6 +810,7 @@ const movePlanningOrder = functions.https.onCall(async (data, context) => {
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -822,6 +849,7 @@ const retrievePlanningOrder = functions.https.onCall(async (data, context) => {
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -857,6 +885,7 @@ const togglePlanningOrderHold = functions.https.onCall(async (data, context) => 
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -901,6 +930,7 @@ const updatePlanningOrderDetails = functions.https.onCall(async (data, context) 
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -938,6 +968,7 @@ const patchPlanningOrderMetadata = functions.https.onCall(async (data, context) 
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -989,6 +1020,7 @@ const assignOverproduction = functions.https.onCall(async (data, context) => {
       source,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_TARGET_ORDER') {
@@ -1032,6 +1064,7 @@ const cancelPlanningOrder = functions.https.onCall(async (data, context) => {
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -1082,6 +1115,7 @@ const assignPersonnelToStation = functions.https.onCall(async (data, context) =>
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     throw error;
@@ -1117,6 +1151,7 @@ const removePersonnelAssignment = functions.https.onCall(async (data, context) =
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ASSIGNMENT') {
@@ -1202,6 +1237,7 @@ const saveOccupancyAssignments = functions.https.onCall(async (data, context) =>
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'INVALID_OCCUPANCY_RECORDS') {
@@ -1234,6 +1270,7 @@ const deleteOccupancyAssignments = functions.https.onCall(async (data, context) 
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'INVALID_OCCUPANCY_ASSIGNMENT_IDS') {
@@ -1272,6 +1309,7 @@ const savePersonnelRecord = functions.https.onCall(async (data, context) => {
       actorLabel,
       auth: context.auth,
       userRole,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'INVALID_PERSONNEL_PAYLOAD') {
@@ -1307,6 +1345,7 @@ const createProductionMessages = functions.https.onCall(async (data, context) =>
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'INVALID_MESSAGES_PAYLOAD') {
@@ -1346,6 +1385,7 @@ const transitionPrintQueueJobStatus = functions.https.onCall(async (data, contex
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRINT_JOB') {
@@ -1384,6 +1424,7 @@ const requeuePrintQueueJob = functions.https.onCall(async (data, context) => {
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRINT_JOB') {
@@ -1419,6 +1460,7 @@ const deletePrintQueueJob = functions.https.onCall(async (data, context) => {
       source,
       actorLabel,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRINT_JOB') {
@@ -1516,6 +1558,7 @@ const editTrackedProductLotNumber = functions.https.onCall(async (data, context)
       actorLabel,
       source,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -1556,6 +1599,7 @@ const linkPlanningOrderProduct = functions.https.onCall(async (data, context) =>
       orderDocId,
       productId,
       productImage,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -1592,6 +1636,7 @@ const createPlanningOrderManual = functions.https.onCall(async (data, context) =
       item,
       machine,
       plan,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'ORDER_ALREADY_EXISTS') {
@@ -1636,6 +1681,7 @@ const markMazakLabelsPrinted = functions.https.onCall(async (data, context) => {
       actorLabel,
       source,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NO_PRODUCTS_TO_UPDATE') {
@@ -1678,6 +1724,7 @@ const appendQcNote = functions.https.onCall(async (data, context) => {
       actorLabel,
       source,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'INVALID_QC_NOTE_PAYLOAD') {
@@ -1722,6 +1769,7 @@ const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) =
       count,
       reserve,
       runtimeDataSource,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'INVALID_LOT_RANGE_SIZE') {
@@ -1754,7 +1802,11 @@ const addOrderDependency = functions.https.onCall(async (data, context) => {
   auditService.logCallable(context, 'ADD_ORDER_DEPENDENCY', { orderId, dependencyId }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
-    return await addOrderDependencyService({ orderId, dependencyId });
+    return await addOrderDependencyService({
+        orderId,
+        dependencyId,
+        dbCtx: resolveDbContext(extractRds(data)),
+    });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
       throw new functions.https.HttpsError('not-found', 'Order niet gevonden.');
@@ -1783,7 +1835,11 @@ const removeOrderDependency = functions.https.onCall(async (data, context) => {
   auditService.logCallable(context, 'REMOVE_ORDER_DEPENDENCY', { orderId, dependencyId }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
-    return await removeOrderDependencyService({ orderId, dependencyId });
+    return await removeOrderDependencyService({
+        orderId,
+        dependencyId,
+        dbCtx: resolveDbContext(extractRds(data)),
+    });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
       throw new functions.https.HttpsError('not-found', 'Order niet gevonden.');
@@ -1813,7 +1869,11 @@ const updateOrderPlannedDate = functions.https.onCall(async (data, context) => {
   auditService.logCallable(context, 'UPDATE_PLANNED_DATE', { orderId }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
-    return await updateOrderPlannedDateService({ orderId, plannedDate });
+    return await updateOrderPlannedDateService({
+        orderId,
+        plannedDate,
+        dbCtx: resolveDbContext(extractRds(data)),
+    });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
       throw new functions.https.HttpsError('not-found', 'Order niet gevonden.');
@@ -1842,7 +1902,12 @@ const updateOrderKanbanStatus = functions.https.onCall(async (data, context) => 
   auditService.logCallable(context, 'UPDATE_KANBAN_STATUS', { orderId, status }, { category: 'PLANNING', severity: 'INFO' });
 
   try {
-    return await updateOrderKanbanStatusService({ orderId, status, auth: context.auth });
+    return await updateOrderKanbanStatusService({
+        orderId,
+        status,
+        auth: context.auth,
+        dbCtx: resolveDbContext(extractRds(data)),
+    });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
       throw new functions.https.HttpsError('not-found', 'Order niet gevonden.');
@@ -1869,7 +1934,11 @@ const markReadyForNextStep = functions.https.onCall(async (data, context) => {
   auditService.logCallable(context, 'MARK_READY_FOR_NEXT_STEP', { productId }, { category: 'PRODUCTION', severity: 'INFO' });
 
   try {
-    return await markReadyForNextStepService({ productId, auth: context.auth });
+    return await markReadyForNextStepService({
+        productId,
+        auth: context.auth,
+        dbCtx: resolveDbContext(extractRds(data)),
+    });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
       throw new functions.https.HttpsError('not-found', 'Product niet gevonden.');
@@ -1901,6 +1970,7 @@ const startTrackedProductRepair = functions.https.onCall(async (data, context) =
       productId,
       repairReason,
       auth: context.auth,
+      dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
@@ -1963,7 +2033,12 @@ const resolveShopFloorIssue = functions.https.onCall(async (data, context) => {
   auditService.logCallable(context, 'RESOLVE_SHOP_FLOOR_ISSUE', { type, issueId }, { category: 'QUALITY', severity: 'INFO' });
 
   try {
-    return await resolveShopFloorIssueService({ type, issueId, auth: context.auth });
+    return await resolveShopFloorIssueService({
+        type,
+        issueId,
+        auth: context.auth,
+        dbCtx: resolveDbContext(extractRds(data)),
+    });
   } catch (error) {
     if (error?.message === 'INVALID_ISSUE_TYPE') {
       throw new functions.https.HttpsError('invalid-argument', 'Ongeldig issue type.');
