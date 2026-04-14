@@ -2075,6 +2075,7 @@ const importPlanningOrders = functions.https.onCall(async (data, context) => {
   return bulkImportPlanningOrdersService({
     orders,
     importMode,
+    dbCtx: resolveDbContext(extractRds(data)),
   });
 });
 
