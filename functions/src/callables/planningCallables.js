@@ -123,7 +123,11 @@ const extractRdsFromSourcePath = (data) => {
   return appId ? { useArtifactsPaths: true, appId } : null;
 };
 
-const resolveRdsForRequest = (data) => extractRdsFromSourcePath(data) || extractRds(data);
+const resolveRdsForRequest = (data) => {
+  const explicitRds = extractRds(data);
+  if (explicitRds?.useArtifactsPaths) return explicitRds;
+  return extractRdsFromSourcePath(data) || explicitRds;
+};
 
 const sanitizeRejectReasons = (rawReasons) => {
   if (!Array.isArray(rawReasons) || rawReasons.length === 0) {

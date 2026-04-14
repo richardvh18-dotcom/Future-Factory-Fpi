@@ -2067,6 +2067,12 @@ const startWorkstationProductionRunService = async ({
     currentStartedCount,
     stationField,
     source: source || null,
+    routing: {
+      useArtifactsPaths: Boolean(ctx?._rds?.useArtifactsPaths),
+      appId: clean(ctx?._rds?.appId),
+      planningPath: ctx.planningPath,
+      trackingPath: ctx.trackingPath,
+    },
   };
 };
 
