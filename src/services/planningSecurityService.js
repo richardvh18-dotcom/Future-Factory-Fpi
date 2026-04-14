@@ -2,6 +2,18 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 import app from "../config/firebase";
 
 const functions = getFunctions(app);
+
+const getRuntimeDataSource = () => {
+  if (typeof window === "undefined") {
+    return { useArtifactsPaths: false, appId: "" };
+  }
+
+  const appId = String(window.__app_id || "").trim();
+  return {
+    useArtifactsPaths: Boolean(appId),
+    appId,
+  };
+};
 const rejectTrackedProductFinalCallable = httpsCallable(functions, "rejectTrackedProductFinal");
 const tempRejectTrackedProductCallable = httpsCallable(functions, "tempRejectTrackedProduct");
 const advanceTrackedProductCallable = httpsCallable(functions, "advanceTrackedProduct");
@@ -11,6 +23,7 @@ const startWorkstationProductionRunCallable = httpsCallable(functions, "startWor
 const toggleTrackedProductPauseCallable = httpsCallable(functions, "toggleTrackedProductPause");
 const markTrackedProductReminderCallable = httpsCallable(functions, "markTrackedProductReminder");
 const moveTrackedProductManualCallable = httpsCallable(functions, "moveTrackedProductManual");
+const archiveRejectedTrackedProductCallable = httpsCallable(functions, "archiveRejectedTrackedProduct");
 const cancelTrackedProductionCallable = httpsCallable(functions, "cancelTrackedProduction");
 const updatePlanningOrderPriorityCallable = httpsCallable(functions, "updatePlanningOrderPriority");
 const movePlanningOrderCallable = httpsCallable(functions, "movePlanningOrder");
@@ -244,6 +257,7 @@ export const startWorkstationProductionRun = async ({
       ? stationOperators.map((entry) => String(entry || "").trim()).filter(Boolean)
       : [],
     source: String(source || "").trim(),
+    runtimeDataSource: getRuntimeDataSource(),
   };
 
   if (!payload.orderDocId || !payload.lotStart || !payload.stationId || !Number.isFinite(payload.stringCount) || payload.stringCount < 1) {
@@ -322,6 +336,25 @@ export const moveTrackedProductManual = async ({
   }
 
   const result = await moveTrackedProductManualCallable(payload);
+  return result?.data || { ok: false };
+};
+
+export const archiveRejectedTrackedProduct = async ({
+  productId,
+  source = "",
+  actorLabel = "",
+}) => {
+  const payload = {
+    productId: String(productId || "").trim(),
+    source: String(source || "").trim(),
+    actorLabel: String(actorLabel || "").trim(),
+  };
+
+  if (!payload.productId) {
+    throw new Error("productId is verplicht.");
+  }
+
+  const result = await archiveRejectedTrackedProductCallable(payload);
   return result?.data || { ok: false };
 };
 
@@ -876,6 +909,7 @@ export const startProductionLots = async ({
     labelTemplateId: String(labelTemplateId || "").trim(),
     seriesGroupId: String(seriesGroupId || "").trim(),
     isFlangeSeries: Boolean(isFlangeSeries),
+    runtimeDataSource: getRuntimeDataSource(),
   };
 
   if (!payload.orderDocId || !payload.orderId || !payload.itemCode || !payload.lotStart || !payload.stationId) {
@@ -1008,6 +1042,7 @@ export const reserveAutoLotNumberRange = async ({
     stationId: String(stationId || "").trim(),
     count: parsedCount,
     reserve: reserve !== false,
+    runtimeDataSource: getRuntimeDataSource(),
   };
 
   if (!payload.stationId || !Number.isFinite(payload.count) || payload.count < 1 || payload.count > 200) {
@@ -1224,10 +1259,11 @@ export const executeAutomationRule = async (rule) => {
   return result?.data || { triggered: false, error: "Lege automation response" };
 };
 
-export const saveProductRecord = async ({ productId = "", productData = {} }) => {
+export const saveProductRecord = async ({ productId = "", productData = {}, clearVerification = false }) => {
   const payload = {
     productId: String(productId || "").trim(),
     productData: (typeof productData === "object" && productData) || {},
+    clearVerification: Boolean(clearVerification),
   };
 
   const result = await saveProductRecordCallable(payload);

@@ -42,7 +42,7 @@ import PlanningSidebar from "./PlanningSidebar";
 import OrderDetail from "./OrderDetail";
 import ProductDossierModal from "./modals/ProductDossierModal.jsx";
 import AiPredictionView from "./AiPredictionView";
-import { moveTrackedProductManual, assignOverproduction, createPlanningOrderManual, saveOccupancyAssignments, deleteOccupancyAssignments } from "../../services/planningSecurityService";
+import { moveTrackedProductManual, archiveRejectedTrackedProduct, assignOverproduction, createPlanningOrderManual, saveOccupancyAssignments, deleteOccupancyAssignments } from "../../services/planningSecurityService";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -483,6 +483,24 @@ const TeamleaderHub = React.memo(({
   }, [selectedSidebarEntry, selectedOrderId]);
 
   const canManageOverproduction = fixedScope === "all" && ["planner", "admin", "teamleader"].includes(user?.role);
+  const getTrackedStatus = (product) => String(product?.status || "").trim().toLowerCase();
+  const getTrackedStep = (product) => String(product?.currentStep || "").trim().toLowerCase();
+  const isArchivedRejectedProduct = (product) => getTrackedStatus(product) === "archived_rejected";
+  const isFinishedProduct = (product) => {
+    const status = getTrackedStatus(product);
+    const step = getTrackedStep(product);
+    return ["finished", "completed", "gereed"].includes(status) || step === "finished";
+  };
+  const isRejectedProduct = (product) => {
+    if (isArchivedRejectedProduct(product)) return false;
+    const status = getTrackedStatus(product);
+    const step = getTrackedStep(product);
+    return ["rejected", "afkeur"].includes(status) || step === "rejected";
+  };
+  const isInactiveTrackedProduct = (product) => {
+    return isArchivedRejectedProduct(product) || isFinishedProduct(product) || isRejectedProduct(product);
+  };
+
   const legacyRejectedOrders = useMemo(() => {
     const currentWeekStart = startOfISOWeek(new Date());
 
@@ -493,10 +511,7 @@ const TeamleaderHub = React.memo(({
       return rawProducts.some((product) => {
         if (String(product?.orderId || "").trim() !== normalizedOrderId) return false;
 
-        const productStatus = String(product?.status || "").toUpperCase().trim();
-        const productStep = String(product?.currentStep || "").toUpperCase().trim();
-        return !["COMPLETED", "FINISHED", "GEREED", "REJECTED", "AFKEUR", "SHIPPED", "DELETED"].includes(productStatus)
-          && !["FINISHED", "REJECTED"].includes(productStep);
+        return !isInactiveTrackedProduct(product);
       });
     };
 
@@ -909,11 +924,7 @@ const TeamleaderHub = React.memo(({
     if (relatedProducts.length === 0) return true;
 
     return relatedProducts.some((product) => {
-      const status = String(product?.status || "").toUpperCase();
-      const step = String(product?.currentStep || "").toUpperCase();
-      const isFinished = ["COMPLETED", "FINISHED", "GEREED"].includes(status) || step === "FINISHED";
-      const isRejected = ["REJECTED", "AFKEUR"].includes(status) || step === "REJECTED";
-      return !isFinished && !isRejected;
+      return !isInactiveTrackedProduct(product);
     });
   };
 
@@ -999,7 +1010,7 @@ const TeamleaderHub = React.memo(({
              const pStep = (p.currentStep || "").toUpperCase();
              const pStatus = (p.status || "").toUpperCase();
              
-             const isActiveItem = !['COMPLETED', 'FINISHED', 'GEREED', 'REJECTED', 'AFKEUR'].includes(pStatus) && pStep !== 'FINISHED' && pStep !== 'REJECTED';
+             const isActiveItem = !isInactiveTrackedProduct(p);
              if (!isActiveItem) return false;
 
              if (isBM01) return pStation.includes("BM01") || pStep.includes("INSPECTIE") || pStep === "BM01";
@@ -1056,13 +1067,7 @@ const TeamleaderHub = React.memo(({
           const inAllowedScope = isInAllowedScope(p);
           if (!linkedToVisibleOrder && !inAllowedScope) return false;
 
-        const status = p.status || "";
-        const step = p.currentStep || "";
-
-        const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
-        const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
-        
-        if (isFinished || isRejected) return false;
+        if (isInactiveTrackedProduct(p)) return false;
         return true;
       }).length,
 
@@ -1095,10 +1100,7 @@ const TeamleaderHub = React.memo(({
             if (!effectiveAllowedNorms.includes(m1) && !effectiveAllowedNorms.includes(m2) && !effectiveAllowedNorms.includes(m3)) return false;
         }
 
-        const status = p.status || "";
-        const step = p.currentStep || "";
-        const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
-        if (!isRejected) return false;
+        if (!isRejectedProduct(p)) return false;
 
         const rejectedAt =
           p?.inspection?.timestamp ||
@@ -1225,11 +1227,7 @@ const TeamleaderHub = React.memo(({
            const linkedToVisibleOrder = validOrderIds.has(p.orderId);
            const inAllowedScope = isInAllowedScope(p);
            if (!linkedToVisibleOrder && !inAllowedScope) return false;
-         const status = p.status || "";
-         const step = p.currentStep || "";
-         const isFinished = ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
-         const isRejected = ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
-         return !isFinished && !isRejected;
+        return !isInactiveTrackedProduct(p);
       });
     }
     
@@ -1247,9 +1245,7 @@ const TeamleaderHub = React.memo(({
     else if (activeKpi === "afkeur") {
       data = rawProducts.filter((p) => {
          if (!validOrderIds.has(p.orderId)) return false;
-         const status = p.status || "";
-         const step = p.currentStep || "";
-         return ['Rejected', 'rejected', 'AFKEUR'].includes(status) || step === 'REJECTED';
+         return isRejectedProduct(p);
       });
     }
     
@@ -1619,6 +1615,39 @@ const TeamleaderHub = React.memo(({
     } catch (err) {
       console.error("Fout bij verplaatsen:", err);
       notify("Fout bij verplaatsen: " + err.message);
+    }
+  };
+
+  const handleArchiveRejectedProduct = async (product) => {
+    const productId = String(product?.id || product?.lotNumber || "").trim();
+    if (!productId) return;
+
+    const confirmed = await showConfirm({
+      title: "Definitieve afkeur afsluiten",
+      message: `Wil je ${product?.lotNumber || productId} afsluiten? Het product verdwijnt dan uit de afkeur-lijst en teller.`,
+      confirmText: "Sluit af",
+      cancelText: "Annuleren",
+      tone: "warning",
+    });
+    if (!confirmed) return;
+
+    try {
+      await archiveRejectedTrackedProduct({
+        productId,
+        source: "TeamleaderHub.rejectedModal",
+        actorLabel: user?.email || "Teamleader",
+      });
+
+      await logActivity(
+        user?.uid || "system",
+        "QUALITY_REJECT_ARCHIVE",
+        `Definitieve afkeur afgesloten: ${product?.lotNumber || productId}`
+      );
+
+      showSuccess(`Afkeur ${product?.lotNumber || productId} afgesloten.`);
+    } catch (error) {
+      console.error("Fout bij afsluiten afkeur:", error);
+      notify("Fout bij afsluiten afkeur: " + error.message);
     }
   };
 
@@ -2087,6 +2116,8 @@ const TeamleaderHub = React.memo(({
         onClose={() => { setActiveKpi(null); setLastKpi(null); setKpiWeekOffset(0); }} 
         title={modalTitle} 
         data={modalData} 
+        onRowAction={activeKpi === "afkeur" ? handleArchiveRejectedProduct : null}
+        rowActionLabel={activeKpi === "afkeur" ? "Sluit af" : ""}
         weekNavigation={
           activeKpi === "gereed" || activeKpi === "afkeur"
             ? {

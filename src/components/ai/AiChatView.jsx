@@ -7,6 +7,7 @@ import {
 import { addDoc, collection, doc, getDoc, getDocs, serverTimestamp, query, limit, orderBy } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { aiService } from "../../services/aiService";
+import { createAiDocumentRecord } from "../../services/planningSecurityService";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { PATHS } from "../../config/dbPaths";
 import { getLivePlanningContext } from "../../services/planningContext";
@@ -189,12 +190,10 @@ const AiChatView = () => {
         showError("Analyse mislukt.");
         return;
       }
-      await addDoc(collection(db, ...(PATHS?.AI_DOCUMENTS || ['future-factory', 'settings', 'ai_documents', 'knowledge', 'records'])), {
+      await createAiDocumentRecord({
         fileName: file.name,
         mimeType: file.type,
         size: file.size,
-        uploadedAt: serverTimestamp(),
-        uploadedBy: auth.currentUser?.email || "Admin",
         analysis: analysisResult.analysis,
         parsed: true,
         tags: analysisResult.analysis?.tags || [],

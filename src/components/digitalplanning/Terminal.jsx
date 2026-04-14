@@ -142,6 +142,13 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
 
   const normalizePlanningStatus = (status) => String(status || "").trim().toLowerCase();
 
+  const normalizeTrackedStatus = (status) => String(status || "").trim().toLowerCase();
+
+  const isTrackedProductionActive = (product) => {
+    const status = normalizeTrackedStatus(product?.status);
+    return ["in production", "in productie", "held_qc", "in_progress", "paused"].includes(status);
+  };
+
   const isInactivePlanningStatus = (status) => {
     const normalized = normalizePlanningStatus(status);
     return ["completed", "cancelled", "shipped", "rejected", "finished", "deleted"].includes(normalized);
@@ -375,7 +382,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         if (currentNorm) return currentNorm === normalizedStationId;
         return fallbackNorm === normalizedStationId;
       })
-      .filter(p => p.status === "In Production" || p.status === "Held_QC" || p.status === "in_progress");
+      .filter((p) => isTrackedProductionActive(p));
     
     if (!sidebarSearch) return active;
     const term = sidebarSearch.toLowerCase();
@@ -462,7 +469,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       if (isRepairStation && !sidebarSearch) {
           const oid = String(o.orderId || "").trim();
           const started = productionProgressMap[oid] || 0;
-          if (started > 0 || o.status === "in_progress" || o.status === "In Production") return false;
+          if (started > 0 || ["in_progress", "in production", "in productie"].includes(String(o.status || "").trim().toLowerCase())) return false;
       }
 
       // BM01: Geen week filter, toon alles (behalve als search actief is, wat hieronder gebeurt)
@@ -800,16 +807,17 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         ? startResult.createdLots
         : [startResult?.firstLot || startLot].filter(Boolean);
 
+      setShowStartModal(false);
+      if (!isNabewerking && !isLossenStation && !isBM01 && !isBH31) setActiveTab("wikkelen");
+
       await logActivity(
         user?.uid || "system",
         "ORDER_RELEASE",
         `Terminal start productie: order ${order.orderId}, station ${effectiveStationId}, lots ${createdLots.join(", ")}`
       );
-
-      setShowStartModal(false);
-      if (!isNabewerking && !isLossenStation && !isBM01 && !isBH31) setActiveTab("wikkelen");
     } catch (err) {
       console.error("Fout bij starten productie:", err);
+      throw err;
     }
   };
 

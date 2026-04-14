@@ -392,7 +392,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       
       // LISTENER 2: Products (also starts immediately, in parallel)
       const unsubProds = onSnapshot(
-        query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted"]), limit(200)),
+        query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted", "archived_rejected"]), limit(200)),
         (snap) => {
           if (isMounted) setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
           markStreamReady();
@@ -1348,6 +1348,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         source: "WorkstationHub",
       });
 
+      setShowStartModal(false);
+      if (!isPostProcessing && !isBM01) {
+        setActiveTab("winding");
+      }
+
       overflowItems = Array.isArray(startResult?.overflowLots) ? startResult.overflowLots : [];
 
       if (overflowItems.length > 0) {
@@ -1387,10 +1392,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         "ORDER_RELEASE",
         `Workstation start: order ${order.orderId}, station ${selectedStation}, lot start ${customLotNumber}, count ${stringCount}, overflow ${overflowItems.length}`
       );
-      setShowStartModal(false);
     } catch (error) {
       console.error(error);
-      showError(error.message, "Fout bij starten");
+      throw error;
     }
   };
 

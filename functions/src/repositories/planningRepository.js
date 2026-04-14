@@ -6,20 +6,43 @@ const {
 } = require('../config/planningConstants');
 const { clean } = require('../utils/text');
 
-const getPlanningOrderDocByOrderId = async (orderId) => {
+const resolveRuntimeDataPaths = (runtimeDataSource = null) => {
+  const appId = clean(runtimeDataSource?.appId);
+  const useArtifactsPaths = Boolean(runtimeDataSource?.useArtifactsPaths && appId);
+
+  if (useArtifactsPaths) {
+    return {
+      trackingCollection: `artifacts/${appId}/public/data/tracked_products`,
+      planningCollection: `artifacts/${appId}/public/data/digital_planning`,
+      planningLegacyCollection: null,
+    };
+  }
+
+  return {
+    trackingCollection: TRACKING_COLLECTION,
+    planningCollection: PLANNING_COLLECTION,
+    planningLegacyCollection: PLANNING_COLLECTION_LEGACY,
+  };
+};
+
+const getPlanningOrderDocByOrderId = async (orderId, runtimeDataSource = null) => {
   const normalizedOrderId = clean(orderId);
   if (!normalizedOrderId) return null;
 
+  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+
   const primarySnap = await db
-    .collection(PLANNING_COLLECTION)
+    .collection(planningCollection)
     .where('orderId', '==', normalizedOrderId)
     .limit(1)
     .get();
 
   if (!primarySnap.empty) return primarySnap.docs[0];
 
+  if (!planningLegacyCollection) return null;
+
   const legacySnap = await db
-    .collection(PLANNING_COLLECTION_LEGACY)
+    .collection(planningLegacyCollection)
     .where('orderId', '==', normalizedOrderId)
     .limit(1)
     .get();
@@ -28,16 +51,18 @@ const getPlanningOrderDocByOrderId = async (orderId) => {
   return null;
 };
 
-const getTrackedProductDocByIdOrLot = async (productOrLotId) => {
+const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource = null) => {
   const cleanId = clean(productOrLotId);
   if (!cleanId) return null;
 
-  const directRef = db.collection(TRACKING_COLLECTION).doc(cleanId);
+  const { trackingCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+
+  const directRef = db.collection(trackingCollection).doc(cleanId);
   const directSnap = await directRef.get();
   if (directSnap.exists) return directSnap;
 
   const lotSnap = await db
-    .collection(TRACKING_COLLECTION)
+    .collection(trackingCollection)
     .where('lotNumber', '==', cleanId)
     .limit(1)
     .get();
@@ -46,15 +71,19 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId) => {
   return null;
 };
 
-const getPlanningOrderDocById = async (orderDocId) => {
+const getPlanningOrderDocById = async (orderDocId, runtimeDataSource = null) => {
   const cleanId = clean(orderDocId);
   if (!cleanId) return null;
 
-  const primaryRef = db.collection(PLANNING_COLLECTION).doc(cleanId);
+  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+
+  const primaryRef = db.collection(planningCollection).doc(cleanId);
   const primarySnap = await primaryRef.get();
   if (primarySnap.exists) return primarySnap;
 
-  const legacyRef = db.collection(PLANNING_COLLECTION_LEGACY).doc(cleanId);
+  if (!planningLegacyCollection) return null;
+
+  const legacyRef = db.collection(planningLegacyCollection).doc(cleanId);
   const legacySnap = await legacyRef.get();
   if (legacySnap.exists) return legacySnap;
 
@@ -62,6 +91,7 @@ const getPlanningOrderDocById = async (orderDocId) => {
 };
 
 module.exports = {
+  resolveRuntimeDataPaths,
   getPlanningOrderDocByOrderId,
   getTrackedProductDocByIdOrLot,
   getPlanningOrderDocById,

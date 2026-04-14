@@ -12,35 +12,50 @@ function sanitizeProductData(input = {}) {
   return data;
 }
 
-async function saveProductRecordService({ productId = '', productData = {}, actorUid = '' }) {
+async function saveProductRecordService({ productId = '', productData = {}, actorUid = '', clearVerification = false }) {
   const normalizedId = cleanText(productId);
   const cleanData = sanitizeProductData(productData);
+  const FieldValue = admin.firestore.FieldValue;
 
   if (!cleanData.name && !normalizedId) {
     throw new Error('Productnaam is verplicht voor nieuwe records.');
   }
 
-  const now = admin.firestore.FieldValue.serverTimestamp();
+  const now = FieldValue.serverTimestamp();
 
   if (!normalizedId) {
+    // Nieuw product: spec-velden worden nooit opgeslagen
     const payload = {
       ...cleanData,
       createdAt: now,
       lastUpdated: now,
       lastModifiedBy: actorUid || 'system',
     };
+    delete payload.specs;
+    delete payload.bellSpecs;
+    delete payload.fittingSpecs;
+    delete payload.socketSpecs;
     const docRef = await PRODUCTS_COLLECTION.add(payload);
     return { ok: true, productId: docRef.id, operation: 'create' };
   }
 
-  await PRODUCTS_COLLECTION.doc(normalizedId).set(
-    {
-      ...cleanData,
-      lastUpdated: now,
-      lastModifiedBy: actorUid || 'system',
-    },
-    { merge: true }
-  );
+  // Bestaand product: expliciete verwijdering van spec-velden
+  const updatePayload = {
+    ...cleanData,
+    specs: FieldValue.delete(),
+    bellSpecs: FieldValue.delete(),
+    fittingSpecs: FieldValue.delete(),
+    socketSpecs: FieldValue.delete(),
+    lastUpdated: now,
+    lastModifiedBy: actorUid || 'system',
+  };
+
+  if (clearVerification) {
+    updatePayload.verifiedBy = FieldValue.delete();
+    updatePayload.fourEyesOverrideBy = FieldValue.delete();
+  }
+
+  await PRODUCTS_COLLECTION.doc(normalizedId).set(updatePayload, { merge: true });
 
   return { ok: true, productId: normalizedId, operation: 'update' };
 }

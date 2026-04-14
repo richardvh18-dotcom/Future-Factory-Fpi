@@ -1,3 +1,124 @@
+## Update sessie 96 (Preview data-source fix voor startflows)
+
+**Datum:** 14 april 2026 | **Branch:** `pilot-dev`
+
+**Probleem:**
+- In preview (artifacts) werden start-acties nog via backend naar productiepad geschreven.
+- Concreet: tracking write ging naar `/future-factory/production/tracked_products` i.p.v. `/artifacts/fittings-app-v1/public/data/tracked_products`.
+
+**Gewenste regel:**
+- In preview: writes naar artifacts paden.
+- In productie: writes naar `/future-factory/...`.
+
+**Wat is aangepast:**
+
+### 1) Runtime padresolutie toegevoegd in backend repositories ✅
+- `functions/src/repositories/planningRepository.js`
+- Nieuwe resolver `resolveRuntimeDataPaths(runtimeDataSource)`:
+    - `useArtifactsPaths + appId` -> artifacts planning/tracking
+    - fallback -> bestaande production paden
+- Repository methods accepteren nu optioneel `runtimeDataSource`:
+    - `getPlanningOrderDocByOrderId`
+    - `getTrackedProductDocByIdOrLot`
+    - `getPlanningOrderDocById`
+
+### 2) Start-services preview-aware gemaakt ✅
+- `functions/src/services/planningTransitionService.js`
+- `startWorkstationProductionRunService`:
+    - planning order read via runtime data source
+    - tracking writes nu via runtime tracking collection
+- `startProductionLotsService`:
+    - tracking writes + planning status update via runtime collections
+- `reserveAutoLotNumberRangeService`:
+    - collision check gebruikt runtime tracking collection
+
+### 3) Callables geven runtime context door ✅
+- `functions/src/callables/planningCallables.js`
+- Uitgebreid voor:
+    - `startWorkstationProductionRun`
+    - `startProductionLots`
+    - `reserveAutoLotNumberRange`
+- Nieuwe payloadverwerking: `runtimeDataSource { useArtifactsPaths, appId }`
+
+### 4) Frontend wrapper stuurt runtime context mee ✅
+- `src/services/planningSecurityService.js`
+- Nieuwe helper `getRuntimeDataSource()` op basis van `window.__app_id`
+- Meegegeven in payloads van:
+    - `startWorkstationProductionRun`
+    - `startProductionLots`
+    - `reserveAutoLotNumberRange`
+
+**Resultaat:**
+- Preview startflows schrijven nu naar artifacts data collecties.
+- Productiegedrag blijft intact via fallback naar `/future-factory/...`.
+
+**Validatie:**
+- `node -c` checks op gewijzigde functions bestanden: OK
+- `npm run build`: succesvol
+
+**Nog nodig voor live-effect:**
+1. `firebase deploy --only functions`
+2. Daarna preview startflow opnieuw testen (lot reserve + start order + zichtbaar in tracking)
+
+## Update sessie 95 (ISO 9001/27001 audit logging hardening)
+
+**Datum:** 13 april 2026 | **Branch:** `pilot-dev`
+
+**Doel:**
+- Certificeerbare traceability + integriteit toevoegen bovenop de bestaande hybrid callable-architectuur
+- Elke backend write-acties afdwingen met een centraal auditspoor
+- Auditcollectie immutabel maken voor clients via Firestore rules
+
+**Wat is afgerond in deze sessie:**
+
+### 1) Centrale audit service toegevoegd ✅
+- Nieuw bestand: `functions/src/services/auditService.js`
+- Nieuwe API:
+    - `logAction(userId, action, details, options)`
+    - `logCallable(context, action, details, options)`
+- Auditpad: `/future-factory/audit/logs/{autoId}`
+- Vastgelegd per event:
+    - `timestamp` (serverTimestamp)
+    - `userId`, `userEmail`
+    - `action`, `category`, `severity`
+    - `details` (traceability metadata)
+- Categorieen: `QUALITY`, `PRODUCTION`, `PLANNING`, `ADMIN`, `SECURITY`, `SYSTEM`
+- Severity niveaus: `INFO`, `WARNING`, `CRITICAL`
+
+### 2) Audit hooks in callables afgedwongen ✅
+- `functions/src/callables/planningCallables.js` uitgebreid met audit-instrumentatie
+- Aan het begin van alle callable flows is `auditService.logCallable(...)` toegevoegd (na auth/role checks, voor service-executie)
+- Gedekte domeinen:
+    - Productie/transities (start, pauze, route, complete, cancel)
+    - Kwaliteit/QC (afkeur, reparatie, QC notes, lot-wijzigingen)
+    - Planning (import, move, hold, priority, metadata)
+    - Admin/masterdata (producten, conversies, AI config/docs/knowledge)
+    - Security/admin events (account request, profiel/language/password-flag)
+
+### 3) Firestore audit immutability rules toegevoegd ✅
+- In `firestore.rules` en `firestore.rules.production` toegevoegd:
+    - `match /future-factory/audit/{document=**}`
+    - `allow read: if isAdmin();`
+    - `allow write: if false;`
+- Resultaat: client apps kunnen auditdata niet aanmaken, wijzigen of verwijderen; alleen backend Admin SDK kan schrijven
+
+### 4) Git + deploy status ✅
+- Commit: `bf14bed`
+- Push: `pilot-dev` succesvol
+- Deploy uitgevoerd: `firebase deploy --only functions,firestore:rules`
+- Verificatie:
+    - Firestore rules release succesvol
+    - Grote set functies geupdate (meerdere callable updates bevestigd als “Successful update operation”)
+    - `firebase functions:list --json` toont actieve Node 22 callable functies
+
+**Opmerking op deploy-output:**
+- Firestore rule warnings over `isClientProtectedPlanningMutation` bestonden al en blokkeren deploy niet
+
+**Openstaand voor auditor-ready inrichting (niet-code):**
+1. In GCP Audit Logs voor Firestore expliciet `Admin Write` en `Data Write` inschakelen en bewijs (screenshots/export) bewaren
+2. Retentiebeleid formeel vastleggen (minimaal 1 jaar) + expliciet uitsluiten dat audittrail door clients verwijderd kan worden
+3. Eventueel aparte auditor-readrol toevoegen i.p.v. alleen `isAdmin()` voor uitleesrechten
+
 ## Update sessie 94 (Prioriteit 2 + Utility/AI write-migraties naar backend-callables)
 
 **Datum:** 13 april 2026 | **Branch:** `pilot-dev`

@@ -1,6 +1,7 @@
 const { admin, db } = require('../config/firebase');
 const { BASE, TRACKING_COLLECTION, PLANNING_COLLECTION, USER_ACCOUNTS_COLLECTION } = require('../config/planningConstants');
 const {
+  resolveRuntimeDataPaths,
   getPlanningOrderDocByOrderId,
   getTrackedProductDocByIdOrLot,
   getPlanningOrderDocById,
@@ -65,6 +66,21 @@ const getStepForStationServer = (stationName = '') => {
   if (name.startsWith('BH')) return { status: 'In Productie', currentStep: 'Wikkelen' };
 
   return { status: 'In Productie', currentStep: 'Onbekend' };
+};
+
+const normalizeStationKey = (stationName = '') => {
+  return String(stationName || '').trim().replace(/\s+/g, '').toUpperCase();
+};
+
+const shouldClearTemporaryInspection = ({ trackedData, nextStation }) => {
+  const inspectionStatus = clean(trackedData?.inspection?.status).toLowerCase();
+  if (inspectionStatus !== 'tijdelijke afkeur') return false;
+
+  const currentStation = normalizeStationKey(trackedData?.currentStation || trackedData?.machine || '');
+  const targetStation = normalizeStationKey(nextStation);
+
+  if (!targetStation || targetStation === 'BH31') return false;
+  return currentStation === 'BH31';
 };
 
 const getActorLabel = (auth, actorLabel) => {
@@ -621,6 +637,10 @@ const moveTrackedProductManualService = async ({
       source: source || null,
     }),
   };
+
+  if (shouldClearTemporaryInspection({ trackedData, nextStation: newStation })) {
+    updatePayload.inspection = admin.firestore.FieldValue.delete();
+  }
 
   if (isRepairMove) {
     updatePayload.repairActive = true;
@@ -1611,6 +1631,10 @@ const advanceTrackedProductService = async ({
     updatePayload.currentStation = safeNextStation;
   }
 
+  if (shouldClearTemporaryInspection({ trackedData, nextStation: safeNextStation })) {
+    updatePayload.inspection = admin.firestore.FieldValue.delete();
+  }
+
   if (safeLastStation) {
     updatePayload.lastStation = safeLastStation;
   }
@@ -1677,6 +1701,7 @@ const completeTrackedProductRepairService = async ({
     status: 'Te Keuren',
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     repairActive: false,
+    inspection: admin.firestore.FieldValue.delete(),
     note: mergedNote,
     'timestamps.bm01_start': admin.firestore.FieldValue.serverTimestamp(),
     'timestamps.repair_end': admin.firestore.FieldValue.serverTimestamp(),
@@ -1709,6 +1734,55 @@ const completeTrackedProductRepairService = async ({
     currentStation: 'BM01',
     currentStep: 'Eindinspectie',
     status: 'Te Keuren',
+  };
+};
+
+const archiveRejectedTrackedProductService = async ({
+  productId,
+  actorLabel,
+  source,
+  auth,
+  userRole,
+}) => {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId);
+  if (!trackedDoc) {
+    throw new Error('NOT_FOUND_PRODUCT');
+  }
+
+  const trackedData = trackedDoc.data() || {};
+  const userLabel = getActorLabel(auth, actorLabel);
+  const safeProductId = clean(trackedData.lotNumber) || trackedDoc.id;
+
+  await trackedDoc.ref.set({
+    status: 'archived_rejected',
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    history: admin.firestore.FieldValue.arrayUnion({
+      action: 'Afkeur Afgesloten',
+      timestamp: new Date().toISOString(),
+      user: userLabel,
+      station: clean(trackedData.currentStation) || clean(trackedData.machine) || 'Onbekend',
+      details: 'Definitieve afkeur administratief afgesloten',
+      source: source || null,
+    }),
+  }, { merge: true });
+
+  await db.collection(`${BASE}/logs/activity_logs`).add({
+    userId: auth?.uid || 'system',
+    action: 'QUALITY_REJECT_ARCHIVE',
+    details: `Rejected lot archived: ${safeProductId}`,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    source: source || null,
+    actorLabel: userLabel,
+    actorRole: userRole,
+    productId: trackedDoc.id,
+    orderId: clean(trackedData.orderId) || null,
+  });
+
+  return {
+    ok: true,
+    productId: trackedDoc.id,
+    lotNumber: safeProductId,
+    status: 'archived_rejected',
   };
 };
 
@@ -1799,12 +1873,14 @@ const startWorkstationProductionRunService = async ({
   stationOperators,
   source,
   auth,
+  runtimeDataSource,
 }) => {
-  const orderDoc = await getPlanningOrderDocById(orderDocId);
+  const orderDoc = await getPlanningOrderDocById(orderDocId, runtimeDataSource);
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
   }
 
+  const { trackingCollection } = resolveRuntimeDataPaths(runtimeDataSource);
   const orderData = orderDoc.data() || {};
   const safeLotStart = clean(lotStart).toUpperCase();
   const safeStationId = clean(stationId);
@@ -1839,7 +1915,7 @@ const startWorkstationProductionRunService = async ({
   const persistedStartedCount = Number(orderData[stationField] || 0);
 
   const activeStartedSnap = await db
-    .collection(TRACKING_COLLECTION)
+    .collection(trackingCollection)
     .where('orderId', '==', orderId)
     .where('originMachine', '==', safeStationId)
     .limit(600)
@@ -1922,7 +1998,7 @@ const startWorkstationProductionRunService = async ({
       overflowLots.push(currentLotNumber);
     }
 
-    batch.set(db.collection(TRACKING_COLLECTION).doc(currentLotNumber), unitData, { merge: true });
+    batch.set(db.collection(trackingCollection).doc(currentLotNumber), unitData, { merge: true });
     createdLots.push(currentLotNumber);
   }
 
@@ -2277,6 +2353,7 @@ const startProductionLotsService = async ({
   labelTemplateId,
   seriesGroupId,
   isFlangeSeries,
+  runtimeDataSource,
 }) => {
   const safeOrderDocId = clean(orderDocId);
   const safeOrderId = clean(orderId);
@@ -2308,6 +2385,7 @@ const startProductionLotsService = async ({
     return cleanZpl.split(safeLotStart).join(targetLot);
   };
 
+  const { trackingCollection, planningCollection } = resolveRuntimeDataPaths(runtimeDataSource);
   const createdLots = [];
   const nowIso = new Date().toISOString();
   const batch = admin.firestore().batch();
@@ -2317,7 +2395,7 @@ const startProductionLotsService = async ({
     const docId = `${safeOrderId}_${safeItemCode}_${currentLot}`.replace(/[^a-zA-Z0-9]/g, '_');
     const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLot);
 
-    batch.set(admin.firestore().doc(`${TRACKING_COLLECTION}/${docId}`), {
+    batch.set(admin.firestore().doc(`${trackingCollection}/${docId}`), {
       id: docId,
       orderId: safeOrderId,
       lotNumber: currentLot,
@@ -2363,7 +2441,7 @@ const startProductionLotsService = async ({
 
   const startedCounterField = getStartedCounterFieldServer(safeStationId);
   const planningRef = safeOrderDocId
-    ? admin.firestore().doc(`${BASE}/production/digital_planning/${safeOrderDocId}`)
+    ? admin.firestore().doc(`${planningCollection}/${safeOrderDocId}`)
     : null;
   if (planningRef) {
     const planningUpdates = {
@@ -2642,12 +2720,14 @@ const reserveAutoLotNumberRangeService = async ({
   stationId,
   count,
   reserve,
+  runtimeDataSource,
 }) => {
   const qty = Math.max(1, parseInt(String(count || 1), 10) || 1);
   if (qty > 200) {
     throw new Error('INVALID_LOT_RANGE_SIZE');
   }
 
+  const { trackingCollection } = resolveRuntimeDataPaths(runtimeDataSource);
   const now = new Date();
   const iso = getISOWeekInfoServer(now);
   const yearShort = String(iso.year).slice(-2);
@@ -2678,7 +2758,7 @@ const reserveAutoLotNumberRangeService = async ({
         const seq = seqStart + i;
         const candidateLot = `${baseLot}${String(seq).padStart(4, '0')}`;
         const dupSnap = await tx.get(
-          db.collection(TRACKING_COLLECTION)
+          db.collection(trackingCollection)
             .where('lotNumber', '==', candidateLot)
             .limit(1)
         );
@@ -3148,6 +3228,7 @@ const resolveShopFloorIssueService = async ({ type, issueId, auth }) => {
 
 module.exports = {
   rejectTrackedProductFinalService,
+  archiveRejectedTrackedProductService,
   moveTrackedProductManualService,
   archivePlanningOrderService,
   completeTrackedProductService,

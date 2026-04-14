@@ -262,7 +262,7 @@ const TerminalPlanningView = ({
   }, [selectedOrderId]);
 
   const selectedOrderTotal = selectedOrder
-    ? Number(selectedOrder.quantity || selectedOrder.plan) || 1
+    ? Number(selectedOrder.plan || selectedOrder.quantity) || 1
     : 0;
   const selectedOrderProduced = selectedOrder
     ? productionProgressMap[String(selectedOrder.orderId || "").trim()] || 0

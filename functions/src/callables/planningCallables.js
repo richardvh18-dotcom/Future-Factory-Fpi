@@ -21,6 +21,7 @@ const { clean, clampText } = require('../utils/text');
 const { resolveUserRoleForContext } = require('../auth/resolveUserRole');
 const {
   rejectTrackedProductFinalService,
+  archiveRejectedTrackedProductService,
   moveTrackedProductManualService,
   archivePlanningOrderService,
   completeTrackedProductService,
@@ -375,6 +376,12 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
   const seriesGroupId = clean(data?.seriesGroupId);
   const isFlangeSeries = Boolean(data?.isFlangeSeries);
   const source = clampText(data?.source, 80);
+  const runtimeDataSource = data?.runtimeDataSource && typeof data.runtimeDataSource === 'object'
+    ? {
+      useArtifactsPaths: data.runtimeDataSource.useArtifactsPaths === true,
+      appId: clean(data.runtimeDataSource.appId),
+    }
+    : null;
   const stationOperators = Array.isArray(data?.stationOperators)
     ? data.stationOperators.map((entry) => clampText(entry, 80)).filter(Boolean).slice(0, 50)
     : [];
@@ -399,6 +406,7 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
       stationOperators,
       source,
       auth: context.auth,
+      runtimeDataSource,
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -530,6 +538,42 @@ const moveTrackedProductManual = functions.https.onCall(async (data, context) =>
   } catch (error) {
     if (error?.message === 'NOT_FOUND_TRACKED') {
       throw new functions.https.HttpsError('not-found', `Geen tracking item gevonden voor ${productOrLotId}.`);
+    }
+    throw error;
+  }
+});
+
+const archiveRejectedTrackedProduct = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (!MANUAL_MOVE_ALLOWED_ROLES.has(userRole)) {
+    throw new functions.https.HttpsError('permission-denied', 'Geen rechten om afkeur af te sluiten.');
+  }
+
+  const productId = clean(data?.productId);
+  const source = clampText(data?.source, 80);
+  const actorLabel = clampText(data?.actorLabel, 120);
+
+  if (!productId || productId.length > 200) {
+    throw new functions.https.HttpsError('invalid-argument', 'Ongeldig productId.');
+  }
+
+  auditService.logCallable(context, 'ARCHIVE_REJECTED_PRODUCT', { productId }, { category: 'QUALITY', severity: 'WARNING' });
+
+  try {
+    return await archiveRejectedTrackedProductService({
+      productId,
+      source,
+      actorLabel,
+      auth: context.auth,
+      userRole,
+    });
+  } catch (error) {
+    if (error?.message === 'NOT_FOUND_PRODUCT') {
+      throw new functions.https.HttpsError('not-found', 'Product niet gevonden in tracking.');
     }
     throw error;
   }
@@ -1407,6 +1451,12 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
   const labelTemplateId = clean(data?.labelTemplateId);
   const seriesGroupId = clean(data?.seriesGroupId);
   const isFlangeSeries = Boolean(data?.isFlangeSeries);
+  const runtimeDataSource = data?.runtimeDataSource && typeof data.runtimeDataSource === 'object'
+    ? {
+      useArtifactsPaths: data.runtimeDataSource.useArtifactsPaths === true,
+      appId: clean(data.runtimeDataSource.appId),
+    }
+    : null;
 
   if (!orderDocId || !orderId || !itemCode || !lotStart || !stationId) {
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId, orderId, itemCode, lotStart en stationId zijn verplicht.');
@@ -1432,6 +1482,7 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
     labelTemplateId,
     seriesGroupId,
     isFlangeSeries,
+    runtimeDataSource,
   });
 });
 
@@ -1652,6 +1703,12 @@ const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) =
   const stationId = clean(data?.stationId);
   const count = Number(data?.count);
   const reserve = data?.reserve !== false;
+  const runtimeDataSource = data?.runtimeDataSource && typeof data.runtimeDataSource === 'object'
+    ? {
+      useArtifactsPaths: data.runtimeDataSource.useArtifactsPaths === true,
+      appId: clean(data.runtimeDataSource.appId),
+    }
+    : null;
 
   if (!stationId || !Number.isFinite(count) || count < 1 || count > 200) {
     throw new functions.https.HttpsError('invalid-argument', 'stationId en geldige count (1-200) zijn verplicht.');
@@ -1664,6 +1721,7 @@ const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) =
       stationId,
       count,
       reserve,
+      runtimeDataSource,
     });
   } catch (error) {
     if (error?.message === 'INVALID_LOT_RANGE_SIZE') {
@@ -2048,6 +2106,7 @@ const saveProductRecord = functions.https.onCall(async (data, context) => {
 
   const productId = clean(data?.productId);
   const productData = (typeof data?.productData === 'object' && data.productData) || {};
+  const clearVerification = data?.clearVerification === true;
 
   auditService.logCallable(context, 'SAVE_PRODUCT', { productId }, { category: 'ADMIN', severity: 'INFO' });
 
@@ -2055,6 +2114,7 @@ const saveProductRecord = functions.https.onCall(async (data, context) => {
     productId,
     productData,
     actorUid: context.auth.uid,
+    clearVerification,
   });
 });
 
@@ -2340,6 +2400,7 @@ module.exports = {
   toggleTrackedProductPause,
   markTrackedProductReminder,
   moveTrackedProductManual,
+  archiveRejectedTrackedProduct,
   archivePlanningOrder,
   completeTrackedProduct,
   cancelTrackedProduction,

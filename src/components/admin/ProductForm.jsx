@@ -21,7 +21,8 @@ import {
   X as XIcon,
 } from "lucide-react";
 import { db, storage, logActivity } from "../../config/firebase";
-import { doc, setDoc, serverTimestamp, getDoc, collection, query, where, getDocs, limit, deleteField, addDoc } from "firebase/firestore";
+import { doc, serverTimestamp, getDoc, collection, query, where, getDocs, limit, addDoc } from "firebase/firestore";
+import { saveProductRecord } from "../../services/planningSecurityService";
 import { ref, uploadBytes, getDownloadURL, listAll } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
 import { useSettingsData } from "../../hooks/useSettingsData";
@@ -600,7 +601,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
           /[^a-zA-Z0-9]/g,
           "_"
         );
-      const productRef = doc(db, ...PATHS.PRODUCTS, productId);
+      // productRef niet meer nodig — save loopt via callable
 
       // Bepaal opslagpad en metadata voor bibliotheek structuur
       const getStorageInfo = () => {
@@ -671,47 +672,36 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       delete cleanFormData.imageFile;
       delete cleanFormData.pdfFiles;
 
-      await setDoc(
-        productRef,
-        {
-          ...cleanFormData,
-          // Backward compatibility: Save diameter/pressure aliases for Catalog views
-          diameter: cleanFormData.dn,
-          pressure: cleanFormData.pn,
+      const productData = {
+        ...cleanFormData,
+        // Backward compatibility: Save diameter/pressure aliases for Catalog views
+        diameter: cleanFormData.dn,
+        pressure: cleanFormData.pn,
+        imageUrl,
+        sourcePdfs: pdfUrls,
+        id: productId,
+        verificationStatus: finalStatus,
+        fourEyesOverride: useAdminOverride,
+        active: true,
+      };
 
-          // Explicitly remove spec fields from DB to ensure live fetching
-          specs: deleteField(),
-          bellSpecs: deleteField(),
-          fittingSpecs: deleteField(),
-          socketSpecs: deleteField(),
-          imageUrl,
-          sourcePdfs: pdfUrls,
-          id: productId,
-          lastUpdated: serverTimestamp(),
-          lastModifiedBy: user?.uid || "system",
-          verificationStatus: initialData
-            ? finalStatus
-            : finalStatus,
-          verifiedBy: useAdminOverride
-            ? {
-                uid: user?.uid || "system",
-                name: user?.displayName || user?.name || user?.email || "Admin",
-                timestamp: serverTimestamp(),
-              }
-            : deleteField(),
-          fourEyesOverride: useAdminOverride,
-          fourEyesOverrideBy: useAdminOverride
-            ? {
-                uid: user?.uid || "system",
-                name: user?.displayName || user?.name || user?.email || "Admin",
-                timestamp: serverTimestamp(),
-                reason: "Tijdelijke admin override voor catalogusvalidatie",
-              }
-            : deleteField(),
-          active: true,
-        },
-        { merge: true }
-      );
+      if (useAdminOverride) {
+        productData.verifiedBy = {
+          uid: user?.uid || "system",
+          name: user?.displayName || user?.name || user?.email || "Admin",
+        };
+        productData.fourEyesOverrideBy = {
+          uid: user?.uid || "system",
+          name: user?.displayName || user?.name || user?.email || "Admin",
+          reason: "Tijdelijke admin override voor catalogusvalidatie",
+        };
+      }
+
+      await saveProductRecord({
+        productId,
+        productData,
+        clearVerification: !useAdminOverride,
+      });
 
       await logActivity(
         user?.uid || "system",

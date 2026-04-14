@@ -13,9 +13,10 @@ import {
   Smartphone,
   Check,
 } from "lucide-react";
-import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { db, auth, logActivity } from "../config/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
+import { updateUserLanguage } from "../services/planningSecurityService";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 import { useMessages } from "../hooks/useMessages"; // Voor badge count
 
@@ -36,16 +37,10 @@ const PortalView = () => {
     i18n.changeLanguage(lang);
     setShowLangMenu(false);
     
-    // Sla voorkeur op in Firestore als gebruiker is ingelogd
+    // Sla voorkeur op via backend callable
     if (user?.uid) {
       try {
-        const userRef = doc(db, ...PATHS.USERS, user.uid);
-        await updateDoc(userRef, { language: lang });
-        await logActivity(
-          auth.currentUser?.uid,
-          "LANGUAGE_UPDATE",
-          `Taalvoorkeur aangepast via portal: ${lang}`
-        );
+        await updateUserLanguage(lang);
       } catch (error) {
         console.error("Kon taalvoorkeur niet opslaan:", error);
       }

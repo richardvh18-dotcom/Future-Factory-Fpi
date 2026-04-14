@@ -9,6 +9,7 @@ import {
   User,
   ChevronLeft,
   ChevronRight,
+  Archive,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
@@ -19,7 +20,7 @@ import StatusBadge from "../common/StatusBadge";
  * TraceModal - Toont de gedetailleerde lijst die hoort bij een KPI tegel.
  */
 
-const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick, weekNavigation = null }) => {
+const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick, onRowAction = null, rowActionLabel = "", weekNavigation = null }) => {
   const { t } = useTranslation();
   const [sortConfig, setSortConfig] = useState({ key: 'updatedAt', direction: 'desc' });
   const [searchTerm, setSearchTerm] = useState("");
@@ -236,6 +237,13 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick, weekNavigat
                           {t('digitalplanning.trace_modal.last_update', 'Last Update')} <SortIcon columnKey="updatedAt" />
                         </div>
                       </th>
+                      {onRowAction && (
+                        <th className="px-6 py-3 text-right bg-slate-50 border-b border-slate-200">
+                          <div className="flex items-center justify-end gap-1">
+                            {rowActionLabel || t('digitalplanning.trace_modal.action', 'Action')}
+                          </div>
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
@@ -309,6 +317,21 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick, weekNavigat
                             {formatDisplayDate(item.updatedAt || item.lastUpdated || item.createdAt)}
                           </div>
                         </td>
+                        {onRowAction && (
+                          <td className="px-6 py-4 text-right">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRowAction(item);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100"
+                            >
+                              <Archive size={14} />
+                              {rowActionLabel || t('digitalplanning.trace_modal.action', 'Action')}
+                            </button>
+                          </td>
+                        )}
                       </tr>
                         );
                       })()
