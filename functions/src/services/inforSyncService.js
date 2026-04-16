@@ -38,11 +38,63 @@ const getPlanningRef = () =>
 const getEfficiencyRef = () =>
   db.collection(EFFICIENCY_PATH[0]).doc(EFFICIENCY_PATH[1]).collection(EFFICIENCY_PATH[2]);
 
+const normalizeMachineForScoped = (rawValue = '') => {
+  let token = String(rawValue || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!token) return '';
+  if (token === 'BM18') token = 'BH18';
+  if (token === '40BM18') token = '40BH18';
+  if (/^40(BH|BM|BA)\d+$/.test(token)) return token;
+  if (/^(BH|BM|BA)\d+$/.test(token)) return `40${token}`;
+  const match = token.match(/(40)?(BH|BM|BA)\d+/);
+  if (!match) return '';
+  const noPrefix = match[0].replace(/^40/, '');
+  if (/^(BH|BM|BA)\d+$/.test(noPrefix)) return `40${noPrefix}`;
+  return '';
+};
+
+const sanitizeSegment = (value, fallback) => {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[/.#?$\[\]]/g, '_')
+    .replace(/\s+/g, '_');
+  return normalized || fallback;
+};
+
+const getScopedEfficiencyDocRef = ({ departmentId, machineId, orderId }) => {
+  const dep = sanitizeSegment(departmentId || 'Fittings', 'Fittings');
+  const machine = sanitizeSegment(normalizeMachineForScoped(machineId) || machineId || 'UNASSIGNED', 'UNASSIGNED');
+  return db
+    .collection(EFFICIENCY_PATH[0])
+    .doc(EFFICIENCY_PATH[1])
+    .collection(EFFICIENCY_PATH[2])
+    .doc(dep)
+    .collection('machines')
+    .doc(machine)
+    .collection('items')
+    .doc(String(orderId));
+};
+
 const getPlanningArchiveRef = (year) =>
   db.collection('future-factory').doc('production').collection('archive').doc(String(year)).collection('planning');
 
 const getEfficiencyArchiveRef = (year) =>
   db.collection('future-factory').doc('production').collection('archive').doc(String(year)).collection('efficiency');
+
+const getScopedEfficiencyArchiveRef = ({ year, departmentId, machineId, orderId }) => {
+  const dep = sanitizeSegment(departmentId || 'Fittings', 'Fittings');
+  const machine = sanitizeSegment(normalizeMachineForScoped(machineId) || machineId || 'UNASSIGNED', 'UNASSIGNED');
+  return db
+    .collection('future-factory')
+    .doc('production')
+    .collection('archive')
+    .doc(String(year))
+    .collection('efficiency_scoped')
+    .doc(dep)
+    .collection('machines')
+    .doc(machine)
+    .collection('items')
+    .doc(String(orderId));
+};
 
 const patchPlanningOrderByOrderId = async (orderId, patch = {}) => {
   const snap = await getPlanningRef().where('orderId', '==', String(orderId)).limit(1).get();
@@ -136,6 +188,10 @@ async function processInforUpdateService(csvData = []) {
 
     countMatched += 1;
 
+    const planningSample = planningSnap.docs[0]?.data() || {};
+    const scopedDepartment = planningSample.departmentId || planningSample.department || 'Fittings';
+    const scopedMachine = planningSample.machine || planningSample.station || '';
+
     const efficiencyData = {
       orderId: String(orderId),
       standardTimeTotal: productionMinutes + postProcessingMinutes,
@@ -148,9 +204,17 @@ async function processInforUpdateService(csvData = []) {
       source: 'infor_ln',
       lastSync: new Date().toISOString(),
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      departmentId: sanitizeSegment(scopedDepartment, 'Fittings'),
+      machineId: sanitizeSegment(normalizeMachineForScoped(scopedMachine) || scopedMachine || 'UNASSIGNED', 'UNASSIGNED'),
+      _scopeType: 'efficiency_hours',
     };
 
     await getEfficiencyRef().doc(String(orderId)).set(efficiencyData, { merge: true });
+    await getScopedEfficiencyDocRef({
+      departmentId: scopedDepartment,
+      machineId: scopedMachine,
+      orderId,
+    }).set(efficiencyData, { merge: true });
 
     if (isReady) {
       for (const planningDoc of planningSnap.docs) {
@@ -173,6 +237,26 @@ async function processInforUpdateService(csvData = []) {
           finalStatus: 'completed_in_ln',
         });
         await effRef.delete();
+      }
+
+      const scopedEffRef = getScopedEfficiencyDocRef({
+        departmentId: scopedDepartment,
+        machineId: scopedMachine,
+        orderId,
+      });
+      const scopedEffSnap = await scopedEffRef.get();
+      if (scopedEffSnap.exists) {
+        await getScopedEfficiencyArchiveRef({
+          year: currentYear,
+          departmentId: scopedDepartment,
+          machineId: scopedMachine,
+          orderId,
+        }).set({
+          ...scopedEffSnap.data(),
+          archivedAt: new Date().toISOString(),
+          finalStatus: 'completed_in_ln',
+        }, { merge: true });
+        await scopedEffRef.delete();
       }
     } else {
       await patchPlanningOrderByOrderId(orderId, {

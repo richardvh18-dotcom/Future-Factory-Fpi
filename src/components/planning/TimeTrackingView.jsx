@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
-import { getArchiveItemsPath, getReadPaths } from "../../config/dbPaths";
+import { getArchiveItemsPath, PATHS } from "../../config/dbPaths";
 import { format, getISOWeek, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfMonth, endOfMonth, isWithinInterval, isValid, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from "date-fns";
 import { calculateDuration } from "../../utils/efficiencyCalculator";
 import { calculateWorkingMinutes } from "../../utils/workingTimeUtils";
@@ -20,9 +20,8 @@ import { calculateWorkingMinutes } from "../../utils/workingTimeUtils";
  * TimeTrackingView - Compare actual vs planned time
  * Shows time variance and identifies bottlenecks
  */
-const TimeTrackingView = ({ dataSourceMode = "current", initialDepartment = "ALLES" }) => {
-  const usePilotReadData = dataSourceMode === "pilot-read";
-  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
+const TimeTrackingView = ({ initialDepartment = "ALLES" }) => {
+  const readPaths = PATHS;
   const [orders, setOrders] = useState([]);
   const [, setOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);

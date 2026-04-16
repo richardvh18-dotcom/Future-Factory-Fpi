@@ -18,7 +18,7 @@ import {
   Layers,
   Factory,
 } from "lucide-react";
-import { collection, query, onSnapshot, doc, where, getDocs, getDoc, limit, increment } from "firebase/firestore";
+import { collection, collectionGroup, query, onSnapshot, doc, where, getDocs, getDoc, limit, increment } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek, addWeeks } from "date-fns";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
@@ -56,7 +56,6 @@ const TeamleaderHub = React.memo(({
   departmentName = "Algemeen",
   allowedMachines = [],
   title = "Teamleader Hub",
-  dataSourceMode = "current",
 }) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
@@ -148,22 +147,78 @@ const TeamleaderHub = React.memo(({
       setDbError(null);
 
       // Set up ALL listeners in parallel (not sequential!)
-      // LISTENER 1: Orders
-      const unsubOrders = onSnapshot(
+      // LISTENER 1: Orders (legacy root + scoped /machines/*/orders)
+      let rootOrders = [];
+      let scopedOrders = [];
+
+      const mergeOrders = () => {
+        if (!isMounted) return;
+        const merged = new Map();
+
+        rootOrders.forEach((order) => {
+          const key = String(order.id || order.orderId || "").trim();
+          if (!key) return;
+          merged.set(key, order);
+        });
+
+        // Scoped docs take precedence for the same order key.
+        scopedOrders.forEach((order) => {
+          const key = String(order.id || order.orderId || "").trim();
+          if (!key) return;
+          merged.set(key, order);
+        });
+
+        setRawOrders(Array.from(merged.values()));
+      };
+
+      const unsubRootOrders = onSnapshot(
         collection(db, ...PATHS.PLANNING),
         (snap) => {
-          if (!isMounted) return;
-          setRawOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          rootOrders = snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((entry) => {
+              const hasOrderIdentity = !!String(entry?.orderId || entry?.id || "").trim();
+              return hasOrderIdentity;
+            });
+          mergeOrders();
           markStreamReady();
         },
         (err) => {
           if (!isMounted) return;
-          console.error("Planning Sync Error:", err);
+          console.error("Planning Root Sync Error:", err);
           setDbError(err.code || "permission-denied");
-          markStreamReady(); // Still mark as ready even on error
+          markStreamReady();
         }
       );
-      unsubs.push(unsubOrders);
+      unsubs.push(unsubRootOrders);
+
+      const unsubScopedOrders = onSnapshot(
+        collectionGroup(db, "orders"),
+        (snap) => {
+          scopedOrders = snap.docs
+            .filter((d) => {
+              const path = d.ref.path || "";
+              return (
+                path.includes("/production/digital_planning/") &&
+                path.includes("/machines/") &&
+                path.includes("/orders/")
+              );
+            })
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((entry) => {
+              const hasOrderIdentity = !!String(entry?.orderId || entry?.id || "").trim();
+              return hasOrderIdentity;
+            });
+
+          mergeOrders();
+          markStreamReady();
+        },
+        (err) => {
+          if (!isMounted) return;
+          console.error("Planning Scoped Sync Error:", err);
+        }
+      );
+      unsubs.push(unsubScopedOrders);
 
       // LISTENER 2: Products (also starts immediately, in parallel)
       const unsubProds = onSnapshot(
@@ -407,12 +462,18 @@ const TeamleaderHub = React.memo(({
   const dataStore = useMemo(() => {
     if (!rawOrders) return [];
 
+    // DEBUG BH17
+    const bh17InRaw = rawOrders.filter(o => (o.machine || "").toUpperCase().includes("BH17"));
+    if (bh17InRaw.length > 0) {
+      console.log("[DEBUG BH17] dataStore: BH17 orders in rawOrders:", bh17InRaw.length, "effectiveAllowedNorms:", effectiveAllowedNorms, "targetSlug:", targetSlug, "departmentFilter:", departmentFilter);
+      bh17InRaw.forEach(o => console.log("[DEBUG BH17] order detail:", { orderId: o.orderId, machine: o.machine, status: o.status, department: o.department, normMachine: (o.machine||"").toUpperCase().replace(/^40/,"") }));
+    }
+
       return rawOrders
       .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
       .filter((o) => {
           const orderId = String(o?.orderId || "").trim();
           const progressMeta = orderProgressMeta.get(orderId);
-
         // Order moet bij juiste afdeling horen
         if (targetSlug !== "all") {
           const dept = (o.department || "").toLowerCase();
@@ -520,7 +581,7 @@ const TeamleaderHub = React.memo(({
       const archiveReason = String(order?.archiveReason || order?.archivedReason || "").toLowerCase().trim();
       const rejectedCount = Number(order?.rejectedCount || 0);
       const planCount = Number(order?.plan ?? order?.quantity ?? 0);
-      const finishedCount = Number(order?.finishValue ?? order?.wrapped ?? 0);
+      const finishedCount = Number(order?.produced ?? order?.finishValue ?? order?.wrapped ?? 0);
       const orderDate = (() => {
         const value = order?.plannedDate || order?.date || order?.deliveryDate || null;
         if (!value) return null;
@@ -547,10 +608,15 @@ const TeamleaderHub = React.memo(({
       .replace(/[\s-]+/g, "_");
 
   const isOpenOrRunningOrder = (order) => {
-    const normalized = normalizeOrderStatus(order?.status);
+    const normalized = normalizeOrderStatus(order?.status || order?.orderStatus);
     return [
       "open",
       "planned",
+      "waiting",
+      "released",
+      "release",
+      "nieuw",
+      "new",
       "pending",
       "todo",
       "to_do",
@@ -971,12 +1037,14 @@ const TeamleaderHub = React.memo(({
       const stationName = station.name;
       const stationId = station.id;
 
+      const stationNorm = normalizeMachine(stationName || "");
+
       const mProducts = rawProducts.filter(
-        (p) => (p.machine || "").toLowerCase() === stationName.toLowerCase()
+        (p) => normalizeMachine(p.machine || "") === stationNorm
       );
 
       const mArchived = archivedProducts.filter(
-        (p) => (p.machine || p.originMachine || "").toLowerCase() === stationName.toLowerCase()
+        (p) => normalizeMachine(p.machine || p.originMachine || "") === stationNorm
       );
       
       const currentOccupancy = bezetting.filter((b) => {
@@ -1038,7 +1106,7 @@ const TeamleaderHub = React.memo(({
           finished = rawProducts.filter(checkFinished).length + archivedProducts.filter(checkFinished).length;
       } else if (!isAlgemeen) {
           planned = dataStore
-            .filter((o) => (o.machine || "").toLowerCase() === stationName.toLowerCase())
+            .filter((o) => normalizeMachine(o.machine || "") === stationNorm)
             .reduce((acc, o) => acc + Number(o.plan ?? o.toDoQty ?? o.quantity ?? 0), 0);
           active = mProducts.filter((p) => p.status === "In Production").length;
           finished = mProducts.filter((p) => p.status === "Finished").length + mArchived.length;
@@ -1194,6 +1262,8 @@ const TeamleaderHub = React.memo(({
         };
       })(),
 
+          planningOrders: dataStore,
+          trackedProducts: rawProducts,
       machineGridData,
     };
   }, [
@@ -1376,7 +1446,7 @@ const TeamleaderHub = React.memo(({
         o.itemCode || "",
         o.machine || "",
         o.plan || 0,
-        o.finishValue || 0,
+        o.produced ?? o.finishValue ?? 0,
         o.status || "",
         dateStr,
         o.department || ""
@@ -1465,7 +1535,7 @@ const TeamleaderHub = React.memo(({
             const date = getOrderDate(o);
             const week = o.weekNumber || (date ? getISOWeek(date) : "");
             const plan = parseInt(o.plan || o.quantity || 0, 10) || 0;
-            const wrapped = parseInt(o.finishValue || o.wrapped || 0, 10) || 0;
+            const wrapped = parseInt(o.produced ?? o.finishValue ?? o.wrapped ?? 0, 10) || 0;
             const toDo = Math.max(plan - wrapped, 0);
             const machineCode = formatMachineForPlanner(o.machine || machine);
             const dateValue = date ? format(date, "M/d/yyyy") : "";
@@ -1902,7 +1972,7 @@ const TeamleaderHub = React.memo(({
             </div>
           ) : activeTab === "efficiency" ? (
             showAiPrediction ? (
-              <AiPredictionView onClose={() => setShowAiPrediction(false)} dataSourceMode={dataSourceMode} />
+              <AiPredictionView onClose={() => setShowAiPrediction(false)} />
             ) : (
               <TeamleaderEfficiencyView departmentName={departmentFilter !== "ALL" ? departmentFilter : departmentName} lockDepartment={fixedScope !== "all"} />
             )
@@ -2052,7 +2122,13 @@ const TeamleaderHub = React.memo(({
         </div>
       </div>
 
-      {showImportModal && <PlanningImportModal isOpen={true} onClose={() => setShowImportModal(false)} />}
+      {showImportModal && (
+        <PlanningImportModal
+          isOpen={true}
+          onClose={() => setShowImportModal(false)}
+          currentDepartment={departmentFilter !== "ALL" ? departmentFilter.toLowerCase() : targetSlug}
+        />
+      )}
       
       {showAddOrderModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">

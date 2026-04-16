@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { 
+  Search,
   ChevronLeft, 
   ChevronRight,
   ChevronDown,
@@ -8,14 +9,17 @@ import {
 } from "lucide-react";
 import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
-import { getReadPaths } from "../../config/dbPaths";
+import { PATHS } from "../../config/dbPaths";
 import { updateOrderPlannedDate } from "../../services/planningSecurityService";
 import { 
   format, 
+  startOfMonth,
   startOfWeek, 
   eachDayOfInterval,
   addDays,
+  addMonths,
   subDays,
+  subMonths,
   differenceInDays,
   differenceInCalendarDays,
   differenceInCalendarWeeks,
@@ -28,26 +32,49 @@ import { nl } from "date-fns/locale";
  * GanttChartView - Timeline visualization for order planning
  * Shows orders on a timeline per machine/department
  */
-const GanttChartView = ({ dataSourceMode = "current" }) => {
+const GanttChartView = (props = {}) => {
+  const {
+    planningOrders = null,
+    trackedProducts = null,
+  } = props || {};
   const { t } = useTranslation();
-  const usePilotReadData = dataSourceMode === "pilot-read";
-  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
-  const [orders, setOrders] = useState([]);
-  const [machines, setMachines] = useState([]);
+  const readPaths = PATHS;
+  const [liveOrders, setLiveOrders] = useState([]);
+  const [liveTrackedProducts, setLiveTrackedProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [efficiencyData, setEfficiencyData] = useState({});
-  const [viewStart, setViewStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [viewRange, setViewRange] = useState(14); // days
+  const [viewStart, setViewStart] = useState(startOfMonth(new Date()));
+  const [viewRange, setViewRange] = useState(30); // days
   const [viewMode, setViewMode] = useState("preset"); // preset | all
   const [dayWidth, setDayWidth] = useState(80);
   const [selectedDepartment, setSelectedDepartment] = useState("ALLES");
+  const [orderSearchTerm, setOrderSearchTerm] = useState("");
   const [factoryConfig, setFactoryConfig] = useState(null);
   const [departments, setDepartments] = useState(["ALLES"]);
   const [collapsedMachines, setCollapsedMachines] = useState(new Set());
+  const [expandedLaneMode, setExpandedLaneMode] = useState(false);
+  const [selectedOrderBarId, setSelectedOrderBarId] = useState(null);
   const timelineScrollRef = useRef(null);
+  const isAutoExtendingRef = useRef(false);
+  const pendingPrependOffsetRef = useRef(0);
+  const pendingScrollToDayRef = useRef(null);
+  const headerPanRef = useRef({ active: false, startX: 0, startScrollLeft: 0 });
+  const headerPanCooldownUntilRef = useRef(0);
+  const edgeExtendLockRef = useRef({ left: false, right: false });
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(1200);
-  const [isPanning, setIsPanning] = useState(false);
-  const [panState, setPanState] = useState({ startX: 0, startScrollLeft: 0 });
+
+  const useProvidedOrders = Array.isArray(planningOrders);
+  const useProvidedTrackedProducts = Array.isArray(trackedProducts);
+
+  const orders = useMemo(
+    () => (useProvidedOrders ? planningOrders : liveOrders),
+    [useProvidedOrders, planningOrders, liveOrders]
+  );
+
+  const tracking = useMemo(
+    () => (useProvidedTrackedProducts ? trackedProducts : liveTrackedProducts),
+    [useProvidedTrackedProducts, trackedProducts, liveTrackedProducts]
+  );
 
   // Drag state
   const [dragState, setDragState] = useState({
@@ -88,6 +115,11 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
   useEffect(() => {
     if (!readPaths) return;
 
+    if (useProvidedOrders) {
+      setLoading(false);
+      return undefined;
+    }
+
     // Load orders
     const unsubOrders = onSnapshot(
       collection(db, ...readPaths.PLANNING),
@@ -96,17 +128,30 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
           id: doc.id,
           ...doc.data()
         }));
-        setOrders(ordersData);
-        
-        // Extract unique machines
-        const uniqueMachines = [...new Set(ordersData.map(o => o.machine).filter(Boolean))];
-        setMachines(uniqueMachines.sort());
+        setLiveOrders(ordersData);
         setLoading(false);
       }
     );
 
     return () => unsubOrders();
-  }, [readPaths]);
+  }, [readPaths, useProvidedOrders]);
+
+  useEffect(() => {
+    if (!readPaths || useProvidedTrackedProducts) return undefined;
+
+    const unsubTracking = onSnapshot(
+      collection(db, ...readPaths.TRACKING),
+      (snapshot) => {
+        const products = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+        setLiveTrackedProducts(products);
+      }
+    );
+
+    return () => unsubTracking();
+  }, [readPaths, useProvidedTrackedProducts]);
 
   // Load efficiency/imported hours
   useEffect(() => {
@@ -124,6 +169,11 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
     );
     return () => unsubEfficiency();
   }, [readPaths]);
+
+  const machines = useMemo(() => {
+    const uniqueMachines = [...new Set(orders.map((o) => o.machine).filter(Boolean))];
+    return uniqueMachines.sort();
+  }, [orders]);
 
   // Filter machines based on selected department
   const visibleMachines = useMemo(() => {
@@ -146,7 +196,220 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
     return machines.filter(m => deptStationNames.includes(normalize(m)));
   }, [machines, selectedDepartment, factoryConfig]);
 
-  const getOrderTimeBounds = (order) => {
+  const normalizeMachineKey = (value) =>
+    String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "")
+      .replace(/^40/, "");
+
+  const getOrderIdentity = (order) =>
+    String(order?.orderId || order?.id || "").trim();
+
+  const getOrderBarIdentity = (order) => {
+    const idPart = String(order?.id || "").trim();
+    const orderPart = String(order?.orderId || "").trim();
+    const machinePart = String(order?.machine || "").trim();
+    const plannedPart = parseDate(order?.plannedDate)?.toISOString?.() || "";
+    const actualPart = parseDate(order?.actualStart)?.toISOString?.() || "";
+    return [idPart, orderPart, machinePart, plannedPart, actualPart].join("|");
+  };
+
+  const getNumeric = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const getPlannedUnits = (order) => {
+    return Math.max(
+      0,
+      getNumeric(order?.plan || order?.plannedQuantity || order?.quantity || order?.qty)
+    );
+  };
+
+  const getProducedUnits = (order, trackedFinishedCountByOrder) => {
+    const orderId = getOrderIdentity(order);
+    const trackedFinished = getNumeric(trackedFinishedCountByOrder.get(orderId));
+    const fromOrder = Math.max(
+      getNumeric(order?.produced),
+      getNumeric(order?.finishedCount),
+      getNumeric(order?.finishValue),
+      getNumeric(order?.wrapped),
+      getNumeric(order?.completed)
+    );
+    return Math.max(fromOrder, trackedFinished);
+  };
+
+  const hasOrderStartedForPrediction = (order, trackedFinishedCountByOrder) => {
+    const status = String(order?.status || "").toLowerCase();
+    const productionStatus =
+      status.includes("in_progress") ||
+      status.includes("in production") ||
+      status.includes("production") ||
+      status.includes("active") ||
+      status.includes("start");
+
+    const hasActualStart = Boolean(parseDate(order?.actualStart));
+    const produced = Math.max(
+      getNumeric(order?.produced),
+      getNumeric(order?.finishedCount),
+      getNumeric(order?.finishValue),
+      getNumeric(order?.wrapped),
+      getNumeric(order?.completed),
+      getNumeric(trackedFinishedCountByOrder.get(getOrderIdentity(order)))
+    );
+
+    const hasStartedCounter = Object.entries(order || {}).some(([key, value]) => {
+      if (!String(key || "").startsWith("started_")) return false;
+      return getNumeric(value) > 0;
+    });
+
+    return productionStatus || hasActualStart || produced > 0 || hasStartedCounter;
+  };
+
+  const getDeliveryDay = (order) => {
+    const delivery = parseDate(order?.deliveryDate || order?.plannedDeliveryDate || order?.dueDate || order?.rejectDate);
+    return delivery ? startOfDay(delivery) : null;
+  };
+
+  const trackedFinishedByOrder = useMemo(() => {
+    const byOrder = new Map();
+
+    tracking.forEach((product) => {
+      const orderId = String(product?.orderId || "").trim();
+      if (!orderId) return;
+
+      const status = String(product?.status || "").toLowerCase();
+      const step = String(product?.currentStep || "").toLowerCase();
+      const isFinished =
+        status.includes("finish") ||
+        status.includes("gereed") ||
+        status.includes("completed") ||
+        step.includes("finish");
+
+      if (!isFinished) return;
+      byOrder.set(orderId, (byOrder.get(orderId) || 0) + 1);
+    });
+
+    return byOrder;
+  }, [tracking]);
+
+  const machineThroughputPerDay = useMemo(() => {
+    const now = new Date();
+    const windowStart = subDays(now, 14);
+    const machineStats = new Map();
+
+    tracking.forEach((product) => {
+      const machineKey = normalizeMachineKey(
+        product?.machine || product?.originMachine || product?.currentStation || product?.lastStation
+      );
+      if (!machineKey) return;
+
+      const status = String(product?.status || "").toLowerCase();
+      const step = String(product?.currentStep || "").toLowerCase();
+      const isFinished =
+        status.includes("finish") ||
+        status.includes("gereed") ||
+        status.includes("completed") ||
+        step.includes("finish");
+      if (!isFinished) return;
+
+      const eventDate =
+        parseDate(product?.timestamps?.finished) ||
+        parseDate(product?.updatedAt) ||
+        parseDate(product?.lastUpdated) ||
+        parseDate(product?.createdAt);
+      if (!eventDate || eventDate < windowStart) return;
+
+      const existing = machineStats.get(machineKey) || { count: 0 };
+      existing.count += 1;
+      machineStats.set(machineKey, existing);
+    });
+
+    const byMachine = new Map();
+    machineStats.forEach((entry, machineKey) => {
+      const unitsPerDay = entry.count / 14;
+      byMachine.set(machineKey, Math.max(0.5, unitsPerDay));
+    });
+
+    return byMachine;
+  }, [tracking]);
+
+  const orderPredictionMap = useMemo(() => {
+    const today = startOfDay(new Date());
+    const groupedByMachine = new Map();
+
+    orders.forEach((order) => {
+      const machineKey = normalizeMachineKey(order?.machine);
+      const orderId = getOrderIdentity(order);
+      if (!machineKey || !orderId) return;
+
+      const list = groupedByMachine.get(machineKey) || [];
+      list.push(order);
+      groupedByMachine.set(machineKey, list);
+    });
+
+    const predictions = new Map();
+
+    groupedByMachine.forEach((machineOrders, machineKey) => {
+      const unitsPerDay = machineThroughputPerDay.get(machineKey);
+      if (!unitsPerDay) return; // geen trackingdata voor deze machine → geen voorspelling
+
+      const sorted = [...machineOrders].sort((a, b) => {
+        const aBounds = getOrderTimeBounds(a);
+        const bBounds = getOrderTimeBounds(b);
+        const aDate = aBounds?.startDay || getDeliveryDay(a) || today;
+        const bDate = bBounds?.startDay || getDeliveryDay(b) || today;
+        return aDate.getTime() - bDate.getTime();
+      });
+
+      let queueAheadUnits = 0;
+
+      sorted.forEach((order) => {
+        if (!hasOrderStartedForPrediction(order, trackedFinishedByOrder)) {
+          return;
+        }
+
+        const orderId = getOrderIdentity(order);
+        const planned = getPlannedUnits(order);
+        const produced = getProducedUnits(order, trackedFinishedByOrder);
+        const remaining = Math.max(0, planned - produced);
+        const totalUnitsForQueue = queueAheadUnits + remaining;
+
+        const requiredDays = totalUnitsForQueue > 0
+          ? Math.ceil(totalUnitsForQueue / Math.max(0.5, unitsPerDay))
+          : 0;
+        const predictedReadyDay = addDays(today, Math.max(0, requiredDays - 1));
+        const deliveryDay = getDeliveryDay(order);
+        const slipDays = deliveryDay
+          ? differenceInCalendarDays(predictedReadyDay, deliveryDay)
+          : 0;
+
+        const scheduleStatus =
+          !deliveryDay
+            ? "unknown"
+            : slipDays > 0
+              ? "behind"
+              : slipDays < 0
+                ? "ahead"
+                : "on_time";
+
+        predictions.set(orderId, {
+          predictedReadyDay,
+          scheduleStatus,
+          slipDays,
+          unitsPerDay,
+          remainingUnits: remaining,
+        });
+
+        queueAheadUnits += remaining;
+      });
+    });
+
+    return predictions;
+  }, [orders, machineThroughputPerDay, trackedFinishedByOrder]);
+
+  function getOrderTimeBounds(order) {
     const startDateRaw = order.plannedDate || ((order.status === 'in_progress' || order.status === 'in_production') ? order.actualStart : null);
     const startDate = parseDate(startDateRaw);
     if (!startDate) return null;
@@ -180,7 +443,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
       isEfficiencyBased,
       leadWeeks: Math.max(0, differenceInCalendarWeeks(safeEndDay, startDay, { weekStartsOn: 1 })),
     };
-  };
+  }
 
   const allViewBounds = useMemo(() => {
     let minStart = null;
@@ -241,6 +504,25 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
   const timelineWidth = useMemo(() => activeViewRange * effectiveDayWidth, [activeViewRange, effectiveDayWidth]);
 
   useEffect(() => {
+    if (!timelineScrollRef.current) return;
+
+    if (pendingScrollToDayRef.current instanceof Date) {
+      const targetDay = startOfDay(pendingScrollToDayRef.current);
+      const dayIndex = differenceInCalendarDays(targetDay, activeViewStart);
+      const left = Math.max(0, dayIndex * effectiveDayWidth - effectiveDayWidth * 2);
+      timelineScrollRef.current.scrollLeft = left;
+      pendingScrollToDayRef.current = null;
+      return;
+    }
+
+    const pendingOffset = pendingPrependOffsetRef.current;
+    if (!pendingOffset) return;
+
+    timelineScrollRef.current.scrollLeft += pendingOffset;
+    pendingPrependOffsetRef.current = 0;
+  }, [activeViewStart, activeViewRange, effectiveDayWidth]);
+
+  useEffect(() => {
     const updateViewportWidth = () => {
       if (!timelineScrollRef.current) return;
       setTimelineViewportWidth(timelineScrollRef.current.clientWidth || 1200);
@@ -253,10 +535,33 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
 
   // Get orders for a machine
   const getOrdersForMachine = (machine) => {
-    return orders.filter(order => 
-      order.machine === machine &&
-      (order.plannedDate || ((order.status === 'in_progress' || order.status === 'in_production') && order.actualStart))
-    );
+    const term = String(orderSearchTerm || "").trim().toLowerCase();
+
+    return orders.filter(order => {
+      if (
+        order.machine !== machine ||
+        !(order.plannedDate || ((order.status === 'in_progress' || order.status === 'in_production') && order.actualStart))
+      ) {
+        return false;
+      }
+
+      if (!term) return true;
+
+      const haystack = [
+        order?.orderId,
+        order?.id,
+        order?.item,
+        order?.itemCode,
+        order?.itemDescription,
+        order?.extraCode,
+        order?.machine,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(term);
+    });
   };
 
   const getMachineLayout = (machineOrders) => {
@@ -271,25 +576,29 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
       .filter(Boolean)
       .sort((a, b) => a.leftPx - b.leftPx || a.widthPx - b.widthPx);
 
-    const laneEndPositions = [];
-    const laidOutBars = bars.map((bar) => {
-      let lane = laneEndPositions.findIndex((end) => bar.leftPx >= end + 4);
-      if (lane === -1) {
-        lane = laneEndPositions.length;
-        laneEndPositions.push(0);
-      }
-      laneEndPositions[lane] = bar.leftPx + bar.widthPx;
-      return { ...bar, lane };
-    });
+    const laidOutBars = expandedLaneMode
+      ? bars.map((bar, idx) => ({ ...bar, lane: idx }))
+      : (() => {
+          const laneEndPositions = [];
+          return bars.map((bar) => {
+            let lane = laneEndPositions.findIndex((end) => bar.leftPx >= end + 4);
+            if (lane === -1) {
+              lane = laneEndPositions.length;
+              laneEndPositions.push(0);
+            }
+            laneEndPositions[lane] = bar.leftPx + bar.widthPx;
+            return { ...bar, lane };
+          });
+        })();
 
-    const laneCount = Math.max(1, laneEndPositions.length);
+    const laneCount = Math.max(1, expandedLaneMode ? bars.length : new Set(laidOutBars.map((bar) => bar.lane)).size);
     const rowHeight = Math.max(80, laneCount * 26 + 12);
     return { laidOutBars, rowHeight };
   };
 
   // Handle Drag Start
   const handleDragStart = (e, order) => {
-    if (usePilotReadData) return;
+    if (useProvidedOrders) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -323,8 +632,9 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
 
       const deltaX = e.clientX - dragState.startX;
       
-      // Alleen updaten als er daadwerkelijk gesleept is (> 5px)
-      if (Math.abs(deltaX) > 5) {
+      // Voorkom dat kleine, onbedoelde bewegingen direct een datumverschuiving geven.
+      const minDragPx = Math.max(18, effectiveDayWidth * 0.25);
+      if (Math.abs(deltaX) > minDragPx) {
         const newLeft = dragState.originalLeft + deltaX;
         const daysShift = Math.round(newLeft / effectiveDayWidth);
         const newDate = addDays(activeViewStart, daysShift);
@@ -358,56 +668,89 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [dragState, activeViewStart, effectiveDayWidth, readPaths]);
+  }, [dragState, activeViewStart, effectiveDayWidth, useProvidedOrders]);
 
-  // Mouse grab-to-scroll voor horizontale timeline navigatie
   useEffect(() => {
-    const handlePanMove = (e) => {
-      if (!isPanning || !timelineScrollRef.current) return;
-      const deltaX = e.clientX - panState.startX;
-      timelineScrollRef.current.scrollLeft = panState.startScrollLeft - deltaX;
+    const handleHeaderPanMove = (e) => {
+      if (!headerPanRef.current.active || !timelineScrollRef.current) return;
+      const deltaX = e.clientX - headerPanRef.current.startX;
+      const PAN_SENSITIVITY = 0.9;
+      timelineScrollRef.current.scrollLeft = headerPanRef.current.startScrollLeft - deltaX * PAN_SENSITIVITY;
     };
 
-    const handlePanEnd = () => {
-      if (!isPanning) return;
-      setIsPanning(false);
+    const handleHeaderPanEnd = () => {
+      if (!headerPanRef.current.active) return;
+      headerPanRef.current.active = false;
+      // Voorkom directe rand-extend direct na loslaten (voelt als random sprong).
+      headerPanCooldownUntilRef.current = Date.now() + 220;
+      document.body.style.userSelect = "";
     };
 
-    if (isPanning) {
-      window.addEventListener("mousemove", handlePanMove);
-      window.addEventListener("mouseup", handlePanEnd);
-    }
+    window.addEventListener("mousemove", handleHeaderPanMove);
+    window.addEventListener("mouseup", handleHeaderPanEnd);
 
     return () => {
-      window.removeEventListener("mousemove", handlePanMove);
-      window.removeEventListener("mouseup", handlePanEnd);
+      window.removeEventListener("mousemove", handleHeaderPanMove);
+      window.removeEventListener("mouseup", handleHeaderPanEnd);
     };
-  }, [isPanning, panState]);
+  }, []);
 
-  const handleTimelinePanStart = (e) => {
+  const handleHeaderPanStart = (e) => {
     if (e.button !== 0) return;
     if (!timelineScrollRef.current) return;
-    if (e.target.closest(".gantt-order-bar")) return;
-    if (e.target.closest("button,select,input,textarea,a")) return;
 
     e.preventDefault();
-
-    setIsPanning(true);
-    setPanState({
+    headerPanRef.current = {
+      active: true,
       startX: e.clientX,
       startScrollLeft: timelineScrollRef.current.scrollLeft,
-    });
+    };
+    document.body.style.userSelect = "none";
   };
 
-  const handleTimelineWheel = (e) => {
-    if (!timelineScrollRef.current) return;
+  const handleTimelineScroll = (e) => {
+    const el = e.currentTarget;
+    if (!el) return;
+    if (viewMode !== "preset") return;
+    if (isAutoExtendingRef.current) return;
+    if (headerPanRef.current.active) return;
+    if (Date.now() < headerPanCooldownUntilRef.current) return;
 
-    const horizontalIntent = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
-    if (!horizontalIntent) return;
+    const EDGE_THRESHOLD = 96;
+    const EDGE_UNLOCK_THRESHOLD = EDGE_THRESHOLD * 3;
+    const CHUNK_DAYS = 7;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
 
-    e.preventDefault();
-    const scrollDelta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
-    timelineScrollRef.current.scrollLeft += scrollDelta;
+    // Unlock rand-locks zodra de gebruiker weer voldoende wegscrollt van de rand.
+    if (el.scrollLeft > EDGE_UNLOCK_THRESHOLD) {
+      edgeExtendLockRef.current.left = false;
+    }
+    if (el.scrollLeft < maxScroll - EDGE_UNLOCK_THRESHOLD) {
+      edgeExtendLockRef.current.right = false;
+    }
+
+    // Bijna aan de rechterrand: voeg een maand toe aan de rechterkant.
+    if (el.scrollLeft >= maxScroll - EDGE_THRESHOLD && !edgeExtendLockRef.current.right) {
+      isAutoExtendingRef.current = true;
+      edgeExtendLockRef.current.right = true;
+      setViewRange((prev) => prev + CHUNK_DAYS);
+      window.requestAnimationFrame(() => {
+        isAutoExtendingRef.current = false;
+      });
+      return;
+    }
+
+    // Bijna aan de linkerrand: prepend een maand en corrigeer scrollpositie.
+    if (el.scrollLeft <= EDGE_THRESHOLD && !edgeExtendLockRef.current.left) {
+      isAutoExtendingRef.current = true;
+      edgeExtendLockRef.current.left = true;
+      pendingPrependOffsetRef.current += CHUNK_DAYS * effectiveDayWidth;
+      setViewStart((prev) => subDays(prev, CHUNK_DAYS));
+      setViewRange((prev) => prev + CHUNK_DAYS);
+      window.requestAnimationFrame(() => {
+        isAutoExtendingRef.current = false;
+      });
+    }
   };
 
   const toggleMachineCollapsed = (machine) => {
@@ -486,7 +829,15 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
   // Navigation
   const goToPreviousWeek = () => setViewStart(prev => subDays(prev, 7));
   const goToNextWeek = () => setViewStart(prev => addDays(prev, 7));
-  const goToToday = () => setViewStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const goToPreviousMonth = () => setViewStart(prev => subMonths(prev, 1));
+  const goToNextMonth = () => setViewStart(prev => addMonths(prev, 1));
+  const goToToday = () => {
+    const today = new Date();
+    setViewMode("preset");
+    setViewRange(30);
+    setViewStart(startOfMonth(today));
+    pendingScrollToDayRef.current = today;
+  };
 
   if (loading) {
     return (
@@ -497,25 +848,25 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
   }
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen">
+    <div className="p-3 bg-slate-50 min-h-screen">
       {/* Header */}
-      <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm border-2 border-slate-200">
-        <div className="flex items-center justify-between">
+      <div className="bg-white rounded-xl p-3 mb-3 shadow-sm border border-slate-200">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-black text-slate-800">
+            <h1 className="text-xl font-black text-slate-800 leading-tight">
               {t("planning.gantt.titlePrefix")} <span className="text-blue-600">{t("planning.gantt.titleAccent")}</span>
             </h1>
-            <p className="text-sm text-slate-600 mt-1">
+            <p className="text-xs text-slate-600">
               {t("planning.gantt.subtitle")}
             </p>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {/* Department Selector */}
             <select
               value={selectedDepartment}
               onChange={(e) => setSelectedDepartment(e.target.value)}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-2.5 py-1 bg-white border border-slate-200 rounded-md text-[11px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {departments.map(dept => (
                 <option key={dept} value={dept}>
@@ -524,14 +875,26 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
               ))}
             </select>
 
+            {/* Search */}
+            <div className="relative">
+              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={orderSearchTerm}
+                onChange={(e) => setOrderSearchTerm(e.target.value)}
+                placeholder={t("planning.gantt.searchOrders", "Zoek order of item...")}
+                className="pl-7 pr-2.5 py-1 bg-white border border-slate-200 rounded-md text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[180px]"
+              />
+            </div>
+
             {/* View Range */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => {
                   setViewMode("preset");
                   setViewRange(7);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
                   viewMode === "preset" && viewRange === 7
                     ? "bg-blue-500 text-white"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -544,7 +907,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                   setViewMode("preset");
                   setViewRange(14);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
                   viewMode === "preset" && viewRange === 14
                     ? "bg-blue-500 text-white"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -557,7 +920,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                   setViewMode("preset");
                   setViewRange(30);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
                   viewMode === "preset" && viewRange === 30
                     ? "bg-blue-500 text-white"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -567,7 +930,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
               </button>
               <button
                 onClick={() => setViewMode("all")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
                   viewMode === "all"
                     ? "bg-indigo-600 text-white"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -577,68 +940,96 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
               </button>
             </div>
 
+            {/* Stack mode */}
+            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-md">
+              <button
+                onClick={() => setExpandedLaneMode(false)}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${!expandedLaneMode ? "bg-white text-blue-600" : "text-slate-600"}`}
+              >
+                {t("planning.gantt.stackCompact", "Compact")}
+              </button>
+              <button
+                onClick={() => setExpandedLaneMode(true)}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${expandedLaneMode ? "bg-white text-blue-600" : "text-slate-600"}`}
+              >
+                {t("planning.gantt.stackExpanded", "Uitgeklapt")}
+              </button>
+            </div>
+
             {/* Zoom */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-md">
               <button
                 onClick={() => setDayWidth(60)}
-                className={`px-2 py-1 rounded text-[10px] font-bold ${dayWidth === 60 ? "bg-white text-blue-600" : "text-slate-600"}`}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${dayWidth === 60 ? "bg-white text-blue-600" : "text-slate-600"}`}
               >
                 {t("planning.gantt.zoomCompact")}
               </button>
               <button
                 onClick={() => setDayWidth(80)}
-                className={`px-2 py-1 rounded text-[10px] font-bold ${dayWidth === 80 ? "bg-white text-blue-600" : "text-slate-600"}`}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${dayWidth === 80 ? "bg-white text-blue-600" : "text-slate-600"}`}
               >
                 {t("planning.gantt.zoomNormal")}
               </button>
               <button
                 onClick={() => setDayWidth(120)}
-                className={`px-2 py-1 rounded text-[10px] font-bold ${dayWidth === 120 ? "bg-white text-blue-600" : "text-slate-600"}`}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${dayWidth === 120 ? "bg-white text-blue-600" : "text-slate-600"}`}
               >
                 {t("planning.gantt.zoomDetail")}
               </button>
             </div>
 
             {/* Machine controls */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-md">
               <button
                 onClick={expandAllMachines}
-                className="px-2 py-1 rounded text-[10px] font-bold text-slate-700 hover:bg-white"
+                className="px-2 py-0.5 rounded text-[10px] font-bold text-slate-700 hover:bg-white"
               >
                 {t("planning.gantt.expandAll")}
               </button>
               <button
                 onClick={collapseAllMachines}
-                className="px-2 py-1 rounded text-[10px] font-bold text-slate-700 hover:bg-white"
+                className="px-2 py-0.5 rounded text-[10px] font-bold text-slate-700 hover:bg-white"
               >
                 {t("planning.gantt.collapseAll")}
               </button>
             </div>
 
             {/* Navigation */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={goToPreviousMonth}
+                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold transition-colors"
+              >
+                {t("planning.gantt.prevMonth", "-1 Maand")}
+              </button>
               <button
                 onClick={goToPreviousWeek}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-slate-100 rounded-md transition-colors"
               >
-                <ChevronLeft size={20} />
+                <ChevronLeft size={16} />
               </button>
               <button
                 onClick={goToToday}
-                className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-bold transition-colors"
+                className="px-2.5 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-[11px] font-bold transition-colors"
               >
                 {t("planning.gantt.today")}
               </button>
               <button
                 onClick={goToNextWeek}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-slate-100 rounded-md transition-colors"
               >
-                <ChevronRight size={20} />
+                <ChevronRight size={16} />
+              </button>
+              <button
+                onClick={goToNextMonth}
+                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold transition-colors"
+              >
+                {t("planning.gantt.nextMonth", "+1 Maand")}
               </button>
             </div>
 
             {viewMode === "all" && (
-              <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-lg">
+              <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-slate-100 px-2.5 py-1 rounded-md">
                 {t("planning.gantt.visibleDays", { count: Math.min(35, visibleDaysCount), max: 35 })}
               </div>
             )}
@@ -650,24 +1041,27 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
       <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 overflow-hidden">
         <div
           ref={timelineScrollRef}
-          className={`overflow-x-auto select-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
-          onMouseDown={handleTimelinePanStart}
-          onWheel={handleTimelineWheel}
+          className="overflow-y-auto overflow-x-hidden max-h-[600px] select-none"
+          onScroll={handleTimelineScroll}
         >
           <div style={{ minWidth: `${192 + timelineWidth}px` }}>
             {/* Timeline Header */}
-            <div className="flex border-b-2 border-slate-200 bg-slate-50">
+            <div className="flex border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-30">
               {/* Machine Column */}
-              <div className="w-48 flex-shrink-0 p-4 border-r-2 border-slate-200 font-bold text-sm text-slate-700 sticky left-0 z-20 bg-slate-50">
+              <div className="w-48 flex-shrink-0 p-2.5 border-r-2 border-slate-200 font-bold text-xs text-slate-700 sticky left-0 z-50 bg-slate-50 shadow-[2px_0_0_0_rgba(226,232,240,1)]">
                 {t("planning.gantt.machine")}
               </div>
 
               {/* Days */}
-              <div className="flex gantt-header-strip" style={{ width: `${timelineWidth}px` }} onMouseDown={handleTimelinePanStart}>
+              <div
+                className="flex gantt-header-strip cursor-grab active:cursor-grabbing"
+                style={{ width: `${timelineWidth}px` }}
+                onMouseDown={handleHeaderPanStart}
+              >
                 {timelineDays.map((day, idx) => (
                   <div
                     key={idx}
-                    className={`flex-shrink-0 border-r border-slate-200 p-2 text-center ${
+                    className={`flex-shrink-0 border-r border-slate-200 p-1 text-center ${
                       isToday(day) ? "bg-blue-50" : ""
                     }`}
                     style={{ width: `${effectiveDayWidth}px` }}
@@ -675,10 +1069,10 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                     <div className={`text-xs font-bold ${isToday(day) ? "text-blue-600" : "text-slate-700"}`}>
                       {format(day, 'EEE', { locale: nl })}
                     </div>
-                    <div className={`text-lg font-black ${isToday(day) ? "text-blue-600" : "text-slate-800"}`}>
+                    <div className={`text-base font-black ${isToday(day) ? "text-blue-600" : "text-slate-800"}`}>
                       {format(day, 'd')}
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-[10px] text-slate-500">
                       {format(day, 'MMM', { locale: nl })}
                     </div>
                   </div>
@@ -687,7 +1081,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
             </div>
 
             {/* Gantt Rows */}
-            <div className="max-h-[600px] overflow-y-auto">
+            <div>
               {visibleMachines.map((machine, idx) => {
                 const machineOrders = getOrdersForMachine(machine);
                 const { laidOutBars, rowHeight } = getMachineLayout(machineOrders);
@@ -701,7 +1095,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                     }`}
                   >
                     {/* Machine Name */}
-                    <div className={`w-48 flex-shrink-0 p-4 border-r-2 border-slate-200 sticky left-0 z-10 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}>
+                    <div className={`w-48 flex-shrink-0 p-4 border-r-2 border-slate-200 sticky left-0 z-40 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50"} shadow-[2px_0_0_0_rgba(226,232,240,1)]`}>
                       <button
                         onClick={() => toggleMachineCollapsed(machine)}
                         className="w-full flex items-center justify-between text-left"
@@ -719,7 +1113,7 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                     </div>
 
                     {/* Timeline */}
-                    <div className="relative overflow-hidden" style={{ width: `${timelineWidth}px`, height: `${isCollapsed ? 44 : rowHeight}px` }}>
+                    <div className="relative" style={{ width: `${timelineWidth}px`, height: `${isCollapsed ? 44 : rowHeight}px` }}>
                       {/* Day Grid Lines */}
                       {timelineDays.map((day, dayIdx) => (
                         <div
@@ -742,32 +1136,80 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                       {/* Orders */}
                       {!isCollapsed && laidOutBars.map(({ order, style, lane }) => {
                         const { _totalHours, _isEfficiencyBased, _startDate, _endDate, _leadWeeks, leftPx, widthPx, ...restStyle } = style || {};
+                        const stableOrderSelectionId = getOrderBarIdentity(order);
+                        const isSelectedBar = selectedOrderBarId === stableOrderSelectionId;
+                        const prediction = orderPredictionMap.get(getOrderIdentity(order));
+                        const predictedDateLabel = prediction?.predictedReadyDay
+                          ? format(prediction.predictedReadyDay, "dd-MM")
+                          : "--";
+                        const scheduleLabel =
+                          prediction?.scheduleStatus === "behind"
+                            ? t("planning.gantt.scheduleBehind", "Achter op schema")
+                            : prediction?.scheduleStatus === "ahead"
+                              ? t("planning.gantt.scheduleAhead", "Voor op schema")
+                              : prediction?.scheduleStatus === "on_time"
+                                ? t("planning.gantt.scheduleOnTime", "Op schema")
+                                : t("planning.gantt.scheduleUnknown", "Onbekend");
+                        const scheduleClass =
+                          prediction?.scheduleStatus === "behind"
+                            ? "text-rose-100"
+                            : prediction?.scheduleStatus === "ahead"
+                              ? "text-emerald-100"
+                              : "text-amber-100";
                         const cssStyle = {
                           ...restStyle,
                           left: `${leftPx}px`,
                           width: `${widthPx}px`,
                           top: `${lane * 26 + 4}px`,
+                          zIndex: dragState.isDragging && dragState.orderId === order.id
+                            ? 80
+                            : isSelectedBar
+                              ? 120
+                              : 10,
                         };
 
                         return (
                           <div
-                            key={order.id}
-                            onMouseDown={(e) => handleDragStart(e, order)}
-                            className={`gantt-order-bar absolute ${getOrderColor(order)} rounded-lg p-2 shadow-md hover:shadow-lg transition-shadow cursor-pointer group`}
+                            key={stableOrderSelectionId || `${order?.id || "order"}-${lane}`}
+                            onMouseDown={(e) => {
+                              handleDragStart(e, order);
+                            }}
+                            onClick={() =>
+                              setSelectedOrderBarId((prev) =>
+                                prev === stableOrderSelectionId ? null : stableOrderSelectionId
+                              )
+                            }
+                            className={`gantt-order-bar absolute ${getOrderColor(order)} rounded-lg p-2 shadow-md hover:shadow-lg transition-shadow cursor-pointer group ${
+                              prediction?.scheduleStatus === "behind"
+                                ? "ring-2 ring-rose-300"
+                                : prediction?.scheduleStatus === "ahead"
+                                  ? "ring-2 ring-emerald-300"
+                                  : ""
+                            } ${isSelectedBar ? "ring-2 ring-blue-300" : ""}`}
                             style={cssStyle}
                           >
                             <div className="text-white text-xs font-bold truncate">
-                              {order.orderId || order.item}
+                              {order.orderId || "-"}
                             </div>
                             <div className="text-white text-xs opacity-90">
-                              {order.plan} stuks
+                              {(order.itemCode || order.item || "-")} · {getProducedUnits(order, trackedFinishedByOrder)}/{order.plan} stuks
                             </div>
+                            <div className="text-white/90 text-[10px] truncate">
+                              {order.itemDescription || order.item || ""}
+                            </div>
+                            {prediction && (
+                              <div className={`text-[10px] font-bold truncate ${scheduleClass}`}>
+                                {t("planning.gantt.predictedReady", "AI gereed")}: {predictedDateLabel}
+                              </div>
+                            )}
 
                             {/* Tooltip on hover */}
-                            <div className="hidden group-hover:block absolute bottom-full left-0 mb-2 bg-slate-900 text-white p-3 rounded-lg shadow-xl z-10 whitespace-nowrap text-xs">
+                            <div className={`${isSelectedBar ? "block" : "hidden"} absolute top-full left-0 mt-2 bg-slate-900 text-white p-3 rounded-lg shadow-xl z-[90] whitespace-nowrap text-xs`}>
                               <div className="font-bold mb-1">{order.orderId || order.item}</div>
-                              <div>{t("planning.gantt.tooltipItem")}: {order.itemCode || order.extraCode}</div>
+                              <div>{t("planning.gantt.tooltipItem")}: {order.itemCode || "-"}</div>
+                              <div>{t("planning.gantt.tooltipProduct", "Product")}: {order.itemDescription || order.item || "-"}</div>
                               <div>{t("planning.gantt.tooltipQuantity")}: {order.plan} {t("planning.gantt.pieces")}</div>
+                              <div>{t("planning.gantt.tooltipProduced", "Gemaakt")}: {getProducedUnits(order, trackedFinishedByOrder)} / {order.plan} {t("planning.gantt.pieces")}</div>
                               <div>
                                 {t("planning.gantt.tooltipTime")}: {Math.round(_totalHours * 10) / 10}u
                                 {_isEfficiencyBased && <span className="text-emerald-300 ml-1 font-bold">(LN)</span>}
@@ -776,6 +1218,24 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
                               {_startDate && <div>{t("planning.gantt.tooltipFrom")}: {format(_startDate, 'dd-MM-yyyy')}</div>}
                               {_endDate && <div>{t("planning.gantt.tooltipTo")}: {format(_endDate, 'dd-MM-yyyy')}</div>}
                               <div>{t("planning.gantt.tooltipLeadTime")}: {_leadWeeks} {t("planning.gantt.weeks")}</div>
+                              {prediction && (
+                                <div>
+                                  {t("planning.gantt.tooltipPredictedReady", "Voorspelde gereeddatum")}: {prediction.predictedReadyDay ? format(prediction.predictedReadyDay, "dd-MM-yyyy") : "--"}
+                                </div>
+                              )}
+                              {prediction?.scheduleStatus !== "unknown" && (
+                                <div>
+                                  {t("planning.gantt.tooltipSchedule", "Planningstatus")}: {scheduleLabel}
+                                  {Number.isFinite(prediction?.slipDays)
+                                    ? ` (${prediction.slipDays > 0 ? "+" : ""}${prediction.slipDays}d)`
+                                    : ""}
+                                </div>
+                              )}
+                              {prediction && (
+                                <div>
+                                  {t("planning.gantt.tooltipThroughput", "Tempo")}: {Math.round((prediction?.unitsPerDay || 0) * 10) / 10} {t("planning.gantt.pieces")}/dag
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -796,7 +1256,8 @@ const GanttChartView = ({ dataSourceMode = "current" }) => {
           {[
             { status: "planned", label: t("planning.gantt.statusPlanned"), color: "bg-blue-500" },
             { status: "in_production", label: t("planning.gantt.statusInProduction"), color: "bg-orange-500" },
-            { status: "quality_check", label: t("planning.gantt.statusQualityCheck"), color: "bg-purple-500" }
+            { status: "quality_check", label: t("planning.gantt.statusQualityCheck"), color: "bg-purple-500" },
+            { status: "ready", label: t("planning.gantt.statusReady", "Gereed"), color: "bg-emerald-500" }
           ].map(item => (
             <div key={item.status} className="flex items-center gap-2">
               <div className={`w-4 h-4 ${item.color} rounded`} />

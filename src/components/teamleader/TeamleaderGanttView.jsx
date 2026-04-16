@@ -88,7 +88,10 @@ const TeamleaderGanttView = ({ metrics }) => {
       </div>
       <div className="max-w-4xl w-full bg-white rounded-3xl shadow-xl p-8 flex flex-col items-center">
         <h2 className="text-2xl font-black text-orange-700 mb-4 uppercase tracking-widest">Gantt-planning</h2>
-        <GanttChartView />
+        <GanttChartView
+          planningOrders={Array.isArray(metrics?.planningOrders) ? metrics.planningOrders : null}
+          trackedProducts={Array.isArray(metrics?.trackedProducts) ? metrics.trackedProducts : null}
+        />
       </div>
     </div>
   );

@@ -1,50 +1,22 @@
-/**
- * dbPaths.js - V33.0 (Audit Log Path Fix)
- * Gecorrigeerd: Paden voor collecties moeten een oneven aantal segmenten hebben.
- */
-
 const BASE = "future-factory";
-const ARTIFACT_APP_ID = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-const USE_ARTIFACTS_PATHS = typeof __app_id !== "undefined";
-const FUTURE_PLANNING_PATH = [BASE, "production", "data", "digital_planning", "orders"];
-const FUTURE_PLANNING_PATH_LEGACY = [BASE, "production", "digital_planning"];
-const PILOT_PLANNING_PATH_PRIMARY = [BASE, "production", "digital_planning"];
-const PILOT_PLANNING_PATH_FALLBACK = [BASE, "production", "data", "digital_planning", "orders"];
-const FUTURE_TRACKING_PATH = [BASE, "production", "tracked_products"];
-const FUTURE_EFFICIENCY_HOURS_PATH = [BASE, "production", "efficiency_hours"];
-const ARTIFACT_PLANNING_PATH = ["artifacts", ARTIFACT_APP_ID, "public", "data", "digital_planning"];
-const ARTIFACT_TRACKING_PATH = ["artifacts", ARTIFACT_APP_ID, "public", "data", "tracked_products"];
-const ARTIFACT_EFFICIENCY_HOURS_PATH = ["artifacts", ARTIFACT_APP_ID, "public", "data", "efficiency_hours"];
-
-let ADMIN_DATA_SOURCE_MODE = "current";
-
-const shouldUseArtifactsPaths = () =>
-  ADMIN_DATA_SOURCE_MODE === "preview" ||
-  (USE_ARTIFACTS_PATHS && ADMIN_DATA_SOURCE_MODE === "current");
-
-let PLANNING_PATH = shouldUseArtifactsPaths()
-  ? ARTIFACT_PLANNING_PATH
-  : FUTURE_PLANNING_PATH;
-let TRACKING_PATH = shouldUseArtifactsPaths()
-  ? ARTIFACT_TRACKING_PATH
-  : FUTURE_TRACKING_PATH;
-let EFFICIENCY_HOURS_PATH = shouldUseArtifactsPaths()
-  ? ARTIFACT_EFFICIENCY_HOURS_PATH
-  : FUTURE_EFFICIENCY_HOURS_PATH;
+const PRODUCTION_PLANNING_PATH = [BASE, "production", "digital_planning"];
+const PRODUCTION_PLANNING_PATH_LEGACY = [BASE, "production", "data", "digital_planning", "orders"];
+const PRODUCTION_TRACKING_PATH = [BASE, "production", "tracked_products"];
+const PRODUCTION_EFFICIENCY_HOURS_PATH = [BASE, "production", "efficiency_hours"];
 
 export const ACTIVE_SITE = BASE;
 
 export const PATHS = {
   // --- PRODUCTIE (Collecties: oneven segmenten) ---
   PRODUCTS: [BASE, "production", "products"],
-  PLANNING: PLANNING_PATH,
-  TRACKING: TRACKING_PATH,
+  PLANNING: PRODUCTION_PLANNING_PATH,
+  TRACKING: PRODUCTION_TRACKING_PATH,
   MESSAGES: [BASE, "production", "messages"],
   OCCUPANCY: [BASE, "production", "machine_occupancy"],
   TEMP_PLANNING: [BASE, "temp_labels", "orders"], // Tijdelijk pad voor legacy labels
   INVENTORY: [BASE, "production", "inventory"],
   PRODUCTION_STANDARDS: [BASE, "production", "time_standards"],
-  EFFICIENCY_HOURS: EFFICIENCY_HOURS_PATH,
+  EFFICIENCY_HOURS: PRODUCTION_EFFICIENCY_HOURS_PATH,
   TIME_LOGS: [BASE, "production", "time_logs"],
   DOWNTIME: [BASE, "production", "downtime_reports"],
   DEFECTS: [BASE, "production", "defect_reports"],
@@ -98,71 +70,6 @@ export const PATHS = {
   SCENARIOS: [BASE, "planning", "scenarios"],
 };
 
-const refreshRuntimeDataPaths = () => {
-  PLANNING_PATH = ADMIN_DATA_SOURCE_MODE === "pilot-read"
-    ? PILOT_PLANNING_PATH_PRIMARY
-    : (shouldUseArtifactsPaths() ? ARTIFACT_PLANNING_PATH : FUTURE_PLANNING_PATH);
-  TRACKING_PATH = shouldUseArtifactsPaths()
-    ? ARTIFACT_TRACKING_PATH
-    : FUTURE_TRACKING_PATH;
-  EFFICIENCY_HOURS_PATH = shouldUseArtifactsPaths()
-    ? ARTIFACT_EFFICIENCY_HOURS_PATH
-    : FUTURE_EFFICIENCY_HOURS_PATH;
-
-  PATHS.PLANNING = PLANNING_PATH;
-  PATHS.TRACKING = TRACKING_PATH;
-  PATHS.EFFICIENCY_HOURS = EFFICIENCY_HOURS_PATH;
-};
-
-export const setAdminDataSourceMode = (mode = "current") => {
-  if (mode === "pilot-read") ADMIN_DATA_SOURCE_MODE = "pilot-read";
-  else if (mode === "preview") ADMIN_DATA_SOURCE_MODE = "preview";
-  else ADMIN_DATA_SOURCE_MODE = "current";
-  refreshRuntimeDataPaths();
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(
-      new window.CustomEvent("admin-data-source-mode-changed", {
-        detail: { mode: ADMIN_DATA_SOURCE_MODE },
-      })
-    );
-  }
-};
-
-export const getAdminDataSourceMode = () => ADMIN_DATA_SOURCE_MODE;
-
-export const isPilotReadDataSource = () => ADMIN_DATA_SOURCE_MODE === "pilot-read";
-
-export const isPreviewDataSource = () => ADMIN_DATA_SOURCE_MODE === "preview";
-
-// Fixed read-only paths to the pilot/live production collections.
-const PILOT_PLANNING_PATH = PILOT_PLANNING_PATH_PRIMARY;
-const PILOT_TRACKING_PATH = [BASE, "production", "tracked_products"];
-const PILOT_EFFICIENCY_HOURS_PATH = [BASE, "production", "efficiency_hours"];
-
-export const PILOT_READ_PATHS = {
-  ...PATHS,
-  PLANNING: PILOT_PLANNING_PATH,
-  TRACKING: PILOT_TRACKING_PATH,
-  EFFICIENCY_HOURS: PILOT_EFFICIENCY_HOURS_PATH,
-};
-
-export const getReadPaths = (usePilotRead = false) =>
-  usePilotRead ? PILOT_READ_PATHS : PATHS;
-
-export const getPilotPlanningReadPathCandidates = () => [
-  PILOT_PLANNING_PATH_PRIMARY,
-  PILOT_PLANNING_PATH_FALLBACK,
-  FUTURE_PLANNING_PATH_LEGACY,
-  FUTURE_PLANNING_PATH,
-];
-
-// Initialiseer runtime-data bron op basis van persistente admin instelling.
-if (typeof window !== "undefined") {
-  const savedMode = window.localStorage.getItem("adminDataSourceMode");
-  setAdminDataSourceMode(["pilot-read", "preview"].includes(savedMode) ? savedMode : "current");
-}
-
 /**
  * isValidPath - Controleert of een pad-sleutel geldig is
  */
@@ -191,9 +98,6 @@ export const getPathString = (pathArray) =>
  * @param {number|string} year - Het jaar van het archief
  */
 export const getArchiveItemsPath = (year) => {
-  if (shouldUseArtifactsPaths()) {
-    return ["artifacts", ARTIFACT_APP_ID, "public", "data", "archive", String(year), "items"];
-  }
   return [BASE, "production", "archive", String(year), "items"];
 };
 
@@ -202,9 +106,6 @@ export const getArchiveItemsPath = (year) => {
  * @param {number|string} year - Het jaar van het archief
  */
 export const getArchiveRejectedItemsPath = (year) => {
-  if (shouldUseArtifactsPaths()) {
-    return ["artifacts", ARTIFACT_APP_ID, "public", "data", "archive", String(year), "rejected"];
-  }
   return [BASE, "production", "archive", String(year), "rejected"];
 };
 
@@ -225,10 +126,6 @@ export const getEfficiencyArchivePath = (year) => {
   return [BASE, "production", "archive", String(year), "efficiency"];
 };
 
-/**
- * Legacy Artifacts Paden - Voor compatibiliteit met bestaande systemen
- * Deze functies genereren dynamische paden voor het artifacts systeem
- */
 export const getArtifactsPath = (appId, ...segments) => {
   return ["artifacts", appId, "public", "data", ...segments];
 };

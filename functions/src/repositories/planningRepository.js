@@ -7,18 +7,7 @@ const {
 } = require('../config/planningConstants');
 const { clean } = require('../utils/text');
 
-const resolveRuntimeDataPaths = (runtimeDataSource = null) => {
-  const appId = clean(runtimeDataSource?.appId);
-  const useArtifactsPaths = Boolean(runtimeDataSource?.useArtifactsPaths && appId);
-
-  if (useArtifactsPaths) {
-    return {
-      trackingCollection: `artifacts/${appId}/public/data/tracked_products`,
-      planningCollection: `artifacts/${appId}/public/data/digital_planning`,
-      planningLegacyCollection: null,
-    };
-  }
-
+const resolveRuntimeDataPaths = () => {
   return {
     trackingCollection: TRACKING_COLLECTION,
     planningCollection: PLANNING_COLLECTION,
@@ -26,11 +15,11 @@ const resolveRuntimeDataPaths = (runtimeDataSource = null) => {
   };
 };
 
-const getPlanningOrderDocByOrderId = async (orderId, runtimeDataSource = null) => {
+const getPlanningOrderDocByOrderId = async (orderId) => {
   const normalizedOrderId = clean(orderId);
   if (!normalizedOrderId) return null;
 
-  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths();
 
   const primarySnap = await db
     .collection(planningCollection)
@@ -56,7 +45,7 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource =
   const cleanId = clean(productOrLotId);
   if (!cleanId) return null;
 
-  const { trackingCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+  const { trackingCollection } = resolveRuntimeDataPaths();
 
   const directRef = db.collection(trackingCollection).doc(cleanId);
   const directSnap = await directRef.get();
@@ -72,11 +61,11 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource =
   return null;
 };
 
-const getPlanningOrderDocById = async (orderDocId, runtimeDataSource = null) => {
+const getPlanningOrderDocById = async (orderDocId) => {
   const cleanId = clean(orderDocId);
   if (!cleanId) return null;
 
-  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths(runtimeDataSource);
+  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths();
 
   const primaryRef = db.collection(planningCollection).doc(cleanId);
   const primarySnap = await primaryRef.get();
@@ -92,26 +81,21 @@ const getPlanningOrderDocById = async (orderDocId, runtimeDataSource = null) => 
 };
 
 /**
- * Resolves all environment-aware collection paths for a single request.
- * Returns path strings and a `_rds` back-reference for passing to repository functions.
+ * Resolves database collection paths.
+ * Runtime switching is verwijderd; alle paden wijzen nu naar productie.
  */
-const resolveDbContext = (runtimeDataSource = null) => {
-  const appId = clean(runtimeDataSource?.appId);
-  const useArtifacts = Boolean(runtimeDataSource?.useArtifactsPaths && appId);
-  const artifactsBase = `artifacts/${appId}/public/data`;
+const resolveDbContext = () => {
   const prodBase = `${BASE}/production`;
-  const base = useArtifacts ? artifactsBase : prodBase;
   return {
-    trackingPath: useArtifacts ? `${artifactsBase}/tracked_products` : TRACKING_COLLECTION,
-    planningPath: useArtifacts ? `${artifactsBase}/digital_planning` : PLANNING_COLLECTION,
-    planningLegacyPath: useArtifacts ? null : PLANNING_COLLECTION_LEGACY,
-    efficiencyPath: `${base}/efficiency_hours`,
-    archiveItemsPath: (year) => `${base}/archive/${year}/items`,
-    archiveRejectedPath: (year) => `${base}/archive/${year}/rejected`,
-    archivePlanningPath: (year) => `${base}/archive/${year}/planning`,
+    trackingPath: TRACKING_COLLECTION,
+    planningPath: PLANNING_COLLECTION,
+    planningLegacyPath: PLANNING_COLLECTION_LEGACY,
+    efficiencyPath: `${prodBase}/efficiency_hours`,
+    archiveItemsPath: (year) => `${prodBase}/archive/${year}/items`,
+    archiveRejectedPath: (year) => `${prodBase}/archive/${year}/rejected`,
+    archivePlanningPath: (year) => `${prodBase}/archive/${year}/planning`,
     occupancyPath: `${BASE}/production/machine_occupancy`,
     printQueuePath: `${BASE}/production/print_queue`,
-    _rds: runtimeDataSource,
   };
 };
 

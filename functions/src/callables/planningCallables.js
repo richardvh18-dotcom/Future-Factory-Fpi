@@ -103,31 +103,11 @@ const {
 
 const IMPORT_ALLOWED_MODES = new Set(['new_only', 'overwrite', 'smart_update']);
 
-/**
- * Extracts runtimeDataSource from callable payload → null = production paths.
- */
-const extractRds = (data) => {
-  const rds = data?.runtimeDataSource;
-  if (!rds || typeof rds !== 'object') return null;
-  const appId = clean(rds.appId);
-  const useArtifacts = rds.useArtifactsPaths === true && Boolean(appId);
-  return useArtifacts ? { useArtifactsPaths: true, appId } : null;
-};
+const extractRds = () => null;
 
-const extractRdsFromSourcePath = (data) => {
-  const hintedPath = clean(data?.orderSourcePath || data?.sourcePath || data?.planningSourcePath);
-  if (!hintedPath) return null;
-  const parts = hintedPath.split('/').filter(Boolean);
-  if (parts[0] !== 'artifacts') return null;
-  const appId = clean(parts[1]);
-  return appId ? { useArtifactsPaths: true, appId } : null;
-};
+const extractRdsFromSourcePath = () => null;
 
-const resolveRdsForRequest = (data) => {
-  const explicitRds = extractRds(data);
-  if (explicitRds?.useArtifactsPaths) return explicitRds;
-  return extractRdsFromSourcePath(data) || explicitRds;
-};
+const resolveRdsForRequest = () => null;
 
 const sanitizeRejectReasons = (rawReasons) => {
   if (!Array.isArray(rawReasons) || rawReasons.length === 0) {
@@ -408,7 +388,6 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
   const seriesGroupId = clean(data?.seriesGroupId);
   const isFlangeSeries = Boolean(data?.isFlangeSeries);
   const source = clampText(data?.source, 80);
-  const runtimeDataSource = resolveRdsForRequest(data);
   const stationOperators = Array.isArray(data?.stationOperators)
     ? data.stationOperators.map((entry) => clampText(entry, 80)).filter(Boolean).slice(0, 50)
     : [];
@@ -433,8 +412,7 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
       stationOperators,
       source,
       auth: context.auth,
-      runtimeDataSource,
-      dbCtx: resolveDbContext(runtimeDataSource),
+      dbCtx: resolveDbContext(),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
@@ -642,11 +620,19 @@ const archivePlanningOrder = functions.https.onCall(async (data, context) => {
       source,
       auth: context.auth,
       userRole,
+      // 'manual' en 'rejected' mogen altijd archiveren, ook als er nog actieve producten zijn.
+      allowWithActiveProducts: requestedReason === 'manual' || requestedReason === 'rejected',
       dbCtx: resolveDbContext(extractRds(data)),
     });
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
       throw new functions.https.HttpsError('not-found', 'Planning-order niet gevonden.');
+    }
+    if (error?.message === 'ACTIVE_PRODUCTS_REMAIN') {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Er zijn nog actieve producten in productie. Archiveren is alleen mogelijk nadat het laatste product goedgekeurd is bij Eindinspectie.'
+      );
     }
     throw error;
   }
@@ -1503,13 +1489,6 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
   const labelTemplateId = clean(data?.labelTemplateId);
   const seriesGroupId = clean(data?.seriesGroupId);
   const isFlangeSeries = Boolean(data?.isFlangeSeries);
-  const runtimeDataSource = data?.runtimeDataSource && typeof data.runtimeDataSource === 'object'
-    ? {
-      useArtifactsPaths: data.runtimeDataSource.useArtifactsPaths === true,
-      appId: clean(data.runtimeDataSource.appId),
-    }
-    : null;
-
   if (!orderDocId || !orderId || !itemCode || !lotStart || !stationId) {
     throw new functions.https.HttpsError('invalid-argument', 'orderDocId, orderId, itemCode, lotStart en stationId zijn verplicht.');
   }
@@ -1534,7 +1513,7 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
     labelTemplateId,
     seriesGroupId,
     isFlangeSeries,
-    runtimeDataSource,
+    dbCtx: resolveDbContext(),
   });
 });
 
@@ -1760,13 +1739,6 @@ const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) =
   const stationId = clean(data?.stationId);
   const count = Number(data?.count);
   const reserve = data?.reserve !== false;
-  const runtimeDataSource = data?.runtimeDataSource && typeof data.runtimeDataSource === 'object'
-    ? {
-      useArtifactsPaths: data.runtimeDataSource.useArtifactsPaths === true,
-      appId: clean(data.runtimeDataSource.appId),
-    }
-    : null;
-
   if (!stationId || !Number.isFinite(count) || count < 1 || count > 200) {
     throw new functions.https.HttpsError('invalid-argument', 'stationId en geldige count (1-200) zijn verplicht.');
   }
@@ -1778,8 +1750,7 @@ const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) =
       stationId,
       count,
       reserve,
-      runtimeDataSource,
-      dbCtx: resolveDbContext(extractRds(data)),
+      dbCtx: resolveDbContext(),
     });
   } catch (error) {
     if (error?.message === 'INVALID_LOT_RANGE_SIZE') {
@@ -2082,12 +2053,10 @@ const importPlanningOrders = functions.https.onCall(async (data, context) => {
 
   auditService.logCallable(context, 'IMPORT_PLANNING_ORDERS', { orderCount: orders.length, importMode }, { category: 'PLANNING', severity: 'INFO' });
 
-  const runtimeDataSource = resolveRdsForRequest(data);
-
   return bulkImportPlanningOrdersService({
     orders,
     importMode,
-    dbCtx: resolveDbContext(runtimeDataSource),
+    dbCtx: resolveDbContext(),
   });
 });
 

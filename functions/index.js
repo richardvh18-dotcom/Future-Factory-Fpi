@@ -14,6 +14,8 @@ const EFFICIENCY_COLLECTION = `${BASE}/production/efficiency_hours`;
 const IMPORT_RUNS_COLLECTION = `${BASE}/integrations/import_runs`;
 const AI_RATE_LIMIT_COLLECTION = `${BASE}/security/ai_rate_limits`;
 const CLIENT_ERROR_LOG_COLLECTION = `${BASE}/logs/client_errors`;
+const STATS_TODAY_DOC = `${BASE}/stats/today`;
+const STATS_DAILY_COLLECTION = `${BASE}/stats/daily`;
 const STORAGE_IMPORT_FOLDER = 'imports/planning/';
 const ALLOWED_IMPORT_EXTENSIONS = ['.xlsx', '.xlsm', '.xls'];
 const AI_RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -172,6 +174,157 @@ const containsPromptInjectionPattern = (value = '') => {
 };
 
 const clampText = (value, maxChars) => String(value || '').slice(0, maxChars);
+
+const getEuropeAmsterdamDayKey = (dateLike = new Date()) => {
+  const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+};
+
+const toNumber = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const normalizeStatusForStats = (value = '') =>
+  String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+const isPlanningActiveStatus = (status = '') => {
+  const s = normalizeStatusForStats(status);
+  return [
+    'waiting',
+    'planned',
+    'released',
+    'in_progress',
+    'in_production',
+    'active',
+    'post_processing',
+    'to_unload',
+    'unloading',
+    'to_inspect',
+    'held_qc',
+    'on_hold',
+    'delegated',
+  ].includes(s);
+};
+
+const getPlanningContribution = (docData) => {
+  if (!docData) {
+    return {
+      planning_total_orders: 0,
+      planning_active_orders: 0,
+      planning_total_plan_units: 0,
+      planning_total_planned_hours: 0,
+    };
+  }
+
+  const splitHours =
+    toNumber(docData.plannedHoursBH) +
+    toNumber(docData.plannedHoursNabewerken) +
+    toNumber(docData.plannedHoursBM01);
+
+  return {
+    planning_total_orders: 1,
+    planning_active_orders: isPlanningActiveStatus(docData.status || docData.orderStatus) ? 1 : 0,
+    planning_total_plan_units: toNumber(docData.plan ?? docData.quantity ?? docData.toDoQty),
+    planning_total_planned_hours: splitHours > 0 ? splitHours : toNumber(docData.totalPlannedHours ?? docData.plannedHours),
+  };
+};
+
+const getTrackedContribution = (docData) => {
+  if (!docData) {
+    return {
+      tracked_active_count: 0,
+      tracked_finished_count: 0,
+      tracked_rejected_count: 0,
+    };
+  }
+
+  const status = normalizeStatusForStats(docData.status);
+  const step = normalizeStatusForStats(docData.currentStep);
+  const isRejected = ['rejected', 'afkeur', 'archived_rejected'].includes(status) || step === 'rejected';
+  const isFinished = ['finished', 'completed', 'gereed'].includes(status) || step === 'finished';
+  const isCancelled = ['cancelled', 'geannuleerd'].includes(status);
+  const isActive = !isRejected && !isFinished && !isCancelled;
+
+  return {
+    tracked_active_count: isActive ? 1 : 0,
+    tracked_finished_count: isFinished ? 1 : 0,
+    tracked_rejected_count: isRejected ? 1 : 0,
+  };
+};
+
+const diffContribution = (before, after) => {
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const delta = {};
+  keys.forEach((key) => {
+    const beforeVal = toNumber(before?.[key]);
+    const afterVal = toNumber(after?.[key]);
+    const change = afterVal - beforeVal;
+    if (change !== 0) delta[key] = change;
+  });
+  return delta;
+};
+
+const applyStatsDelta = async (delta = {}, updatedAt = new Date()) => {
+  const dayKey = getEuropeAmsterdamDayKey(updatedAt) || getEuropeAmsterdamDayKey(new Date());
+  if (!dayKey) return;
+
+  const deltaKeys = Object.keys(delta || {}).filter((key) => toNumber(delta[key]) !== 0);
+  if (deltaKeys.length === 0) return;
+
+  const todayRef = db.doc(STATS_TODAY_DOC);
+  const dailyRef = db.doc(`${STATS_DAILY_COLLECTION}/${dayKey}`);
+
+  await db.runTransaction(async (tx) => {
+    const todaySnap = await tx.get(todayRef);
+    const current = todaySnap.exists ? (todaySnap.data() || {}) : {};
+
+    const updatePayload = {
+      lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      dayKey,
+    };
+    const dailyPayload = {
+      dayKey,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    deltaKeys.forEach((key) => {
+      const change = toNumber(delta[key]);
+      updatePayload[key] = admin.firestore.FieldValue.increment(change);
+      dailyPayload[key] = admin.firestore.FieldValue.increment(change);
+    });
+
+    const nextRejected = Math.max(0, toNumber(current.tracked_rejected_count) + toNumber(delta.tracked_rejected_count));
+    const nextFinished = Math.max(0, toNumber(current.tracked_finished_count) + toNumber(delta.tracked_finished_count));
+    const ratioBase = nextRejected + nextFinished;
+    const rejectionRate = ratioBase > 0 ? Number((nextRejected / ratioBase).toFixed(4)) : 0;
+
+    updatePayload.tracked_rejection_rate = rejectionRate;
+    dailyPayload.tracked_rejection_rate = rejectionRate;
+
+    tx.set(todayRef, updatePayload, { merge: true });
+    tx.set(dailyRef, dailyPayload, { merge: true });
+  });
+};
+
+const createOrderLifecycleEvent = async ({ orderId, eventType, source, payload }) => {
+  const safeOrderId = clean(orderId);
+  if (!safeOrderId || !eventType) return;
+
+  const eventRef = db.collection(`${PLANNING_COLLECTION}/${safeOrderId}/events`).doc();
+  await eventRef.set({
+    eventType,
+    source: source || 'system',
+    payload: payload && typeof payload === 'object' ? payload : {},
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+};
 
 const normalizeAiMessages = (messages = []) => {
   let totalChars = 0;
@@ -861,6 +1014,151 @@ exports.cleanupUserAuth = functions.firestore
         console.error(`❌ Fout bij verwijderen van ${email} uit Auth:`, error);
       }
     }
+  });
+
+/**
+ * STEP 1: Realtime aggregaties voor dashboard KPI's.
+ */
+exports.aggregatePlanningStats = functions.firestore
+  .document('future-factory/production/digital_planning/{orderId}')
+  .onWrite(async (change, context) => {
+    const before = change.before.exists ? change.before.data() : null;
+    const after = change.after.exists ? change.after.data() : null;
+    const delta = diffContribution(getPlanningContribution(before), getPlanningContribution(after));
+
+    if (Object.keys(delta).length > 0) {
+      await applyStatsDelta(delta);
+    }
+
+    const orderId = context.params?.orderId;
+    if (!orderId) return null;
+
+    if (!before && after) {
+      await createOrderLifecycleEvent({
+        orderId,
+        eventType: 'ORDER_CREATED',
+        source: 'planning_trigger',
+        payload: {
+          status: clean(after.status || after.orderStatus),
+          plan: toNumber(after.plan ?? after.quantity ?? after.toDoQty),
+        },
+      });
+      return null;
+    }
+
+    if (before && after) {
+      const statusBefore = clean(before.status || before.orderStatus);
+      const statusAfter = clean(after.status || after.orderStatus);
+      const planBefore = toNumber(before.plan ?? before.quantity ?? before.toDoQty);
+      const planAfter = toNumber(after.plan ?? after.quantity ?? after.toDoQty);
+      const notesBefore = clean(before.notes || before.poText);
+      const notesAfter = clean(after.notes || after.poText);
+
+      if (statusBefore !== statusAfter || planBefore !== planAfter || notesBefore !== notesAfter) {
+        await createOrderLifecycleEvent({
+          orderId,
+          eventType: 'ORDER_UPDATED',
+          source: 'planning_trigger',
+          payload: {
+            statusBefore,
+            statusAfter,
+            planBefore,
+            planAfter,
+            notesChanged: notesBefore !== notesAfter,
+          },
+        });
+      }
+    }
+
+    return null;
+  });
+
+exports.aggregateTrackedStats = functions.firestore
+  .document('future-factory/production/tracked_products/{productId}')
+  .onWrite(async (change) => {
+    const before = change.before.exists ? change.before.data() : null;
+    const after = change.after.exists ? change.after.data() : null;
+    const delta = diffContribution(getTrackedContribution(before), getTrackedContribution(after));
+
+    if (Object.keys(delta).length > 0) {
+      await applyStatsDelta(delta);
+    }
+
+    const orderId = clean(after?.orderId || before?.orderId);
+    if (orderId && after) {
+      const status = clean(after.status);
+      const step = clean(after.currentStep);
+      const prevStatus = clean(before?.status);
+      const prevStep = clean(before?.currentStep);
+
+      if (status !== prevStatus || step !== prevStep) {
+        await createOrderLifecycleEvent({
+          orderId,
+          eventType: 'TRACKED_PRODUCT_STEP_CHANGED',
+          source: 'tracked_trigger',
+          payload: {
+            productId: clean(change.after.id),
+            statusBefore: prevStatus,
+            statusAfter: status,
+            stepBefore: prevStep,
+            stepAfter: step,
+            lotNumber: clean(after.lotNumber),
+          },
+        });
+      }
+    }
+
+    return null;
+  });
+
+/**
+ * STEP 3: TTL metadata op logs zetten.
+ * Let op: TTL zelf activeer je in Firebase Console op veld `expireAt`.
+ */
+exports.applyActivityLogTtl = functions.firestore
+  .document('future-factory/logs/activity_logs/{logId}')
+  .onCreate(async (snapshot) => {
+    const data = snapshot.data() || {};
+    const action = clean(data.action).toUpperCase();
+    const severity = clean(data.severity).toUpperCase();
+    const category = clean(data.category).toUpperCase();
+
+    const longTerm =
+      severity === 'CRITICAL' ||
+      category === 'QUALITY' ||
+      category === 'SECURITY' ||
+      action.includes('REJECT') ||
+      action.includes('ARCHIVE');
+
+    const retentionDays = longTerm ? 3650 : 90;
+    const expireAt = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
+
+    await snapshot.ref.set(
+      {
+        expireAt: admin.firestore.Timestamp.fromDate(expireAt),
+        ttlPolicyDays: retentionDays,
+      },
+      { merge: true }
+    );
+
+    return null;
+  });
+
+exports.applyClientErrorTtl = functions.firestore
+  .document('future-factory/logs/client_errors/{errorId}')
+  .onCreate(async (snapshot) => {
+    const retentionDays = 7;
+    const expireAt = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
+
+    await snapshot.ref.set(
+      {
+        expireAt: admin.firestore.Timestamp.fromDate(expireAt),
+        ttlPolicyDays: retentionDays,
+      },
+      { merge: true }
+    );
+
+    return null;
   });
 
 /**

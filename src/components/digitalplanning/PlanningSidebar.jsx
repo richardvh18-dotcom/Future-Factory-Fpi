@@ -98,9 +98,19 @@ const PlanningSidebar = ({
 
   const isOpenOrRunningStatus = (status) => {
     const normalized = normalizeOrderStatus(status);
+    // Geen status = toon altijd (import orders hebben soms geen status)
+    if (!normalized) return true;
     return [
       "open",
       "planned",
+      "planning",
+      "waiting",
+      "released",
+      "release",
+      "vrijgegeven",
+      "gepland",
+      "nieuw",
+      "new",
       "pending",
       "todo",
       "to_do",
@@ -111,6 +121,9 @@ const PlanningSidebar = ({
       "processing",
       "running",
       "lopend",
+      "ingepland",
+      "gereed_voor_productie",
+      "productie",
     ].includes(normalized);
   };
 
@@ -737,6 +750,187 @@ const PlanningSidebar = ({
     return "--";
   };
 
+  const formatDateWithWeek = (dateInput) => {
+    const date = typeof dateInput?.toDate === "function" ? dateInput.toDate() : new Date(dateInput);
+    if (!Number.isFinite(date.getTime())) return "--";
+    const dateStr = date.toLocaleDateString("nl-NL", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const week = String(getISOWeek(date)).padStart(2, "0");
+    return `${dateStr}  W${week}`;
+  };
+
+  const getOrderIdentity = (order) => String(order?.orderId || order?.id || "").trim();
+  const getNumeric = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const trackedFinishedByOrder = useMemo(() => {
+    const map = new Map();
+    trackedProducts.forEach((product) => {
+      const orderId = String(product?.orderId || "").trim();
+      if (!orderId) return;
+      const status = String(product?.status || "").toLowerCase();
+      const step = String(product?.currentStep || "").toLowerCase();
+      const isFinished =
+        status.includes("finish") ||
+        status.includes("gereed") ||
+        status.includes("completed") ||
+        step.includes("finish");
+      if (!isFinished) return;
+      map.set(orderId, (map.get(orderId) || 0) + 1);
+    });
+    return map;
+  }, [trackedProducts]);
+
+  const machineThroughputPerDay = useMemo(() => {
+    const now = new Date();
+    const windowStart = new Date(now);
+    windowStart.setDate(windowStart.getDate() - 14);
+
+    const byMachineFinished = new Map();
+    trackedProducts.forEach((product) => {
+      const machine = normalizeStationFilter(
+        product?.machine || product?.originMachine || product?.currentStation || product?.lastStation
+      );
+      if (!machine) return;
+
+      const status = String(product?.status || "").toLowerCase();
+      const step = String(product?.currentStep || "").toLowerCase();
+      const isFinished =
+        status.includes("finish") ||
+        status.includes("gereed") ||
+        status.includes("completed") ||
+        step.includes("finish");
+      if (!isFinished) return;
+
+      const eventDateRaw =
+        product?.timestamps?.finished ||
+        product?.updatedAt ||
+        product?.lastUpdated ||
+        product?.createdAt ||
+        null;
+      const eventDate = typeof eventDateRaw?.toDate === "function" ? eventDateRaw.toDate() : new Date(eventDateRaw || 0);
+      if (!Number.isFinite(eventDate.getTime()) || eventDate < windowStart) return;
+
+      byMachineFinished.set(machine, (byMachineFinished.get(machine) || 0) + 1);
+    });
+
+    const throughput = new Map();
+    byMachineFinished.forEach((count, machine) => {
+      throughput.set(machine, Math.max(0.5, count / 14));
+    });
+    return throughput;
+  }, [trackedProducts]);
+
+  const predictedScheduleByOrder = useMemo(() => {
+    const grouped = new Map();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const getSortDate = (order) => {
+      const candidates = [
+        order?.plannedDate,
+        order?.deliveryDate,
+        order?.plannedDeliveryDate,
+        order?.dueDate,
+        order?.date,
+        order?.createdAt,
+      ];
+      for (const value of candidates) {
+        if (!value) continue;
+        const parsed = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
+        if (Number.isFinite(parsed.getTime())) return parsed;
+      }
+      return new Date(today);
+    };
+
+    const getDeliveryDate = (order) => {
+      const candidates = [
+        order?.rejectDate,
+        order?.plannedDeliveryDate,
+        order?.deliveryDate,
+        order?.dueDate,
+        order?.plannedDate,
+      ];
+      for (const value of candidates) {
+        if (!value) continue;
+        const parsed = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
+        if (Number.isFinite(parsed.getTime())) {
+          parsed.setHours(0, 0, 0, 0);
+          return parsed;
+        }
+      }
+      return null;
+    };
+
+    sourceData.forEach((order) => {
+      const orderId = getOrderIdentity(order);
+      if (!orderId) return;
+      const machine = normalizeStationFilter(order?.machine);
+      if (!machine) return;
+      const list = grouped.get(machine) || [];
+      list.push(order);
+      grouped.set(machine, list);
+    });
+
+    const result = new Map();
+
+    grouped.forEach((machineOrders, machine) => {
+      const unitsPerDay = machineThroughputPerDay.get(machine) || 1;
+      const sorted = [...machineOrders].sort((a, b) => getSortDate(a).getTime() - getSortDate(b).getTime());
+
+      let queueAhead = 0;
+
+      sorted.forEach((order) => {
+        const orderId = getOrderIdentity(order);
+        const planned = Math.max(0, getNumeric(order?.plan || order?.plannedQuantity || order?.quantity || order?.qty));
+        const orderFinished = Math.max(
+          getNumeric(order?.produced),
+          getNumeric(order?.finishedCount),
+          getNumeric(order?.finishValue),
+          getNumeric(order?.wrapped),
+          getNumeric(order?.completed)
+        );
+        const trackedFinished = getNumeric(trackedFinishedByOrder.get(orderId));
+        const produced = Math.max(orderFinished, trackedFinished);
+        const remaining = Math.max(0, planned - produced);
+
+        const requiredDays = queueAhead + remaining > 0
+          ? Math.ceil((queueAhead + remaining) / Math.max(0.5, unitsPerDay))
+          : 0;
+        const predictedReadyDate = new Date(today);
+        predictedReadyDate.setDate(today.getDate() + Math.max(0, requiredDays - 1));
+
+        const deliveryDate = getDeliveryDate(order);
+        const slipDays = deliveryDate
+          ? Math.round((predictedReadyDate.getTime() - deliveryDate.getTime()) / (24 * 60 * 60 * 1000))
+          : 0;
+
+        const scheduleStatus = !deliveryDate
+          ? "unknown"
+          : slipDays > 0
+            ? "behind"
+            : slipDays < 0
+              ? "ahead"
+              : "on_time";
+
+        result.set(orderId, {
+          predictedReadyDate,
+          scheduleStatus,
+          slipDays,
+        });
+
+        queueAhead += remaining;
+      });
+    });
+
+    return result;
+  }, [sourceData, machineThroughputPerDay, trackedFinishedByOrder]);
+
   const getOrderTileTintClass = (order) => {
     const matchText = [order?.itemCode, order?.item, order?.itemDescription, order?.extraCode]
       .filter(Boolean)
@@ -809,6 +1003,21 @@ const PlanningSidebar = ({
             : null;
     const orderTypeBadge = getOrderTypeBadge(order);
     const cardTintClass = getOrderTileTintClass(order);
+    const prediction = predictedScheduleByOrder.get(getOrderIdentity(order));
+    const predictionLabel =
+      prediction?.scheduleStatus === "behind"
+        ? t("digitalplanning.sidebar.prediction_behind", "Achter op schema")
+        : prediction?.scheduleStatus === "ahead"
+          ? t("digitalplanning.sidebar.prediction_ahead", "Voor op schema")
+          : prediction?.scheduleStatus === "on_time"
+            ? t("digitalplanning.sidebar.prediction_on_time", "Op schema")
+            : t("digitalplanning.sidebar.prediction_unknown", "Onbekend");
+    const predictionClass =
+      prediction?.scheduleStatus === "behind"
+        ? "text-rose-700"
+        : prediction?.scheduleStatus === "ahead"
+          ? "text-emerald-700"
+          : "text-amber-700";
 
     return (
       <div style={style} className="px-2 py-1">
@@ -915,6 +1124,22 @@ const PlanningSidebar = ({
             <Calendar size={10} className="text-slate-300" />
             <span className="uppercase text-slate-400">Leverdatum:</span>
             <span className="text-slate-700">{formatDeliveryDate(order)}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 mb-2 text-[10px] font-bold text-slate-500">
+            <Calendar size={10} className="text-slate-300" />
+            <span className="uppercase text-slate-400">
+              {t("digitalplanning.sidebar.predicted_ready", "Voorspelde gereeddatum")}:
+            </span>
+            <span className="text-slate-700">
+              {prediction?.predictedReadyDate ? formatDateWithWeek(prediction.predictedReadyDate) : "--"}
+            </span>
+            <span className={`ml-1 ${predictionClass}`}>
+              {predictionLabel}
+              {Number.isFinite(prediction?.slipDays)
+                ? ` (${prediction.slipDays > 0 ? "+" : ""}${prediction.slipDays}d)`
+                : ""}
+            </span>
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-slate-100/50">

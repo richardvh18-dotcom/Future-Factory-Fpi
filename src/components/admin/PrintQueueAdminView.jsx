@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../config/firebase';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, collectionGroup, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { PATHS } from '../../config/dbPaths';
 import { formatDistanceToNow } from 'date-fns';
 import { nl } from 'date-fns/locale';
@@ -31,10 +31,64 @@ const PrintQueueAdminView = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, ...PATHS.PRINT_QUEUE), orderBy('timestamp', 'desc'));
-    const unsubscribeJobs = onSnapshot(q, (snapshot) => {
-      setPrintJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    let rootJobs = [];
+    let scopedJobs = [];
+
+    const normalizeJob = (docSnap) => {
+      const data = docSnap.data() || {};
+      const isQueueJob = Boolean(data.printerId || data.zpl || data.status || data.metadata?.description);
+      if (!isQueueJob) return null;
+      const normalizedTimestamp = data.timestamp || data.createdAt || null;
+      return {
+        id: docSnap.id,
+        ...data,
+        description: data.description || data.metadata?.description || '',
+        requesterEmail: data.requesterEmail || data.metadata?.requesterEmail || data.metadata?.requesterName || '-',
+        timestamp: normalizedTimestamp,
+      };
+    };
+
+    const tsToMillis = (ts) => {
+      if (!ts) return 0;
+      if (typeof ts.toDate === 'function') return ts.toDate().getTime();
+      const parsed = new Date(ts);
+      return Number.isFinite(parsed.getTime()) ? parsed.getTime() : 0;
+    };
+
+    const mergeJobs = () => {
+      const byId = new Map();
+      rootJobs.forEach((job) => {
+        if (job?.id) byId.set(job.id, job);
+      });
+      // Scoped jobs krijgen voorrang op legacy root docs.
+      scopedJobs.forEach((job) => {
+        if (job?.id) byId.set(job.id, job);
+      });
+
+      const merged = Array.from(byId.values()).sort((a, b) => tsToMillis(b.timestamp) - tsToMillis(a.timestamp));
+      setPrintJobs(merged);
       setLoading(false);
+    };
+
+    const rootQ = query(collection(db, ...PATHS.PRINT_QUEUE), orderBy('createdAt', 'desc'));
+    const unsubscribeRoot = onSnapshot(rootQ, (snapshot) => {
+      rootJobs = snapshot.docs.map(normalizeJob).filter(Boolean);
+      mergeJobs();
+    }, () => {
+      rootJobs = [];
+      mergeJobs();
+    });
+
+    const scopedQ = query(
+      collectionGroup(db, 'items'),
+      where('_scopeType', '==', 'print_queue')
+    );
+    const unsubscribeScoped = onSnapshot(scopedQ, (snapshot) => {
+      scopedJobs = snapshot.docs.map(normalizeJob).filter(Boolean);
+      mergeJobs();
+    }, () => {
+      scopedJobs = [];
+      mergeJobs();
     });
 
     const listenersRef = collection(db, ...PATHS.PRINT_LISTENERS);
@@ -43,7 +97,8 @@ const PrintQueueAdminView = () => {
     });
 
     return () => {
-      unsubscribeJobs();
+      unsubscribeRoot();
+      unsubscribeScoped();
       unsubscribeListeners();
     };
   }, []);

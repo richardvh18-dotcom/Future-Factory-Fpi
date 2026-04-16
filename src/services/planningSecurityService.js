@@ -1,68 +1,9 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import app from "../config/firebase";
-import { PATHS } from "../config/dbPaths";
 
 const functions = getFunctions(app);
 
-const getArtifactsAppIdFromPaths = () => {
-  const planningPath = Array.isArray(PATHS?.PLANNING) ? PATHS.PLANNING : [];
-  if (planningPath[0] !== "artifacts") return "";
-  return String(planningPath[1] || "").trim();
-};
-
-const getRuntimeDataSource = (payload = null) => {
-  if (typeof window === "undefined") {
-    return { useArtifactsPaths: false, appId: "" };
-  }
-
-  const hintedPath = String(
-    payload?.orderSourcePath ||
-    payload?.sourcePath ||
-    payload?.planningSourcePath ||
-    ""
-  ).trim();
-  if (hintedPath.startsWith("artifacts/")) {
-    const parts = hintedPath.split("/");
-    const appIdFromHint = String(parts[1] || "").trim();
-    if (appIdFromHint) {
-      return { useArtifactsPaths: true, appId: appIdFromHint };
-    }
-  }
-
-  const studioAppId =
-    typeof __app_id !== "undefined"
-      ? String(__app_id || "").trim()
-      : "";
-  const envAppId = String(window.__app_id || "").trim() || studioAppId;
-  const pathAppId = getArtifactsAppIdFromPaths();
-  const resolvedAppId = envAppId || pathAppId;
-  const savedMode = window.localStorage.getItem("adminDataSourceMode") || "current";
-
-  // "pilot-read" → force production paths, no artifacts
-  if (savedMode === "pilot-read") {
-    return { useArtifactsPaths: false, appId: "" };
-  }
-
-  // "preview" → force artifacts with fallback appId
-  if (savedMode === "preview") {
-    const appId = resolvedAppId || "fittings-app-v1";
-    return { useArtifactsPaths: true, appId };
-  }
-
-  // "current" (default) → use __app_id if set (Firebase Studio context)
-  const appId = resolvedAppId;
-  return {
-    useArtifactsPaths: Boolean(appId),
-    appId,
-  };
-};
-
-/**
- * Wraps a Firebase callable to automatically inject runtimeDataSource into
- * every payload, ensuring the backend writes to the correct database section.
- */
-const callableWithRuntime = (callable) => async (payload) =>
-  callable({ ...payload, runtimeDataSource: getRuntimeDataSource(payload) });
+const callableWithRuntime = (callable) => async (payload = {}) => callable(payload);
 
 const rejectTrackedProductFinalCallable = callableWithRuntime(httpsCallable(functions, "rejectTrackedProductFinal"));
 const tempRejectTrackedProductCallable = callableWithRuntime(httpsCallable(functions, "tempRejectTrackedProduct"));
@@ -285,6 +226,7 @@ export const startWorkstationProductionRun = async ({
   lotStart,
   stringCount,
   stationId,
+  orderDocPath = "",
   orderSourcePath = "",
   actorLabel = "",
   labelZplData = "",
@@ -299,6 +241,7 @@ export const startWorkstationProductionRun = async ({
     lotStart: String(lotStart || "").trim(),
     stringCount: Number(stringCount),
     stationId: String(stationId || "").trim(),
+    orderDocPath: String(orderDocPath || "").trim(),
     orderSourcePath: String(orderSourcePath || "").trim(),
     actorLabel: String(actorLabel || "").trim(),
     labelZplData: typeof labelZplData === "string" ? labelZplData : "",
@@ -960,7 +903,6 @@ export const startProductionLots = async ({
     labelTemplateId: String(labelTemplateId || "").trim(),
     seriesGroupId: String(seriesGroupId || "").trim(),
     isFlangeSeries: Boolean(isFlangeSeries),
-    runtimeDataSource: getRuntimeDataSource(),
   };
 
   if (!payload.orderDocId || !payload.orderId || !payload.itemCode || !payload.lotStart || !payload.stationId) {
@@ -1093,7 +1035,6 @@ export const reserveAutoLotNumberRange = async ({
     stationId: String(stationId || "").trim(),
     count: parsedCount,
     reserve: reserve !== false,
-    runtimeDataSource: getRuntimeDataSource(),
   };
 
   if (!payload.stationId || !Number.isFinite(payload.count) || payload.count < 1 || payload.count > 200) {

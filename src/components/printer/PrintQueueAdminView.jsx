@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
 import { db } from '../../config/firebase';
 import {
-  collection, onSnapshot, orderBy, query, doc,
+  collection, collectionGroup, onSnapshot, orderBy, query, doc,
   where, getDocs, limit, getDoc, documentId
 } from 'firebase/firestore';
 import { PATHS } from '../../config/dbPaths';
@@ -822,18 +822,64 @@ const PrintQueueAdminView = () => {
       setLabelRules(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    const q = query(collection(db, ...PATHS.PRINT_QUEUE), orderBy('createdAt', 'desc'));
-    const unsubscribeJobs = onSnapshot(q, (snapshot) => {
-      setPrintJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    let rootJobs = [];
+    let scopedJobs = [];
+
+    const normalizeJob = (docSnap) => {
+      const data = docSnap.data() || {};
+      const isQueueJob = Boolean(data.printerId || data.zpl || data.status || data.metadata?.description);
+      if (!isQueueJob) return null;
+      return { id: docSnap.id, ...data };
+    };
+
+    const tsToMillis = (ts) => {
+      if (!ts) return 0;
+      if (typeof ts.toDate === 'function') return ts.toDate().getTime();
+      const parsed = new Date(ts);
+      return Number.isFinite(parsed.getTime()) ? parsed.getTime() : 0;
+    };
+
+    const mergeJobs = () => {
+      const byId = new Map();
+      rootJobs.forEach((job) => {
+        if (job?.id) byId.set(job.id, job);
+      });
+      // Scoped docs krijgen voorrang op legacy root docs.
+      scopedJobs.forEach((job) => {
+        if (job?.id) byId.set(job.id, job);
+      });
+      const merged = Array.from(byId.values()).sort((a, b) => tsToMillis(b.createdAt) - tsToMillis(a.createdAt));
+      setPrintJobs(merged);
       setLoading(false);
+    };
+
+    const rootQ = query(collection(db, ...PATHS.PRINT_QUEUE), orderBy('createdAt', 'desc'));
+    const unsubscribeRoot = onSnapshot(rootQ, (snapshot) => {
+      rootJobs = snapshot.docs.map(normalizeJob).filter(Boolean);
+      mergeJobs();
     }, (err) => {
-      console.error("Error fetching print jobs:", err);
-      setLoading(false);
+      console.error('Error fetching legacy print jobs:', err);
+      rootJobs = [];
+      mergeJobs();
+    });
+
+    const scopedQ = query(
+      collectionGroup(db, 'items'),
+      where('_scopeType', '==', 'print_queue')
+    );
+    const unsubscribeScoped = onSnapshot(scopedQ, (snapshot) => {
+      scopedJobs = snapshot.docs.map(normalizeJob).filter(Boolean);
+      mergeJobs();
+    }, (err) => {
+      console.error('Error fetching scoped print jobs:', err);
+      scopedJobs = [];
+      mergeJobs();
     });
 
     return () => {
       unsubPrinters();
-      unsubscribeJobs();
+      unsubscribeRoot();
+      unsubscribeScoped();
       unsubTemplates();
       unsubLogic();
     };

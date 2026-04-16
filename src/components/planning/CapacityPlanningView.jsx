@@ -27,8 +27,7 @@ import { collection, onSnapshot, doc, getDocs, query, limit } from "firebase/fir
 import { db } from "../../config/firebase";
 import {
   getPlanningArchivePath,
-  getPilotPlanningReadPathCandidates,
-  getReadPaths,
+  PATHS,
 } from "../../config/dbPaths";
 import { getISOWeek, startOfISOWeek, endOfISOWeek, format, subWeeks, addWeeks, startOfYear, endOfYear } from "date-fns";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
@@ -44,12 +43,11 @@ import { normalizeMachine } from "../../utils/hubHelpers";
  * Vergelijkt beschikbare productie-uren met geplande uren
  * Toont het verschil tussen capaciteit en demand
  */
-const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNavigate, dataSourceMode = "current" }) => {
+const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNavigate }) => {
   const { t } = useTranslation();
   const { user, role, isAdmin } = useAdminAuth();
-  const usePilotReadData = dataSourceMode === "pilot-read";
   const readDb = db;
-  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
+  const readPaths = PATHS;
   const [loading, setLoading] = useState(true);
   const [occupancy, setOccupancy] = useState([]);
   const [planningOrders, setPlanningOrders] = useState([]);
@@ -221,10 +219,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       }
     );
 
-    // Load planning orders (pilot mode supports multiple read-path candidates).
-    const planningPaths = usePilotReadData
-      ? getPilotPlanningReadPathCandidates()
-      : [readPaths.PLANNING];
+    const planningPaths = [readPaths.PLANNING, ["future-factory", "production", "digital_planning"]];
 
     const mergePlanningBuckets = () => {
       const mergedMap = new Map();
@@ -271,7 +266,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       planningUnsubs.forEach((fn) => fn && fn());
       unsubStandards();
     };
-  }, [readDb, readPaths, usePilotReadData]);
+  }, [readDb, readPaths]);
 
   useEffect(() => {
     let cancelled = false;
@@ -950,8 +945,8 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-4 pt-4">
-        <div className={`inline-flex items-center rounded-xl border px-3 py-1.5 text-[11px] font-black uppercase tracking-widest ${usePilotReadData ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-300 bg-slate-100 text-slate-700"}`}>
-          Databron: {usePilotReadData ? "Pilot DB (Read Only)" : "Huidige DB"}
+        <div className="inline-flex items-center rounded-xl border px-3 py-1.5 text-[11px] font-black uppercase tracking-widest border-slate-300 bg-slate-100 text-slate-700">
+          Databron: Productie
         </div>
       </div>
       {/* White Toolbar Header */}
@@ -1664,11 +1659,10 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       </div>
       )}
       
-      {activeTab === "efficiency" && <EfficiencyDashboard dataSourceMode={dataSourceMode} />}
-      {activeTab === "gantt" && <GanttChartView dataSourceMode={dataSourceMode} />}
+      {activeTab === "efficiency" && <EfficiencyDashboard />}
+      {activeTab === "gantt" && <GanttChartView />}
       {activeTab === "timetracking" && (
         <TimeTrackingView
-          dataSourceMode={dataSourceMode}
           initialDepartment={selectedDepartment}
         />
       )}

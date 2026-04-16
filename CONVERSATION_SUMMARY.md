@@ -1,3 +1,641 @@
+## Update sessie 108 (Gemaakt-teller op Gantt-kaart + Tempo fix) ✅
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikersvraag:**
+- Bij orders in productie moet er ook bij staan wat er al gemaakt is.
+- Tempo staat overal op 1/dag, terwijl dat voor veel orders niet klopt.
+
+**Implementatie:**
+
+1. **Gemaakt-teller zichtbaar op Gantt-kaart**
+   - Bestand: `src/components/planning/GanttChartView.jsx`
+   - Op elke orderbalk nu: `{itemCode} · {gemaakt}/{plan} stuks` i.p.v. alleen `{plan} stuks`
+   - In de popup extra regel: `Gemaakt: X / Y stuks` (via `getProducedUnits()`)
+
+2. **Tempo fallback `|| 1` verwijderd**
+   - Was: `machineThroughputPerDay.get(machineKey) || 1` → altijd minimaal 1/dag
+   - Nu: als er geen trackingdata voor een machine is in de laatste 14 dagen, wordt er helemaal géén AI-voorspelling getoond (geen misleidend tempo meer)
+
+3. **Vertalingen toegevoegd (NL + EN)**
+   - `planning.gantt.tooltipProduced`: "Gemaakt" / "Produced"
+
+---
+
+## Update sessie 107 (AI voorspelde gereeddatum in Gantt + orderkaartjes) ✅
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikersvraag:**
+- Voeg een voorspellende gereeddatum toe op basis van live outputtempo per machine/order.
+- Toon duidelijk of een order **voor/op/achter** schema loopt t.o.v. leverdatum.
+- Eerst zichtbaar in Gantt, daarna ook op orderkaartjes.
+
+**Implementatie:**
+1. **Gantt voorspeller toegevoegd**
+- Bestand: `src/components/planning/GanttChartView.jsx`
+- Nieuwe logica berekent per machine een throughput (stuks/dag) op basis van afgeronde tracked producten in de laatste 14 dagen.
+- Per order wordt berekend:
+    - geplande stuks
+    - geproduceerde stuks (orderfields + tracked finished fallback)
+    - resterend werk + wachtrij op dezelfde machine
+    - voorspelde gereeddatum
+    - schedule status: `ahead`, `on_time`, `behind`, `unknown`
+- UI uitbreiding:
+    - op elke Gantt-balk een regel “AI gereed: dd-mm”
+    - kleuraccent/ring bij voor- of achterstand
+    - tooltip met voorspelde datum, planningstatus (+/- dagen) en tempo (stuks/dag)
+
+2. **Scoped data naar Gantt doorgegeven vanuit Teamleader**
+- Bestanden:
+    - `src/components/digitalplanning/TeamleaderHub.jsx`
+    - `src/components/teamleader/TeamleaderGanttView.jsx`
+- `metrics` bevat nu ook `planningOrders` en `trackedProducts`.
+- Teamleader Gantt gebruikt die datasets direct, zodat voorspellingen in de juiste scope blijven.
+
+3. **Orderkaartjes uitgebreid met voorspelling**
+- Bestand: `src/components/digitalplanning/PlanningSidebar.jsx`
+- Zelfde type voorspellogica toegevoegd voor sidebar-kaarten.
+- Per kaart nu extra regel:
+    - voorspelde gereeddatum (datum + week)
+    - statuslabel (voor/op/achter/onbekend) inclusief dagdelta.
+
+4. **Vertalingen toegevoegd (NL + EN)**
+- Bestanden:
+    - `src/lang/nl.js`
+    - `src/lang/en.js`
+- Nieuwe keys voor:
+    - `digitalplanning.sidebar.predicted_ready` + statuslabels
+    - `planning.gantt.predictedReady`, tooltipvelden en schedule labels.
+
+**Belangrijke stabiliteitsfix meegenomen:**
+- In `GanttChartView` stond een verwijzing naar ongedefinieerde guard variabele (`usePilotReadData`) in drag-start.
+- Dit is vervangen door een geldige guard op provided/scoped data modus.
+
+**Validatie:**
+- `get_errors` op alle gewijzigde bestanden: **geen errors**
+
+**Opmerking voor vervolg:**
+- Dit is een eerste live predictor op basis van machine-outputtempo + orderwachtrij.
+- Een volgende verfijning kan producttype- of artikelcode-specifieke snelheid toevoegen voor nog nauwkeurigere voorspellingen.
+
+## Update sessie 106 (tracked_products + efficiency_hours scoped verdeling en canonieke 40-machinepaden) ✅
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikersmelding:**
+- Er stonden nog records buiten de gewenste gesplitste machine/afdeling-paden:
+    - `tracked_products` root records (o.a. BH18 lots)
+    - `efficiency_hours` alleen op rootniveau
+- Verzoek: dezelfde canonieke verdeling toepassen als bij andere scoped datasets.
+
+**Structurele codefixes:**
+1. **`planningTransitionService` scoped efficiency dual-write**
+- In bulk import flow wordt `efficiency_hours` nu naast root ook scoped geschreven naar:
+    - `.../efficiency_hours/{department}/machines/{machine}/items/{orderId}`
+- Inclusief metadata: `departmentId`, `machineId`, `_scopeType = efficiency_hours`
+
+2. **`inforSyncService` scoped efficiency dual-write + 40-prefix normalisatie**
+- `processInforUpdateService` schrijft `efficiency_hours` nu óók scoped
+- Machine wordt canoniek gemaakt (`BHxx/BMxx/BAxx` -> `40BHxx/40BMxx/40BAxx`)
+- Department wordt met fallback op `Fittings` vastgelegd
+
+3. **Migratiescript toegevoegd voor bestaande root data**
+- Nieuw script: `scripts/migrate-tracking-efficiency-scoped-via-cli-auth.cjs`
+- Migratie schrijft scoped records voor:
+    - root `tracked_products/{docId}`
+    - root `efficiency_hours/{orderId}`
+- Legacy delete staat optioneel uit (compatibiliteitsmodus), dus root blijft bestaan tenzij expliciet met `--delete-legacy`.
+
+**Live datamigratie uitgevoerd (`--apply`, zonder legacy delete):**
+- Tracking scoped upserts: **13**
+    - naar o.a. `.../tracked_products/Fittings/machines/40BH18/items/*`
+- Efficiency scoped upserts: **7**
+    - `.../efficiency_hours/Fittings/machines/40BH17/items/*` (2)
+    - `.../efficiency_hours/Fittings/machines/40BH31/items/*` (5)
+
+**Live deploy uitgevoerd:**
+- `importPlanningOrders`
+- `processInforUpdate`
+- `importPlanningFromWebhook`
+- `importPlanningFromStorage`
+
+### Vervolg sessie 106: efficiency-archief lifecycle gelijkgetrokken (root + scoped) ✅
+
+**Vraag:**
+- Worden efficiency-uren historisch in archief bijgehouden en kan scoped data ook netjes opgeschoond worden bij afgeronde orders?
+
+**Fix uitgevoerd in `inforSyncService`:**
+- Bij `isReady` (`gereed/afgehandeld`) wordt nu:
+    1. root efficiency naar `archive/{year}/efficiency/{orderId}` geschreven
+    2. scoped efficiency naar `archive/{year}/efficiency_scoped/{department}/machines/{machine}/items/{orderId}` geschreven
+    3. daarna zowel root als scoped actieve efficiency-doc verwijderd
+- Hierdoor blijven uren historisch uitleesbaar/vergelijkbaar in archief, zonder dat actieve efficiency-tabellen vervuilen met afgeronde orders.
+
+**Live deploy:**
+- `processInforUpdate`
+- `importPlanningFromWebhook`
+- `importPlanningFromStorage`
+
+**Belangrijke compatibiliteitsnotitie:**
+- Root `tracked_products` docs blijven nu nog bestaan voor bestaande services die root reads gebruiken.
+- Scoped verdeling is nu wel aangevuld en canoniek; bij latere opschoning kan root-read compatibiliteit worden uitgefaseerd.
+
+## Update sessie 105 (print_queue volledig genormaliseerd naar scoped 40-machinepaden) ✅
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikersmelding:**
+- `print_queue` had nog inconsistente paden:
+  - docs onder `.../print_queue/Fittings/machines/BH18/...` i.p.v. `40BH18`
+  - losse root-jobs zoals `.../print_queue/CD4YK0xaNNbElMoSLCuj`
+- Verzoek: dit structureel oplossen voor alle machine/afdeling gesplitste paden.
+
+**Codefixes (structureel):**
+1. **Canonieke scoped machine-segmenten (40-prefix)**
+- In `functions/src/services/planningTransitionService.js` is `resolveScopedMachine(...)` aangepast.
+- BH/BM/BA machinecodes worden nu canoniek als `40...` opgeslagen in scoped paden.
+- Effect: geldt breed voor planning/tracking/occupancy/scoped writes die deze helper gebruiken.
+
+2. **Print queue write-path naar scoped structuur**
+- `functions/src/services/printingService.js` schrijft `queuePrintJob` nu direct naar:
+  - `.../print_queue/{department}/machines/{machine}/items/{jobId}`
+- Machine wordt afgeleid uit metadata/printerId en canoniek gemaakt (`BH18` -> `40BH18`).
+- Root print_queue docs worden niet meer als primaire write gebruikt.
+
+3. **Print queue status/requeue/delete compatibel gemaakt met scoped docs**
+- In `functions/src/services/planningTransitionService.js` zoeken:
+  - `transitionPrintQueueJobStatusService`
+  - `requeuePrintQueueJobService`
+  - `deletePrintQueueJobService`
+  nu eerst scoped docs (`collectionGroup('items')`) en fallbacken daarna op legacy root-docs.
+- `cancelTrackedProduction` verwijdert pending printjobs nu uit zowel scoped als root datasets.
+
+4. **Frontend readers aangepast naar root+scoped merge (compatibel)**
+- `src/components/printer/PrintQueueAdminView.jsx`
+- `src/components/admin/PrintQueueAdminView.jsx`
+- Beide views lezen nu scoped print_queue docs (`collectionGroup('items')` met `_scopeType == print_queue`) plus legacy root en dedupliceren op job-id.
+
+**Datamigratie uitgevoerd (live):**
+- Nieuw script: `scripts/migrate-print-queue-scoped-via-cli-auth.cjs`
+- Resultaat (`--apply`):
+  - 4 root printjobs verplaatst naar scoped (`40BH31`)
+  - 21 jobs verplaatst van `BH18` naar `40BH18`
+- Verificatie na migratie:
+  - `.../print_queue/Fittings/machines/BH18/items` = 0 docs
+  - `.../print_queue/Fittings/machines/40BH18/items` = 21 docs
+  - `.../print_queue/Fittings/machines/BH31/items` = 0 docs
+  - `.../print_queue/Fittings/machines/40BH31/items` = 4 docs
+  - root `.../print_queue` = 0 losse docs
+
+**Deploystatus:**
+- Succesvol gedeployed:
+  - `queuePrintJob`
+  - `transitionPrintQueueJobStatus`
+  - `requeuePrintQueueJob`
+  - `deletePrintQueueJob`
+  - `startProductionLots`
+  - `startWorkstationProductionRun`
+
+## Update sessie 104 (BH31 dubbele scoped planning-doc bij starten opgelost) ✅
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikersmelding:**
+- Na starten op BH31 ontstonden twee scoped planning-paden voor dezelfde order:
+    - `/future-factory/production/digital_planning/Fittings/machines/40BH31/orders/N20024684` (inhoudelijk juist)
+    - `/future-factory/production/digital_planning/Fittings/machines/BH31/orders/N20024684` (alleen actieve lot-update)
+- In tracked products stond de write wel op BH31 en dat is functioneel verwacht voor station-uitvoering.
+
+**Root cause:**
+- In `startProductionLotsService` werd de scoped planning-update opgebouwd met `machine: safeStationId`.
+- Voor BH31-starts is `stationId` meestal `BH31`, terwijl de order zelf geïmporteerd kan zijn met machine `40BH31`.
+- Daardoor werd naast het bestaande `40BH31` orderdocument ook een tweede scoped planning-doc onder `BH31` geschreven.
+
+**Fix:**
+- `startProductionLotsService` leest nu eerst het planning-orderdocument (`getPlanningOrderDocById`) en gebruikt:
+    - scoped afdeling uit orderdata (`department/departmentId` met fallback)
+    - scoped planning-machine uit `order.machine` met fallback op station
+- Scoped planning-write volgt daarmee voortaan het machinepad van de order zelf i.p.v. het runtime station.
+- Aanvullend: scoped `tracked_products` writes in zowel `startProductionLotsService` als `startWorkstationProductionRunService` volgen nu ook de order-machine (`40BH31`) i.p.v. station-id (`BH31`) voor padopbouw.
+
+**Aangepast bestand:**
+- `functions/src/services/planningTransitionService.js`
+
+**Validatie:**
+- `get_errors` op gewijzigd bestand: **geen errors**
+- `node -c functions/src/services/planningTransitionService.js`: **ok**
+
+**Live cleanup uitgevoerd (via script):**
+- Nieuw script: `scripts/cleanup-bh31-duplicates-via-cli-auth.cjs`
+- Planning cleanup (`--apply`): 4 dubbele docs verwijderd onder `.../digital_planning/Fittings/machines/BH31/orders/*` waar dezelfde `docId` al onder `40BH31` bestond
+    - verwijderd: `N20024684`, `N20024685`, `N20024759`, `N21001014`
+- Tracked migratie (`--apply --only tracked --migrate-tracked`): 4 docs verplaatst van `.../tracked_products/.../machines/BH31/items/*` naar `.../machines/40BH31/items/*`
+- Post-check: `tracked` staat nu op `BH31 docs: 0`, `40BH31 docs: 4`
+
+**Deploystatus (live):**
+- Volledige Functions deploy is succesvol afgerond (`firebase deploy --only functions`, exit code 0).
+- Verificatie via `firebase functions:list --json`:
+    - `startProductionLots` = `ACTIVE`
+    - `startWorkstationProductionRun` = `ACTIVE`
+    - Beide draaien met dezelfde actuele source-upload/hash (`66c6bd53-...`, hash `398738a8...`).
+
+## Update sessie 103 (Wikkelen tabswitch stabilisatie + Vite op 3000) ✅
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikerswens:**
+- Verdergaan op het open punt uit sessie 102: tabswitch naar `Wikkelen` moet betrouwbaar blijven staan na `Order starten`
+- Vite development server openen op poort 3000
+
+**Uitgevoerd:**
+
+1. **Tabswitch-reset in WorkstationHub gestabiliseerd**
+- In `src/components/digitalplanning/WorkstationHub.jsx` werd de initiele tab/station `useEffect` afhankelijk van `initialStationId`
+- Wanneer `initialStationId` als object-identiteit wisselde (zelfde station, nieuw object), kon de effect opnieuw lopen en `activeTab` terugzetten naar `terminal`
+- De effect gebruikt nu een genormaliseerde stationnaam (`initialStationName`) en forceert default-tab alleen nog bij echte stationwissel via `lastAppliedInitialStationRef`
+
+2. **Vite dev-server gestart op poort 3000**
+- Command uitgevoerd:
+    - `npm run dev -- --host 0.0.0.0 --port 3000`
+- Bevestigd actief:
+    - `Local: http://localhost:3000/`
+    - `Network: http://10.0.14.249:3000/`
+
+**Validatie:**
+- `get_errors` op `src/components/digitalplanning/WorkstationHub.jsx`: **geen errors**
+
+## Update sessie 102 (ProductionStartModal versneld + tabswitch naar Wikkelen nog open) ⏸️
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikerswens:**
+- ProductionStartModal moet sneller openen
+- Na klikken op `Order starten` moet de UI direct doorspringen naar tab `Wikkelen`
+
+**Wat al is verbeterd:**
+
+1. **ProductionStartModal opent merkbaar sneller**
+- Auto lot-preview blokkeert de startknop niet meer
+- De lot-preview callable draait nog wel op de achtergrond voor weergave, maar het echte reserveren gebeurt pas veilig bij starten
+- Hierdoor is de modal direct bruikbaar, ook als auto lotnummer en labelgeneratie actief staan
+
+2. **Startflow voelt sneller aan**
+- In `Terminal.jsx` is de UI-actie vervroegd:
+    - modal sluit direct
+    - overgang naar Wikkelen wordt direct geprobeerd
+    - backend `startProductionLots` call loopt daarna verder
+- Bij fout in de backend wordt de modal opnieuw geopend en de vorige tab hersteld
+
+3. **Extra directe start-hook toegevoegd vanuit de modal**
+- `ProductionStartModal` kreeg een nieuwe callback `onStartInitiated`
+- Deze callback wordt direct afgevuurd zodra op starten geklikt wordt, dus nog vóór de async backend-call klaar is
+- Zowel `Terminal.jsx` als `WorkstationHub.jsx` zijn hierop aangesloten
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/modals/ProductionStartModal.jsx`
+- `src/components/digitalplanning/Terminal.jsx`
+- `src/components/digitalplanning/WorkstationHub.jsx`
+
+**Validatie:**
+- `get_errors` op bovenstaande bestanden: **geen errors**
+
+**Huidige status / nog open:**
+- De performancewinst is zichtbaar: openen en starten voelen sneller
+- Het directe verspringen naar de tab `Wikkelen` werkt echter nog **niet betrouwbaar zichtbaar** in de gebruikersflow
+- Vermoeden nu: niet langer backend-latency, maar een render/stateflow issue in de tab-container of een overschrijvende state-update na het starten
+
+**Logische vervolgstap voor later:**
+1. Exact vaststellen welke state de tab direct terugzet of overschrijft na `onStartInitiated`
+2. Tijdelijke debuglogging plaatsen op:
+     - `setActiveTab("wikkelen")` in `Terminal.jsx`
+     - tab render-condities in `Terminal.jsx`
+     - eventuele parent state / selection effects die na start opnieuw renderen
+3. Indien nodig tab-key centraliseren zodat overal exact dezelfde waarde gebruikt wordt per scherm (`wikkelen` versus `winding`)
+
+## Update sessie 101 (Import UX defaults + scoped filtering + progress ETA) ✅
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev`
+
+**Gebruikerswens:**
+- Bestand selecteren als standaard importmethode (Excel plakken moet blijven bestaan)
+- Slimme Sync als standaard importmodus
+- Voor planners in Fittings moet import op Fittings gefilterd zijn
+- Bij opstart van import moeten machines eerst allemaal uit staan
+- Tijdens backend import een duidelijke voortgangsbalk tonen (incl. resterende tijd)
+
+**Uitgevoerd:**
+
+1. **Nieuwe defaults in `PlanningImportModal`**
+- `pasteMode` standaard op `false` gezet (Bestand Selecteren default)
+- `importMode` standaard op `smart_update` gezet (Slimme Sync default)
+- Bij openen van de modal worden defaults telkens opnieuw gezet zodat gedrag consistent blijft per sessie
+
+2. **Machines niet meer auto-geselecteerd**
+- Auto-selectie van alle machines verwijderd
+- Bij openen van de modal start `selectedMachines` nu leeg
+
+3. **Fittings-scope afdwingen in import**
+- `PlanningImportModal` accepteert nu `currentDepartment`
+- Als scope `fittings` is:
+    - beschikbare machines worden beperkt tot fittings-machines
+    - getoonde/importeerbare orders worden gefilterd op fittings
+    - afdelingsgroep-selector wordt vastgezet op fittings (disabled)
+- `TeamleaderHub` geeft de actuele afdelingsscope door aan de importmodal
+
+4. **Voortgangsbalk tijdens backend import**
+- Import gebeurt al in chunks; UI toont nu:
+    - percentage voortgang
+    - chunkstatus (`chunk X/Y`)
+    - ETA (geschatte resterende tijd, bv. `Nog ~1m 24s`)
+- Bij laatste chunk: status naar `Afronden...`
+- Bij succes/fout: statuslabels netjes bijgewerkt/gereset
+- Annuleren tijdens import tijdelijk geblokkeerd om onderbreking te voorkomen
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+
+**Validatie:**
+- `get_errors` op beide gewijzigde frontend-bestanden: **geen errors**
+
+## Update sessie 100 (BH17 scoped import zichtbaarheidsissue OPGELOST ✅)
+
+**Datum:** 16 april 2026 | **Branch:** `pilot-dev` 
+
+**Probleemstelling:**
+- BH17 orders waren zichtbaar in Firestore maar **onzichtbaar in WorkstationHub / Terminal / Operator-componenten**
+- TeamleaderHub kon ze wel zien (had al een `collectionGroup` listener)
+
+**Root causes gevonden en opgelost:**
+
+### 1. Firestore Security Rules blokkeerden collectionGroup queries ✅
+- DE `collectionGroup(db, "orders")` query werd aanvankelijk geweigerd met `Missing or insufficient permissions`
+- **Fix:** Regel toegevoegd in `firestore.rules`:
+  ```
+  match /{path=**}/orders/{orderId} {
+    allow read: if hasUserRecord() || isSignedIn();
+    allow create, delete: if canOperateProduction();
+    allow update: if canOperateProduction();
+  }
+  ```
+  Deze wildcard-regel maakt `collectionGroup` queries op alle `/path/orders/` subcollecties mogelijk.
+
+### 2. WorkstationHub en Terminal lazen alleen root planning-orders ✅
+- Beide componenten hadden **geen** `collectionGroup` listener voor scoped paden
+- **Fix:** Identieke aanpak als TeamleaderHub:
+  - `WorkstationHub.jsx`: root + scoped orders listener toegevoegd, merge met fallback naar scoped
+  - `Terminal.jsx`: zelfde patroon
+  - Beide gebruiken nu `mapOrderDoc()` helper om beide soorten docs uniform te verwerken
+
+### 3. PlanningSidebar filterde orders met lege/onbekende status uit ✅
+- De `isOpenOrRunningStatus()` check verwierp orders met onverwachte statuswaarden
+- **Fix:** 
+  - Statussen `vrijgegeven`, `gepland`, `planning`, `ingepland`, `productie`, etc. toegevoegd
+  - Fallback: **lege status = toon toch** (import orders hebben soms geen status)
+
+**Validatie:**
+- ✅ `npm run build` succesvol
+- ✅ Firestore rules gedeployed
+- ✅ BH17 orders nu zichtbaar in WorkstationHub → Station BH17
+- ✅ BH17 orders zichtbaar in Terminal-component
+- ✅ Alle bestaande pilot-functionaliteit intact (geen breaking changes)
+
+**Gedeployde wijzigingen:**
+- `firebase deploy --only firestore:rules`
+- `npm run build` (klaar voor `firebase deploy --only hosting`)
+
+---
+
+## Update sessie 99 (BH17 scoped import zichtbaarheidsissue nog open)
+
+**Datum:** 15 april 2026 | **Branch:** `pilot-dev`
+
+**Laatste gebruikersmelding:**
+- Geimporteerde orders voor BH17 zijn nog steeds niet zichtbaar in machineplanning, Teamleader Volledige lijst en KPI's.
+
+**Wat inmiddels bevestigd is:**
+- Backend import naar scoped pad staat live op Firebase Functions.
+- Frontend fix om scoped planning-orders realtime mee te lezen is gebouwd en gedeployed naar Firebase Hosting.
+- Directe Firestore-check bevestigt dat order `N20024560` bestaat op:
+    - `/future-factory/production/digital_planning/Fittings/machines/40BH17/orders/N20024560`
+- Diezelfde check gaf deze kernvelden terug:
+    - `orderId = N20024560`
+    - `machine = 40BH17`
+    - `department =` leeg
+
+**Belangrijke observatie:**
+- De documentlocatie gebruikt machine-segment `40BH17`, niet `BH17`.
+- De app normaliseert machinecodes op meerdere plekken al van `40BH17` naar `BH17`, maar ondanks de reeds gedeployde listenerfix blijft de order onzichtbaar.
+- De oorzaak is dus nog **niet definitief bewezen**; eerdere vermoedens over alleen caching of alleen leespad waren onvoldoende.
+
+**Wat al gedaan is in de frontend:**
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+    - leest nu zowel root planning-orders als scoped `collectionGroup("orders")`
+    - merged scoped docs over root docs heen
+    - gebruikt genormaliseerde machinevergelijking in machine/KPI-berekeningen
+- `npm run build` succesvol
+- `firebase deploy --only hosting` succesvol
+
+**Wat nog openstaat voor morgen:**
+1. Exact vaststellen waar de order uitvalt in `TeamleaderHub`:
+     - komt hij binnen in `rawOrders`?
+     - zit hij daarna nog in `dataStore`?
+     - valt hij pas weg in `PlanningSidebar` of KPI-berekening?
+2. Tijdelijke gerichte debuglogging toevoegen voor order `N20024560` / machine `40BH17` / `BH17`.
+3. Specifiek controleren of statuswaarden zoals `waiting`/`open`/`planned` door alle zichtbaarheidspaden hetzelfde worden behandeld.
+4. Indien nodig extra compatibiliteit toevoegen voor lege `department` velden op scoped imports.
+
+**Aanbevolen eerste stap morgen:**
+- Voeg tijdelijke console/debug output toe in `TeamleaderHub` direct na:
+    - merge van root + scoped orders
+    - `dataStore` filtering
+    - KPI/machine-grid aggregatie
+- Focus expliciet op order `N20024560` en machine `40BH17`.
+
+## Update sessie 98 (Firestore per-machine padstructuur + data migratie)
+
+**Datum:** 15 april 2026 | **Branch:** `pilot-dev`
+
+**Aanleiding:**
+- Alle productie-data stond flat in root-collecties (`/future-factory/production/digital_planning`, `tracked_products`, `machine_occupancy`, `inventory`, `print_queue`).
+- Doel: opsplitsen per afdeling/machine zodat per machine geïmporteerd en getest kan worden (map legen zonder andere machines te raken).
+
+---
+
+### Nieuwe Firestore padstructuur
+
+Patroon: `/{rootCollection}/{dept}/machines/{machine}/{subCollection}/{docId}`
+
+| Domein | Legacy pad | Nieuw scoped pad |
+|--------|-----------|-----------------|
+| Planning | `.../digital_planning/{docId}` | `.../digital_planning/Fittings/machines/BH18/orders/{docId}` |
+| Tracking | `.../tracked_products/{docId}` | `.../tracked_products/Fittings/machines/BH18/items/{docId}` |
+| Bezetting | `.../machine_occupancy/{docId}` | `.../machine_occupancy/Fittings/machines/BH18/assignments/{docId}` |
+| Inventory | `.../inventory/{docId}` | `.../inventory/Fittings/machines/BH12/items/{docId}` |
+| Print queue | `.../print_queue/{docId}` | `.../print_queue/Fittings/machines/BH18/items/{docId}` |
+
+---
+
+### Backend dual-write (`functions/src/services/planningTransitionService.js`) ✅
+
+Toegevoegde helper functies:
+- `toFirestoreSegment(value, fallback)` — sanitiseert padsegmenten
+- `resolveScopedDepartment(...values)` — pikt eerste niet-lege afdeling
+- `resolveScopedMachine(...values)` — pikt eerste geldige machinecode
+- `getScopedPlanningDocRef({ctx, department, machine, docId})`
+- `getScopedTrackingDocRef({ctx, department, machine, docId})`
+- `getScopedOccupancyDocRef({ctx, department, machine, assignmentId})`
+
+Services met dual-write (legacy + scoped):
+- `bulkImportPlanningOrdersService`
+- `startWorkstationProductionRunService`
+- `startProductionLotsService`
+- `saveOccupancyAssignmentsService` / `deleteOccupancyAssignmentsService`
+- `assignPersonnelToStationService` / `removePersonnelAssignmentService`
+- `loanPersonnelService`
+
+---
+
+### Frontend (`src/`) ✅
+
+- **`src/utils/inventoryPaths.js`** (nieuw) — scoped pad helpers voor inventory
+- **`src/hooks/useInventory.jsx`** — dual-read: legacy collectie + collectionGroup "items" gefilterd op `_scopeType=="inventory"`
+- **`src/components/admin/AdminLocationsView.jsx`** — dual-read/write/delete; voegt `departmentId`, `machineId`, `_scopeType` toe aan records
+
+---
+
+### Live datamigratites uitgevoerd ✅
+
+Via Firestore REST API + Firebase CLI auth token (`~/.config/configstore/firebase-tools.json`):
+
+| Pad | Docs | Doel |
+|-----|------|------|
+| `inventory/1766136190186` | 1 | → `inventory/Fittings/machines/BH12/items/` |
+| `print_queue/*` | 21 | → `print_queue/Fittings/machines/BH18/items/` |
+
+Elk gemigreerd record heeft `departmentId`, `machineId`, `_scopeType` velden gekregen. Legacy docs verwijderd.
+
+---
+
+### Database-switch functioneel verwijderd ✅
+
+**Besluit:** Nu per machine geïmporteerd en getest kan worden door enkel de betreffende machine-map te legen, is het hele "database switch" mechanisme (preview vs productie data source, `runtimeDataSource`, `useArtifactsPaths`) overbodig geworden.
+
+**Uitgevoerd in deze vervolgstap:**
+- `functions/src/repositories/planningRepository.js` → productiepaden vastgezet; `resolveDbContext()` schakelt niet meer tussen artifacts en productie
+- `functions/src/services/planningTransitionService.js` → `runtimeDataSource` verwijderd uit startflow / lot-reserve services; oude routing-debug output verwijderd
+- `functions/src/callables/planningCallables.js` → `runtimeDataSource` resolvers geneutraliseerd; kernstartflows en import gebruiken nu direct `resolveDbContext()`
+- `src/services/planningSecurityService.js` → frontend stuurt geen `runtimeDataSource` meer mee naar planning-callables
+- `src/config/dbPaths.jsx` → padconfig is nu vast op productie; admin data-source mode is een compatibiliteits-no-op
+- `src/components/admin/AdminSettingsView.jsx` → zichtbare database-switch UI vervangen door vaste productiepad-informatie
+
+**Validatie:**
+- `node -c functions/src/repositories/planningRepository.js` ✅
+- `node -c functions/src/services/planningTransitionService.js` ✅
+- `node -c functions/src/callables/planningCallables.js` ✅
+- `npm run build` ✅
+
+**Resterende opschoning (optioneel, later):**
+- Dual-write (legacy + scoped) kan na runtime-validatie vereenvoudigd worden naar alleen scoped writes
+
+### Vervolg op sessie 98: UI-compatibiliteitslaag ook verwijderd ✅
+
+**Uitgevoerd:**
+- Alle resterende `dataSourceMode` / `adminDataSourceMode` afhankelijkheden verwijderd uit actieve UI-views
+- `getReadPaths()`, `getAdminDataSourceMode()`, `setAdminDataSourceMode()`, `isPilotReadDataSource()`, `isPreviewDataSource()` en `getPilotPlanningReadPathCandidates()` volledig verwijderd uit `src/config/dbPaths.jsx`
+- Containers/views nu direct op `PATHS` aangesloten: `AdminReportsView`, `EfficiencyDashboard`, `AiPredictionView`, `GanttChartView`, `TimeTrackingView`, `CapacityPlanningView`, `Header`, `AdminDashboard`, `TeamleaderHub`, `WorkstationHub`
+- `CapacityPlanningView` leest nog wel zowel het nieuwe planning-pad als het legacy planning-pad in voor overgangsdata, maar zonder mode-switch
+
+**Validatie:**
+- `grep` op alle oude switch-symbolen in `src/**` → geen matches meer
+- `npm run build` → succesvol
+
+### Laatste herstel binnen sessie 98: oude root-planning zichtbaar gehouden ✅
+
+**Probleem na cleanup:**
+- De planningweergave liet de bestaande orders uit `/future-factory/production/digital_planning` niet meer zien.
+- Daarnaast ontstond een runtime-fout in de header: `ReferenceError: isPilotReadMode is not defined`.
+
+**Herstel:**
+- `src/config/dbPaths.jsx` → `PATHS.PLANNING` teruggezet naar het root-pad `/future-factory/production/digital_planning`
+- `src/config/dbPaths.jsx` → het alternatieve geneste pad blijft alleen nog als legacy/overgangsreferentie in de constante-volgorde aanwezig
+- `src/components/Header.jsx` → resterende render-referenties naar `isPilotReadMode` verwijderd
+
+**Resultaat:**
+- Oude root-planning is weer zichtbaar in de app
+- Header crasht niet meer tijdens render
+
+**Validatie:**
+- Browsercheck door gebruiker bevestigd: planning is weer zichtbaar
+- `npm run build` → succesvol
+
+**Reden:** per-machine import maakt preview-isolatie overbodig; maps kunnen per machine geleegd worden zonder andere machines te raken.
+
+---
+
+**Nog niet deployed:**
+- `firebase deploy --only functions` is nog niet uitgevoerd — backend dual-write is lokaal maar nog niet actief in productie.
+
+---
+
+## Update sessie 97 (Teller-correctheid orders & auto-archivering)
+
+**Datum:** 15 april 2026 | **Branch:** `pilot-dev`
+
+**Probleemstelling (gebruiker):**
+- Tellers bij producten lopen niet zuiver: order 10 stuks moet bullet-proof −1 aftellen per gestart product.
+- Cancel bij Wikkelen moet teller direct +1 terug zetten.
+- Tijdelijke afkeur telt als gemaakt product (blijft zo).
+- Definitieve afkeur bij Lossen/Mazak/Nabewerken/Eindinspectie moet teller +aantal afgekeurde ophogen.
+- Order mag pas naar archief als laatste product bij Eindinspectie goedgekeurd is.
+- Archief-tellers moeten tijdens lopende productie altijd bijgehouden worden.
+
+**Root causes gevonden:**
+
+1. **`produced` dubbeltelde** — `completeTrackedProductService` verhoogde `produced` bij zowel `finishType:'forward'` (doorsturen naar BM01) als `finishType:'archive'` (definitief goedkeuren). Een product Lossen→BM01 eindigde met 2× `produced++`.
+
+2. **Order ging nooit automatisch naar archief** — na goedkeuring van het laatste product bij BM01 werd de planning order niet automatisch gearchiveerd.
+
+3. **Order kon voortijdig gearchiveerd worden** — `archivePlanningOrderService` had geen guard op actieve tracked products.
+
+4. **TeamleaderHub las van legacy velden** — `finishedCount` / exports gebruikten `finishValue`/`wrapped` die niet meer gevuld worden.
+
+**Wat is aangepast:**
+
+### 1) `produced` alleen bij definitieve goedkeuring (BM01 archive) ✅
+- `functions/src/services/planningTransitionService.js`
+- `incrementProducedOnOrder()` retourneert nu object `{ incremented, orderDoc, orderComplete }`.
+- Bij `finishType:'forward'` wordt `produced` **niet** meer verhoogd.
+- Bij `finishType:'archive'` wordt `produced` verhoogd → als `produced >= plan`: `status = 'completed'`.
+
+### 2) Auto-archiveer planning order na laatste product ✅
+- `functions/src/services/planningTransitionService.js`
+- Na archive-commit checkt de service of er nog actieve tracked_products zijn voor die order.
+- Zijn er geen meer → `archivePlanningOrderService` wordt automatisch aangeroepen (`source: 'auto_on_last_product'`).
+- Niet-fataal: fout tijdens auto-archiveer logt warning maar blokkeert product-archivering niet.
+
+### 3) Guard in `archivePlanningOrderService` ✅
+- `functions/src/services/planningTransitionService.js`
+- Nieuw parameter `allowWithActiveProducts` (default `false`).
+- Als er nog actieve tracked products zijn én aanroep is niet `'auto_on_last_product'` → `throw 'ACTIVE_PRODUCTS_REMAIN'`.
+- `functions/src/callables/planningCallables.js`
+- `archivePlanningOrder` callable: `allowWithActiveProducts: true` voor `reason:'manual'` of `reason:'rejected'`.
+- Nieuwe `failed-precondition` fout met NL-melding naar de UI.
+
+### 4) TeamleaderHub autoritative teller = `produced` ✅
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+- `finishedCount` filter: `order?.produced ?? order?.finishValue ?? order?.wrapped ?? 0`
+- CSV-export: `o.produced ?? o.finishValue ?? 0`
+- Excel-export: `o.produced ?? o.finishValue ?? o.wrapped ?? 0`
+
+**Wat al correct was (niet gewijzigd):**
+- Cancel bij Wikkelen → `started_BHxx` −1 (al in `cancelTrackedProductionService`)
+- Tijdelijke afkeur (BH31) → product blijft tellen als gestart
+- Definitieve afkeur → `started_BHxx` −1 + `rejectedCount` +1 (al in `rejectTrackedProductFinalService`)
+
+---
+
 ## Update sessie 96 (Preview data-source fix voor startflows)
 
 **Datum:** 14 april 2026 | **Branch:** `pilot-dev`
@@ -3858,3 +4496,73 @@ Made changes.
 
 **Doel van deze fase:**
 - Grootste architectuurgat (import-bypass) sluiten zonder pilot-flow te breken.
+
+## Update sessie 97-98 (Preview/Pilot data-isolatie hardening + performance)
+
+**Datum:** 14 april 2026 | **Branch:** `pilot-dev`
+
+**Actieve hoofdissue:**
+- Reads lopen uit het juiste pad (artifacts), maar writes bij start/import landen nog in productie (`/future-factory/...`) i.p.v. artifacts.
+
+**Wat is in deze iteratie uitgevoerd:**
+
+### 1) End-to-end runtime routing uitgebreid (frontend + backend) ✅
+- `functions/src/repositories/planningRepository.js`
+    - `resolveDbContext(runtimeDataSource)` toegevoegd voor gecentraliseerde padkeuze.
+- `functions/src/services/planningTransitionService.js`
+    - services geüpdatet naar `dbCtx` patroon;
+    - writes/reads op planning/tracking/efficiency via `ctx.*` paden.
+- `functions/src/callables/planningCallables.js`
+    - runtime datasource extractie + doorgeven naar services (`dbCtx`).
+- `src/services/planningSecurityService.js`
+    - `callableWithRuntime` wrapper;
+    - runtime datasource op basis van mode + app-id;
+    - extra pad-afleiding op basis van actieve `PATHS` toegevoegd.
+
+### 2) Importflow routing-fix toegevoegd ✅
+- `importPlanningOrders` callable gaf eerder geen `dbCtx` door.
+- Gefixt zodat import-runtime dezelfde datasource-routering gebruikt als startflows.
+
+### 3) WorkstationHub databron-switch stabilisatie ✅
+- `src/components/digitalplanning/WorkstationHub.jsx`
+    - listener refresh op `admin-data-source-mode-changed` toegevoegd;
+    - voorkomt dat open tabs op oude (vaak productie) listeners blijven hangen.
+- startflow geeft bronhint door (`orderSourcePath` / source metadata).
+
+### 4) Backend precedence hardening + diagnostiek ✅
+- `functions/src/callables/planningCallables.js`
+    - runtime resolver aangepast met prioriteit voor expliciete artifacts-runtime.
+    - sourcePath fallback toegevoegd/gehard.
+- `functions/src/services/planningTransitionService.js`
+    - tijdelijke routing-diagnostiek toegevoegd in start-response (`routing.useArtifactsPaths`, `routing.planningPath`, `routing.trackingPath`).
+
+### 5) Performance verbeteringen rond startflow ✅
+- `src/components/digitalplanning/modals/ProductionStartModal.jsx`
+    - dure dubbele lot-bestaan-check na reservering verwijderd.
+- `functions/src/services/planningTransitionService.js`
+    - lot-collision check geoptimaliseerd: directe doc-lookup i.p.v. query per kandidaat in transactie.
+- `WorkstationHub` UX: sneller doorschakelen naar Wikkelen (optimistische UI), met rollback bij fout.
+
+**Belangrijkste commits in deze fase:**
+- `3668a0c` - grote data-isolatie basiswijzigingen
+- `4dff439` - Auto DB runtime app-id fallback
+- `6119d78` - importPlanningOrders dbCtx routing
+- `4555877` - runtime routing volgt actieve PATHS
+- `625a45b` - performance lotgeneratie/startflow
+- `100b9c7` - startflow route op order sourcePath
+- `64ff9ea` - WorkstationHub listener refresh + start UX
+- `770c038` - backend runtime datasource afleiden uit source path
+- `e7c79c7` - artifacts runtime precedence + routing debug info
+
+**Deploy status:**
+- Meerdere keren `firebase deploy --only functions` uitgevoerd met succesvolle updates (exit code 0).
+
+**Huidige status / blocker:**
+- User meldt nog steeds: reads correct, writes fout pad (productie).
+- Ondanks bovenstaande hardening blijft in praktijk bij startflow write-routing incorrect.
+
+**Eerstvolgende gerichte stap (open):**
+1. Niet-overschrijfbare `orderDocPath` (volledig documentpad) als expliciete payloadhint toevoegen vanuit frontend.
+2. Backend resolver laten prioriteren op `orderDocPath` boven alle andere hints.
+3. Tijdelijk callable response + logging gebruiken om exact gekozen pad per request te verifiëren.
+4. Daarna debug velden verwijderen zodra bevestigd.

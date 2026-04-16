@@ -15,17 +15,17 @@ import {
 import { collection, onSnapshot } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { db } from '../../config/firebase';
-import { getArchiveItemsPath, getReadPaths } from '../../config/dbPaths';
+import { getArchiveItemsPath, PATHS } from '../../config/dbPaths';
 import { calculateDuration, formatMinutes } from '../../utils/efficiencyCalculator';
 
 /**
  * AiPredictionView
  * Analyseert historische productiedata om trends, afwijkingen en nieuwe standaardtijden te voorspellen.
  */
-const AiPredictionView = ({ onClose, dataSourceMode = 'current' }) => {
+const AiPredictionView = ({ onClose }) => {
+  const usePilotReadData = false;
   const { t } = useTranslation();
-  const usePilotReadData = dataSourceMode === 'pilot-read';
-  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
+  const readPaths = PATHS;
   const MIN_VALID_DURATION = 1;
   const MAX_VALID_DURATION = 10080;
   const [loading, setLoading] = useState(true);

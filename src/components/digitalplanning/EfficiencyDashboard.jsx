@@ -12,16 +12,15 @@ import {
 } from 'lucide-react';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { getReadPaths, getEfficiencyArchivePath, getPlanningArchivePath } from '../../config/dbPaths';
+import { PATHS, getEfficiencyArchivePath, getPlanningArchivePath } from '../../config/dbPaths';
 import { format as formatDate, getISOWeek, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 import { calculateDuration, formatMinutes, getEfficiencyColor } from '../../utils/efficiencyCalculator';
 import { calculateWorkingMinutes } from '../../utils/workingTimeUtils';
 import AiPredictionView from './AiPredictionView';
 
-const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
+const EfficiencyDashboard = () => {
   const { t } = useTranslation();
-  const usePilotReadData = dataSourceMode === 'pilot-read';
-  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
+  const readPaths = PATHS;
   const [standards, setStandards] = useState([]);
   const [tracking, setTracking] = useState([]);
   const [planningOrders, setPlanningOrders] = useState([]);
@@ -577,7 +576,7 @@ const EfficiencyDashboard = ({ dataSourceMode = 'current' }) => {
   }, [standards, tracking, planningOrders, filterStatus, searchTerm, viewMode, departmentFilter, factoryConfig, selectedDate, periodMode]);
 
   if (showAiAnalysis) {
-    return <AiPredictionView onClose={() => setShowAiAnalysis(false)} dataSourceMode={dataSourceMode} />;
+    return <AiPredictionView onClose={() => setShowAiAnalysis(false)} />;
   }
 
   return (

@@ -20,12 +20,20 @@ import {
   deleteDoc,
   onSnapshot,
   collection,
+  collectionGroup,
+  query,
+  where,
   serverTimestamp,
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { STANDARD_DIAMETERS } from "../../data/constants";
 import { useNotifications } from "../../contexts/NotificationContext";
+import {
+  buildScopedInventoryDocPath,
+  isProductionInventoryScopedDoc,
+  resolveInventoryScope,
+} from "../../utils/inventoryPaths";
 
 /**
  * AdminLocationsView V4.0 - Root Sync Edition
@@ -54,22 +62,61 @@ const AdminLocationsView = ({ canEdit = false }) => {
 
   // 1. Live Sync met de Root INVENTORY collectie
   useEffect(() => {
-    const colRef = collection(db, ...PATHS.INVENTORY);
+    const legacyRef = collection(db, ...PATHS.INVENTORY);
+    const scopedRef = query(
+      collectionGroup(db, "items"),
+      where("_scopeType", "==", "inventory")
+    );
 
-    const unsubscribe = onSnapshot(
-      colRef,
+    let legacyItems = [];
+    let scopedItems = [];
+
+    const syncMerged = () => {
+      const byId = new Map();
+      legacyItems.forEach((entry) => byId.set(entry.id, entry));
+      scopedItems.forEach((entry) => byId.set(entry.id, entry));
+      setMoffen(Array.from(byId.values()));
+      setLoading(false);
+    };
+
+    const unsubscribeLegacy = onSnapshot(
+      legacyRef,
       (snap) => {
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setMoffen(data);
-        setLoading(false);
+        legacyItems = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+          _source: "legacy",
+        }));
+        syncMerged();
       },
       (err) => {
-        console.error("Fout bij laden inventaris:", err);
+        console.error("Fout bij laden legacy inventaris:", err);
         setLoading(false);
       }
     );
 
-    return () => unsubscribe();
+    const unsubscribeScoped = onSnapshot(
+      scopedRef,
+      (snap) => {
+        scopedItems = snap.docs
+          .filter((d) => isProductionInventoryScopedDoc(d.ref.path))
+          .map((d) => ({
+            id: d.id,
+            ...d.data(),
+            _source: "scoped",
+          }));
+        syncMerged();
+      },
+      (err) => {
+        console.error("Fout bij laden scoped inventaris:", err);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      unsubscribeLegacy();
+      unsubscribeScoped();
+    };
   }, []);
 
   const filteredMoffen = useMemo(() => {
@@ -93,6 +140,18 @@ const AdminLocationsView = ({ canEdit = false }) => {
         `${formState.type}_ID${formState.diameter}_PN${formState.pressure}`.toUpperCase();
       const docRef = doc(db, ...PATHS.INVENTORY, docId);
 
+      const scope = resolveInventoryScope({
+        ...formState,
+        ...moffen.find((m) => m.id === docId),
+        id: docId,
+      });
+      const scopedSegments = buildScopedInventoryDocPath({
+        docId,
+        departmentId: scope.departmentId,
+        machineId: scope.machineId,
+      });
+      const scopedRef = scopedSegments ? doc(db, ...scopedSegments) : null;
+
       const data = {
         ...formState,
         id: docId,
@@ -100,11 +159,16 @@ const AdminLocationsView = ({ canEdit = false }) => {
         pressure: Number(formState.pressure),
         stock: Number(formState.stock),
         minStock: Number(formState.minStock),
+        departmentId: scope.departmentId,
+        machineId: scope.machineId,
+        _scopeType: "inventory",
         lastUpdated: serverTimestamp(),
         updatedBy: auth.currentUser?.email || "Admin",
       };
 
-      await setDoc(docRef, data, { merge: true });
+      const writes = [setDoc(docRef, data, { merge: true })];
+      if (scopedRef) writes.push(setDoc(scopedRef, data, { merge: true }));
+      await Promise.all(writes);
 
       await logActivity(
         auth.currentUser?.uid,
@@ -132,7 +196,19 @@ const AdminLocationsView = ({ canEdit = false }) => {
     });
     if (!confirmed) return;
     try {
-      await deleteDoc(doc(db, ...PATHS.INVENTORY, id));
+      const current = moffen.find((m) => m.id === id) || {};
+      const scope = resolveInventoryScope({ ...current, id });
+      const scopedSegments = buildScopedInventoryDocPath({
+        docId: id,
+        departmentId: scope.departmentId,
+        machineId: scope.machineId,
+      });
+
+      const deletes = [deleteDoc(doc(db, ...PATHS.INVENTORY, id))];
+      if (scopedSegments) {
+        deletes.push(deleteDoc(doc(db, ...scopedSegments)));
+      }
+      await Promise.all(deletes);
       await logActivity(
         auth.currentUser?.uid,
         "TOOL_DELETE",
@@ -173,7 +249,7 @@ const AdminLocationsView = ({ canEdit = false }) => {
                 <ShieldCheck size={10} /> {t('common.rootProtected')}
               </span>
               <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
-                {t('common.target')}: /{PATHS.INVENTORY.join("/")}
+                {t('common.target')}: /{PATHS.INVENTORY.join("/")} + /{PATHS.INVENTORY.join("/")}/Fittings/machines/BH18/items
               </p>
             </div>
           </div>

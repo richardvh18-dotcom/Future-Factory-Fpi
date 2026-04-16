@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   collection,
+  collectionGroup,
   getDocs,
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
@@ -21,7 +22,7 @@ import { getISOWeek, format, startOfISOWeek, differenceInCalendarWeeks, parse, p
 /**
  * PlanningImportModal v4.7 - Pilot Version (Order Creation Date Support)
  */
-const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
+const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "all" }) => {
   const { t } = useTranslation();
   const [fileData, setFileData] = useState([]);
   const [rawWorkbook, setRawWorkbook] = useState(null);
@@ -29,12 +30,15 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [importing, setImporting] = useState(false);
   const [existingIds, setExistingIds] = useState(new Set());
   const [existingOrderMap, setExistingOrderMap] = useState(new Map());
-  const [importMode, setImportMode] = useState("new_only");
+  const [importMode, setImportMode] = useState("smart_update");
   const [selectedMachines, setSelectedMachines] = useState([]);
   const [machineGroupFilter, setMachineGroupFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrderIds, setSelectedOrderIds] = useState(new Set());
-  const [pasteMode, setPasteMode] = useState(true);
+  const [pasteMode, setPasteMode] = useState(false);
+  const [importProgressPct, setImportProgressPct] = useState(0);
+  const [importProgressLabel, setImportProgressLabel] = useState("");
+  const [importEtaLabel, setImportEtaLabel] = useState("");
   const [, setDebugLogs] = useState([]);
 
   const fileInputRef = useRef(null);
@@ -44,9 +48,27 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     const fetchExisting = async () => {
       if (!isOpen) return;
       try {
-        const snap = await getDocs(collection(db, ...PATHS.PLANNING));
-        setExistingIds(new Set(snap.docs.map(d => d.id)));
-        setExistingOrderMap(new Map(snap.docs.map((d) => [d.id, d.data()])));
+        const [rootSnap, scopedSnap] = await Promise.all([
+          getDocs(collection(db, ...PATHS.PLANNING)),
+          getDocs(collectionGroup(db, "orders")),
+        ]);
+
+        const mergedDocs = [...rootSnap.docs, ...scopedSnap.docs];
+        const keySet = new Set();
+        const byKey = new Map();
+
+        mergedDocs.forEach((docEntry) => {
+          const data = docEntry.data() || {};
+          const key = getOrderKey({ ...data, id: docEntry.id });
+          if (!key) return;
+          keySet.add(key);
+          if (!byKey.has(key)) {
+            byKey.set(key, data);
+          }
+        });
+
+        setExistingIds(keySet);
+        setExistingOrderMap(byKey);
       } catch {
         addLog(t("digitalplanning.planning_import.logs.db_connect_failed", "Database connectie mislukt."), "error");
       }
@@ -59,6 +81,22 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   };
 
   const clean = (val) => String(val || "").trim();
+  const getOrderKey = (entry) => clean(entry?.orderId || entry?.id).toUpperCase();
+  const isExistingOrder = (order) => existingIds.has(getOrderKey(order));
+  const normalizeDepartment = (value) => String(value || "").trim().toLowerCase();
+  const departmentScope = normalizeDepartment(currentDepartment);
+  const isFittingsScoped = departmentScope === "fittings";
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setImportMode("smart_update");
+    setPasteMode(false);
+    setSelectedMachines([]);
+    setMachineGroupFilter(isFittingsScoped ? "fittings" : "all");
+    setImportProgressPct(0);
+    setImportProgressLabel("");
+    setImportEtaLabel("");
+  }, [isOpen, isFittingsScoped]);
 
   const normalizeMachineCodeForFilter = (machineCode) => {
     const raw = clean(machineCode).toUpperCase();
@@ -379,6 +417,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       project: findCol(["project"]),
       projectDesc: findCol(["project description", "project desc"]),
       qty: findCol(["quantity ordered", "aantal"]),
+      operation: findCol(["operation"]),
       plannedHours: findCol(["production time", "labor hours"]),
       actualHours: findCol(["spent production time"]),
       refOp: findCol(["reference operation"]),
@@ -396,7 +435,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
       const orderId = clean(row[idx.order]);
       if (!orderId || orderId === "" || orderId === "0") return;
 
-      const refOp = clean(row[idx.refOp]);
+      const refOp = clean(row[idx.refOp]) || clean(row[idx.operation]);
       const pTime = parseNum(row[idx.plannedHours]);
       const aTime = parseNum(row[idx.actualHours]);
       const rawStatus = clean(row[idx.status]);
@@ -712,18 +751,17 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
   const validOrders = useMemo(() => fileData.filter((d) => d.isValidForImport), [fileData]);
 
-  const availableMachines = useMemo(
-    () => Array.from(new Set(validOrders.map((d) => normalizeMachineCodeForFilter(d.machine)).filter(Boolean))).sort(),
-    [validOrders]
-  );
+  const availableMachines = useMemo(() => {
+    let machines = Array.from(new Set(validOrders.map((d) => normalizeMachineCodeForFilter(d.machine)).filter(Boolean))).sort();
+    if (isFittingsScoped) {
+      machines = machines.filter((machine) => isFittingsMachine(machine));
+    }
+    return machines;
+  }, [validOrders, isFittingsScoped]);
 
   useEffect(() => {
     setSelectedMachines((prev) => {
-      const stillValid = prev.filter((machine) => availableMachines.includes(machine));
-      if (prev.length === 0 && availableMachines.length > 0) {
-        return availableMachines;
-      }
-      return stillValid;
+      return prev.filter((machine) => availableMachines.includes(machine));
     });
   }, [availableMachines]);
 
@@ -758,15 +796,24 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
   };
 
   const getComparableQty = (order) => {
-    const raw = order?.quantity ?? 0;
+    const raw =
+      order?.quantity ??
+      order?.plan ??
+      order?.toDoQty ??
+      0;
     const n = Number(raw);
     return Number.isFinite(n) ? n : 0;
   };
 
+  const normalizePoText = (value) =>
+    clean(value)
+      .replace(/\s+/g, " ")
+      .trim();
+
   const orderChangeMeta = useMemo(() => {
     const byId = new Map();
     validOrders.forEach((order) => {
-      const existing = existingOrderMap.get(order.id);
+      const existing = existingOrderMap.get(getOrderKey(order));
       if (!existing) {
         byId.set(order.id, {
           isExisting: false,
@@ -783,8 +830,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
       const oldQuantity = getComparableQty(existing);
       const newQuantity = getComparableQty(order);
-      const oldNotes = clean(existing?.notes);
-      const newNotes = clean(order?.notes);
+      const oldNotes = normalizePoText(existing?.notes);
+      const newNotes = normalizePoText(order?.notes);
       const quantityChanged = oldQuantity !== newQuantity;
       const notesChanged = oldNotes !== newNotes;
 
@@ -802,20 +849,12 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     return byId;
   }, [validOrders, existingOrderMap]);
 
-  useEffect(() => {
-    if (!availableMachines.length) return;
-    if (machineGroupFilter === "all") {
-      setSelectedMachines(availableMachines);
-      return;
-    }
-    const groupMachines = getDepartmentGroupMachines(machineGroupFilter);
-    setSelectedMachines(groupMachines);
-  }, [machineGroupFilter, availableMachines]);
-
   const displayData = useMemo(() => {
     let rows = [...validOrders];
 
-    if (machineGroupFilter === "fittings") {
+    if (isFittingsScoped) {
+      rows = rows.filter((d) => isFittingsMachine(d.machine));
+    } else if (machineGroupFilter === "fittings") {
       rows = rows.filter((d) => isFittingsMachine(d.machine));
     } else if (machineGroupFilter === "pipes") {
       rows = rows.filter((d) => isPipesMachine(d.machine));
@@ -826,9 +865,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     rows = rows.filter((d) => isAllowedBySelectedMachines(d));
 
     if (statusFilter === "new") {
-      rows = rows.filter((d) => !existingIds.has(d.id));
+      rows = rows.filter((d) => !isExistingOrder(d));
     } else if (statusFilter === "existing") {
-      rows = rows.filter((d) => existingIds.has(d.id));
+      rows = rows.filter((d) => isExistingOrder(d));
     }
 
     if (importMode === "smart_update") {
@@ -848,21 +887,24 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
     }
 
     return rows;
-  }, [validOrders, machineGroupFilter, statusFilter, existingIds, selectedMachines, importMode, orderChangeMeta]);
+  }, [validOrders, machineGroupFilter, statusFilter, existingIds, selectedMachines, importMode, orderChangeMeta, isFittingsScoped]);
 
   const importCandidates = useMemo(() => {
     let rows;
     if (importMode === "smart_update") {
-      rows = validOrders.filter((d) => !existingIds.has(d.id) || orderChangeMeta.get(d.id)?.hasSmartChange);
+      rows = validOrders.filter((d) => !isExistingOrder(d) || orderChangeMeta.get(d.id)?.hasSmartChange);
     } else {
       rows = validOrders.filter((d) =>
         importMode === "overwrite" ||
-        !existingIds.has(d.id)
+        !isExistingOrder(d)
       );
     }
     rows = rows.filter((d) => isAllowedBySelectedMachines(d));
+    if (isFittingsScoped) {
+      rows = rows.filter((d) => isFittingsMachine(d.machine));
+    }
     return rows;
-  }, [validOrders, importMode, existingIds, selectedMachines, orderChangeMeta]);
+  }, [validOrders, importMode, existingIds, selectedMachines, orderChangeMeta, isFittingsScoped]);
 
   useEffect(() => {
     if (importMode === "smart_update") {
@@ -912,16 +954,21 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
 
   const startImport = async () => {
     setImporting(true);
+    setImportProgressPct(0);
+    setImportProgressLabel(t("digitalplanning.planning_import.progress_preparing", "Import voorbereiden..."));
+    setImportEtaLabel("");
     try {
       const toImport = importCandidates;
+      const importStartMs = Date.now();
 
       // Callable in chunks om payload-grootte stabiel te houden.
       const CHUNK = 250;
+      const totalChunks = Math.max(1, Math.ceil(toImport.length / CHUNK));
       for (let i = 0; i < toImport.length; i += CHUNK) {
         const chunk = toImport.slice(i, i + CHUNK);
         const payloadOrders = chunk.map((item) => ({
           ...item,
-          isExistingOrder: existingIds.has(item.id),
+          isExistingOrder: isExistingOrder(item),
           planningVisible: selectedOrderIds.has(item.id),
         }));
 
@@ -929,18 +976,51 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
           orders: payloadOrders,
           importMode,
         });
+
+        const chunkNumber = Math.floor(i / CHUNK) + 1;
+        const pct = Math.round((chunkNumber / totalChunks) * 100);
+        setImportProgressPct(pct);
+        setImportProgressLabel(
+          t("digitalplanning.planning_import.progress_chunks", {
+            current: chunkNumber,
+            total: totalChunks,
+            defaultValue: "Import bezig: chunk {{current}}/{{total}}",
+          })
+        );
+
+        const elapsedMs = Date.now() - importStartMs;
+        const avgChunkMs = elapsedMs / chunkNumber;
+        const remainingChunks = Math.max(0, totalChunks - chunkNumber);
+        const remainingMs = Math.max(0, Math.round(avgChunkMs * remainingChunks));
+        const remainingSec = Math.ceil(remainingMs / 1000);
+        const etaMin = Math.floor(remainingSec / 60);
+        const etaSec = remainingSec % 60;
+        setImportEtaLabel(
+          remainingChunks > 0
+            ? t("digitalplanning.planning_import.progress_eta", {
+                min: etaMin,
+                sec: etaSec,
+                defaultValue: "Nog ~{{min}}m {{sec}}s",
+              })
+            : t("digitalplanning.planning_import.progress_finalizing", "Afronden...")
+        );
       }
 
-      const newCount = toImport.filter((item) => !existingIds.has(item.id)).length;
+      const newCount = toImport.filter((item) => !isExistingOrder(item)).length;
       const updateCount = toImport.length - newCount;
       const logMsg = importMode === "smart_update"
         ? `${toImport.length} orders gesynchroniseerd (${newCount} nieuw, ${updateCount} bijgewerkt).`
         : `${toImport.length} orders geimporteerd.`;
+      setImportProgressPct(100);
+      setImportProgressLabel(t("digitalplanning.planning_import.progress_done", "Import voltooid"));
+      setImportEtaLabel("");
       addLog(t("digitalplanning.planning_import.logs.import_success", "Import succesvol!"), "success");
       await logActivity(auth.currentUser?.uid, "PLANNING_IMPORT", logMsg);
       setTimeout(() => { onSuccess?.(); onClose(); }, 1000);
     } catch {
       addLog(t("digitalplanning.planning_import.logs.database_error", "Database fout."), "error");
+      setImportProgressLabel(t("digitalplanning.planning_import.progress_failed", "Import mislukt"));
+      setImportEtaLabel("");
     } finally {
       setImporting(false);
     }
@@ -1014,7 +1094,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                       <div className="flex flex-wrap items-end gap-4">
                         <div className="flex flex-col">
                           <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-1 tracking-widest">{t("digitalplanning.planning_import.department_group_label", "Afdelingsgroep")}</span>
-                          <select value={machineGroupFilter} onChange={(e) => setMachineGroupFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-xl px-3 py-2 font-bold text-xs text-white outline-none focus:border-blue-500">
+                          <select value={machineGroupFilter} onChange={(e) => setMachineGroupFilter(e.target.value)} disabled={isFittingsScoped} className="bg-white/10 border border-white/20 rounded-xl px-3 py-2 font-bold text-xs text-white outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed">
                             <option value="all" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_all", "ALLES")}</option>
                             <option value="fittings" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_fittings", "FITTINGS")}</option>
                             <option value="pipes" className="text-slate-800">{t("digitalplanning.planning_import.machine_group_pipes", "PIPES")}</option>
@@ -1041,12 +1121,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                             className="px-2.5 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-white/20"
                           >
                             {t("digitalplanning.planning_import.clear_selection", "Leegmaken")}
-                          </button>
-                          <button
-                            onClick={() => selectMachines(["BH12", "BH18"])}
-                            className="px-2.5 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-white/20"
-                          >
-                            BH12 + BH18
                           </button>
                           <button
                             onClick={() => setVisibleSelection(true)}
@@ -1109,7 +1183,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {displayData.slice(0, 50).map((order) => {
-                        const isExisting = existingIds.has(order.id);
+                        const isExisting = isExistingOrder(order);
                         const changeMeta = orderChangeMeta.get(order.id);
                         const isQtyIncrease = changeMeta?.quantityChanged && Number(changeMeta.newQuantity) > Number(changeMeta.oldQuantity);
                         const isQtyDecrease = changeMeta?.quantityChanged && Number(changeMeta.newQuantity) < Number(changeMeta.oldQuantity);
@@ -1218,16 +1292,34 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess }) => {
         </div>
 
         <div className="p-10 border-t bg-slate-50 flex justify-between items-center">
+          {importing && (
+            <div className="absolute left-10 right-10 -mt-20">
+              <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
+                <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-widest text-slate-600 mb-2">
+                  <span>{importProgressLabel || t("digitalplanning.planning_import.progress_busy", "Importeren...")}</span>
+                  <span className="flex items-center gap-3">
+                    {importEtaLabel ? <span className="text-slate-500">{importEtaLabel}</span> : null}
+                    <span>{importProgressPct}%</span>
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${importProgressPct}%` }} />
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex gap-3 bg-white p-1.5 rounded-3xl border border-slate-200">
              <button onClick={() => setImportMode("new_only")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "new_only" ? "bg-blue-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.only_new", "Alleen Nieuwe")}</button>
              <button onClick={() => setImportMode("smart_update")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "smart_update" ? "bg-emerald-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.smart_update", "Slimme Sync")}</button>
              <button onClick={() => setImportMode("overwrite")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "overwrite" ? "bg-orange-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.overwrite_all", "Overschrijf Alles")}</button>
           </div>
           <div className="flex gap-5">
-            <button onClick={onClose} className="px-10 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100 transition-all">{t("digitalplanning.planning_import.cancel", "Annuleren")}</button>
+            <button onClick={onClose} disabled={importing} className="px-10 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100 transition-all disabled:opacity-60 disabled:cursor-not-allowed">{t("digitalplanning.planning_import.cancel", "Annuleren")}</button>
             <button onClick={startImport} disabled={importableCount === 0 || importing} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-2xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center gap-4 disabled:opacity-50 disabled:bg-slate-300">
               {importing ? <Loader2 className="animate-spin" size={24} /> : <ShieldCheck size={24} />}
-              {t("digitalplanning.planning_import.import_orders", { count: importableCount, defaultValue: "Importeer {{count}} Orders" })}
+              {importing
+                ? t("digitalplanning.planning_import.importing_with_progress", { progress: importProgressPct, defaultValue: "Importeren... {{progress}}%" })
+                : t("digitalplanning.planning_import.import_orders", { count: importableCount, defaultValue: "Importeer {{count}} Orders" })}
             </button>
           </div>
         </div>

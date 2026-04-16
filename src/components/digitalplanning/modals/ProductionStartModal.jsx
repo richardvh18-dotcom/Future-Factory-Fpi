@@ -100,6 +100,7 @@ const ProductionStartModal = ({
   isOpen,
   onClose,
   onStart,
+  onStartInitiated,
   stationId = "",
   existingProducts = [],
 }) => {
@@ -139,7 +140,7 @@ const ProductionStartModal = ({
 
   const containerRef = useRef(null);
 
-  const [isCheckingLot, setIsCheckingLot] = useState(false);
+  const [isPreparingAutoLotPreview, setIsPreparingAutoLotPreview] = useState(false);
   const [lotError, setLotError] = useState("");
   const [isStarting, setIsStarting] = useState(false);
   const isManualMode = mode === "manual";
@@ -528,7 +529,7 @@ const ProductionStartModal = ({
 
     const generateRobustLotNumber = async () => {
       if (!isOpen || !order || mode !== "auto") return;
-      setIsCheckingLot(true);
+      setIsPreparingAutoLotPreview(true);
 
       try {
         const preview = await reserveAutoLotNumberRange({
@@ -549,7 +550,7 @@ const ProductionStartModal = ({
         console.error("Error setting lot number", error);
         if (isMounted) setLotError("Waarschuwing: Kan uniciteit niet garanderen.");
       } finally {
-        if (isMounted) setIsCheckingLot(false);
+        if (isMounted) setIsPreparingAutoLotPreview(false);
       }
     };
 
@@ -607,8 +608,8 @@ const ProductionStartModal = ({
     lastLotInputAtRef.current = now;
   };
 
-  const canStartManual = isManualMode && orderValidated && !!manualLotInput.trim() && !orderError && !lotError && !isCheckingLot;
-  const canStartAuto = !isManualMode && !!lotNumber && !isCheckingLot && !lotError;
+  const canStartManual = isManualMode && orderValidated && !!manualLotInput.trim() && !orderError && !lotError;
+  const canStartAuto = !isManualMode && !isStarting;
 
   const handleStartProduction = async () => {
     if (isStarting) return;
@@ -623,6 +624,9 @@ const ProductionStartModal = ({
     }
 
     setIsStarting(true);
+    if (typeof onStartInitiated === "function") {
+      onStartInitiated();
+    }
     try {
       let targetPrinter = null;
       let effectiveLotNumber = isManualMode ? manualLotInput.trim() : lotNumber;
@@ -997,7 +1001,7 @@ const ProductionStartModal = ({
                     <div className={`text-2xl font-mono font-black ${lotError ? 'text-red-400' : 'text-white'} italic tracking-tighter`}>
                       {lotNumber || t("productionStartModal.labels.loading")}
                     </div>
-                    {isCheckingLot && <Loader2 className="animate-spin text-white/50" size={16} />}
+                    {isPreparingAutoLotPreview && <Loader2 className="animate-spin text-white/50" size={16} />}
                   </div>
                   {lotError && <p className="text-red-400 text-xs mt-2 font-bold">{lotError}</p>}
                 </div>
@@ -1130,7 +1134,7 @@ const ProductionStartModal = ({
                       required
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      {isCheckingLot ? (
+                      {isPreparingAutoLotPreview ? (
                         <Loader2 className="animate-spin text-blue-500" size={20} />
                       ) : lotError ? (
                         <AlertTriangle className="text-red-500" size={20} />
@@ -1202,7 +1206,7 @@ const ProductionStartModal = ({
                   : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
               }`}
             >
-              {isCheckingLot || isStarting ? <Loader2 className="animate-spin" size={20} /> : <PlayCircle size={20} />} 
+              {isStarting ? <Loader2 className="animate-spin" size={20} /> : <PlayCircle size={20} />} 
               {isStarting ? t("productionStartModal.labels.starting") : (selectedOperatorName ? t("productionStartModal.labels.startWithOperator", { operator: operatorInput }) : t("productionStartModal.labels.startOrder"))}
             </button>
           </div>

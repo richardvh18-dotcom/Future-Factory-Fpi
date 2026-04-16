@@ -4,6 +4,9 @@ const MAX_ZPL_LENGTH = 120000;
 const MAX_METADATA_LENGTH = 16000;
 const MAX_PRINT_QUANTITY = 200;
 const PRINTER_ID_PATTERN = /^[a-zA-Z0-9._:-]{2,80}$/;
+const PRINT_QUEUE_COLLECTION = 'future-factory/production/print_queue';
+const DEFAULT_DEPARTMENT = 'Fittings';
+const DEFAULT_MACHINE = 'UNASSIGNED';
 
 /**
  * Sanitize Firestore values (remove undefined, recursive)
@@ -16,7 +19,7 @@ const sanitizeFirestoreValue = (value) => {
       .map((item) => sanitizeFirestoreValue(item))
       .filter((item) => item !== undefined);
   }
-  if (typeof value === "object") {
+  if (typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
         .map(([key, nestedValue]) => [key, sanitizeFirestoreValue(nestedValue)])
@@ -26,9 +29,60 @@ const sanitizeFirestoreValue = (value) => {
   return value;
 };
 
+const sanitizeSegment = (value, fallback) => {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[/.#?$\[\]]/g, '_')
+    .replace(/\s+/g, '_');
+  return normalized || fallback;
+};
+
+const normalizeMachineToken = (rawValue = '') => {
+  let token = String(rawValue || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!token) return '';
+
+  if (token === 'BM18') token = 'BH18';
+  if (token === '40BM18') token = '40BH18';
+
+  if (/^40(BH|BM|BA)\d+$/.test(token)) return token;
+  if (/^(BH|BM|BA)\d+$/.test(token)) return `40${token}`;
+
+  const match = token.match(/(40)?(BH|BM|BA)\d+/);
+  if (match) {
+    const core = `${match[2]}${String(match[0]).replace(/^(40)?(BH|BM|BA)/, '').replace(/[^0-9]/g, '')}`;
+    if (/^(BH|BM|BA)\d+$/.test(core)) return `40${core}`;
+  }
+
+  return '';
+};
+
+const inferScopedMachine = (printerId, metadata = {}) => {
+  const candidates = [
+    metadata?.machineId,
+    metadata?.stationId,
+    metadata?.station,
+    metadata?.currentStation,
+    metadata?.originMachine,
+    metadata?.targetPrinterName,
+    printerId,
+  ];
+
+  for (const candidate of candidates) {
+    const machine = normalizeMachineToken(candidate);
+    if (machine) return sanitizeSegment(machine, DEFAULT_MACHINE);
+  }
+
+  return DEFAULT_MACHINE;
+};
+
+const inferScopedDepartment = (metadata = {}) => {
+  const candidate = metadata?.departmentId || metadata?.department || DEFAULT_DEPARTMENT;
+  return sanitizeSegment(candidate, DEFAULT_DEPARTMENT);
+};
+
 /**
  * Queue a print job to the Firestore print queue (server-side)
- * 
+ *
  * @param {string} printerId - Printer ID (e.g., "BH18-ZEBRA")
  * @param {string} zplData - Raw ZPL code
  * @param {object} metadata - Extra info for logging
@@ -36,15 +90,15 @@ const sanitizeFirestoreValue = (value) => {
  * @returns {Promise<string>} - Document ID of queued print job
  */
 async function queuePrintJobService(printerId, zplData, metadata = {}, context) {
-  const normalizedPrinterId = String(printerId || "").trim();
-  const normalizedZpl = String(zplData || "");
+  const normalizedPrinterId = String(printerId || '').trim();
+  const normalizedZpl = String(zplData || '');
 
   if (!PRINTER_ID_PATTERN.test(normalizedPrinterId)) {
-    throw new Error("Ongeldige printerId.");
+    throw new Error('Ongeldige printerId.');
   }
 
   if (!normalizedZpl || normalizedZpl.length > MAX_ZPL_LENGTH) {
-    throw new Error("ZPL payload ontbreekt of is te groot.");
+    throw new Error('ZPL payload ontbreekt of is te groot.');
   }
 
   const requestedQuantity = Number(metadata?.quantity ?? metadata?.copies ?? 1);
@@ -54,31 +108,40 @@ async function queuePrintJobService(printerId, zplData, metadata = {}, context) 
 
   const sanitizedMetadata = sanitizeFirestoreValue({
     ...metadata,
-    requesterEmail: context.auth?.token?.email || "unknown",
-    requesterName: context.auth?.token?.name || "unknown"
+    requesterEmail: context.auth?.token?.email || 'unknown',
+    requesterName: context.auth?.token?.name || 'unknown',
   });
 
   if (JSON.stringify(sanitizedMetadata || {}).length > MAX_METADATA_LENGTH) {
-    throw new Error("Metadata is te groot.");
+    throw new Error('Metadata is te groot.');
   }
 
+  const queueRef = db.collection(PRINT_QUEUE_COLLECTION);
+  const docRef = queueRef.doc();
+  const scopedDepartment = inferScopedDepartment(sanitizedMetadata || {});
+  const scopedMachine = inferScopedMachine(normalizedPrinterId, sanitizedMetadata || {});
+  const scopedRef = db.doc(`${PRINT_QUEUE_COLLECTION}/${scopedDepartment}/machines/${scopedMachine}/items/${docRef.id}`);
+
   const jobData = {
+    id: docRef.id,
     printerId: normalizedPrinterId,
     zpl: normalizedZpl,
-    status: "pending",
+    status: 'pending',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    createdBy: context.auth?.uid || "unknown",
+    createdBy: context.auth?.uid || 'unknown',
     metadata: sanitizedMetadata,
-    retryCount: 0
+    retryCount: 0,
+    departmentId: scopedDepartment,
+    machineId: scopedMachine,
+    _scopeType: 'print_queue',
   };
 
-  const queueRef = db.collection("future-factory").doc("production").collection("print_queue");
-  const docRef = await queueRef.add(jobData);
+  await scopedRef.set(jobData, { merge: true });
 
-  console.log(`[Printing] Print job queued: ${docRef.id} (printer: ${printerId})`);
+  console.log(`[Printing] Print job queued: ${docRef.id} (printer: ${printerId}, machine: ${scopedMachine})`);
   return docRef.id;
 }
 
 module.exports = {
-  queuePrintJobService
+  queuePrintJobService,
 };

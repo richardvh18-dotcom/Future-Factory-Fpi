@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db } from "../config/firebase";
-import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
 import { PATHS } from "../config/dbPaths"; // Importeer de centrale paden
 
 /**
@@ -15,7 +15,8 @@ export const usePlanningData = () => {
   useEffect(() => {
     // Gebruik het nieuwe pad: /future-factory/production/digital_planning
     const planningRef = collection(db, ...PATHS.PLANNING);
-    const q = query(planningRef, orderBy("deliveryDate", "asc"));
+    const maxOrders = Math.max(10, Number(import.meta.env.VITE_PLANNING_LIMIT || 50));
+    const q = query(planningRef, orderBy("deliveryDate", "asc"), limit(maxOrders));
 
     const unsubscribe = onSnapshot(
       q,

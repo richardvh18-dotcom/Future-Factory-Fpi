@@ -2,9 +2,6 @@ import React, { useState, Suspense, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
-  getAdminDataSourceMode,
-} from "../../config/dbPaths";
-import {
   Package,
   Database,
   Users,
@@ -89,23 +86,6 @@ const AdminDashboard = () => {
   const { role, user } = useAdminAuth();
   const location = useLocation();
   const [activeScreen, setActiveScreen] = useState(null);
-  const [adminDataSourceMode, setAdminDataSourceModeState] = useState(() => {
-    if (typeof window === "undefined") return "current";
-    return getAdminDataSourceMode();
-  });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    const handleModeChange = () => {
-      setAdminDataSourceModeState(getAdminDataSourceMode());
-    };
-
-    window.addEventListener("admin-data-source-mode-changed", handleModeChange);
-    return () => {
-      window.removeEventListener("admin-data-source-mode-changed", handleModeChange);
-    };
-  }, []);
 
   // Reset naar dashboard overzicht als er op de sidebar knop wordt geklikt (geen state)
   useEffect(() => {
@@ -529,7 +509,7 @@ const AdminDashboard = () => {
               </div>
             }
           >
-            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} onNavigate={setActiveScreen} dataSourceMode={adminDataSourceMode} {...componentProps} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
+            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} onNavigate={setActiveScreen} {...componentProps} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
           </Suspense>
         </div>
       </div>

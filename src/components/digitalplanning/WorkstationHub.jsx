@@ -1,4 +1,4 @@
-import { collection, query, onSnapshot, doc, serverTimestamp, where, limit, getDocs, getDoc, arrayUnion, increment } from "firebase/firestore";
+import { collection, collectionGroup, query, onSnapshot, doc, serverTimestamp, where, limit, getDocs, getDoc, arrayUnion, increment } from "firebase/firestore";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -193,9 +193,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const { user: currentUser } = useAdminAuth();
   const { showSuccess, showError, showInfo, showWarning, requestBrowserPermission, showConfirm , notify} = useNotifications();
   const navigate = useNavigate();
+  const initialStationName = typeof initialStationId === "object" ? initialStationId?.name : initialStationId;
 
   const [selectedStation, setSelectedStation] = useState(
-    (typeof initialStationId === 'object' ? initialStationId.name : initialStationId) || "BH11"
+    initialStationName || "BH11"
   );
   const [activeTab, setActiveTab] = useState("terminal");
   const [rawOrders, setRawOrders] = useState([]);
@@ -232,6 +233,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const [timeHeartbeat, setTimeHeartbeat] = useState(Date.now());
   const lastShiftRef = useRef(getCurrentShiftKey(new Date()));
   const lastAutoCheckoutMinuteRef = useRef("");
+  const lastAppliedInitialStationRef = useRef(null);
 
   const currentAppId = getAppId();
   const isPostProcessing = [
@@ -248,18 +250,19 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
   // Initiele Tab en Station Setup
   useEffect(() => {
-    if (initialStationId) {
-      const stationName = typeof initialStationId === 'object' ? initialStationId.name : initialStationId;
-      setSelectedStation(stationName);
-      if (
-        ["Mazak", "Nabewerking"].includes(stationName)
-      ) {
-        setActiveTab("winding");
-      } else {
-        setActiveTab("terminal");
-      }
+    if (!initialStationName) return;
+    setSelectedStation(initialStationName);
+
+    // Alleen bij echte stationwissel de standaard tab forceren.
+    if (lastAppliedInitialStationRef.current === initialStationName) return;
+    lastAppliedInitialStationRef.current = initialStationName;
+
+    if (["Mazak", "Nabewerking", "Nabewerken"].includes(initialStationName)) {
+      setActiveTab("winding");
+      return;
     }
-  }, [initialStationId]);
+    setActiveTab("terminal");
+  }, [initialStationName]);
 
   useEffect(() => {
     if (!requiresShiftCheckin || !selectedStation) return;
@@ -273,25 +276,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    const handleModeChange = () => {
-      setLoading(true);
-      setDataSourceRefreshKey((prev) => prev + 1);
-    };
-
-    const handleStorage = (event) => {
-      if (event.key === "adminDataSourceMode") {
-        handleModeChange();
-      }
-    };
-
-    window.addEventListener("admin-data-source-mode-changed", handleModeChange);
-    window.addEventListener("storage", handleStorage);
-    return () => {
-      window.removeEventListener("admin-data-source-mode-changed", handleModeChange);
-      window.removeEventListener("storage", handleStorage);
-    };
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -379,41 +364,87 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       // 2. ALL listeners start in parallel (not sequential!)
       if (!isMounted) return;
       
-      // LISTENER 1: Orders
+      // LISTENER 1: Orders (root pad + scoped per-machine paden)
+      let rootOrders = [];
+      let scopedOrders = [];
+
+      const mapOrderDoc = (docSnap) => {
+        const data = docSnap.data();
+        let dateObj = data.plannedDate?.toDate ? data.plannedDate.toDate() : new Date();
+        let { week, year } = getISOWeekInfo(dateObj);
+        return {
+          id: docSnap.id,
+          ...data,
+          __docPath: docSnap.ref.path,
+          sourcePath: data?.sourcePath || docSnap.ref.path,
+          orderId: data.orderId || data.orderNumber || docSnap.id,
+          item: data.item || data.productCode || t("digitalplanning.workstation.unknown_item"),
+          plan: data.plan || data.quantity || 0,
+          dateObj,
+          weekNumber: parseInt(data.week || data.weekNumber || week),
+          weekYear: parseInt(data.year || year),
+        };
+      };
+
+      const mergeOrders = () => {
+        if (!isMounted) return;
+        const merged = new Map();
+        rootOrders.forEach((o) => {
+          const key = String(o.orderId || o.id || "").trim();
+          if (key) merged.set(key, o);
+        });
+        // Scoped docs overschrijven root docs
+        scopedOrders.forEach((o) => {
+          const key = String(o.orderId || o.id || "").trim();
+          if (key) merged.set(key, o);
+        });
+        setRawOrders(Array.from(merged.values()));
+      };
+
       const ordersRef = collection(db, ...PATHS.PLANNING);
       const ordersQuery = query(
-        ordersRef, 
+        ordersRef,
         where("status", "not-in", ["completed", "cancelled", "shipped", "rejected", "finished", "COMPLETED", "CANCELLED", "SHIPPED", "REJECTED", "FINISHED"]),
         limit(200)
       );
       const unsubOrders = onSnapshot(ordersQuery, (snap) => {
-        const loadedOrders = snap.docs.map((doc) => {
-          const data = doc.data();
-          let dateObj = data.plannedDate?.toDate
-            ? data.plannedDate.toDate()
-            : new Date();
-          let { week, year } = getISOWeekInfo(dateObj);
-          return {
-            id: doc.id,
-            sourcePath: doc.ref.path,
-            _sourcePath: doc.ref.path,
-            ...data,
-            orderId: data.orderId || data.orderNumber || doc.id,
-            item: data.item || data.productCode || t("digitalplanning.workstation.unknown_item"),
-            plan: data.plan || data.quantity || 0,
-            dateObj: dateObj,
-            weekNumber: parseInt(data.week || data.weekNumber || week),
-            weekYear: parseInt(data.year || year),
-          };
-        });
-        if (isMounted) setRawOrders(loadedOrders);
+        rootOrders = snap.docs.map(mapOrderDoc);
+        mergeOrders();
         markStreamReady();
       }, (error) => {
         if (!isMounted) return;
         console.error("Orders sync error:", error);
-        markStreamReady(); // Still mark as ready even on error
+        markStreamReady();
       });
       unsubs.push(unsubOrders);
+
+      // Scoped per-machine orders (bijv. /digital_planning/Fittings/machines/40BH17/orders/)
+      const unsubScopedOrders = onSnapshot(
+        collectionGroup(db, "orders"),
+        (snap) => {
+          scopedOrders = snap.docs
+            .filter((d) => {
+              const path = d.ref.path || "";
+              return (
+                path.includes("/production/digital_planning/") &&
+                path.includes("/machines/") &&
+                path.includes("/orders/")
+              );
+            })
+            .map(mapOrderDoc)
+            .filter((o) => {
+              const s = String(o.status || "").toLowerCase();
+              return !["completed", "cancelled", "shipped", "rejected", "finished"].includes(s);
+            });
+          mergeOrders();
+          markStreamReady();
+        },
+        (err) => {
+          if (!isMounted) return;
+          console.error("WorkstationHub Scoped Orders Sync Error:", err);
+        }
+      );
+      unsubs.push(unsubScopedOrders);
       
       // LISTENER 2: Products (also starts immediately, in parallel)
       const unsubProds = onSnapshot(
@@ -1373,7 +1404,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         lotStart: customLotNumber,
         stringCount,
         stationId: selectedStation,
-        orderSourcePath: order?.sourcePath || order?._sourcePath || "",
+        orderDocPath: order?.__docPath || "",
+        orderSourcePath: order?.sourcePath || "",
         actorLabel: currentUser?.email || "Operator",
         labelZplData: typeof labelZplData === "string" ? labelZplData : "",
         labelTemplateId: labelTemplateId || "",
@@ -2124,6 +2156,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           order={selectedOrder}
           isOpen={showStartModal}
           onClose={() => setShowStartModal(false)}
+          onStartInitiated={() => {
+            setShowStartModal(false);
+            if (!isPostProcessing && !isBM01) {
+              setActiveTab("winding");
+            }
+          }}
           onStart={handleStartProduction}
           stationId={selectedStation}
           existingProducts={rawProducts}

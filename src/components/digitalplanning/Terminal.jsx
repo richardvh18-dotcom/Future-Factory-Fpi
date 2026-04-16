@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import {
   collection,
+  collectionGroup,
   onSnapshot,
   doc,
   updateDoc,
@@ -165,63 +166,88 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     setLoading(true);
     
     // PERFORMANCE: Haal alleen niet-afgeronde orders op (server-side filtering)
+    let rootOrders = [];
+    let scopedOrders = [];
+    const excludedStatuses = ["completed", "COMPLETED", "cancelled", "CANCELLED", "shipped", "SHIPPED", "rejected", "REJECTED", "finished", "FINISHED"];
+
+    const processOrderDoc = (docSnap) => {
+      const data = docSnap.data();
+      let pYear = 0;
+      let pWeek = 0;
+      const weekStr = String(data.week || data.weekNumber || "").toUpperCase();
+      if (weekStr.includes("-W")) {
+        const parts = weekStr.split("-W");
+        pYear = parseInt(parts[0]) || 0;
+        pWeek = parseInt(parts[1]) || 0;
+      } else {
+        const dateCandidates = [
+          data.plannedDeliveryDate,
+          data.deliveryDate,
+          data.dueDate,
+          data.plannedDate,
+          data.date,
+        ];
+        for (const candidate of dateCandidates) {
+          if (!candidate) continue;
+          const d = parseDateSafe(candidate);
+          if (d && Number.isFinite(d.getTime())) {
+            pYear = getISOWeekYear(d);
+            pWeek = getISOWeek(d);
+            break;
+          }
+        }
+        if (!pWeek && (data.week || data.weekNumber)) {
+          pWeek = parseInt(data.week || data.weekNumber) || 0;
+          pYear = parseInt(data.year || data.weekYear) || new Date().getFullYear();
+        }
+      }
+      return { id: docSnap.id, ...data, parsedYear: pYear, parsedWeek: pWeek };
+    };
+
+    const mergeAndSet = () => {
+      const merged = new Map();
+      rootOrders.forEach((o) => {
+        const key = String(o.orderId || o.id || "").trim();
+        if (key) merged.set(key, o);
+      });
+      scopedOrders.forEach((o) => {
+        const key = String(o.orderId || o.id || "").trim();
+        if (key) merged.set(key, o);
+      });
+      setAllOrders(Array.from(merged.values()));
+    };
+
     const q = query(
       collection(db, ...PATHS.PLANNING),
-      where("status", "not-in", ["completed", "COMPLETED", "cancelled", "CANCELLED", "shipped", "SHIPPED", "rejected", "REJECTED", "finished", "FINISHED"])
+      where("status", "not-in", excludedStatuses)
     );
 
     const unsubOrders = onSnapshot(q, (snap) => {
-      const processedOrders = snap.docs.map((doc) => {
-        const data = doc.data();
-        
-        // Robuuste week/jaar bepaling
-        let pYear = 0;
-        let pWeek = 0;
-        
-        // 1. Probeer string formaat "2026-W05"
-        const weekStr = String(data.week || data.weekNumber || "").toUpperCase();
-        if (weekStr.includes("-W")) {
-          const parts = weekStr.split("-W");
-          pYear = parseInt(parts[0]) || 0;
-          pWeek = parseInt(parts[1]) || 0;
-        } 
-        // 2. Bereken week uit leverdatum/geplande datum (betrouwbaarder dan los weeknummer)
-        else {
-          const dateCandidates = [
-            data.plannedDeliveryDate,
-            data.deliveryDate,
-            data.dueDate,
-            data.plannedDate,
-            data.date,
-          ];
-          for (const candidate of dateCandidates) {
-            if (!candidate) continue;
-            const d = parseDateSafe(candidate);
-            if (d && Number.isFinite(d.getTime())) {
-              pYear = getISOWeekYear(d);
-              pWeek = getISOWeek(d);
-              break;
-            }
-          }
-          // 3. Als er geen datum gevonden is, gebruik het ruwe weeknummer als laatste resort
-          if (!pWeek && (data.week || data.weekNumber)) {
-            pWeek = parseInt(data.week || data.weekNumber) || 0;
-            pYear = parseInt(data.year || data.weekYear) || new Date().getFullYear();
-          }
-        }
-        
-        return { 
-          id: doc.id, 
-          ...data,
-          parsedYear: pYear,
-          parsedWeek: pWeek
-        };
-      });
-      setAllOrders(processedOrders);
+      rootOrders = snap.docs.map(processOrderDoc);
+      mergeAndSet();
     }, (err) => {
       console.error("Orders sync error:", err);
       setLoading(false);
     });
+
+    const unsubScopedOrders = onSnapshot(
+      collectionGroup(db, "orders"),
+      (snap) => {
+        scopedOrders = snap.docs
+          .filter((d) => {
+            const path = d.ref.path || "";
+            return (
+              path.includes("/production/digital_planning/") &&
+              path.includes("/machines/") &&
+              path.includes("/orders/")
+            );
+          })
+          .map(processOrderDoc)
+          .filter((o) => !excludedStatuses.map(s => s.toLowerCase()).includes(String(o.status || "").toLowerCase()));
+        mergeAndSet();
+      },
+      (err) => console.error("Terminal Scoped Orders Sync Error:", err)
+    );
 
     const unsubProducts = onSnapshot(collection(db, ...PATHS.TRACKING), (snap) => {
       setAllTracked(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
@@ -233,6 +259,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
 
     return () => {
       unsubOrders();
+      unsubScopedOrders();
       unsubProducts();
     };
   }, [stationId]);
@@ -777,6 +804,9 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     labelTemplateId,
     startOptions = {}
   ) => {
+    const previousTab = activeTab;
+    const shouldJumpToWinding = !isNabewerking && !isLossenStation && !isBM01 && !isBH31;
+
     try {
       const cleanOrderId = String(order.orderId).trim();
       const cleanItemCode = String(order.itemCode || order.productId).trim();
@@ -787,6 +817,12 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         (totalToProduce > 1
           ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${startLot}`
           : null);
+
+      setShowStartModal(false);
+      if (shouldJumpToWinding) {
+        setActiveTab("wikkelen");
+      }
+
       const startResult = await startProductionLots({
         orderDocId: order.id,
         orderId: cleanOrderId,
@@ -807,16 +843,17 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         ? startResult.createdLots
         : [startResult?.firstLot || startLot].filter(Boolean);
 
-      setShowStartModal(false);
-      if (!isNabewerking && !isLossenStation && !isBM01 && !isBH31) setActiveTab("wikkelen");
-
-      await logActivity(
+      void logActivity(
         user?.uid || "system",
         "ORDER_RELEASE",
         `Terminal start productie: order ${order.orderId}, station ${effectiveStationId}, lots ${createdLots.join(", ")}`
-      );
+      ).catch((logError) => {
+        console.error("LogActivity fout na productie-start:", logError);
+      });
     } catch (err) {
       console.error("Fout bij starten productie:", err);
+      setShowStartModal(true);
+      setActiveTab(previousTab);
       throw err;
     }
   };
@@ -1085,6 +1122,12 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         <ProductionStartModal
           isOpen={true} onClose={() => setShowStartModal(false)}
           order={selectedOrder} stationId={stationId}
+          onStartInitiated={() => {
+            setShowStartModal(false);
+            if (!isNabewerking && !isLossenStation && !isBM01 && !isBH31) {
+              setActiveTab("wikkelen");
+            }
+          }}
           onStart={handleStartProduction} existingProducts={allTracked}
         />
       )}

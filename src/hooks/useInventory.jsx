@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, collectionGroup, getDocs, query, where } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
+import { isProductionInventoryScopedDoc } from "../utils/inventoryPaths";
 
 /**
  * useInventory.js - Optimized
@@ -21,14 +22,38 @@ const useInventory = (shouldFetch = true) => {
 
     const fetchInventory = async () => {
       try {
-        const ref = collection(db, ...PATHS.INVENTORY);
-        const snapshot = await getDocs(ref);
+        const legacyRef = collection(db, ...PATHS.INVENTORY);
+        const scopedRef = query(
+          collectionGroup(db, "items"),
+          where("_scopeType", "==", "inventory")
+        );
+
+        const [legacySnapshot, scopedSnapshot] = await Promise.all([
+          getDocs(legacyRef),
+          getDocs(scopedRef),
+        ]);
 
         if (isMounted) {
-          const list = snapshot.docs.map((doc) => ({
+          const legacyList = legacySnapshot.docs.map((doc) => ({
             id: doc.id,
             ...doc.data(),
+            _source: "legacy",
           }));
+
+          const scopedList = scopedSnapshot.docs
+            .filter((doc) => isProductionInventoryScopedDoc(doc.ref.path))
+            .map((doc) => ({
+              id: doc.id,
+              ...doc.data(),
+              _source: "scoped",
+            }));
+
+          // Scoped docs krijgen voorrang, legacy blijft fallback tijdens migratie.
+          const byId = new Map();
+          legacyList.forEach((entry) => byId.set(entry.id, entry));
+          scopedList.forEach((entry) => byId.set(entry.id, entry));
+
+          const list = Array.from(byId.values());
           setMoffen(list);
           setLoading(false);
         }

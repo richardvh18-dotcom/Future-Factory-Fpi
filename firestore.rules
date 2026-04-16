@@ -196,6 +196,48 @@ service cloud.firestore {
       );
     }
 
+    function planningStatusValue(data) {
+      return lower(
+        ('status' in data && data.status is string) ? data.status : (
+          ('orderStatus' in data && data.orderStatus is string) ? data.orderStatus : ''
+        )
+      );
+    }
+
+    function isKnownPlanningStatus(status) {
+      return status in [
+        'waiting',
+        'planned',
+        'released',
+        'in_production',
+        'on_hold',
+        'completed',
+        'cancelled'
+      ];
+    }
+
+    function validPlanningStatusTransition() {
+      let prev = planningStatusValue(resource.data);
+      let next = planningStatusValue(request.resource.data);
+
+      return prev == next
+        || !isKnownPlanningStatus(prev)
+        || !isKnownPlanningStatus(next)
+        || (prev == 'waiting' && next in ['planned', 'released', 'in_production', 'on_hold', 'cancelled'])
+        || (prev == 'planned' && next in ['released', 'in_production', 'on_hold', 'cancelled'])
+        || (prev == 'released' && next in ['in_production', 'on_hold', 'cancelled'])
+        || (prev == 'in_production' && next in ['completed', 'on_hold', 'cancelled'])
+        || (prev == 'on_hold' && next in ['waiting', 'planned', 'released', 'in_production', 'cancelled'])
+        || (prev == 'cancelled' && next in ['waiting', 'planned', 'released'])
+        || (prev == 'completed' && next == 'completed');
+    }
+
+    function planningUpdateAllowedPilot() {
+      return !request.resource.data.diff(resource.data).changedKeys().hasAny(['status', 'orderStatus'])
+        || validPlanningStatusTransition()
+        || isAdmin();
+    }
+
     match /future-factory/Users/Accounts/{userId} {
       allow get: if isAdmin() || isOwnUserDoc(userId);
       allow list: if isAdmin();
@@ -263,13 +305,20 @@ service cloud.firestore {
     match /future-factory/production/digital_planning/{document=**} {
       allow read: if hasUserRecord() || isSignedIn();
       allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction();
+      allow update: if canOperateProduction() && planningUpdateAllowedPilot();
+    }
+
+    // collectionGroup("orders") query voor scoped per-machine planning orders
+    match /{path=**}/orders/{orderId} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction() && planningUpdateAllowedPilot();
     }
 
     match /future-factory/production/data/digital_planning/orders/{orderId} {
       allow read: if hasUserRecord() || isSignedIn();
       allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction();
+      allow update: if canOperateProduction() && planningUpdateAllowedPilot();
     }
 
     match /future-factory/production/{collectionId}/{document=**} {

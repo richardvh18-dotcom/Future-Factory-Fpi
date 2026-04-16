@@ -1,7 +1,6 @@
 const { admin, db } = require('../config/firebase');
-const { BASE, TRACKING_COLLECTION, PLANNING_COLLECTION, USER_ACCOUNTS_COLLECTION } = require('../config/planningConstants');
+const { BASE, USER_ACCOUNTS_COLLECTION } = require('../config/planningConstants');
 const {
-  resolveRuntimeDataPaths,
   resolveDbContext,
   getPlanningOrderDocByOrderId,
   getTrackedProductDocByIdOrLot,
@@ -10,10 +9,11 @@ const {
 const { clean, clampText } = require('../utils/text');
 
 const EFFICIENCY_COLLECTION = `${BASE}/production/efficiency_hours`;
-const OCCUPANCY_COLLECTION = `${BASE}/production/machine_occupancy`;
 const PERSONNEL_COLLECTION = `${BASE}/Users/Personnel`;
 const PRINT_QUEUE_COLLECTION = `${BASE}/production/print_queue`;
 const SERVER_TIMESTAMP_TOKEN = '__SERVER_TIMESTAMP__';
+const DEFAULT_SCOPED_DEPARTMENT = 'Fittings';
+const DEFAULT_SCOPED_MACHINE = 'UNASSIGNED';
 const LN_UPDATABLE_FIELDS_SERVER = [
   'quantity', 'toDoQty', 'plan', 'notes', 'deliveryDate', 'plannedDeliveryDate',
   'weekNumber', 'orderStatus', 'totalPlannedHours', 'totalActualHours',
@@ -42,6 +42,81 @@ const normalizeMachineForPlanningServer = (val = '') => {
   if (str === 'BM18') str = 'BH18';
   if (str === '40BM18') str = '40BH18';
   return str || '-';
+};
+
+const toFirestoreSegment = (value, fallback) => {
+  const sanitized = String(value || '')
+    .trim()
+    .replace(/[/.#?$\[\]]/g, '_')
+    .replace(/\s+/g, '_');
+  return sanitized || fallback;
+};
+
+const resolveScopedDepartment = (...values) => {
+  for (const value of values) {
+    const cleaned = clean(value);
+    if (cleaned) return toFirestoreSegment(cleaned, DEFAULT_SCOPED_DEPARTMENT);
+  }
+  return DEFAULT_SCOPED_DEPARTMENT;
+};
+
+const toCanonicalScopedMachineSegment = (value = '') => {
+  const normalized = normalizeMachineForPlanningServer(value);
+  if (!normalized || normalized === '-') return '';
+
+  if (/^40(BH|BM|BA)\d+$/.test(normalized)) return normalized;
+  if (/^(BH|BM|BA)\d+$/.test(normalized)) return `40${normalized}`;
+  return normalized;
+};
+
+const resolveScopedMachine = (...values) => {
+  for (const value of values) {
+    const canonical = toCanonicalScopedMachineSegment(value);
+    if (canonical) {
+      return toFirestoreSegment(canonical, DEFAULT_SCOPED_MACHINE);
+    }
+  }
+  return DEFAULT_SCOPED_MACHINE;
+};
+
+const getScopedPlanningDocRef = ({ ctx, department, machine, docId }) => {
+  const safeDocId = clean(docId);
+  if (!safeDocId) return null;
+  const dep = resolveScopedDepartment(department);
+  const mc = resolveScopedMachine(machine);
+  return db.doc(`${ctx.planningPath}/${dep}/machines/${mc}/orders/${safeDocId}`);
+};
+
+const getScopedTrackingDocRef = ({ ctx, department, machine, docId }) => {
+  const safeDocId = clean(docId);
+  if (!safeDocId) return null;
+  const dep = resolveScopedDepartment(department);
+  const mc = resolveScopedMachine(machine);
+  return db.doc(`${ctx.trackingPath}/${dep}/machines/${mc}/items/${safeDocId}`);
+};
+
+const getScopedOccupancyDocRef = ({ ctx, department, machine, assignmentId }) => {
+  const safeAssignmentId = clean(assignmentId);
+  if (!safeAssignmentId) return null;
+  const dep = resolveScopedDepartment(department);
+  const mc = resolveScopedMachine(machine);
+  return db.doc(`${ctx.occupancyPath}/${dep}/machines/${mc}/assignments/${safeAssignmentId}`);
+};
+
+const getScopedPrintQueueDocRef = ({ ctx, department, machine, docId }) => {
+  const safeDocId = clean(docId);
+  if (!safeDocId) return null;
+  const dep = resolveScopedDepartment(department);
+  const mc = resolveScopedMachine(machine);
+  return db.doc(`${ctx.printQueuePath}/${dep}/machines/${mc}/items/${safeDocId}`);
+};
+
+const getScopedEfficiencyDocRef = ({ ctx, department, machine, docId }) => {
+  const safeDocId = clean(docId);
+  if (!safeDocId) return null;
+  const dep = resolveScopedDepartment(department);
+  const mc = resolveScopedMachine(machine);
+  return db.doc(`${ctx.efficiencyPath}/${dep}/machines/${mc}/items/${safeDocId}`);
 };
 
 const getISOWeekInfoServer = (date) => {
@@ -401,7 +476,12 @@ const bulkImportPlanningOrdersService = async ({
 
       const isExistingOrder = Boolean(item.isExistingOrder);
       const isSmartUpdate = safeImportMode === 'smart_update' && isExistingOrder;
-      const planningDocRef = db.collection(ctx.planningPath).doc(docId);
+      const scopedPlanningRef = getScopedPlanningDocRef({
+        ctx,
+        department: dbData.department || dbData.departmentId || item.department || item.departmentId,
+        machine: dbData.machine || item.machine,
+        docId,
+      });
 
       if (isSmartUpdate) {
         const lnPayload = {};
@@ -409,42 +489,40 @@ const bulkImportPlanningOrdersService = async ({
           if (dbData[field] !== undefined) lnPayload[field] = dbData[field];
         });
 
-        batch.set(
-          planningDocRef,
-          {
-            ...lnPayload,
-            item: normalizedItem,
-            itemDescription: normalizedItemDescription,
-            plannedHoursBH: productionHours,
-            plannedHoursNabewerken: postHours,
-            plannedHoursBM01: qcHours,
-            plannedMinutesBH: productionHours * 60,
-            plannedMinutesNabewerken: postHours * 60,
-            plannedMinutesBM01: qcHours * 60,
-            referenceOperationTimes: operationByCode,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        const planningPayload = {
+          ...lnPayload,
+          item: normalizedItem,
+          itemDescription: normalizedItemDescription,
+          plannedHoursBH: productionHours,
+          plannedHoursNabewerken: postHours,
+          plannedHoursBM01: qcHours,
+          plannedMinutesBH: productionHours * 60,
+          plannedMinutesNabewerken: postHours * 60,
+          plannedMinutesBM01: qcHours * 60,
+          referenceOperationTimes: operationByCode,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (scopedPlanningRef) {
+          batch.set(scopedPlanningRef, planningPayload, { merge: true });
+        }
       } else {
-        batch.set(
-          planningDocRef,
-          {
-            ...dbData,
-            item: normalizedItem,
-            itemDescription: normalizedItemDescription,
-            plannedHoursBH: productionHours,
-            plannedHoursNabewerken: postHours,
-            plannedHoursBM01: qcHours,
-            plannedMinutesBH: productionHours * 60,
-            plannedMinutesNabewerken: postHours * 60,
-            plannedMinutesBM01: qcHours * 60,
-            referenceOperationTimes: operationByCode,
-            planningHidden: item.planningVisible === false,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        const planningPayload = {
+          ...dbData,
+          item: normalizedItem,
+          itemDescription: normalizedItemDescription,
+          plannedHoursBH: productionHours,
+          plannedHoursNabewerken: postHours,
+          plannedHoursBM01: qcHours,
+          plannedMinutesBH: productionHours * 60,
+          plannedMinutesNabewerken: postHours * 60,
+          plannedMinutesBM01: qcHours * 60,
+          referenceOperationTimes: operationByCode,
+          planningHidden: item.planningVisible === false,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (scopedPlanningRef) {
+          batch.set(scopedPlanningRef, planningPayload, { merge: true });
+        }
       }
 
       const productionMinutes = productionHours * 60;
@@ -474,6 +552,38 @@ const bulkImportPlanningOrdersService = async ({
         },
         { merge: true }
       );
+
+      const scopedEfficiencyRef = getScopedEfficiencyDocRef({
+        ctx,
+        department: item.department || item.departmentId || DEFAULT_SCOPED_DEPARTMENT,
+        machine: item.machine,
+        docId,
+      });
+      if (scopedEfficiencyRef) {
+        batch.set(
+          scopedEfficiencyRef,
+          {
+            orderId: docId,
+            itemCode: clean(item.itemCode),
+            itemDescription: normalizedItemDescription,
+            machine: resolveScopedMachine(item.machine),
+            standardTimeTotal: standardMinutes,
+            productionTimeTotal: productionMinutes,
+            actualTimeTotal: actualMinutes,
+            qcTimeTotal: qcMinutes,
+            postProcessingTimeTotal: postProcessingMinutes,
+            quantity: qty,
+            minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
+            status: 'active',
+            source: isSmartUpdate ? 'ln_smart_sync' : 'ln_import',
+            lastSync: new Date().toISOString(),
+            departmentId: resolveScopedDepartment(item.department || item.departmentId || DEFAULT_SCOPED_DEPARTMENT),
+            machineId: resolveScopedMachine(item.machine),
+            _scopeType: 'efficiency_hours',
+          },
+          { merge: true }
+        );
+      }
 
       processedCount += 1;
       if (isExistingOrder) updatedCount += 1;
@@ -687,7 +797,7 @@ const moveTrackedProductManualService = async ({
   };
 };
 
-const archivePlanningOrderService = async ({ orderDocId, requestedReason, source, auth, userRole, dbCtx = null }) => {
+const archivePlanningOrderService = async ({ orderDocId, requestedReason, source, auth, userRole, allowWithActiveProducts = false, dbCtx = null }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const orderDoc = await getPlanningOrderDocById(orderDocId, ctx._rds);
   if (!orderDoc) {
@@ -695,6 +805,23 @@ const archivePlanningOrderService = async ({ orderDocId, requestedReason, source
   }
 
   const orderData = orderDoc.data() || {};
+
+  // Blokkeer archivering wanneer er nog actieve tracked products zijn voor deze order,
+  // tenzij de aanroeper expliciet wil overrulen (allowWithActiveProducts=true, bijv. bij 'manual' of 'rejected').
+  // De order mag pas naar archief als het laatste product bij Eindinspectie goedgekeurd is.
+  if (!allowWithActiveProducts && source !== 'auto_on_last_product') {
+    const orderIdForCheck = clean(orderData.orderId) || '';
+    if (orderIdForCheck && orderIdForCheck !== 'NOG_TE_BEPALEN') {
+      const activeSnap = await db.collection(ctx.trackingPath)
+        .where('orderId', '==', orderIdForCheck)
+        .limit(1)
+        .get();
+      if (!activeSnap.empty) {
+        throw new Error('ACTIVE_PRODUCTS_REMAIN');
+      }
+    }
+  }
+
   const year = new Date().getFullYear();
   const targetArchiveRef = db.collection(ctx.archivePlanningPath(year)).doc(orderDoc.id);
 
@@ -757,10 +884,12 @@ const completeTrackedProductService = async ({
 
   const orderId = clean(productData.orderId);
 
+  // Verhoog produced op de planning order.
+  // Geeft { incremented, orderDoc, orderComplete } terug voor auto-archiveer logica.
   const incrementProducedOnOrder = async (batch) => {
-    if (!orderId || orderId === 'NOG_TE_BEPALEN') return false;
+    if (!orderId || orderId === 'NOG_TE_BEPALEN') return { incremented: false };
     const orderDoc = await getPlanningOrderDocByOrderId(orderId, ctx._rds);
-    if (!orderDoc) return false;
+    if (!orderDoc) return { incremented: false };
     const orderData = orderDoc.data() || {};
     const newProduced = (Number(orderData.produced) || 0) + 1;
     const plan = Number(orderData.plan || orderData.quantity || 0);
@@ -768,11 +897,12 @@ const completeTrackedProductService = async ({
       produced: admin.firestore.FieldValue.increment(1),
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
     };
-    if (plan > 0 && newProduced >= plan) {
+    const orderComplete = plan > 0 && newProduced >= plan;
+    if (orderComplete) {
       orderUpdates.status = 'completed';
     }
     batch.set(orderDoc.ref, orderUpdates, { merge: true });
-    return true;
+    return { incremented: true, orderDoc, orderComplete, newProduced, plan };
   };
 
   if (finishType === 'archive') {
@@ -799,10 +929,36 @@ const completeTrackedProductService = async ({
     const batch = db.batch();
     batch.set(archiveRef, archiveData);
     batch.delete(trackedDoc.ref);
-    const producedIncremented = await incrementProducedOnOrder(batch);
+    const { incremented: producedIncremented, orderDoc: producedOrderDoc, orderComplete } = await incrementProducedOnOrder(batch);
     await batch.commit();
 
-    return { ok: true, productId: trackedDoc.id, finishType: 'archive', producedIncremented };
+    // Auto-archiveer de planning order wanneer het laatste product goedgekeurd is bij Eindinspectie.
+    // Voorwaarden: produced >= plan én geen actieve tracked products meer voor deze order.
+    let orderAutoArchived = false;
+    if (producedIncremented && orderComplete && producedOrderDoc) {
+      const remainingSnap = await db.collection(ctx.trackingPath)
+        .where('orderId', '==', orderId)
+        .limit(1)
+        .get();
+      if (remainingSnap.empty) {
+        try {
+          await archivePlanningOrderService({
+            orderDocId: producedOrderDoc.id,
+            requestedReason: 'completed',
+            source: 'auto_on_last_product',
+            auth,
+            userRole,
+            dbCtx: ctx,
+          });
+          orderAutoArchived = true;
+        } catch (archiveErr) {
+          // Niet fataal – product is succesvol gearchiveerd, planning order archivering kan later handmatig.
+          console.warn('[completeTrackedProduct] Auto-archive planningorder mislukt:', archiveErr.message);
+        }
+      }
+    }
+
+    return { ok: true, productId: trackedDoc.id, finishType: 'archive', producedIncremented, orderAutoArchived };
   }
 
   if (finishType === 'forward') {
@@ -825,10 +981,11 @@ const completeTrackedProductService = async ({
 
     const batch = db.batch();
     batch.set(trackedDoc.ref, updatePayload, { merge: true });
-    const producedIncremented = await incrementProducedOnOrder(batch);
+    // produced wordt NIET verhoogd bij 'forward' – alleen bij definitieve goedkeuring
+    // bij Eindinspectie (finishType:'archive') telt het product als gemaakt.
     await batch.commit();
 
-    return { ok: true, productId: trackedDoc.id, finishType: 'forward', producedIncremented };
+    return { ok: true, productId: trackedDoc.id, finishType: 'forward', producedIncremented: false };
   }
 
   throw new Error('INVALID_FINISH_TYPE');
@@ -909,17 +1066,12 @@ const cancelTrackedProductionService = async ({
     recycledSequenceAdded = true;
   }
 
-  const queueSnap = await admin
-    .firestore()
-    .collection(`${BASE}/production/print_queue`)
-    .where('status', '==', 'pending')
-    .limit(200)
-    .get();
+  const pendingQueueDocs = await getPendingPrintQueueDocs();
 
   const lotUpper = String(cancelledLot).toUpperCase();
   const orderUpper = String(orderId || '').toUpperCase();
 
-  queueSnap.docs.forEach((d) => {
+  pendingQueueDocs.forEach((d) => {
     const data = d.data() || {};
     const md = data.metadata || {};
     const mdLot = String(md.lotNumber || md.variables?.lotNumber || '').toUpperCase();
@@ -1305,11 +1457,20 @@ const saveOccupancyAssignmentsService = async ({
     const updates = sanitizeOccupancyData(entry?.data || {});
     if (Object.keys(updates).length === 0) return;
 
-    const ref = db.doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`);
+    const ref = db.doc(`${ctx.occupancyPath}/${assignmentId}`);
+    const scopedRef = getScopedOccupancyDocRef({
+      ctx,
+      department: updates.departmentId || entry?.data?.departmentId,
+      machine: updates.machineId || entry?.data?.machineId,
+      assignmentId,
+    });
     if (updates.updatedAt === undefined) {
       updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
     }
     batch.set(ref, updates, { merge: true });
+    if (scopedRef) {
+      batch.set(scopedRef, updates, { merge: true });
+    }
     processedCount += 1;
   });
 
@@ -1347,9 +1508,25 @@ const deleteOccupancyAssignmentsService = async ({
     throw new Error('INVALID_OCCUPANCY_ASSIGNMENT_IDS');
   }
 
+  const legacyRefs = safeIds.map((assignmentId) => db.doc(`${ctx.occupancyPath}/${assignmentId}`));
+  const snaps = await db.getAll(...legacyRefs);
+
   const batch = db.batch();
-  safeIds.forEach((assignmentId) => {
-    batch.delete(db.doc(`${OCCUPANCY_COLLECTION}/${assignmentId}`));
+  safeIds.forEach((assignmentId, index) => {
+    const legacyRef = legacyRefs[index];
+    const snap = snaps[index];
+    const data = snap?.exists ? (snap.data() || {}) : {};
+    const scopedRef = getScopedOccupancyDocRef({
+      ctx,
+      department: data.departmentId,
+      machine: data.machineId,
+      assignmentId,
+    });
+
+    batch.delete(legacyRef);
+    if (scopedRef) {
+      batch.delete(scopedRef);
+    }
   });
   await batch.commit();
 
@@ -1916,7 +2093,6 @@ const startWorkstationProductionRunService = async ({
   stationOperators,
   source,
   auth,
-  runtimeDataSource,
   dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
@@ -1954,6 +2130,8 @@ const startWorkstationProductionRunService = async ({
   const orderId = clean(orderData.orderId);
   const item = clean(orderData.item);
   const drawing = clean(orderData.drawing);
+  const scopedDepartment = resolveScopedDepartment(orderData.department, orderData.departmentId);
+  const scopedOrderMachine = resolveScopedMachine(orderData.machine, safeStationId);
   const userLabel = getActorLabel(auth, actorLabel);
   const nowIso = new Date().toISOString();
   const stationField = getStartedCounterFieldServer(safeStationId);
@@ -2044,15 +2222,35 @@ const startWorkstationProductionRunService = async ({
     }
 
     batch.set(db.collection(ctx.trackingPath).doc(currentLotNumber), unitData, { merge: true });
+    const scopedTrackingRef = getScopedTrackingDocRef({
+      ctx,
+      department: scopedDepartment,
+      machine: scopedOrderMachine,
+      docId: currentLotNumber,
+    });
+    if (scopedTrackingRef) {
+      batch.set(scopedTrackingRef, unitData, { merge: true });
+    }
     createdLots.push(currentLotNumber);
   }
 
   if (clean(orderData.status).toLowerCase() !== 'completed') {
-    batch.set(orderDoc.ref, {
+    const planningUpdates = {
       status: 'in_progress',
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
       ...(stationField ? { [stationField]: currentStartedCount + qty } : {}),
-    }, { merge: true });
+    };
+    batch.set(orderDoc.ref, planningUpdates, { merge: true });
+
+    const scopedPlanningRef = getScopedPlanningDocRef({
+      ctx,
+      department: scopedDepartment,
+      machine: scopedOrderMachine,
+      docId: orderDoc.id,
+    });
+    if (scopedPlanningRef) {
+      batch.set(scopedPlanningRef, planningUpdates, { merge: true });
+    }
   }
 
   await batch.commit();
@@ -2067,12 +2265,6 @@ const startWorkstationProductionRunService = async ({
     currentStartedCount,
     stationField,
     source: source || null,
-    routing: {
-      useArtifactsPaths: Boolean(ctx?._rds?.useArtifactsPaths),
-      appId: clean(ctx?._rds?.appId),
-      planningPath: ctx.planningPath,
-      trackingPath: ctx.trackingPath,
-    },
   };
 };
 
@@ -2262,14 +2454,20 @@ const assignPersonnelToStationService = async ({
   const machineId = clean(stationId);
   const opId = clean(operatorId);
   const assignmentId = `${machineId}-${opId}-${safeDate}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const occupancyRef = db.doc(`${BASE}/production/machine_occupancy/${assignmentId}`);
+  const occupancyRef = db.doc(`${ctx.occupancyPath}/${assignmentId}`);
+  const scopedOccupancyRef = getScopedOccupancyDocRef({
+    ctx,
+    department: departmentId,
+    machine: machineId,
+    assignmentId,
+  });
 
   const parsedDate = new Date(`${safeDate}T00:00:00.000Z`);
   const { week, year } = Number.isNaN(parsedDate.getTime())
     ? getISOWeekInfoServer(new Date())
     : getISOWeekInfoServer(parsedDate);
 
-  await occupancyRef.set({
+  const occupancyPayload = {
     machineId,
     operatorNumber: clean(operatorNumber) || opId,
     operatorName: clean(operatorName) || opId,
@@ -2281,7 +2479,12 @@ const assignPersonnelToStationService = async ({
     shiftType: clean(shiftType) || 'DAG',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  }, { merge: true });
+  };
+
+  await occupancyRef.set(occupancyPayload, { merge: true });
+  if (scopedOccupancyRef) {
+    await scopedOccupancyRef.set(occupancyPayload, { merge: true });
+  }
 
   await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
@@ -2313,13 +2516,26 @@ const removePersonnelAssignmentService = async ({
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const safeAssignmentId = clean(assignmentId);
-  const occupancyRef = db.doc(`${BASE}/production/machine_occupancy/${safeAssignmentId}`);
+  const occupancyRef = db.doc(`${ctx.occupancyPath}/${safeAssignmentId}`);
   const snap = await occupancyRef.get();
   if (!snap.exists) {
     throw new Error('NOT_FOUND_ASSIGNMENT');
   }
 
-  await occupancyRef.delete();
+  const occupancyData = snap.data() || {};
+  const scopedOccupancyRef = getScopedOccupancyDocRef({
+    ctx,
+    department: occupancyData.departmentId,
+    machine: occupancyData.machineId || stationId,
+    assignmentId: safeAssignmentId,
+  });
+
+  const batch = db.batch();
+  batch.delete(occupancyRef);
+  if (scopedOccupancyRef) {
+    batch.delete(scopedOccupancyRef);
+  }
+  await batch.commit();
 
   await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
@@ -2361,9 +2577,15 @@ const loanPersonnelService = async ({
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const safeDate = clean(date);
-  const loanRef = db.collection(`${BASE}/production/machine_occupancy`).doc();
+  const loanRef = db.collection(ctx.occupancyPath).doc();
+  const scopedLoanRef = getScopedOccupancyDocRef({
+    ctx,
+    department: targetDepartment,
+    machine: targetStation,
+    assignmentId: loanRef.id,
+  });
 
-  await loanRef.set({
+  const loanPayload = {
     operatorNumber: clean(operatorNumber),
     operatorName: clean(operatorName),
     machineId: clean(targetStation),
@@ -2381,7 +2603,14 @@ const loanPersonnelService = async ({
     timestamp: new Date().toISOString(),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  }, { merge: true });
+  };
+
+  const batch = db.batch();
+  batch.set(loanRef, loanPayload, { merge: true });
+  if (scopedLoanRef) {
+    batch.set(scopedLoanRef, loanPayload, { merge: true });
+  }
+  await batch.commit();
 
   await db.collection(`${BASE}/logs/activity_logs`).add({
     userId: auth?.uid || 'system',
@@ -2416,7 +2645,6 @@ const startProductionLotsService = async ({
   labelTemplateId,
   seriesGroupId,
   isFlangeSeries,
-  runtimeDataSource,
   dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
@@ -2427,6 +2655,10 @@ const startProductionLotsService = async ({
   const safeStationId = clean(stationId);
   const safeStationLabel = clean(stationLabel);
   const qty = Math.max(1, parseInt(String(totalToProduce || 1), 10) || 1);
+  const planningOrderDoc = safeOrderDocId
+    ? await getPlanningOrderDocById(safeOrderDocId, ctx._rds)
+    : null;
+  const planningOrderData = planningOrderDoc?.data() || {};
 
   const lotMatch = safeLotStart.match(/^(.*?)(\d+)$/);
   const buildLotNumber = (offset) => {
@@ -2454,13 +2686,19 @@ const startProductionLotsService = async ({
   const createdLots = [];
   const nowIso = new Date().toISOString();
   const batch = db.batch();
+  const scopedDepartment = resolveScopedDepartment(
+    planningOrderData.department,
+    planningOrderData.departmentId,
+    DEFAULT_SCOPED_DEPARTMENT
+  );
+  const scopedPlanningMachine = resolveScopedMachine(planningOrderData.machine, safeStationId);
 
   for (let i = 0; i < qty; i += 1) {
     const currentLot = buildLotNumber(i);
     const docId = `${safeOrderId}_${safeItemCode}_${currentLot}`.replace(/[^a-zA-Z0-9]/g, '_');
     const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLot);
 
-    batch.set(db.doc(`${ctx.trackingPath}/${docId}`), {
+    const trackedPayload = {
       id: docId,
       orderId: safeOrderId,
       lotNumber: currentLot,
@@ -2499,14 +2737,33 @@ const startProductionLotsService = async ({
           isFlangeSeries: Boolean(isFlangeSeries),
         }
         : {}),
+    };
+
+    batch.set(db.doc(`${ctx.trackingPath}/${docId}`), trackedPayload, { merge: true });
+    const scopedTrackingRef = getScopedTrackingDocRef({
+      ctx,
+      department: scopedDepartment,
+      machine: scopedPlanningMachine,
+      docId,
     });
+    if (scopedTrackingRef) {
+      batch.set(scopedTrackingRef, trackedPayload, { merge: true });
+    }
 
     createdLots.push(currentLot);
   }
 
   const startedCounterField = getStartedCounterFieldServer(safeStationId);
-  const planningRef = safeOrderDocId
+  const planningRef = planningOrderDoc?.ref || (safeOrderDocId
     ? db.doc(`${ctx.planningPath}/${safeOrderDocId}`)
+    : null);
+  const scopedPlanningRef = safeOrderDocId
+    ? getScopedPlanningDocRef({
+      ctx,
+      department: scopedDepartment,
+      machine: scopedPlanningMachine,
+      docId: safeOrderDocId,
+    })
     : null;
   if (planningRef) {
     const planningUpdates = {
@@ -2519,6 +2776,9 @@ const startProductionLotsService = async ({
       planningUpdates[startedCounterField] = admin.firestore.FieldValue.increment(qty);
     }
     batch.set(planningRef, planningUpdates, { merge: true });
+    if (scopedPlanningRef) {
+      batch.set(scopedPlanningRef, planningUpdates, { merge: true });
+    }
   }
 
   await batch.commit();
@@ -2560,7 +2820,7 @@ const editTrackedProductLotNumberService = async ({
   }
 
   const duplicateSnap = await db
-    .collection(TRACKING_COLLECTION)
+    .collection(ctx.trackingPath)
     .where('lotNumber', '==', safeNewLotNumber)
     .limit(5)
     .get();
@@ -2636,7 +2896,7 @@ const createPlanningOrderManualService = async ({
   }
 
   const existingSnap = await db
-    .collection(PLANNING_COLLECTION)
+    .collection(ctx.planningPath)
     .where('orderId', '==', safeOrderId)
     .limit(1)
     .get();
@@ -2795,7 +3055,6 @@ const reserveAutoLotNumberRangeService = async ({
   stationId,
   count,
   reserve,
-  runtimeDataSource,
   dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
@@ -3071,15 +3330,63 @@ const createProductionMessagesService = async ({ messages, auth, source, actorLa
   return { ok: true, createdCount };
 };
 
+const findPrintQueueJobDocById = async ({ jobId }) => {
+  const safeJobId = clean(jobId);
+  if (!safeJobId) return null;
+
+  const scopedByDocId = await db
+    .collectionGroup('items')
+    .where(admin.firestore.FieldPath.documentId(), '==', safeJobId)
+    .limit(20)
+    .get();
+
+  const scopedDoc = scopedByDocId.docs.find((snap) => String(snap.ref?.path || '').includes('/print_queue/'));
+  if (scopedDoc) return scopedDoc;
+
+  const rootRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
+  const rootSnap = await rootRef.get();
+  if (rootSnap.exists) return rootSnap;
+
+  return null;
+};
+
+const getPendingPrintQueueDocs = async () => {
+  const rootSnap = await db
+    .collection(PRINT_QUEUE_COLLECTION)
+    .where('status', '==', 'pending')
+    .limit(300)
+    .get();
+
+  const scopedSnap = await db
+    .collectionGroup('items')
+    .where('_scopeType', '==', 'print_queue')
+    .limit(1000)
+    .get();
+
+  const byPath = new Map();
+
+  rootSnap.docs.forEach((docSnap) => {
+    byPath.set(docSnap.ref.path, docSnap);
+  });
+
+  scopedSnap.docs
+    .filter((docSnap) => String((docSnap.data() || {}).status || '').toLowerCase() === 'pending')
+    .forEach((docSnap) => {
+      byPath.set(docSnap.ref.path, docSnap);
+    });
+
+  return Array.from(byPath.values());
+};
+
 const transitionPrintQueueJobStatusService = async ({ jobId, status, error, auth, source, actorLabel, dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const safeJobId = clean(jobId);
   const nextStatus = clean(status).toLowerCase();
-  const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
-  const jobSnap = await jobRef.get();
+  const jobSnap = await findPrintQueueJobDocById({ jobId: safeJobId });
+  const jobRef = jobSnap?.ref || null;
 
-  if (!jobSnap.exists) {
+  if (!jobRef || !jobSnap.exists) {
     throw new Error('NOT_FOUND_PRINT_JOB');
   }
 
@@ -3134,10 +3441,10 @@ const requeuePrintQueueJobService = async ({ jobId, auth, source, actorLabel, db
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const safeJobId = clean(jobId);
-  const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
-  const jobSnap = await jobRef.get();
+  const jobSnap = await findPrintQueueJobDocById({ jobId: safeJobId });
+  const jobRef = jobSnap?.ref || null;
 
-  if (!jobSnap.exists) {
+  if (!jobRef || !jobSnap.exists) {
     throw new Error('NOT_FOUND_PRINT_JOB');
   }
 
@@ -3179,10 +3486,10 @@ const deletePrintQueueJobService = async ({ jobId, auth, source, actorLabel, dbC
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const safeJobId = clean(jobId);
-  const jobRef = db.collection(PRINT_QUEUE_COLLECTION).doc(safeJobId);
-  const jobSnap = await jobRef.get();
+  const jobSnap = await findPrintQueueJobDocById({ jobId: safeJobId });
+  const jobRef = jobSnap?.ref || null;
 
-  if (!jobSnap.exists) {
+  if (!jobRef || !jobSnap.exists) {
     throw new Error('NOT_FOUND_PRINT_JOB');
   }
 

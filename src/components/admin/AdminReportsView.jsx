@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { collection, query, getDocs, limit, doc, getDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
-import { getArchiveItemsPath, getReadPaths } from "../../config/dbPaths";
+import { getArchiveItemsPath, PATHS } from "../../config/dbPaths";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -32,15 +32,12 @@ import { useNotifications } from '../../contexts/NotificationContext';
  * AdminReportsView - Centrale Rapportage Module
  * Biedt diverse rapportages voor productie, kwaliteit, efficiency en prestaties
  */
-const AdminReportsView = ({ dataSourceMode = "current" }) => {
+const AdminReportsView = () => {
   const { t } = useTranslation();
-  const usePilotReadData = dataSourceMode === "pilot-read";
   const readDb = db;
-  const readPaths = useMemo(() => getReadPaths(usePilotReadData), [usePilotReadData]);
-  const getArchiveItemsPathForSource = (year) =>
-    usePilotReadData
-      ? ["future-factory", "production", "archive", String(year), "items"]
-      : getArchiveItemsPath(year);
+  const readPaths = PATHS;
+  const usePilotReadData = false;
+  const getArchiveItemsPathForSource = (year) => getArchiveItemsPath(year);
   
   // State
   const { notify } = useNotifications();
