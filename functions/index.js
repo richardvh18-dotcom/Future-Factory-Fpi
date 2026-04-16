@@ -1116,7 +1116,7 @@ exports.aggregateTrackedStats = functions.firestore
  * Let op: TTL zelf activeer je in Firebase Console op veld `expireAt`.
  */
 exports.applyActivityLogTtl = functions.firestore
-  .document('future-factory/logs/activity_logs/{logId}')
+  .document('future-factory/audit/logs/{logId}')
   .onCreate(async (snapshot) => {
     const data = snapshot.data() || {};
     const action = clean(data.action).toUpperCase();

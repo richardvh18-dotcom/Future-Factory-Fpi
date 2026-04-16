@@ -1,5 +1,6 @@
 const { admin, db } = require('../config/firebase');
 const { BASE, USER_ACCOUNTS_COLLECTION } = require('../config/planningConstants');
+const auditService = require('./auditService');
 const {
   resolveDbContext,
   getPlanningOrderDocByOrderId,
@@ -369,14 +370,28 @@ const resolveTargetRoleEmails = async (targetRoles = []) => {
   );
 };
 
-const writeActivityLog = async ({ auth, action, details, extra = {} }) => {
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+const writeActivityLog = ({ auth, action, details, source, actorLabel, actorRole, extra = {}, ...entityIds }) => {
+  const a = (action || '').toUpperCase();
+  const severity = (a.includes('CANCEL') || a.includes('DELETE') || a.includes('REJECT')) ? 'WARNING' : 'INFO';
+  let category = 'PRODUCTION';
+  if (a.startsWith('QUALITY')) category = 'QUALITY';
+  else if (a.startsWith('OCCUPANCY')) category = 'PLANNING';
+  else if (a.startsWith('PERSONNEL')) category = 'ADMIN';
+  else if (a.startsWith('PRINT')) category = 'SYSTEM';
+  const { source: xSrc, actorLabel: xLabel, actorRole: xRole, ...xIds } = extra;
+  return auditService.logAction(
+    auth?.uid || 'system',
     action,
-    details: clampText(details, 1000),
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    ...extra,
-  });
+    {
+      details: clampText(details, 1000),
+      source: source || xSrc || null,
+      actorLabel: actorLabel || xLabel || null,
+      actorRole: actorRole || xRole || null,
+      ...entityIds,
+      ...xIds,
+    },
+    { category, severity, userEmail: auth?.token?.email || null },
+  );
 };
 
 const classifyByWcServer = (wc = '') => {
@@ -1089,20 +1104,16 @@ const cancelTrackedProductionService = async ({
 
   await batch.commit();
 
-  await admin
-    .firestore()
-    .collection(`${BASE}/logs/activity_logs`)
-    .add({
-      userId: auth?.uid || 'system',
-      action: 'PRODUCTION_CANCEL',
-      details: `Production cancelled for lot ${cancelledLot}; station=${clean(selectedStation) || 'unknown'}; queue jobs removed=${removedQueueJobs}`,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      source: source || null,
-      actorLabel: userLabel,
-      actorRole: userRole,
-      orderId: orderId || null,
-      productId: trackedDoc.id,
-    });
+  await writeActivityLog({
+    auth,
+    action: 'PRODUCTION_CANCEL',
+    details: `Production cancelled for lot ${cancelledLot}; station=${clean(selectedStation) || 'unknown'}; queue jobs removed=${removedQueueJobs}`,
+    source: source || null,
+    actorLabel: userLabel,
+    actorRole: userRole,
+    orderId: orderId || null,
+    productId: trackedDoc.id,
+  });
 
   return {
     ok: true,
@@ -1479,11 +1490,10 @@ const saveOccupancyAssignmentsService = async ({
   }
 
   await batch.commit();
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'OCCUPANCY_SAVE_BATCH',
     details: `Occupancy records opgeslagen: ${processedCount}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: actorLabel || null,
     actorRole: userRole,
@@ -1530,11 +1540,10 @@ const deleteOccupancyAssignmentsService = async ({
   });
   await batch.commit();
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'OCCUPANCY_DELETE_BATCH',
     details: `Occupancy records verwijderd: ${safeIds.length}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: actorLabel || null,
     actorRole: userRole,
@@ -1567,11 +1576,10 @@ const savePersonnelRecordService = async ({
   }
 
   await ref.set(updates, { merge: true });
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: personId ? 'PERSONNEL_SAVE' : 'PERSONNEL_CREATE',
     details: `Personeelsrecord opgeslagen: ${clean(updates.name) || ref.id}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: actorLabel || null,
     actorRole: userRole,
@@ -1692,11 +1700,10 @@ const assignOverproductionService = async ({
 
   await batch.commit();
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'OVERPRODUCTION_ASSIGN',
     details: `Overproduction linked: ${existingProducts.length} pieces from ${safeSourceOrderId || 'unknown'} -> ${safeTargetOrderId}, station ${safeRouteStation}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: userLabel,
     actorRole: userRole,
@@ -1767,11 +1774,10 @@ const tempRejectTrackedProductService = async ({
 
   await trackedDoc.ref.set(updatePayload, { merge: true });
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'QUALITY_TEMP_REJECT',
     details: `Temporary reject for lot ${clean(trackedData.lotNumber) || trackedDoc.id} at ${stationLabel}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: userLabel,
     actorRole: userRole,
@@ -1931,11 +1937,10 @@ const completeTrackedProductRepairService = async ({
     }),
   }, { merge: true });
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'QUALITY_REPAIR_COMPLETE',
     details: `Repair complete for lot ${clean(trackedData.lotNumber) || trackedDoc.id}: ${safeStation} -> BM01`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: userLabel,
     actorRole: userRole,
@@ -1984,11 +1989,10 @@ const archiveRejectedTrackedProductService = async ({
     }),
   }, { merge: true });
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'QUALITY_REJECT_ARCHIVE',
     details: `Rejected lot archived: ${safeProductId}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: userLabel,
     actorRole: userRole,
@@ -2315,11 +2319,10 @@ const toggleTrackedProductPauseService = async ({
     }),
   }, { merge: true });
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: isPaused ? 'PRODUCTION_RESUME' : 'PRODUCTION_PAUSE',
     details: `Tracked product ${clean(trackedData.lotNumber) || trackedDoc.id} status: ${currentStatus || 'unknown'} -> ${nextStatus}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: userLabel,
     actorRole: userRole,
@@ -2486,11 +2489,10 @@ const assignPersonnelToStationService = async ({
     await scopedOccupancyRef.set(occupancyPayload, { merge: true });
   }
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'PERSONNEL_ASSIGN',
     details: `Operator toegewezen: ${clean(operatorName) || opId} -> station ${machineId} (${safeDate})`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: actorLabel || null,
     actorRole: userRole,
@@ -2537,11 +2539,10 @@ const removePersonnelAssignmentService = async ({
   }
   await batch.commit();
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'PERSONNEL_UNASSIGN',
     details: `Operator toewijzing verwijderd: ${safeAssignmentId} op station ${clean(stationId) || 'onbekend'}`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: actorLabel || null,
     actorRole: userRole,
@@ -2612,11 +2613,10 @@ const loanPersonnelService = async ({
   }
   await batch.commit();
 
-  await db.collection(`${BASE}/logs/activity_logs`).add({
-    userId: auth?.uid || 'system',
+  await writeActivityLog({
+    auth,
     action: 'PERSONNEL_LOAN',
     details: `Personeel uitgeleend: ${clean(operatorName) || clean(operatorNumber)} van ${clean(loanFromDepartment)} naar ${clean(targetDepartment)} (${clean(targetStation)}, ${clean(shiftLabel)})`,
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
     source: source || null,
     actorLabel: actorLabel || null,
     actorRole: userRole,

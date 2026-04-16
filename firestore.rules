@@ -361,9 +361,10 @@ service cloud.firestore {
       allow write: if canManagePlanningSettings() || isSignedIn();
     }
 
+    // activity_logs: nu gemigreerd naar /future-factory/audit/logs — geen nieuwe client writes meer.
     match /future-factory/logs/activity_logs/{logId} {
-      allow create: if hasUserRecord() || isSignedIn();
-      allow read, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     // ISO 27001 / ISO 9001: Audit logs are append-only from the backend (Admin SDK).
