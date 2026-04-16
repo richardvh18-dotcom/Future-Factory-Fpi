@@ -2077,9 +2077,40 @@ const queuePrintJob = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'zplData is verplicht.');
   }
 
-  auditService.logCallable(context, 'QUEUE_PRINT_JOB', { printerId }, { category: 'SYSTEM', severity: 'INFO' });
+  const orderId = clean(metadata?.orderId || metadata?.productionOrder || metadata?.jobId || '');
+  const quantity = Number(metadata?.quantity ?? metadata?.copies ?? 1);
 
-  return queuePrintJobService(printerId, zplData, metadata, context);
+  try {
+    const jobId = await queuePrintJobService(printerId, zplData, metadata, context);
+
+    auditService.logCallable(
+      context,
+      'PRINT_JOB',
+      {
+        jobId,
+        printerId,
+        orderId: orderId || null,
+        quantity: Number.isFinite(quantity) ? quantity : null,
+      },
+      { category: 'SYSTEM', severity: 'INFO' }
+    );
+
+    return jobId;
+  } catch (error) {
+    auditService.logCallable(
+      context,
+      'PRINT_JOB_FAILED',
+      {
+        printerId,
+        orderId: orderId || null,
+        quantity: Number.isFinite(quantity) ? quantity : null,
+        errorCode: clean(error?.code) || 'unknown',
+        errorMessage: clean(error?.message) || 'PRINT_JOB_FAILED',
+      },
+      { category: 'SYSTEM', severity: 'WARNING' }
+    );
+    throw error;
+  }
 });
 
 const updateUserProfile = functions.https.onCall(async (data, context) => {

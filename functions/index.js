@@ -100,6 +100,7 @@ const {
   deleteAiKnowledgeEntry,
   migrateAiKnowledgeFields,
 } = require('./src/callables/planningCallables');
+const auditService = require('./src/services/auditService');
 
 const clean = (val) => String(val || '').trim();
 
@@ -1269,6 +1270,17 @@ exports.aiProxyGenerate = functions.https.onCall(async (data, context) => {
 
   const messages = normalizeAiMessages(rawMessages);
   const protectedSystemPrompt = buildProtectedSystemPrompt(systemPrompt);
+  const inputSummary = {
+    modelName,
+    messageCount: messages.length,
+    systemPromptChars: protectedSystemPrompt.length,
+    inputChars: messages.reduce((sum, msg) => {
+      const partChars = Array.isArray(msg?.parts)
+        ? msg.parts.reduce((acc, part) => acc + String(part?.text || '').length, 0)
+        : 0;
+      return sum + partChars;
+    }, 0),
+  };
 
   const contents = [];
 
@@ -1278,19 +1290,50 @@ exports.aiProxyGenerate = functions.https.onCall(async (data, context) => {
   messages.forEach((msg) => contents.push(msg));
 
   await enforceAiRateLimit(context.auth.uid);
+  auditService.logCallable(
+    context,
+    'AI_QUERY_REQUESTED',
+    inputSummary,
+    { category: 'SYSTEM', severity: 'INFO' }
+  );
 
-  const result = await callGeminiGenerateContent({
-    apiKey,
-    modelName,
-    contents,
-  });
+  try {
+    const result = await callGeminiGenerateContent({
+      apiKey,
+      modelName,
+      contents,
+    });
 
-  return {
-    ok: true,
-    model: modelName,
-    text: result.text,
-    finishReason: result.finishReason,
-  };
+    auditService.logCallable(
+      context,
+      'AI_QUERY_COMPLETED',
+      {
+        ...inputSummary,
+        outputChars: String(result?.text || '').length,
+        finishReason: String(result?.finishReason || 'unknown'),
+      },
+      { category: 'SYSTEM', severity: 'INFO' }
+    );
+
+    return {
+      ok: true,
+      model: modelName,
+      text: result.text,
+      finishReason: result.finishReason,
+    };
+  } catch (error) {
+    auditService.logCallable(
+      context,
+      'AI_QUERY_FAILED',
+      {
+        ...inputSummary,
+        errorCode: clean(error?.code) || 'unknown',
+        errorMessage: clean(error?.message) || 'AI_GENERATION_FAILED',
+      },
+      { category: 'SYSTEM', severity: 'WARNING' }
+    );
+    throw error;
+  }
 });
 
 exports.logClientError = functions.https.onCall(async (data, context) => {
