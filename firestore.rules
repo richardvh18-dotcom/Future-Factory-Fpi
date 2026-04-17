@@ -315,6 +315,13 @@ service cloud.firestore {
       allow update: if canOperateProduction() && planningUpdateAllowedPilot();
     }
 
+    // collectionGroup("items") query voor scoped tracked_products docs
+    match /future-factory/production/tracked_products/{department}/machines/{machine}/items/{itemId} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow create, delete: if canOperateProduction();
+      allow update: if canOperateProduction();
+    }
+
     match /future-factory/production/data/digital_planning/orders/{orderId} {
       allow read: if hasUserRecord() || isSignedIn();
       allow create, delete: if canOperateProduction();
