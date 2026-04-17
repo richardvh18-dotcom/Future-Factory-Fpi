@@ -330,6 +330,11 @@ const LossenView = ({ stationId, appId, products = [] }) => {
              }
            } else if (!useStrictFilter && (lossen1218Origins.includes(origin) || lossen1218Origins.includes(originLabel) || lossen1218Origins.includes(current))) {
              isOurStation = isLossen1218Station;
+           } else if (!useStrictFilter && isLossen1218Station && (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current))) {
+             // BH18-producten die NIET naar centraal lossen gaan, tonen op LOSSEN12/18
+             if (!shouldGoToCentralLossen(item)) {
+               isOurStation = true;
+             }
           }
 
         }
