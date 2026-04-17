@@ -1,6 +1,5 @@
 import {
   collection,
-  collectionGroup,
   getDocs,
   limit,
   onSnapshot,
@@ -8,6 +7,10 @@ import {
   where,
 } from "firebase/firestore";
 import { PATHS } from "../config/dbPaths";
+import { FITTING_MACHINES, PIPE_MACHINES, normalizeMachine } from "./hubHelpers";
+
+const DEFAULT_TRACKING_DEPARTMENTS = ["Fittings", "Pipes"];
+const DEFAULT_TRACKING_MACHINES = [...FITTING_MACHINES, ...PIPE_MACHINES];
 
 const normalizeStatus = (value) => String(value || "").trim().toLowerCase();
 
@@ -38,18 +41,41 @@ const mergeTrackingDocs = (rootDocs = [], scopedDocs = []) => {
   return Array.from(merged.values());
 };
 
+const toScopedMachineSegment = (machine) => {
+  const normalized = normalizeMachine(machine || "");
+  if (!normalized) return "";
+  if (/^(BH|BM|BA)\d+$/.test(normalized)) return `40${normalized}`;
+  return normalized;
+};
+
+const buildScopedTrackingTargets = ({ departments, machines }) => {
+  const departmentList = Array.from(new Set((departments || DEFAULT_TRACKING_DEPARTMENTS).filter(Boolean)));
+  const machineList = Array.from(new Set((machines || DEFAULT_TRACKING_MACHINES).map(toScopedMachineSegment).filter(Boolean)));
+
+  const targets = [];
+  departmentList.forEach((department) => {
+    machineList.forEach((machine) => {
+      targets.push({ department, machine, key: `${department}__${machine}` });
+    });
+  });
+  return targets;
+};
+
 export const subscribeTrackedProducts = ({
   db,
   onData,
   onError,
   statusExclusions = [],
   maxItems = null,
+  departments = DEFAULT_TRACKING_DEPARTMENTS,
+  machines = DEFAULT_TRACKING_MACHINES,
 }) => {
   let rootDocs = [];
-  let scopedDocs = [];
+  const scopedBuckets = new Map();
   const excluded = new Set(statusExclusions.map(normalizeStatus));
 
   const emit = () => {
+    const scopedDocs = Array.from(scopedBuckets.values()).flat();
     let next = mergeTrackingDocs(rootDocs, scopedDocs);
     if (excluded.size > 0) {
       next = next.filter((item) => !excluded.has(normalizeStatus(item?.status)));
@@ -70,20 +96,21 @@ export const subscribeTrackedProducts = ({
     (error) => onError?.(error)
   );
 
-  const scopedUnsub = onSnapshot(
-    collectionGroup(db, "items"),
-    (snap) => {
-      scopedDocs = snap.docs
-        .filter((docSnap) => String(docSnap.ref.path || "").includes("/tracked_products/"))
-        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-      emit();
-    },
-    (error) => onError?.(error)
+  const scopedTargets = buildScopedTrackingTargets({ departments, machines });
+  const scopedUnsubs = scopedTargets.map(({ department, machine, key }) =>
+    onSnapshot(
+      collection(db, ...PATHS.TRACKING, department, "machines", machine, "items"),
+      (snap) => {
+        scopedBuckets.set(key, snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
+        emit();
+      },
+      (error) => onError?.(error)
+    )
   );
 
   return () => {
     rootUnsub();
-    scopedUnsub();
+    scopedUnsubs.forEach((unsub) => unsub());
   };
 };
 
@@ -91,17 +118,22 @@ export const trackedLotExistsActive = async ({ db, lotNumber, excludeDocId = nul
   const normalizedLot = String(lotNumber || "").trim().toUpperCase();
   if (!normalizedLot) return false;
 
-  const [rootSnap, scopedSnap] = await Promise.all([
-    getDocs(query(collection(db, ...PATHS.TRACKING), where("lotNumber", "==", normalizedLot), limit(5))),
-    getDocs(query(collectionGroup(db, "items"), where("lotNumber", "==", normalizedLot), limit(5))),
-  ]);
-
+  const rootSnap = await getDocs(query(collection(db, ...PATHS.TRACKING), where("lotNumber", "==", normalizedLot), limit(5)));
   const hasRootConflict = rootSnap.docs.some((docSnap) => docSnap.id !== excludeDocId);
   if (hasRootConflict) return true;
 
-  return scopedSnap.docs.some(
-    (docSnap) =>
-      docSnap.id !== excludeDocId &&
-      String(docSnap.ref.path || "").includes("/tracked_products/")
+  const scopedTargets = buildScopedTrackingTargets({});
+  const scopedSnaps = await Promise.all(
+    scopedTargets.map(({ department, machine }) =>
+      getDocs(
+        query(
+          collection(db, ...PATHS.TRACKING, department, "machines", machine, "items"),
+          where("lotNumber", "==", normalizedLot),
+          limit(1)
+        )
+      )
+    )
   );
+
+  return scopedSnaps.some((snap) => snap.docs.some((docSnap) => docSnap.id !== excludeDocId));
 };
