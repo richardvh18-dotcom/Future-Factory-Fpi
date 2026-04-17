@@ -2055,6 +2055,7 @@ const TeamleaderHub = React.memo(({
                   <PlanningSidebar
                     orders={dataStore}
                     trackedProducts={rawProducts}
+                    archivedProducts={archivedProducts}
                     enableRejectionScopes={true}
                     selectedOrderId={selectedSidebarEntryId}
                     onSelect={handleSidebarSelect}

@@ -52,6 +52,7 @@ const PlanningSidebar = ({
   selectedOrderId,
   onSelect,
   trackedProducts = [],
+  archivedProducts = [],
   enableRejectionScopes = false,
 }) => {
   const { t } = useTranslation();
@@ -289,7 +290,10 @@ const PlanningSidebar = ({
   const orderStationMap = useMemo(() => {
     const byOrder = new Map();
 
-    trackedProducts.forEach((product) => {
+    // Include both active and archived products
+    const allProducts = [...trackedProducts, ...archivedProducts];
+
+    allProducts.forEach((product) => {
       const orderKey = String(product?.orderId || "").trim();
       if (!orderKey) return;
 
@@ -311,7 +315,7 @@ const PlanningSidebar = ({
     });
 
     return byOrder;
-  }, [trackedProducts]);
+  }, [trackedProducts, archivedProducts]);
 
   // Unieke machines ophalen voor filter
   const machines = useMemo(() => {
@@ -626,7 +630,10 @@ const PlanningSidebar = ({
     const rows = [];
     const seen = new Set();
 
-    trackedProducts.forEach((product) => {
+    // Combineer actieve en gearchiveerde producten
+    const allProducts = [...trackedProducts, ...archivedProducts];
+
+    allProducts.forEach((product) => {
       const orderKey = String(product?.orderId || "").trim();
       if (!orderKey || !orderLookup.has(orderKey)) return;
 
@@ -661,7 +668,7 @@ const PlanningSidebar = ({
       poText: order?.notes || order?.poText || "",
       status: order?.status || "",
     }));
-  }, [filteredOrders, trackedProducts]);
+  }, [filteredOrders, trackedProducts, archivedProducts]);
 
   const handleExportCurrentPdf = async () => {
     if (!filteredProductRows.length) return;
