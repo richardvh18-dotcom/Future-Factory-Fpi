@@ -23,6 +23,7 @@ import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek, addWeeks } from "date-fns";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import * as XLSX from "xlsx";
+import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 
 // Helpers & Modals
   import { normalizeMachine, PIPE_MACHINES, FITTING_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
@@ -221,16 +222,19 @@ const TeamleaderHub = React.memo(({
       unsubs.push(unsubScopedOrders);
 
       // LISTENER 2: Products (also starts immediately, in parallel)
-      const unsubProds = onSnapshot(
-        collection(db, ...PATHS.TRACKING),
-        (snap) =>
-          isMounted && setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-        (err) => {
+      // Read both root and scoped products
+      const unsubProds = subscribeTrackedProducts({
+        db,
+        onData: (items) => {
+          if (!isMounted) return;
+          setRawProducts(items);
+        },
+        onError: (err) => {
           if (err.code === 'permission-denied') return;
           console.warn("Tracked Products Sync Error:", err.code);
-          markStreamReady(); // Mark ready even on error
-        }
-      );
+          markStreamReady();
+        },
+      });
       unsubs.push(unsubProds);
       markStreamReady(); // Count products listener as ready immediately
 
@@ -2034,6 +2038,7 @@ const TeamleaderHub = React.memo(({
                   <PlanningSidebar
                     orders={dataStore}
                     trackedProducts={rawProducts}
+                    archivedProducts={archivedProducts}
                     enableRejectionScopes={true}
                     selectedOrderId={selectedSidebarEntryId}
                     onSelect={handleSidebarSelect}

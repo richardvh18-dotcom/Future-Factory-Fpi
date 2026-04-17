@@ -10,6 +10,7 @@ const db = admin.firestore();
 
 const BASE = 'future-factory';
 const PLANNING_COLLECTION = `${BASE}/production/digital_planning`;
+const PLANNING_EVENTS_COLLECTION = `${BASE}/production/events`;
 const EFFICIENCY_COLLECTION = `${BASE}/production/efficiency_hours`;
 const IMPORT_RUNS_COLLECTION = `${BASE}/integrations/import_runs`;
 const AI_RATE_LIMIT_COLLECTION = `${BASE}/security/ai_rate_limits`;
@@ -31,6 +32,8 @@ const AI_MAX_SYSTEM_PROMPT_CHARS = 12000;
 const AI_MAX_TOTAL_CHARS = 50000;
 const AI_MAX_CLIENT_ERROR_MSG = 1600;
 const AI_MAX_CLIENT_ERROR_STACK = 4000;
+const DEFAULT_SCOPED_DEPARTMENT = 'Fittings';
+const DEFAULT_SCOPED_MACHINE = 'UNASSIGNED';
 const {
   rejectTrackedProductFinal,
   tempRejectTrackedProduct,
@@ -121,6 +124,41 @@ const normalizeMachine = (val) => {
 const normalizeMachineForFilter = (val) => {
   const normalized = normalizeMachine(val);
   return normalized.startsWith('40') ? normalized.slice(2) : normalized;
+};
+
+const toFirestoreSegment = (value, fallback) => {
+  const sanitized = String(value || '')
+    .trim()
+    .replace(/[/.#?$\[\]]/g, '_')
+    .replace(/\s+/g, '_');
+  return sanitized || fallback;
+};
+
+const toCanonicalScopedMachineSegment = (value = '') => {
+  const normalized = normalizeMachine(value);
+  if (!normalized || normalized === '-') return '';
+
+  if (/^40(BH|BM|BA)\d+$/.test(normalized)) return normalized;
+  if (/^(BH|BM|BA)\d+$/.test(normalized)) return `40${normalized}`;
+  return normalized;
+};
+
+const resolveScopedDepartment = (...values) => {
+  for (const value of values) {
+    const cleaned = clean(value);
+    if (cleaned) return toFirestoreSegment(cleaned, DEFAULT_SCOPED_DEPARTMENT);
+  }
+  return DEFAULT_SCOPED_DEPARTMENT;
+};
+
+const resolveScopedMachine = (...values) => {
+  for (const value of values) {
+    const canonical = toCanonicalScopedMachineSegment(value);
+    if (canonical) {
+      return toFirestoreSegment(canonical, DEFAULT_SCOPED_MACHINE);
+    }
+  }
+  return DEFAULT_SCOPED_MACHINE;
 };
 
 const parseMachineSelectionInput = (value) => {
@@ -314,17 +352,83 @@ const applyStatsDelta = async (delta = {}, updatedAt = new Date()) => {
   });
 };
 
-const createOrderLifecycleEvent = async ({ orderId, eventType, source, payload }) => {
+const createOrderLifecycleEvent = async ({ orderId, eventType, source, payload, department, machine }) => {
   const safeOrderId = clean(orderId);
   if (!safeOrderId || !eventType) return;
 
-  const eventRef = db.collection(`${PLANNING_COLLECTION}/${safeOrderId}/events`).doc();
+  const scopedDepartment = resolveScopedDepartment(department, payload?.departmentId, payload?.department);
+  const scopedMachine = resolveScopedMachine(machine, payload?.machineId, payload?.machine, payload?.station);
+
+  const eventRef = db
+    .collection(PLANNING_EVENTS_COLLECTION)
+    .doc(scopedDepartment)
+    .collection('machines')
+    .doc(scopedMachine)
+    .collection('items')
+    .doc();
+
   await eventRef.set({
+    orderId: safeOrderId,
+    departmentId: scopedDepartment,
+    machineId: scopedMachine,
     eventType,
     source: source || 'system',
     payload: payload && typeof payload === 'object' ? payload : {},
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+};
+
+const handlePlanningOrderWrite = async ({ before, after, orderId }) => {
+  const delta = diffContribution(getPlanningContribution(before), getPlanningContribution(after));
+
+  if (Object.keys(delta).length > 0) {
+    await applyStatsDelta(delta);
+  }
+
+  if (!orderId) return null;
+
+  if (!before && after) {
+    await createOrderLifecycleEvent({
+      orderId,
+      department: after.departmentId || after.department,
+      machine: after.machine || after.workCenter || after.wc,
+      eventType: 'ORDER_CREATED',
+      source: 'planning_trigger',
+      payload: {
+        status: clean(after.status || after.orderStatus),
+        plan: toNumber(after.plan ?? after.quantity ?? after.toDoQty),
+      },
+    });
+    return null;
+  }
+
+  if (before && after) {
+    const statusBefore = clean(before.status || before.orderStatus);
+    const statusAfter = clean(after.status || after.orderStatus);
+    const planBefore = toNumber(before.plan ?? before.quantity ?? before.toDoQty);
+    const planAfter = toNumber(after.plan ?? after.quantity ?? after.toDoQty);
+    const notesBefore = clean(before.notes || before.poText);
+    const notesAfter = clean(after.notes || after.poText);
+
+    if (statusBefore !== statusAfter || planBefore !== planAfter || notesBefore !== notesAfter) {
+      await createOrderLifecycleEvent({
+        orderId,
+        department: after.departmentId || after.department || before.departmentId || before.department,
+        machine: after.machine || after.workCenter || after.wc || before.machine || before.workCenter || before.wc,
+        eventType: 'ORDER_UPDATED',
+        source: 'planning_trigger',
+        payload: {
+          statusBefore,
+          statusAfter,
+          planBefore,
+          planAfter,
+          notesChanged: notesBefore !== notesAfter,
+        },
+      });
+    }
+  }
+
+  return null;
 };
 
 const normalizeAiMessages = (messages = []) => {
@@ -698,8 +802,17 @@ const importOrdersToFirestore = async (orders, sourceMeta = {}, options = {}) =>
 
   let existingIds = new Set();
   if (!overwrite) {
-    const planningSnap = await db.collection(PLANNING_COLLECTION).get();
-    existingIds = new Set(planningSnap.docs.map((d) => d.id));
+    const [planningRootSnap, planningScopedSnap] = await Promise.all([
+      db.collection(PLANNING_COLLECTION).get(),
+      db.collectionGroup('orders').get(),
+    ]);
+
+    existingIds = new Set([
+      ...planningRootSnap.docs.map((d) => d.id),
+      ...planningScopedSnap.docs
+        .filter((d) => d.ref.path.includes(`${PLANNING_COLLECTION}/`))
+        .map((d) => d.id),
+    ]);
   }
 
   const toImport = overwrite ? machineFiltered : machineFiltered.filter((o) => !existingIds.has(o.id));
@@ -741,6 +854,15 @@ const importOrdersToFirestore = async (orders, sourceMeta = {}, options = {}) =>
       };
       delete planningPayload.isValidForImport;
 
+      const scopedDepartment = resolveScopedDepartment(
+        item.departmentId,
+        item.department,
+        sourceMeta.departmentId,
+        sourceMeta.department,
+        'Fittings'
+      );
+      const scopedMachine = resolveScopedMachine(item.machine, item.workCenter, item.wc, 'UNASSIGNED');
+
       const productionMinutes = productionHours * 60;
       const postProcessingMinutes = postHours * 60;
       const qcMinutes = qcHours * 60;
@@ -766,7 +888,26 @@ const importOrdersToFirestore = async (orders, sourceMeta = {}, options = {}) =>
         lastSync: new Date().toISOString(),
       };
 
-      batch.set(db.collection(PLANNING_COLLECTION).doc(item.id), planningPayload, { merge: true });
+      const scopedPlanningRef = db.doc(
+        `${PLANNING_COLLECTION}/${scopedDepartment}/machines/${scopedMachine}/orders/${item.id}`
+      );
+      const legacyPlanningRef = db.collection(PLANNING_COLLECTION).doc(item.id);
+
+      batch.set(
+        scopedPlanningRef,
+        {
+          ...planningPayload,
+          departmentId: scopedDepartment,
+          department: scopedDepartment,
+          machineId: scopedMachine,
+          machine: scopedMachine,
+          _scopeType: 'planning_order',
+        },
+        { merge: true }
+      );
+
+      // Houd root schoon: import schrijft nu uitsluitend scoped; verwijder eventueel oud root-document.
+      batch.delete(legacyPlanningRef);
       batch.set(db.collection(EFFICIENCY_COLLECTION).doc(item.id), efficiencyPayload, { merge: true });
     });
 
@@ -1025,53 +1166,17 @@ exports.aggregatePlanningStats = functions.firestore
   .onWrite(async (change, context) => {
     const before = change.before.exists ? change.before.data() : null;
     const after = change.after.exists ? change.after.data() : null;
-    const delta = diffContribution(getPlanningContribution(before), getPlanningContribution(after));
-
-    if (Object.keys(delta).length > 0) {
-      await applyStatsDelta(delta);
-    }
-
     const orderId = context.params?.orderId;
-    if (!orderId) return null;
+    return handlePlanningOrderWrite({ before, after, orderId });
+  });
 
-    if (!before && after) {
-      await createOrderLifecycleEvent({
-        orderId,
-        eventType: 'ORDER_CREATED',
-        source: 'planning_trigger',
-        payload: {
-          status: clean(after.status || after.orderStatus),
-          plan: toNumber(after.plan ?? after.quantity ?? after.toDoQty),
-        },
-      });
-      return null;
-    }
-
-    if (before && after) {
-      const statusBefore = clean(before.status || before.orderStatus);
-      const statusAfter = clean(after.status || after.orderStatus);
-      const planBefore = toNumber(before.plan ?? before.quantity ?? before.toDoQty);
-      const planAfter = toNumber(after.plan ?? after.quantity ?? after.toDoQty);
-      const notesBefore = clean(before.notes || before.poText);
-      const notesAfter = clean(after.notes || after.poText);
-
-      if (statusBefore !== statusAfter || planBefore !== planAfter || notesBefore !== notesAfter) {
-        await createOrderLifecycleEvent({
-          orderId,
-          eventType: 'ORDER_UPDATED',
-          source: 'planning_trigger',
-          payload: {
-            statusBefore,
-            statusAfter,
-            planBefore,
-            planAfter,
-            notesChanged: notesBefore !== notesAfter,
-          },
-        });
-      }
-    }
-
-    return null;
+exports.aggregatePlanningStatsScoped = functions.firestore
+  .document('future-factory/production/digital_planning/{department}/machines/{machine}/orders/{orderId}')
+  .onWrite(async (change, context) => {
+    const before = change.before.exists ? change.before.data() : null;
+    const after = change.after.exists ? change.after.data() : null;
+    const orderId = context.params?.orderId;
+    return handlePlanningOrderWrite({ before, after, orderId });
   });
 
 exports.aggregateTrackedStats = functions.firestore
@@ -1095,6 +1200,16 @@ exports.aggregateTrackedStats = functions.firestore
       if (status !== prevStatus || step !== prevStep) {
         await createOrderLifecycleEvent({
           orderId,
+          department: after.departmentId || after.department || before?.departmentId || before?.department,
+          machine:
+            after.machine ||
+            after.machineId ||
+            after.station ||
+            after.currentStation ||
+            before?.machine ||
+            before?.machineId ||
+            before?.station ||
+            before?.currentStation,
           eventType: 'TRACKED_PRODUCT_STEP_CHANGED',
           source: 'tracked_trigger',
           payload: {

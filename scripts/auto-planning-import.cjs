@@ -81,6 +81,38 @@ const normalizeMachine = (val) => {
   return str || "-";
 };
 
+const toFirestoreSegment = (value, fallback) => {
+  const sanitized = String(value || "")
+    .trim()
+    .replace(/[/.#?$\[\]]/g, "_")
+    .replace(/\s+/g, "_");
+  return sanitized || fallback;
+};
+
+const toCanonicalScopedMachineSegment = (value = "") => {
+  const normalized = normalizeMachine(value);
+  if (!normalized || normalized === "-") return "";
+  if (/^40(BH|BM|BA)\d+$/.test(normalized)) return normalized;
+  if (/^(BH|BM|BA)\d+$/.test(normalized)) return `40${normalized}`;
+  return normalized;
+};
+
+const resolveScopedDepartment = (...values) => {
+  for (const value of values) {
+    const cleaned = clean(value);
+    if (cleaned) return toFirestoreSegment(cleaned, "Fittings");
+  }
+  return "Fittings";
+};
+
+const resolveScopedMachine = (...values) => {
+  for (const value of values) {
+    const canonical = toCanonicalScopedMachineSegment(value);
+    if (canonical) return toFirestoreSegment(canonical, "UNASSIGNED");
+  }
+  return "UNASSIGNED";
+};
+
 const isStatusAllowed = (status) => {
   const s = clean(status).toLowerCase();
   if (s.includes("production completed") || s.includes("completed")) return false;
@@ -311,8 +343,17 @@ const listCandidateFiles = () => {
 };
 
 const fetchExistingIds = async () => {
-  const snap = await db.collection(PLANNING_COLLECTION).get();
-  return new Set(snap.docs.map((d) => d.id));
+  const [rootSnap, scopedSnap] = await Promise.all([
+    db.collection(PLANNING_COLLECTION).get(),
+    db.collectionGroup("orders").get(),
+  ]);
+
+  return new Set([
+    ...rootSnap.docs.map((d) => d.id),
+    ...scopedSnap.docs
+      .filter((d) => d.ref.path.includes(`${PLANNING_COLLECTION}/`))
+      .map((d) => d.id),
+  ]);
 };
 
 const importOrders = async (orders, sourceFile) => {
@@ -377,7 +418,27 @@ const importOrders = async (orders, sourceFile) => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         delete planningPayload.isValidForImport;
-        batch.set(db.collection(PLANNING_COLLECTION).doc(item.id), planningPayload, { merge: true });
+
+        const scopedDepartment = resolveScopedDepartment(item.departmentId, item.department, "Fittings");
+        const scopedMachine = resolveScopedMachine(item.machine, item.workCenter, item.wc, "UNASSIGNED");
+        const scopedPlanningRef = db.doc(
+          `${PLANNING_COLLECTION}/${scopedDepartment}/machines/${scopedMachine}/orders/${item.id}`
+        );
+        const legacyPlanningRef = db.collection(PLANNING_COLLECTION).doc(item.id);
+
+        batch.set(
+          scopedPlanningRef,
+          {
+            ...planningPayload,
+            departmentId: scopedDepartment,
+            department: scopedDepartment,
+            machineId: scopedMachine,
+            machine: scopedMachine,
+            _scopeType: "planning_order",
+          },
+          { merge: true }
+        );
+        batch.delete(legacyPlanningRef);
         updated++;
       } else {
         const planningPayload = {
@@ -395,7 +456,27 @@ const importOrders = async (orders, sourceFile) => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         delete planningPayload.isValidForImport;
-        batch.set(db.collection(PLANNING_COLLECTION).doc(item.id), planningPayload, { merge: true });
+
+        const scopedDepartment = resolveScopedDepartment(item.departmentId, item.department, "Fittings");
+        const scopedMachine = resolveScopedMachine(item.machine, item.workCenter, item.wc, "UNASSIGNED");
+        const scopedPlanningRef = db.doc(
+          `${PLANNING_COLLECTION}/${scopedDepartment}/machines/${scopedMachine}/orders/${item.id}`
+        );
+        const legacyPlanningRef = db.collection(PLANNING_COLLECTION).doc(item.id);
+
+        batch.set(
+          scopedPlanningRef,
+          {
+            ...planningPayload,
+            departmentId: scopedDepartment,
+            department: scopedDepartment,
+            machineId: scopedMachine,
+            machine: scopedMachine,
+            _scopeType: "planning_order",
+          },
+          { merge: true }
+        );
+        batch.delete(legacyPlanningRef);
         imported++;
       }
 

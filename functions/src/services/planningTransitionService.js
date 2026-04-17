@@ -2225,7 +2225,6 @@ const startWorkstationProductionRunService = async ({
       overflowLots.push(currentLotNumber);
     }
 
-    batch.set(db.collection(ctx.trackingPath).doc(currentLotNumber), unitData, { merge: true });
     const scopedTrackingRef = getScopedTrackingDocRef({
       ctx,
       department: scopedDepartment,
@@ -2244,8 +2243,6 @@ const startWorkstationProductionRunService = async ({
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
       ...(stationField ? { [stationField]: currentStartedCount + qty } : {}),
     };
-    batch.set(orderDoc.ref, planningUpdates, { merge: true });
-
     const scopedPlanningRef = getScopedPlanningDocRef({
       ctx,
       department: scopedDepartment,
@@ -2739,7 +2736,6 @@ const startProductionLotsService = async ({
         : {}),
     };
 
-    batch.set(db.doc(`${ctx.trackingPath}/${docId}`), trackedPayload, { merge: true });
     const scopedTrackingRef = getScopedTrackingDocRef({
       ctx,
       department: scopedDepartment,
@@ -2775,7 +2771,6 @@ const startProductionLotsService = async ({
     if (startedCounterField) {
       planningUpdates[startedCounterField] = admin.firestore.FieldValue.increment(qty);
     }
-    batch.set(planningRef, planningUpdates, { merge: true });
     if (scopedPlanningRef) {
       batch.set(scopedPlanningRef, planningUpdates, { merge: true });
     }

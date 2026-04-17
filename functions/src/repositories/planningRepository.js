@@ -7,6 +7,12 @@ const {
 } = require('../config/planningConstants');
 const { clean } = require('../utils/text');
 
+const isUnderPath = (docRef, prefix) => {
+  const docPath = String(docRef?.path || '');
+  const safePrefix = String(prefix || '').replace(/\/+$/, '');
+  return Boolean(docPath && safePrefix && docPath.startsWith(`${safePrefix}/`));
+};
+
 const resolveRuntimeDataPaths = () => {
   return {
     trackingCollection: TRACKING_COLLECTION,
@@ -28,6 +34,15 @@ const getPlanningOrderDocByOrderId = async (orderId) => {
     .get();
 
   if (!primarySnap.empty) return primarySnap.docs[0];
+
+  const scopedSnap = await db
+    .collectionGroup('orders')
+    .where('orderId', '==', normalizedOrderId)
+    .limit(1)
+    .get();
+
+  const scopedDoc = scopedSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
+  if (scopedDoc) return scopedDoc;
 
   if (!planningLegacyCollection) return null;
 
@@ -51,6 +66,16 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource =
   const directSnap = await directRef.get();
   if (directSnap.exists) return directSnap;
 
+  const scopedByIdSnap = await db
+    .collectionGroup('items')
+    .where('__name__', '>=', '0')
+    .get();
+
+  const scopedByIdDoc = scopedByIdSnap.docs.find(
+    (doc) => doc.id === cleanId && isUnderPath(doc.ref, trackingCollection)
+  );
+  if (scopedByIdDoc) return scopedByIdDoc;
+
   const lotSnap = await db
     .collection(trackingCollection)
     .where('lotNumber', '==', cleanId)
@@ -58,6 +83,16 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource =
     .get();
 
   if (!lotSnap.empty) return lotSnap.docs[0];
+
+  const scopedLotSnap = await db
+    .collectionGroup('items')
+    .where('lotNumber', '==', cleanId)
+    .limit(5)
+    .get();
+
+  const scopedLotDoc = scopedLotSnap.docs.find((doc) => isUnderPath(doc.ref, trackingCollection));
+  if (scopedLotDoc) return scopedLotDoc;
+
   return null;
 };
 
@@ -70,6 +105,16 @@ const getPlanningOrderDocById = async (orderDocId) => {
   const primaryRef = db.collection(planningCollection).doc(cleanId);
   const primarySnap = await primaryRef.get();
   if (primarySnap.exists) return primarySnap;
+
+  const scopedSnap = await db
+    .collectionGroup('orders')
+    .where('__name__', '>=', '0')
+    .get();
+
+  const scopedDoc = scopedSnap.docs.find(
+    (doc) => doc.id === cleanId && isUnderPath(doc.ref, planningCollection)
+  );
+  if (scopedDoc) return scopedDoc;
 
   if (!planningLegacyCollection) return null;
 

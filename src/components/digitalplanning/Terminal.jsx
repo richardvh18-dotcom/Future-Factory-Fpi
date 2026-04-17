@@ -33,6 +33,7 @@ import ProductDetailModal from "../products/ProductDetailModal";
 import LossenView from "./LossenView";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
+import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 import TerminalPlanningView from "./terminal/TerminalPlanningView";
 import TerminalProductionView from "./terminal/TerminalProductionView";
 import TerminalManualInput from "./terminal/TerminalManualInput";
@@ -249,12 +250,16 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       (err) => console.error("Terminal Scoped Orders Sync Error:", err)
     );
 
-    const unsubProducts = onSnapshot(collection(db, ...PATHS.TRACKING), (snap) => {
-      setAllTracked(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    }, (err) => {
-      console.error("Products sync error:", err);
-      setLoading(false);
+    const unsubProducts = subscribeTrackedProducts({
+      db,
+      onData: (items) => {
+        setAllTracked(items);
+        setLoading(false);
+      },
+      onError: (err) => {
+        console.error("Products sync error:", err);
+        setLoading(false);
+      },
     });
 
     return () => {
