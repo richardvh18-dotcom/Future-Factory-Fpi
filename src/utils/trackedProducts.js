@@ -9,8 +9,6 @@ import {
 } from "firebase/firestore";
 import { PATHS } from "../config/dbPaths";
 
-const TRACKING_SCOPE_TYPE = "tracking";
-
 const normalizeStatus = (value) => String(value || "").trim().toLowerCase();
 
 const toMillis = (value) => {
@@ -73,7 +71,7 @@ export const subscribeTrackedProducts = ({
   );
 
   const scopedUnsub = onSnapshot(
-    query(collectionGroup(db, "items"), where("_scopeType", "==", TRACKING_SCOPE_TYPE)),
+    collectionGroup(db, "items"),
     (snap) => {
       scopedDocs = snap.docs
         .filter((docSnap) => String(docSnap.ref.path || "").includes("/tracked_products/"))
