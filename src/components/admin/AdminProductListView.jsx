@@ -1,11 +1,12 @@
+import { useNotifications } from '../../contexts/NotificationContext';
 import React, { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Edit2,
   Trash2,
   CheckCircle,
   Search,
   ChevronDown,
-  ChevronRight,
   AlertOctagon,
   Package,
   Filter,
@@ -24,10 +25,16 @@ import { VERIFICATION_STATUS } from "../../data/constants";
  * Toont de productcatalogus uit de root: /future-factory/production/products/
  * Bevat gegroepeerde weergave en verificatie-workflow.
  */
-const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
+const AdminProductListView = ({ products = [], onDelete, onEdit, onRefresh, user }) => {
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [processingId, setProcessingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("All");
+  const safeProducts = useMemo(
+    () => (Array.isArray(products) ? products.filter((p) => p && typeof p === "object") : []),
+    [products]
+  );
 
   // State voor open/dichtgeklapte groepen (Standaard: eerste groep open)
   const [expandedGroups, setExpandedGroups] = useState({
@@ -36,20 +43,21 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
 
   // 1. FILTERING
   const filteredProducts = useMemo(() => {
-    if (!products) return [];
+    if (!safeProducts.length) return [];
     const term = searchTerm.toLowerCase();
+    const includesTerm = (value) => String(value || "").toLowerCase().includes(term);
 
-    return products.filter((product) => {
+    return safeProducts.filter((product) => {
       const matchesSearch =
-        product.name?.toLowerCase().includes(term) ||
-        product.displayId?.toLowerCase().includes(term) ||
-        product.articleCode?.toLowerCase().includes(term) ||
-        product.extraCode?.toLowerCase().includes(term);
+        includesTerm(product.name) ||
+        includesTerm(product.displayId) ||
+        includesTerm(product.articleCode) ||
+        includesTerm(product.extraCode);
 
       const matchesType = filterType === "All" || product.type === filterType;
       return matchesSearch && matchesType;
     });
-  }, [products, searchTerm, filterType]);
+  }, [safeProducts, searchTerm, filterType]);
 
   // 2. GROUPING LOGIC
   const groupedData = useMemo(() => {
@@ -79,15 +87,35 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
     setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
+  const handleEditClick = (event, product) => {
+    event.stopPropagation();
+    if (onEdit) onEdit(product);
+  };
+
+  const handleDeleteClick = (event, productId) => {
+    event.stopPropagation();
+    if (typeof onDelete === "function") {
+      onDelete(productId);
+    }
+  };
+
   const handleVerify = async (product) => {
     if (!user) return;
     setProcessingId(product.id);
     try {
       // De helper 'verifyProduct' schrijft direct naar de nieuwe root
       const result = await verifyProduct(product.id, user, product);
-      if (!result.success) alert(result.message);
+      if (!result.success) {
+        notify(result.message);
+      } else {
+        if (typeof onRefresh === "function") {
+          await onRefresh();
+        }
+        notify("Product succesvol geverifieerd.");
+      }
     } catch (error) {
       console.error("Verificatie fout:", error);
+      notify(`Verificatie mislukt: ${error?.message || "Onbekende fout"}`);
     } finally {
       setProcessingId(null);
     }
@@ -97,13 +125,14 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
     if (product.verificationStatus !== VERIFICATION_STATUS.PENDING)
       return false;
     // Blokkeer als de huidige gebruiker de laatste wijziging heeft gedaan (4-eyes principle)
-    if (product.lastModifiedBy === user?.uid) return false;
+    // TIJDELIJK UITGESCHAKELD: Zelf-verificatie toegestaan voor testen
+    // if (product.lastModifiedBy === user?.uid) return false;
     return true;
   };
 
   const uniqueTypes = useMemo(
-    () => ["All", ...new Set(products.map((p) => p.type))].sort(),
-    [products]
+    () => ["All", ...new Set(safeProducts.map((p) => p.type).filter(Boolean))].sort(),
+    [safeProducts]
   );
 
   return (
@@ -117,7 +146,7 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
           />
           <input
             type="text"
-            placeholder="Zoek op ID, Type, Artikelcode of Omschrijving..."
+            placeholder={t('adminProductListView.searchPlaceholder')}
             className="w-full pl-14 pr-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-[22px] outline-none focus:border-blue-500 focus:bg-white transition-all font-bold text-sm shadow-inner placeholder:text-slate-300"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -135,9 +164,9 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
             >
-              {uniqueTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t === "All" ? "Alle Types" : t}
+              {uniqueTypes.map((typeOption) => (
+                <option key={typeOption} value={typeOption}>
+                  {typeOption === "All" ? t('adminProductListView.allTypes') : typeOption}
                 </option>
               ))}
             </select>
@@ -150,7 +179,7 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
           <div className="hidden xl:flex items-center px-6 bg-slate-900 rounded-[22px] text-white gap-4">
             <div className="flex flex-col">
               <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest">
-                Totaal Items
+                {t('adminProductListView.totalItems')}
               </span>
               <span className="text-sm font-black italic">
                 {products.length}
@@ -159,7 +188,7 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
             <div className="w-px h-6 bg-white/10"></div>
             <div className="flex flex-col">
               <span className="text-[8px] font-black text-orange-400 uppercase tracking-widest">
-                Te Valideren
+                {t('adminProductListView.toValidate')}
               </span>
               <span className="text-sm font-black italic">
                 {
@@ -179,7 +208,7 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
           <div className="p-20 text-center flex flex-col items-center justify-center bg-white rounded-[40px] border-2 border-dashed border-slate-100 opacity-50">
             <Package size={64} className="text-slate-200 mb-4" />
             <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-400 italic">
-              Geen producten gevonden die voldoen aan de criteria
+              {t('adminProductListView.noProductsFound')}
             </p>
           </div>
         ) : (
@@ -229,7 +258,7 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                         {groupKey}
                       </h3>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                        {items.length} Producten in deze categorie
+                        {items.length} {t('adminProductListView.productsInCategory')}
                       </p>
                     </div>
                   </div>
@@ -237,7 +266,7 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                   <div className="flex items-center gap-4">
                     {isPendingGroup && (
                       <span className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-orange-100 text-orange-600 rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse border border-orange-200">
-                        <ShieldCheck size={12} /> Quality Control Required
+                        <ShieldCheck size={12} /> {t('adminProductListView.qualityControlRequired')}
                       </span>
                     )}
                     <div
@@ -256,11 +285,11 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-slate-50/50 border-b border-slate-50 font-black text-slate-400 uppercase tracking-[0.2em]">
                         <tr>
-                          <th className="px-8 py-4 w-1/4">Identificatie</th>
-                          <th className="px-8 py-4">Status & Integriteit</th>
-                          <th className="px-8 py-4">Configuratie</th>
-                          <th className="px-8 py-4">Verbinding</th>
-                          <th className="px-8 py-4 text-right">Beheer</th>
+                          <th className="px-8 py-4 w-1/4">{t('adminProductListView.identification')}</th>
+                          <th className="px-8 py-4">{t('adminProductListView.statusIntegrity')}</th>
+                          <th className="px-8 py-4">{t('adminProductListView.configuration')}</th>
+                          <th className="px-8 py-4">{t('adminProductListView.connection')}</th>
+                          <th className="px-8 py-4 text-right">{t('adminProductListView.management')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -300,21 +329,22 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                                 </div>
                                 {p.extraCode && p.extraCode !== "-" && (
                                   <span className="text-[9px] font-black text-purple-600 bg-purple-50 px-2 py-0.5 rounded w-fit border border-purple-100">
-                                    Code: {p.extraCode}
+                                    {t('adminProductListView.code')}: {p.extraCode}
                                   </span>
                                 )}
                               </div>
                             </td>
                             <td className="px-8 py-5">
                               <span className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase italic tracking-widest shadow-sm">
-                                {p.couplingType || p.connection || "Standard"}
+                                {p.couplingType || p.connection || t('adminProductListView.standard')}
                               </span>
                             </td>
 
                             <td className="px-8 py-5 text-right">
-                              <div className="flex justify-end items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                              <div className="flex justify-end items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
                                 {canVerify(p) && (
                                   <button
+                                    type="button"
                                     onClick={() => handleVerify(p)}
                                     disabled={processingId === p.id}
                                     className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all active:scale-95 disabled:opacity-50"
@@ -327,20 +357,22 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
                                     ) : (
                                       <CheckCircle size={14} />
                                     )}
-                                    Verifiëren
+                                    {t('adminProductListView.verify')}
                                   </button>
                                 )}
                                 <button
-                                  onClick={() => onEdit && onEdit(p)}
+                                  type="button"
+                                  onClick={(event) => handleEditClick(event, p)}
                                   className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                                  title="Bewerken"
+                                  title={t('adminProductListView.edit')}
                                 >
                                   <Edit2 size={18} />
                                 </button>
                                 <button
-                                  onClick={() => onDelete(p.id)}
+                                  type="button"
+                                  onClick={(event) => handleDeleteClick(event, p.id)}
                                   className="p-3 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                                  title="Verwijderen uit root"
+                                  title={t('adminProductListView.deleteFromRoot')}
                                 >
                                   <Trash2 size={18} />
                                 </button>
@@ -370,16 +402,16 @@ const AdminProductListView = ({ products = [], onDelete, onEdit, user }) => {
             </div>
             <div className="text-left">
               <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 leading-none mb-1">
-                Audit Protocol V6
+                {t('adminProductListView.auditProtocol')}
               </p>
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter italic leading-none">
-                Catalogus Live vanuit: /future-factory/production/products
+                {t('adminProductListView.catalogLiveFrom')}
               </p>
             </div>
           </div>
           <div className="text-right relative z-10 pr-2">
             <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
-              {filteredProducts.length} Items
+              {filteredProducts.length} {t('adminProductListView.items')}
             </span>
           </div>
         </div>

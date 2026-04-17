@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Database, RefreshCw, Trash2, Layers, Table, SearchCode, Fingerprint, Activity, Terminal, FileText, ShieldCheck, Loader2 } from "lucide-react";
-import { db, storage } from "../../config/firebase";
+import { useTranslation } from "react-i18next";
+import { Database, RefreshCw, Trash2, Layers, Table, SearchCode, Fingerprint, Activity, Terminal, FileText, Loader2, Folder, File, ArrowUp, Bot, Send, X } from "lucide-react";
+import { db, storage, auth, logActivity } from "../../config/firebase";
 import {
   collection,
   getDocs,
@@ -12,6 +13,8 @@ import {
 } from "firebase/firestore";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import { ref, listAll, getDownloadURL } from "firebase/storage";
+import { aiService } from "../../services/aiService";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * AdminDatabaseView V4.1 - Root-Ready Forensic Edition
@@ -20,6 +23,8 @@ import { ref, listAll, getDownloadURL } from "firebase/storage";
  * Inclusief Storage viewer.
  */
 const AdminDatabaseView = () => {
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [selectedKey, setSelectedKey] = useState("PRODUCTS");
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -49,37 +54,37 @@ const AdminDatabaseView = () => {
 
   // Lijst van modules gebaseerd op dbPaths.js
   const MODULES = [
-    { key: "PRODUCTS", label: "Product Catalogus", icon: <Layers size={18} /> },
+    { key: "PRODUCTS", label: t('adminDatabaseView.modules.products'), icon: <Layers size={16} /> },
     {
       key: "PLANNING",
-      label: "Digitale Planning",
-      icon: <Activity size={18} />,
+      label: t('adminDatabaseView.modules.planning'),
+      icon: <Activity size={16} />,
     },
-    { key: "TRACKING", label: "Live Tracking", icon: <SearchCode size={18} /> },
+    { key: "TRACKING", label: t('adminDatabaseView.modules.tracking'), icon: <SearchCode size={16} /> },
     {
       key: "USERS",
-      label: "Gebruikers Accounts",
-      icon: <Fingerprint size={18} />,
+      label: t('adminDatabaseView.modules.users'),
+      icon: <Fingerprint size={16} />,
     },
     {
       key: "GENERAL_SETTINGS",
-      label: "Systeem Config",
-      icon: <Terminal size={18} />,
+      label: t('adminDatabaseView.modules.generalSettings'),
+      icon: <Terminal size={16} />,
     },
     {
       key: "BORE_DIMENSIONS",
-      label: "Boring Specs",
-      icon: <Table size={18} />,
+      label: t('adminDatabaseView.modules.boreDimensions'),
+      icon: <Table size={16} />,
     },
     {
       key: "CB_DIMENSIONS",
-      label: "CB Mof Maten",
-      icon: <Database size={18} />,
+      label: t('adminDatabaseView.modules.cbDimensions'),
+      icon: <Database size={16} />,
     },
     {
       key: "TB_DIMENSIONS",
-      label: "TB Mof Maten",
-      icon: <Database size={18} />,
+      label: t('adminDatabaseView.modules.tbDimensions'),
+      icon: <Database size={16} />,
     },
   ];
 
@@ -87,6 +92,67 @@ const AdminDatabaseView = () => {
   const [storageFiles, setStorageFiles] = useState([]);
   const [storageLoading, setStorageLoading] = useState(false);
   const [storagePath, setStoragePath] = useState("");
+
+  // AI Chat State
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiMessages, setAiMessages] = useState(() => {
+    const saved = localStorage.getItem("admin_db_ai_chat");
+    return saved ? JSON.parse(saved) : [{ role: 'ai', content: "Hallo! Ik ben de Database Assistent. Ik heb toegang tot de volledige structuur van de database. Wat wil je weten?" }];
+  });
+  const [aiLoading, setAiLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    if (showAiChat) {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [aiMessages, showAiChat]);
+
+  useEffect(() => {
+    localStorage.setItem("admin_db_ai_chat", JSON.stringify(aiMessages));
+  }, [aiMessages]);
+
+  const generateDbContext = () => {
+    let context = "Je bent een Database Architect en Expert voor het Future Factory MES systeem. Je hebt volledige kennis van de Firestore database structuur.\n\nHIER IS DE DATABASE STRUCTUUR (PATHS):\n";
+    Object.entries(PATHS).forEach(([key, path]) => {
+      if (Array.isArray(path)) {
+        context += `- ${key}: /${path.join("/")}\n`;
+      }
+    });
+    context += "\nINSTRUCTIES:\n1. Gebruik deze paden om uit te leggen waar specifieke data wordt opgeslagen.\n2. Als een gebruiker vraagt 'waar staan de producten?', antwoord dan met het pad voor PRODUCTS.\n3. Geef technisch advies over query-structuur indien gevraagd.\n4. Antwoord altijd in het Nederlands.\n5. Wees beknopt en professioneel.";
+    return context;
+  };
+
+  const handleAskAi = async (e) => {
+    e.preventDefault();
+    if (!aiQuery.trim()) return;
+
+    const userQ = aiQuery;
+    setAiMessages(prev => [...prev, { role: 'user', content: userQ }]);
+    setAiQuery("");
+    setAiLoading(true);
+
+    try {
+      const systemPrompt = generateDbContext();
+      const response = await aiService.chat(
+        [{ role: "user", content: userQ }],
+        systemPrompt
+      );
+      setAiMessages(prev => [...prev, { role: 'ai', content: response }]);
+    } catch {
+      setAiMessages(prev => [...prev, { role: 'ai', content: "Fout bij verbinden met AI service." }]);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleClearChat = () => {
+    if(window.confirm("Gespreksgeschiedenis wissen?")) {
+        const initial = [{ role: 'ai', content: "Hallo! Ik ben de Database Assistent. Ik heb toegang tot de volledige structuur van de database. Wat wil je weten?" }];
+        setAiMessages(initial);
+    }
+  };
 
   // 2. PRIMARY FETCH (Gebruikt dbPaths.js)
   const fetchPathData = async () => {
@@ -158,218 +224,182 @@ const AdminDatabaseView = () => {
   }, [viewMode, storagePath]);
 
   const handleDeleteDoc = async (docId) => {
-    if (!window.confirm("Document definitief verwijderen uit de root?")) return;
+    if (!window.confirm(t('common.confirmDeleteDoc'))) return;
     try {
       const docRef = doc(db, ...activePath.split("/"), docId);
       await deleteDoc(docRef);
+      await logActivity(
+        auth.currentUser?.uid,
+        "DATABASE_DOC_DELETE",
+        `Document verwijderd via AdminDatabaseView: ${activePath}/${docId}`
+      );
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
     } catch (error) {
-      alert("Delete failed: " + error.message);
+      notify(t('common.deleteFailed') + ': ' + error.message);
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden animate-in fade-in text-left">
-      {/* HEADER */}
-      <div className="p-6 bg-slate-900 border-b border-white/10 flex justify-between items-center shrink-0 z-10 shadow-2xl">
-        <div className="flex items-center gap-5">
-          <div className="p-3.5 bg-blue-600 text-white rounded-2xl shadow-xl rotate-2">
-            <Database size={28} />
+    <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden animate-in fade-in text-left">
+      {/* HEADER - Windows Explorer Style */}
+      <div className="h-14 bg-white border-b border-slate-200 flex justify-between items-center px-4 shrink-0 z-20 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
+            <Database size={18} />
           </div>
-          <div className="text-left">
-            <h2 className="text-2xl font-black uppercase italic tracking-tighter leading-none">
-              Database <span className="text-blue-500">Viewer</span>
-            </h2>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em] mt-2">
-              Simpele database editor
-            </p>
-          </div>
+          <h2 className="text-sm font-bold text-slate-800">Database Explorer</h2>
         </div>
         
-        <div className="flex items-center gap-4">
-          <div className="flex bg-slate-800 p-1 rounded-xl border border-white/5">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAiChat(!showAiChat)}
+            className={`p-2 rounded-lg transition-colors border border-transparent ${showAiChat ? 'bg-purple-100 text-purple-600 border-purple-200' : 'hover:bg-slate-100 text-slate-500 hover:text-purple-600'}`}
+            title="AI Database Assistent"
+          >
+            <Bot size={18} />
+          </button>
+          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
             <button
               onClick={() => setViewMode("database")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
                 viewMode === "database"
-                  ? "bg-blue-600 text-white shadow-lg"
-                  : "text-slate-400 hover:text-white"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              Database
+              {t('adminDatabaseView.database')}
             </button>
             <button
               onClick={() => setViewMode("storage")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
                 viewMode === "storage"
-                  ? "bg-blue-600 text-white shadow-lg"
-                  : "text-slate-400 hover:text-white"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              Storage
+              {t('common.storage')}
             </button>
           </div>
           <button
             onClick={() => (viewMode === "database" ? fetchPathData() : fetchStorageFiles(storagePath))}
-            className="p-3.5 bg-white/5 hover:bg-white/10 rounded-2xl transition-all border border-white/10 active:scale-95"
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors border border-transparent hover:border-slate-200"
           >
             <RefreshCw
-              size={20}
-              className={(viewMode === "database" ? loading : storageLoading) ? "animate-spin text-blue-400" : "text-slate-400"}
+              size={16}
+              className={(viewMode === "database" ? loading : storageLoading) ? "animate-spin text-blue-600" : ""}
             />
           </button>
         </div>
       </div>
 
       {/* MAIN CONTENT WRAPPER */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* SIDEBAR */}
-        <div className="w-80 border-r border-white/10 bg-slate-950 flex flex-col p-6 gap-6 overflow-y-auto custom-scrollbar shadow-2xl z-20">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 mb-4 px-2">
-              <Terminal size={12} className="text-blue-500" />
-              <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                Gevalideerde Mappen
-              </h3>
-            </div>
-
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* SIDEBAR - Tree View */}
+        <div className="w-64 bg-white border-r border-slate-200 flex flex-col overflow-y-auto py-4">
+          <div className="px-4 mb-2">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              {t('common.modules')}
+            </h3>
+          </div>
+          <div className="space-y-0.5 px-2">
             {MODULES.map((mod) => (
               <button
                 key={mod.key}
                 onClick={() => setSelectedKey(mod.key)}
-                className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all text-left border-2 group ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold transition-all text-left ${
                   selectedKey === mod.key
-                    ? "bg-blue-600/10 border-blue-500 shadow-lg"
-                    : "bg-white/5 border-transparent hover:bg-white/10 text-slate-400"
+                    ? "bg-blue-50 text-blue-700 border border-blue-100"
+                    : "text-slate-600 hover:bg-slate-50 border border-transparent"
                 }`}
               >
-                <div
-                  className={`p-2 rounded-lg ${
-                    selectedKey === mod.key
-                      ? "bg-blue-500 text-white"
-                      : "bg-slate-900 text-slate-600"
-                  }`}
-                >
-                  {mod.icon}
-                </div>
-                <div className="flex flex-col overflow-hidden">
-                  <span
-                    className={`text-xs font-black uppercase italic tracking-tight ${
-                      selectedKey === mod.key ? "text-white" : "text-slate-400"
-                    }`}
-                  >
-                    {mod.label}
-                  </span>
-                  <span className="text-[8px] font-mono text-slate-600 truncate uppercase">
-                    {mod.key}
-                  </span>
-                </div>
+                {mod.icon}
+                {mod.label}
               </button>
             ))}
           </div>
-
-          <div className="mt-auto p-6 bg-slate-900 rounded-[30px] border border-white/5 relative overflow-hidden shadow-inner">
-            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 italic">
-              Huidig Pad:
-            </p>
-            <code className="text-[10px] font-mono text-emerald-400 break-all leading-relaxed block bg-black/40 p-3 rounded-xl border border-white/5">
-              /{activePath || "Selecteer module..."}
-            </code>
-          </div>
         </div>
 
-        {/* DATA CONTENT */}
-        <div className="flex-1 flex flex-col bg-slate-900 relative overflow-hidden">
+        {/* CONTENT - List View */}
+        <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden">
           {viewMode === "database" && (
             <div className="flex-1 flex flex-col h-full">
-              {/* Breadcrumbs */}
-              <div className="px-8 pt-6 pb-2">
-                <nav className="flex items-center gap-2 text-xs text-slate-400 font-mono">
-                  <span className="text-blue-400 font-bold">/</span>
+              {/* Address Bar */}
+              <div className="h-10 bg-white border-b border-slate-200 flex items-center px-4 gap-2">
+                <span className="text-slate-400"><Terminal size={14} /></span>
+                <div className="flex-1 flex items-center text-xs text-slate-600 font-mono">
+                  <span className="text-slate-300 mr-1">/</span>
                   {activePath
                     ? activePath.split("/").map((seg, idx, arr) => (
                       <span key={idx} className="flex items-center gap-2">
                         <span
-                          className={idx === arr.length - 1 ? "text-white font-bold" : "hover:text-blue-400 cursor-pointer"}
+                          className={idx === arr.length - 1 ? "text-slate-900 font-bold" : "hover:text-blue-600 cursor-pointer"}
                         >
                           {seg}
                         </span>
-                        {idx < arr.length - 1 && <span className="text-blue-400 font-bold">/</span>}
+                        {idx < arr.length - 1 && <span className="text-slate-300 font-bold">/</span>}
                       </span>
                     ))
-                    : <span className="text-slate-500">Selecteer module...</span>}
-                </nav>
+                    : <span className="text-slate-500">{t('common.selectModule')}</span>}
+                </div>
               </div>
 
               {/* LIST */}
-              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                 {loading ? (
                   <div className="h-full flex flex-col items-center justify-center opacity-60">
                     <Loader2
-                      className="animate-spin text-blue-400 mb-4"
+                      className="animate-spin text-blue-600 mb-4"
                       size={40}
                     />
-                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400 italic animate-pulse">
-                      Synchroniseren...
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600 italic animate-pulse">
+                      {t('common.syncing')}
                     </p>
                   </div>
                 ) : documents.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center py-20 text-center opacity-40">
-                    <div className="p-10 bg-white/5 rounded-full mb-6 border-2 border-dashed border-white/10">
-                      <Database size={60} className="text-slate-600" />
+                    <div className="p-10 bg-slate-100 rounded-full mb-6 border-2 border-dashed border-slate-200">
+                      <Database size={60} className="text-slate-400" />
                     </div>
-                    <h4 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">
-                      Pad is leeg
+                    <h4 className="text-2xl font-black uppercase italic tracking-tighter text-slate-700 mb-2">
+                      {t('common.pathEmpty')}
                     </h4>
                     <p className="text-xs font-medium text-slate-500 max-w-sm mx-auto">
-                      Dit gedeelte van de <b>/future-factory/</b> root bevat nog
-                      geen documenten.
+                      {t('common.noDocuments')}
                     </p>
                   </div>
                 ) : (
-                  <div className="max-w-4xl mx-auto pb-40">
-                    <div className="flex items-center justify-between px-6 py-4 bg-white/5 rounded-t-2xl border border-white/10 mb-0">
-                      <div className="flex items-center gap-3">
-                        <ShieldCheck size={16} className="text-emerald-500" />
-                        <span className="text-xs font-black uppercase italic tracking-widest text-slate-300">
-                          Live Root Data: {selectedKey}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-mono text-slate-500">
-                        {documents.length} Records
-                      </span>
-                    </div>
+                  <div className="w-full pb-40">
                     {/* List header */}
-                    <div className="flex items-center px-6 py-2 bg-slate-800 border-x border-white/10 text-xs font-bold text-slate-300 uppercase tracking-widest">
+                    <div className="flex items-center px-4 py-2 bg-slate-100 border border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest rounded-t-lg">
                       <div className="w-12" />
-                      <div className="flex-1">Document ID</div>
-                      <div className="w-32 text-right">Acties</div>
+                      <div className="flex-1">{t('common.documentId')}</div>
+                      <div className="w-32 text-right">{t('common.actions')}</div>
                     </div>
                     {/* List rows */}
-                    <div className="divide-y divide-slate-800 border-x border-b border-white/10 bg-slate-900 rounded-b-2xl">
+                    <div className="divide-y divide-slate-100 border-x border-b border-slate-200 bg-white rounded-b-lg">
                       {documents.map((docItem) => (
                         <div
                           key={docItem.id}
-                          className="flex items-center px-6 py-3 group hover:bg-blue-950/30 transition-all cursor-pointer relative"
+                          className="flex items-center px-4 py-2 group hover:bg-blue-50 transition-all cursor-pointer relative"
                           onClick={() => setSelectedDoc(docItem)}
                           onContextMenu={e => {
                             e.preventDefault();
                             setContextMenu({ visible: true, x: e.clientX, y: e.clientY, doc: docItem });
                           }}
                         >
-                          <div className="w-12 flex items-center justify-center">
-                            <FileText size={18} className="text-blue-400 group-hover:text-blue-500" />
+                          <div className="w-12 flex items-center justify-start">
+                            <FileText size={16} className="text-blue-500" />
                           </div>
-                          <div className="flex-1 font-mono text-blue-200 truncate">
+                          <div className="flex-1 font-mono text-xs text-slate-700 truncate">
                             {docItem.id}
                           </div>
                           <div className="w-32 flex items-center justify-end gap-2">
                             <button
                               onClick={e => { e.stopPropagation(); handleDeleteDoc(docItem.id); }}
-                              className="p-2 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-all"
-                              title="Verwijderen"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-all"
+                              title={t('common.delete')}
                             >
-                              <Trash2 size={16} />
+                              <Trash2 size={14} />
                             </button>
                           </div>
                         </div>
@@ -382,72 +412,77 @@ const AdminDatabaseView = () => {
           )}
 
           {viewMode === "storage" && (
-            <div className="flex-1 flex flex-col h-full p-8">
-              <h2 className="text-xl font-black text-blue-400 mb-2">
-                Storage Bucket: <span className="text-white font-mono">future-factory-377ef</span>
-              </h2>
-              <div className="mb-6 flex items-center gap-2 text-xs text-slate-400 font-mono">
-                <span className="text-blue-400 font-bold">/</span>
+            <div className="flex-1 flex flex-col h-full">
+              <div className="h-10 bg-white border-b border-slate-200 flex items-center px-4 gap-2">
+                <span className="text-slate-400"><Database size={14} /></span>
+                <div className="flex-1 flex items-center text-xs text-slate-600 font-mono">
+                <span className="text-slate-300 mr-1">/</span>
                 {storagePath
                   ? storagePath.split("/").map((seg, idx, arr) => (
                       <span key={idx} className="flex items-center gap-2">
                         <span
-                          className={idx === arr.length - 1 ? "text-white font-bold" : "hover:text-blue-400 cursor-pointer"}
+                          className={idx === arr.length - 1 ? "text-slate-900 font-bold" : "hover:text-blue-600 cursor-pointer"}
                           onClick={() => {
                             setStoragePath(arr.slice(0, idx + 1).join("/"));
                           }}
                         >
                           {seg}
                         </span>
-                        {idx < arr.length - 1 && <span className="text-blue-400 font-bold">/</span>}
+                        {idx < arr.length - 1 && <span className="text-slate-300 font-bold">/</span>}
                       </span>
                     ))
-                  : <span className="text-slate-500">root</span>}
+                  : <span className="text-slate-500">{t('common.root')}</span>}
+                </div>
                 {storagePath && (
-                  <button className="ml-2 text-blue-400 hover:text-blue-600" onClick={() => setStoragePath(storagePath.split("/").slice(0, -1).join("/"))}>
-                    &larr; Terug
+                  <button className="ml-2 text-blue-600 hover:text-blue-800" onClick={() => setStoragePath(storagePath.split("/").slice(0, -1).join("/"))}>
+                    <ArrowUp size={16} />
                   </button>
                 )}
               </div>
+
+              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
               {storageLoading ? (
                 <div className="flex-1 flex flex-col items-center justify-center opacity-60">
-                  <Loader2 className="animate-spin text-blue-400 mb-4" size={40} />
-                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400 italic animate-pulse">Laden...</p>
+                  <Loader2 className="animate-spin text-blue-600 mb-4" size={40} />
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600 italic animate-pulse">{t('common.loading')}</p>
                 </div>
               ) : storageFiles.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-20 text-center opacity-40">
-                  <div className="p-10 bg-white/5 rounded-full mb-6 border-2 border-dashed border-white/10">
-                    <Database size={60} className="text-slate-600" />
+                  <div className="p-10 bg-slate-100 rounded-full mb-6 border-2 border-dashed border-slate-200">
+                    <Database size={60} className="text-slate-400" />
                   </div>
-                  <h4 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">Geen bestanden gevonden</h4>
-                  <p className="text-xs font-medium text-slate-500 max-w-sm mx-auto">Er zijn geen bestanden in de root van de storage bucket.</p>
+                  <h4 className="text-2xl font-black uppercase italic tracking-tighter text-slate-700 mb-2">{t('common.noFilesFound')}</h4>
+                  <p className="text-xs font-medium text-slate-500 max-w-sm mx-auto">{t('common.noFilesInRoot')}</p>
                 </div>
               ) : (
-                <div className="max-w-2xl mx-auto w-full">
-                  <div className="flex items-center px-6 py-2 bg-slate-800 border-x border-white/10 text-xs font-bold text-slate-300 uppercase tracking-widest rounded-t-2xl">
-                    <div className="flex-1">Bestandsnaam</div>
-                    <div className="w-32 text-right">Acties</div>
+                <div className="w-full">
+                  <div className="flex items-center px-4 py-2 bg-slate-100 border border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest rounded-t-lg">
+                    <div className="flex-1">{t('common.filename')}</div>
+                    <div className="w-32 text-right">{t('common.actions')}</div>
                   </div>
-                  <div className="divide-y divide-slate-800 border-x border-b border-white/10 bg-slate-900 rounded-b-2xl">
+                  <div className="divide-y divide-slate-100 border-x border-b border-slate-200 bg-white rounded-b-lg">
                     {storageFiles.map((file) =>
                       file.isFolder ? (
                         <div
                           key={file.fullPath}
-                          className="flex items-center px-6 py-3 group hover:bg-blue-950/30 transition-all cursor-pointer"
+                          className="flex items-center px-4 py-2 group hover:bg-blue-50 transition-all cursor-pointer"
                           onClick={() => setStoragePath(file.fullPath)}
                         >
-                          <div className="flex-1 font-mono text-emerald-400 truncate flex items-center gap-2">
-                            <span className="inline-block w-4 h-4 bg-blue-500 rounded-sm mr-2" />
+                          <div className="flex-1 font-mono text-xs text-slate-700 truncate flex items-center gap-2">
+                            <Folder size={16} className="text-yellow-500 fill-yellow-500" />
                             <b>{file.name}/</b>
                           </div>
-                          <div className="w-32 flex items-center justify-end gap-2 text-xs text-slate-500">Map</div>
+                          <div className="w-32 flex items-center justify-end gap-2 text-xs text-slate-500">{t('common.folder')}</div>
                         </div>
                       ) : (
-                        <div key={file.name} className="flex items-center px-6 py-3 group hover:bg-blue-950/30 transition-all cursor-pointer">
-                          <div className="flex-1 font-mono text-blue-200 truncate">{file.name}</div>
+                        <div key={file.name} className="flex items-center px-4 py-2 group hover:bg-blue-50 transition-all cursor-pointer">
+                          <div className="flex-1 font-mono text-xs text-slate-600 truncate flex items-center gap-2">
+                            <File size={16} className="text-slate-400" />
+                            {file.name}
+                          </div>
                           <div className="w-32 flex items-center justify-end gap-2">
-                            <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-2 text-slate-500 hover:text-blue-500 hover:bg-blue-500/10 rounded transition-all" title="Downloaden">
-                              <FileText size={16} />
+                            <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all" title={t('common.download')}>
+                              <FileText size={14} />
                             </a>
                           </div>
                         </div>
@@ -456,6 +491,71 @@ const AdminDatabaseView = () => {
                   </div>
                 </div>
               )}
+              </div>
+            </div>
+          )}
+
+          {/* AI CHAT SIDEBAR */}
+          {showAiChat && (
+            <div className="w-96 bg-white border-l border-slate-200 flex flex-col shadow-xl z-30 absolute right-0 top-0 bottom-0 animate-in slide-in-from-right duration-300">
+                {/* Header */}
+                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-purple-50/50">
+                    <div className="flex items-center gap-2 text-purple-700 font-black uppercase text-xs tracking-widest">
+                        <Bot size={16} /> Database AI
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <button 
+                            onClick={handleClearChat}
+                            className="p-1 hover:bg-white rounded-lg text-slate-400 hover:text-rose-500 transition-colors"
+                            title="Gesprek wissen"
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                        <button onClick={() => setShowAiChat(false)} className="p-1 hover:bg-white rounded-lg text-slate-400 transition-colors">
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 custom-scrollbar">
+                    {aiMessages.map((msg, idx) => (
+                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[85%] p-3 rounded-2xl text-xs leading-relaxed ${
+                                msg.role === 'user' 
+                                ? 'bg-blue-600 text-white rounded-tr-none' 
+                                : 'bg-white border border-slate-200 text-slate-700 rounded-tl-none shadow-sm'
+                            }`}>
+                                {msg.content}
+                            </div>
+                        </div>
+                    ))}
+                    {aiLoading && (
+                        <div className="flex justify-start">
+                            <div className="bg-white border border-slate-200 p-3 rounded-2xl rounded-tl-none shadow-sm">
+                                <Loader2 size={16} className="animate-spin text-purple-500" />
+                            </div>
+                        </div>
+                    )}
+                    <div ref={chatEndRef} />
+                </div>
+                {/* Input */}
+                <form onSubmit={handleAskAi} className="p-4 border-t border-slate-100 bg-white">
+                    <div className="relative">
+                        <input 
+                            className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/10 transition-all"
+                            placeholder="Vraag over collecties of paden..."
+                            value={aiQuery}
+                            onChange={e => setAiQuery(e.target.value)}
+                        />
+                        <button 
+                            type="submit" 
+                            disabled={aiLoading || !aiQuery.trim()}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                        >
+                            <Send size={14} />
+                        </button>
+                    </div>
+                </form>
             </div>
           )}
         </div>
@@ -465,35 +565,35 @@ const AdminDatabaseView = () => {
       {contextMenu.visible && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 bg-slate-800 border border-blue-500 rounded-lg shadow-xl min-w-[180px] py-2 text-sm text-white animate-in fade-in"
+          className="fixed z-50 bg-white border border-slate-200 rounded-lg shadow-xl min-w-[180px] py-2 text-sm text-slate-700 animate-in fade-in"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
-            className="w-full text-left px-4 py-2 hover:bg-blue-600/80 transition-all"
+            className="w-full text-left px-4 py-2 hover:bg-slate-50 transition-all"
             onClick={() => {
               setSelectedDoc(contextMenu.doc);
               setContextMenu({ ...contextMenu, visible: false });
             }}
           >
-            📄 Bekijken
+            📄 {t('common.view')}
           </button>
           <button
-            className="w-full text-left px-4 py-2 hover:bg-rose-600/80 transition-all"
+            className="w-full text-left px-4 py-2 hover:bg-rose-50 text-rose-600 transition-all"
             onClick={() => {
               handleDeleteDoc(contextMenu.doc.id);
               setContextMenu({ ...contextMenu, visible: false });
             }}
           >
-            🗑️ Verwijderen
+            🗑️ {t('common.delete')}
           </button>
           <button
-            className="w-full text-left px-4 py-2 hover:bg-blue-500/80 transition-all"
+            className="w-full text-left px-4 py-2 hover:bg-slate-50 transition-all"
             onClick={() => {
               fetchPathData();
               setContextMenu({ ...contextMenu, visible: false });
             }}
           >
-            🔄 Verversen
+            🔄 {t('common.refresh')}
           </button>
         </div>
       )}
@@ -501,16 +601,16 @@ const AdminDatabaseView = () => {
       {/* Document detail modal */}
       {selectedDoc && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-          <div className="bg-slate-900 border border-blue-500 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 p-8 relative animate-in fade-in zoom-in">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 p-8 relative animate-in fade-in zoom-in">
             <button
               onClick={() => setSelectedDoc(null)}
-              className="absolute top-4 right-4 p-2 rounded-full bg-slate-800 hover:bg-blue-600 text-white"
-              title="Sluiten"
+              className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500"
+              title={t('common.close')}
             >
               ×
             </button>
-            <h3 className="text-lg font-bold text-blue-400 mb-4">Document: <span className="text-white font-mono">{selectedDoc.id}</span></h3>
-            <pre className="text-xs font-mono text-slate-200 bg-black/40 p-4 rounded-xl max-h-[60vh] overflow-y-auto border border-white/10">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">{t('common.document')} <span className="text-blue-600 font-mono">{selectedDoc.id}</span></h3>
+            <pre className="text-xs font-mono text-slate-700 bg-slate-50 p-4 rounded-xl max-h-[60vh] overflow-y-auto border border-slate-200">
               {JSON.stringify(selectedDoc, (key, value) => key.startsWith("_") ? undefined : value, 2)}
             </pre>
           </div>

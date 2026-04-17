@@ -3,23 +3,19 @@ import {
   Grid,
   Save,
   RefreshCw,
-  CheckCircle,
-  AlertTriangle,
-  ArrowLeft,
   Layers,
   Ruler,
   LayoutDashboard,
   FileText,
   Settings,
   FileUp,
-  Database,
   Loader2,
   TableProperties,
   Target,
 } from "lucide-react";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../config/firebase";
-import { PATHS, isValidPath } from "../../../config/dbPaths";
+import { db, auth, logActivity } from "../../../config/firebase";
+import { PATHS } from "../../../config/dbPaths";
 
 // Nieuw pad voor site config
 const SITE_CONFIG_PATH = ["future-factory", "settings", "site_config", "app"];
@@ -39,35 +35,7 @@ import AdminDrillingView from "./AdminDrillingView"; // NIEUW: Boorpatronen behe
  * Beheert de volledige technische intelligentie inclusief boorpatronen (Drilling).
  */
 
-const handleSiteConfigMigrationFactory = (setLoading, setSiteConfig, addLog) => async () => {
-  setLoading(true);
-  try {
-    const oldSiteSnap = await getDoc(doc(db, "future-factory", "settings", "site_config", "main"));
-    if (oldSiteSnap.exists()) {
-      const oldData = oldSiteSnap.data();
-      const migrated = {
-        logo: oldData.logo || "",
-        siteName: oldData.siteName || oldData.appName || "",
-        color: oldData.color || oldData.themeColor || "",
-        logoUrl: oldData.logoUrl || "",
-        themeColor: oldData.themeColor || "",
-        uploadedLogos: oldData.uploadedLogos || [],
-        appName: oldData.appName || oldData.siteName || ""
-      };
-      await setDoc(doc(db, ...SITE_CONFIG_PATH), migrated, { merge: true });
-      setSiteConfig(migrated);
-      addLog("success", "Site-configuratie succesvol gemigreerd naar /app");
-    } else {
-      addLog("error", "Geen oude site-configuratie gevonden in /main");
-    }
-  } catch (e) {
-    addLog("error", `Migratie mislukt: ${e.message}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
-const AdminMatrixManager = ({ onBack }) => {
+const AdminMatrixManager = () => {
   const [activeTab, setActiveTab] = useState("matrix");
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState({ type: "", msg: "" });
@@ -76,13 +44,11 @@ const AdminMatrixManager = ({ onBack }) => {
   // Data States
   const [matrixData, setMatrixData] = useState({});
   const [libraryData, setLibraryData] = useState({});
-  const [siteConfig, setSiteConfig] = useState({});
+  const [, setSiteConfig] = useState({});
   const [blueprints, setBlueprints] = useState({});
 
   // Helper function for logging
   const addLog = (type, msg) => setStatus({ type, msg });
-
-  const handleSiteConfigMigration = handleSiteConfigMigrationFactory(setLoading, setSiteConfig, addLog);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -113,6 +79,11 @@ const AdminMatrixManager = ({ onBack }) => {
             appName: oldData.appName || oldData.siteName || ""
           };
           await setDoc(doc(db, ...SITE_CONFIG_PATH), migrated, { merge: true });
+          await logActivity(
+            auth.currentUser?.uid,
+            "SITE_CONFIG_MIGRATE",
+            "Site config gemigreerd van main naar app"
+          );
           setSiteConfig(migrated);
         }
 
@@ -130,8 +101,8 @@ const AdminMatrixManager = ({ onBack }) => {
   // 2. CENTRAAL OPSLAAN (Voor tabs die state in de parent beheren)
   const handleSave = async () => {
     setLoading(true);
-    let pathArray = [];
-    let data = {};
+    let pathArray;
+    let data;
 
     if (activeTab === "matrix") {
       pathArray = PATHS.MATRIX_CONFIG;
@@ -174,6 +145,11 @@ const AdminMatrixManager = ({ onBack }) => {
         safeSiteConfig.appName
       ) {
         await setDoc(doc(db, ...SITE_CONFIG_PATH), safeSiteConfig, { merge: true });
+        await logActivity(
+          auth.currentUser?.uid,
+          "SITE_CONFIG_UPDATE",
+          "Site config bijgewerkt vanuit Matrix Hub"
+        );
       }
     } else if (activeTab === "blueprints") {
       pathArray = PATHS.BLUEPRINTS;
@@ -194,6 +170,12 @@ const AdminMatrixManager = ({ onBack }) => {
         { merge: true }
       );
 
+      await logActivity(
+        auth.currentUser?.uid,
+        "MATRIX_MANAGER_SAVE",
+        `Matrix Hub opgeslagen voor tab: ${activeTab}`
+      );
+
       addLog("success", "Wijzigingen live gepubliceerd!");
       setHasUnsavedChanges(false);
     } catch (e) {
@@ -207,7 +189,7 @@ const AdminMatrixManager = ({ onBack }) => {
   const TABS = [
     { id: "matrix", label: "Beschikbaarheid", icon: <Grid size={14} /> },
     { id: "drilling", label: "Boringen", icon: <Target size={14} /> }, // NIEUW: Tab voor boorpatronen
-    { id: "ranges", label: "Wanddiktes", icon: <TableProperties size={14} /> },
+    { id: "ranges", label: "Tolerantie Manager", icon: <TableProperties size={14} /> },
     { id: "library", label: "Bibliotheek", icon: <Settings size={14} /> },
     { id: "blueprints", label: "Blauwdrukken", icon: <Layers size={14} /> },
     { id: "dimensions", label: "Maatvoering", icon: <Ruler size={14} /> },

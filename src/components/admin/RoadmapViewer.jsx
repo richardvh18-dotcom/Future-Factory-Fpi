@@ -1,33 +1,63 @@
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Send } from "lucide-react";
+import { ChevronDown, ChevronRight, Send, FileText, ListChecks, CheckCircle2, Save } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useNotifications } from '../../contexts/NotificationContext';
 
-const RoadmapViewer = ({ user }) => {
-  const [expandedPhase, setExpandedPhase] = useState("4");
+const RoadmapViewer = () => {
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
+  const [activeTab, setActiveTab] = useState("roadmap");
+  const [expandedPhase, setExpandedPhase] = useState("8");
   const [newIdea, setNewIdea] = useState("");
+
+  // State voor het optimalisatieplan
+  const [planContent, setPlanContent] = useState(`# Optimalisatieplan: Fittings Pilot (BH18 & BM01)\n\nDit document bevat de technische en functionele optimalisaties om de 4-weekse pilot tot een succes te maken.\n\n## 1. Code & Infrastructuur "Merge"\nDe eerste stap is het samenvoegen van de kracht van beide versies (Set 1 en Set 2).\n\n- **Herstel de Backend:** Zorg dat de functions/ map uit Set 1 volledig geïntegreerd is in je werkomgeving.\n- **Fix Bestandsfouten:** Verwijder het foutieve bestand AiCenterView,jsx uit Set 2.\n- **Activeer de ERP-Sync:** Integreer infor_sync_service.js uit Set 1.\n\n## 2. Optimalisatie voor de Werkvloer (UX)\nOperators werken vaak met handschoenen of in een luidruchtige omgeving.\n\n- **Scanner Snelheid:** Optimaliseer MobileScanner.jsx (Auto-Focus).\n- **Grote Interactie-elementen:** Knoppen minimaal h-16 (64px).\n- **Offline-First Check:** Lokale cache check in workstationLogic.js.\n\n## 3. De "Hybride Brug" (Papier-Digitaal)\n- **QR-Code Generatie:** Sticker-lay-out op papieren bon.\n- **Sync-Dashboard:** Vergelijk "Papieren Status" met "App Status".\n- **BM01 Checklists:** Volgorde gelijk aan papieren formulier.\n\n## 4. AI Assistent Optimalisatie\n- **Context Injectie:** Specifieke context over BH18.\n- **Spraak-naar-Tekst:** Web Speech API in AiChatView.\n\n## 5. Performance & Data\n- **Firestore Indexen:** Controleer indexen voor usePlanningData.js.\n- **Cleanup Script:** Archiveer voltooide orders wekelijks.`);
+  
+  const [pilotTasks, setPilotTasks] = useState([
+    { id: 1, text: "Voer een volledige build uit met de functions/ map actief", completed: false },
+    { id: 2, text: "Test de infor_sync_service met ten minste 5 echte ordernummers", completed: false },
+    { id: 3, text: "Loop met een tablet langs station BH18 om de Wi-Fi sterkte te testen", completed: false },
+    { id: 4, text: "Herstel de Backend (functions/ map integratie)", completed: false },
+    { id: 5, text: "Fix Bestandsfouten (AiCenterView.jsx)", completed: false },
+    { id: 6, text: "Activeer ERP-Sync (infor_sync_service.js)", completed: false },
+    { id: 7, text: "Optimaliseer MobileScanner.jsx (Auto-Focus)", completed: false },
+    { id: 8, text: "Vergroot knoppen WorkstationHub (h-16)", completed: false },
+    { id: 9, text: "Implementeer Offline-First Check", completed: false },
+    { id: 10, text: "QR-Code Generatie in pdfGenerator.js", completed: false },
+    { id: 11, text: "Sync-Dashboard TeamleaderFittingHub", completed: false },
+    { id: 12, text: "BM01 Checklists volgorde aanpassen", completed: false },
+    { id: 13, text: "AI Context Injectie (BH18 specifiek)", completed: false },
+    { id: 14, text: "Firestore Indexen controleren", completed: false },
+    { id: 15, text: "Cleanup Script inrichten", completed: false },
+  ]);
+
+  const toggleTask = (id) => {
+    setPilotTasks(pilotTasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  };
 
   const phases = [
     {
       id: "1",
-      title: "Het Fundament",
-      status: "✅ Voltooid",
+      title: t('roadmap.phase1_title', "Het Fundament"),
+      status: t('roadmap.phase1_status', "✅ Voltooid"),
       items: ["Cloud Architectuur: Firestore inrichting", "Authenticatie: Rol-gebaseerde toegang", "Path Manager: Centrale configuratie"],
     },
     {
       id: "2",
-      title: "Digital Planning & MES",
-      status: "✅ Voltooid",
+      title: t('roadmap.phase2_title', "Digital Planning & MES"),
+      status: t('roadmap.phase2_status', "✅ Voltooid"),
       items: ["Workstation Terminals: BM01, BH-machines", "Track & Trace: Lotnummer registratie", "Mobile Scanner: QR-scanning"],
     },
     {
       id: "3",
-      title: "Admin & Data Beheer",
-      status: "✅ Voltooid",
+      title: t('roadmap.phase3_title', "Admin & Data Beheer"),
+      status: t('roadmap.phase3_status', "✅ Voltooid"),
       items: ["Product Manager V6: Smart formulier", "Media Bibliotheek: PDF & foto's", "Communicatie Hub: Berichtensysteem"],
     },
     {
       id: "4",
-      title: "Performance & Schaalbaarheid",
-      status: "🚀 Actief",
+      title: t('roadmap.phase4_title', "Performance & Schaalbaarheid"),
+      status: t('roadmap.phase4_status', "🚀 Actief"),
       items: [
         {
           title: "Component Optimization: Split monolitische files",
@@ -40,7 +70,7 @@ const RoadmapViewer = ({ user }) => {
           title: "Virtualisatie: react-window integratie voor lijsten",
           subtasks: [
             { label: "PlanningListView virtualiseren", status: "completed" },
-            { label: "AdminReferenceTable virtualiseren", status: "completed" }
+            { label: "AdminReferenceTable virtualiseren", status: "pending" }
           ]
         },
         {
@@ -76,13 +106,22 @@ const RoadmapViewer = ({ user }) => {
     },
     {
       id: "5",
-      title: "Kwaliteitsborging & QC",
-      status: "📋 Gepland (Q2 2026)",
+      title: t('roadmap.phase5_title', "Kwaliteitsborging & QC"),
+      status: t('roadmap.phase5_status', "🚀 Actief"),
       items: [
+        "✅ Meetwaarde Invoer: Basiscomponent `MeasurementInput` opgezet",
+        "🚀 Integratie: Koppelen van `MeasurementInput` in de `WorkstationHub` flow",
+        "🚀 Validatie: Koppelen van meetwaarden aan toleranties (Min/Max)",
+        "🚀 Feedback: Visuele feedback voor operators (Groen=OK, Rood=Niet OK)",
+        "🚀 Opslag: Opslaan van QC-data in de `tracked_products` historie",
+        "📋 Firestore Rules: Update toepassen voor strikte scheiding productie/test omgeving",
         "Firestore Rules: QC-rol mag alleen keuringsvelden in tracked_products aanpassen (veld-specifieke write)",
         "Data-integriteit: Product kan alleen op 'Gereed' als positief inspectieresultaat is vastgelegd (validatieregel)",
         "Audit Trail: logActivity uitbreiden voor non-conformiteiten, reden van afkeur en verantwoordelijke QC-medewerker (ISO 9001)",
         "Immutable Inspecties: Inspectieresultaten na invoer alleen-lezen of versiegeschiedenis vastleggen",
+        "📋 Rol-gebaseerde Prioritering: Alleen Teamleiders/Admins mogen prioriteit wijzigen.",
+        "📋 Veilige Annulering: Orders nooit verwijderen, alleen annuleren met verplichte reden.",
+        "📋 Audit Trail voor Annulering: Reden en gebruiker worden vastgelegd (ISO 9001).",
         "Keuringslijsten: QC-interface met parameters per producttype (maatvoering, visuele controle, druktest)",
         "Hold-status Management: Producten met afkeur direct in quarantaine, blokkade in planning",
         "Rapportage: First Pass Yield (FPY) en Pareto-analyse van afkeur (ISO 22400)",
@@ -94,8 +133,8 @@ const RoadmapViewer = ({ user }) => {
     },
     {
       id: "6",
-      title: "Future Factory Intelligence",
-      status: "🔮 Toekomst (Q3-Q4 2026)",
+      title: t('roadmap.phase6_title', "Future Factory Intelligence"),
+      status: t('roadmap.phase6_status', "🔮 Toekomst (Q3-Q4 2026)"),
       items: [
         "✅ Direct ZPL Printing: Zebra integration",
         "AI Predictive Maintenance",
@@ -111,8 +150,8 @@ const RoadmapViewer = ({ user }) => {
     },
     {
       id: "7",
-      title: "QHSE (Quality, Health, Safety, Environment)",
-      status: "🆕 In voorbereiding",
+      title: t('roadmap.phase7_title', "QHSE (Quality, Health, Safety, Environment)"),
+      status: t('roadmap.phase7_status', "🆕 In voorbereiding"),
       items: [
         "In-line Inspectie Formulieren: Digitale controlelijsten in Terminal.jsx voor lot-afmelding.",
         "Automatische Tolerantie-checks: Meetwaarden direct koppelen aan BORE_DIMENSIONS/CB_DIMENSIONS, blokkade/melding bij afwijking.",
@@ -137,11 +176,52 @@ const RoadmapViewer = ({ user }) => {
         "Technische koppeling: Firestore event → Cloud Function → MultiBel API → status terug naar app."
       ],
     },
+    {
+      id: "8",
+      title: t('roadmap.phase8_title', "Optimalisatie & Global Rollout Strategie"),
+      status: t('roadmap.phase8_status', "🌍 Strategie"),
+      items: [
+        {
+          title: "Deel 1: React & DOM Optimalisaties",
+          subtasks: [
+            { label: "Virtualisatie (react-window) techniek", status: "pending" },
+            { label: "Component Memoization (React.memo)", status: "pending" },
+            { label: "Stabiele Referenties (useCallback & useMemo)", status: "pending" }
+          ]
+        },
+        {
+          title: "Deel 2: JavaScript (Taal) Optimalisaties",
+          subtasks: [
+            { label: "Debouncing (Vertraagd uitvoeren)", status: "pending" },
+            { label: "Datastructuren: Map vs Array (O(1))", status: "pending" },
+            { label: "Vermijd Method Chaining bij grote loops", status: "pending" }
+          ]
+        },
+        {
+          title: "Deel 3: TypeScript Optimalisaties",
+          subtasks: [
+            { label: "Type-Only Imports (import type)", status: "pending" },
+            { label: "Voorspelbare Datastructuren (V8 Engine)", status: "pending" },
+            { label: "Voorkom dure Runtime Checks", status: "pending" }
+          ]
+        },
+        {
+          title: "Deel 4: Architectuur & Global Rollout (Multi-Site)",
+          subtasks: [
+            { label: "Database Architectuur (Multi-Tenancy)", status: "pending" },
+            { label: "Authenticatie & Gebruikersrechten (Locatie)", status: "pending" },
+            { label: "Lokalisatie: Talen, Tijdzones en RTL", status: "pending" },
+            { label: "Dynamische Configuratie van de Fabriek", status: "pending" }
+          ]
+        },
+        "Volgende Acties: Refactoring (Deel 1 & 2), Multi-Tenancy opzetten, i18n uitrollen"
+      ],
+    },
   ];
 
   const handleSubmitIdea = () => {
     if (!newIdea.trim()) return;
-    alert("✅ Idee opgeslagen!");
+    notify(t('roadmap.idea_saved', "✅ Idee opgeslagen!"));
     setNewIdea("");
   };
 
@@ -201,9 +281,27 @@ const RoadmapViewer = ({ user }) => {
 
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-8">
+      {/* Tab Navigation */}
+      <div className="flex space-x-6 border-b border-slate-200 pb-1">
+        <button
+          onClick={() => setActiveTab("roadmap")}
+          className={`pb-3 px-2 font-bold text-sm uppercase tracking-widest transition-colors ${activeTab === "roadmap" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-400 hover:text-slate-600"}`}
+        >
+          🚀 Master Roadmap
+        </button>
+        <button
+          onClick={() => setActiveTab("pilot")}
+          className={`pb-3 px-2 font-bold text-sm uppercase tracking-widest transition-colors ${activeTab === "pilot" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-400 hover:text-slate-600"}`}
+        >
+          🛠️ Fittings Pilot (BH18 & BM01)
+        </button>
+      </div>
+
+      {activeTab === "roadmap" && (
+        <>
       <div>
-        <h2 className="text-3xl font-bold text-slate-900 mb-2">🚀 Master Roadmap</h2>
-        <p className="text-slate-600">Volg de projectontwikkeling</p>
+        <h2 className="text-3xl font-bold text-slate-900 mb-2">🚀 {t('roadmap.title', "Master Roadmap")}</h2>
+        <p className="text-slate-600">{t('roadmap.subtitle', "Volg de projectontwikkeling")}</p>
       </div>
 
       <div className="space-y-3">
@@ -215,7 +313,7 @@ const RoadmapViewer = ({ user }) => {
             >
               <div>
                 <h3 className="font-bold text-left">
-                  Fase {phase.id}: {phase.title}
+                  {t('roadmap.phase', { id: phase.id, title: phase.title })}
                 </h3>
               </div>
               <div className="flex items-center gap-4">
@@ -259,7 +357,7 @@ const RoadmapViewer = ({ user }) => {
       </div>
 
       <div className="space-y-4 pt-4">
-        <h3 className="font-bold text-lg text-slate-800">Thematische Verdieping</h3>
+        <h3 className="font-bold text-lg text-slate-800">{t('roadmap.thematic_deep_dive', "Thematische Verdieping")}</h3>
         {roadmapExpansions.map((expansion, index) => (
           <div key={index} className="bg-slate-50 border border-slate-200 rounded-lg p-5">
             <h4 className="font-bold text-slate-900 mb-3">{expansion.title}</h4>
@@ -276,11 +374,11 @@ const RoadmapViewer = ({ user }) => {
       </div>
 
       <div className="border-t pt-8">
-        <h3 className="font-bold mb-4">💡 Ideeën indienen</h3>
+        <h3 className="font-bold mb-4">{t('roadmap.submit_ideas', "💡 Ideeën indienen")}</h3>
         <div className="flex gap-2">
           <input
             type="text"
-            placeholder="Voeg idee in..."
+            placeholder={t('roadmap.add_idea_placeholder', "Voeg idee in...")}
             value={newIdea}
             onChange={(e) => setNewIdea(e.target.value)}
             onKeyPress={(e) => e.key === "Enter" && handleSubmitIdea()}
@@ -294,6 +392,54 @@ const RoadmapViewer = ({ user }) => {
           </button>
         </div>
       </div>
+      </>
+      )}
+
+      {activeTab === "pilot" && (
+        <div className="space-y-6 animate-in fade-in">
+            <div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">Optimalisatieplan: Fittings Pilot</h2>
+                <p className="text-slate-600">Technische en functionele optimalisaties voor de 4-weekse pilot.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Editable Plan */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[600px]">
+                    <div className="flex items-center justify-between mb-4 shrink-0">
+                        <h3 className="font-bold flex items-center gap-2 text-slate-800"><FileText size={20} className="text-blue-500"/> Plan Document</h3>
+                        <button className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-1 transition-colors">
+                          <Save size={14} /> Opslaan
+                        </button>
+                    </div>
+                    <textarea
+                        value={planContent}
+                        onChange={(e) => setPlanContent(e.target.value)}
+                        className="w-full flex-1 p-4 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono resize-none bg-slate-50"
+                    />
+                </div>
+
+                {/* Task List */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[600px]">
+                    <h3 className="font-bold flex items-center gap-2 mb-4 shrink-0 text-slate-800"><ListChecks size={20} className="text-emerald-500"/> Actiepunten</h3>
+                    <div className="space-y-2 overflow-y-auto custom-scrollbar pr-2 flex-1">
+                        {pilotTasks.map(task => (
+                            <div key={task.id} className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-slate-100" onClick={() => toggleTask(task.id)}>
+                                <div className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 transition-all ${task.completed ? "bg-emerald-500 border-emerald-500" : "border-slate-300 bg-white"}`}>
+                                    {task.completed && <CheckCircle2 size={14} className="text-white" />}
+                                </div>
+                                <span className={`text-sm leading-relaxed ${task.completed ? "text-slate-400 line-through" : "text-slate-700 font-medium"}`}>
+                                    {task.text}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400 text-center">
+                      {pilotTasks.filter(t => t.completed).length} van {pilotTasks.length} taken voltooid
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

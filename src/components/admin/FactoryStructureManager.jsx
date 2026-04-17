@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   Globe,
   ChevronDown,
-  MapPin,
   Clock,
   ArrowRight,
   ShieldCheck,
@@ -22,7 +21,7 @@ import {
   Activity,
   Timer,
 } from "lucide-react";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 
@@ -236,6 +235,8 @@ const FactoryStructureManager = () => {
         },
         { merge: true }
       );
+
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", "Factory structure updated");
 
       setStatus({ type: "success", msg: "Factory logic published to root!" });
       setTimeout(() => setStatus(null), 4000);

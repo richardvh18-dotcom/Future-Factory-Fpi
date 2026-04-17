@@ -22,6 +22,7 @@ Dit project is ontwikkeld als Manufacturing Execution System (MES) voor de "Futu
     *   **Audit Trail:** Elke actie wordt gelogd met tijdstip en gebruiker (`logActivity`).
     *   **Productdossier:** Digitaal dossier per lotnummer met volledige historie.
     *   **Versiebeheer:** Wijzigingen in orders zijn traceerbaar.
+    *   **Order Integriteit:** Orders worden nooit fysiek verwijderd. Een 'geannuleerde' status met een verplichte reden en timestamp wordt gebruikt om de volledige levenscyclus van een order traceerbaar te houden, zelfs als deze niet wordt geproduceerd.
 
 ## 4. ISO 22400 (Key Performance Indicators)
 **Standaard voor productie KPI's (zoals OEE).**
@@ -36,3 +37,16 @@ Dit project is ontwikkeld als Manufacturing Execution System (MES) voor de "Futu
 *   **Implementatie:**
     *   HTTPS encryptie.
     *   Veilige API-sleutels (`.env`).
+
+## 6. Audit Logging & Traceability (ISO 9001/27001)
+**Vereiste:** Een onveranderlijk logboek van kritieke acties voor reconstructie en bewijsvoering.
+
+### ISO 9001 (Kwaliteit)
+*   **Productie Wijzigingen:** Aanpassingen aan recepturen, toleranties of productspecificaties (`PRODUCT_UPDATE`, `MATRIX_UPDATE`).
+*   **Kwaliteitscontrole:** Inspectieresultaten en vrijgifte (`INSPECTION_COMPLETE`, `ORDER_RELEASE`).
+*   **Afwijkingen:** Registratie van non-conformities.
+
+### ISO 27001 (Beveiliging)
+*   **Toegangsbeheer:** Succesvolle en mislukte inlogpogingen (`LOGIN`, `LOGIN_FAILED`).
+*   **Rechtenbeheer:** Wijzigingen in gebruikersrollen of permissies (`USER_ROLE_CHANGE`).
+*   **Configuratie:** Aanpassingen aan systeeminstellingen (`SETTINGS_UPDATE`).

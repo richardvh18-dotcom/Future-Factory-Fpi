@@ -1,39 +1,41 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   BrainCircuit,
-  ThumbsDown,
   ThumbsUp,
   Trash2,
   CheckCircle2,
   Clock,
-  MessageSquareQuote,
   RefreshCw,
   History as LucideHistory,
-  Database,
   ShieldCheck,
   Save,
   X,
-  Loader2, // Toegevoegd om de error te voorkomen
+  Loader2,
 } from "lucide-react";
 import {
   collection,
   query,
   onSnapshot,
-  doc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
   orderBy,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { useNotifications } from '../../contexts/NotificationContext';
+import {
+  verifyAiKnowledgeEntry,
+  deleteAiKnowledgeEntry,
+  migrateAiKnowledgeFields,
+} from "../../services/planningSecurityService";
 
 /**
  * AiTrainingView V6.1 - Root Path Edition
  * Module voor kwaliteitsborging van AI antwoorden in de root: /future-factory/settings/ai_knowledge_base/
  */
 const AiTrainingView = () => {
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
@@ -42,7 +44,7 @@ const AiTrainingView = () => {
 
   useEffect(() => {
     // Gebruik het nieuwe root pad uit dbPaths.js
-    const colRef = collection(db, ...PATHS.AI_KNOWLEDGE_BASE);
+    const colRef = collection(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']));
     const q = query(colRef, orderBy("timestamp", "desc"));
 
     const unsubscribe = onSnapshot(
@@ -52,7 +54,7 @@ const AiTrainingView = () => {
         setLoading(false);
       },
       (err) => {
-        console.error("Fout bij laden AI logs:", err);
+        console.error(t('ai.training.load_error'), err);
         setLoading(false);
       }
     );
@@ -63,34 +65,44 @@ const AiTrainingView = () => {
   const handleVerify = async (id, correctedText = null) => {
     setSaving(true);
     try {
-      const docRef = doc(db, ...PATHS.AI_KNOWLEDGE_BASE, id);
-      await updateDoc(docRef, {
-        verified: true,
+      await verifyAiKnowledgeEntry({
+        entryId: id,
         correctedAnswer: correctedText || null,
-        verifiedAt: serverTimestamp(),
-        verifiedBy: "Admin",
       });
       setEditingId(null);
+      await logActivity(auth.currentUser?.uid, 'AI_VERIFY', `Training verified for ID: ${id}. Correction: ${correctedText ? 'Yes' : 'No'}`);
       setCorrection("");
     } catch (e) {
-      console.error("Fout bij verifiëren:", e);
+      console.error(t('ai.training.verify_error'), e);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Deze interactie verwijderen uit de kennisbank?"))
+    if (!window.confirm(t('ai.training.delete_confirm')))
       return;
     try {
-      await deleteDoc(doc(db, ...PATHS.AI_KNOWLEDGE_BASE, id));
+      await deleteAiKnowledgeEntry(id);
     } catch (e) {
-      console.error("Fout bij verwijderen:", e);
+      console.error(t('ai.training.delete_error'), e);
+    }
+  };
+
+  const handleMigration = async () => {
+    if (!window.confirm(t('ai.training.migrate_confirm'))) return;
+    
+    try {
+      const result = await migrateAiKnowledgeFields();
+      notify(t('ai.training.migrate_done', { count: result?.updated || 0 }));
+    } catch (e) {
+      console.error(e);
+      notify(t('ai.training.migrate_error', { message: e.message }));
     }
   };
 
   const negativeLogs = logs.filter(
-    (l) => l.feedback === "negative" && !l.verified
+    (l) => (l.feedback === "negative" || l.type === "rejected") && !l.verified
   );
   const recentLogs = logs
     .filter((l) => l.feedback !== "negative" || l.verified)
@@ -122,17 +134,24 @@ const AiTrainingView = () => {
               <ShieldCheck size={10} /> Root Protected
             </span>
             <span className="text-[9px] font-mono text-slate-500 italic">
-              /{PATHS.AI_KNOWLEDGE_BASE.join("/")}
+              /{(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']).join("/")}
             </span>
           </div>
         </div>
-        <div className="bg-white/5 border border-white/10 p-4 rounded-2xl text-right shrink-0 relative z-10">
+        <div className="bg-white/5 border border-white/10 p-4 rounded-2xl text-right shrink-0 relative z-10 group">
           <span className="text-[8px] font-black text-slate-500 uppercase block mb-1">
             Kennis Records
           </span>
           <span className="text-xl font-black text-blue-400 italic leading-none">
             {logs.length} interacties
           </span>
+          <button 
+            onClick={handleMigration}
+            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-blue-400"
+            title="Normaliseer database velden (Fix lege vragen)"
+          >
+            <RefreshCw size={12} />
+          </button>
         </div>
       </div>
 
@@ -181,7 +200,7 @@ const AiTrainingView = () => {
                         Vraag van Gebruiker
                       </div>
                       <p className="text-sm font-black text-slate-800 leading-relaxed italic">
-                        "{log.question}"
+                        "{log.question || log.userInput}"
                       </p>
                     </div>
                     <div className="bg-rose-50/50 p-6 rounded-[2rem] border border-rose-100 relative">
@@ -279,7 +298,7 @@ const AiTrainingView = () => {
                   </span>
                 </div>
                 <p className="text-xs font-black text-slate-700 truncate italic">
-                  "{log.question}"
+                  "{log.question || log.userInput}"
                 </p>
               </div>
               <div className="flex gap-2">

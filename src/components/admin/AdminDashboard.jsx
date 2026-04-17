@@ -1,10 +1,11 @@
-import React, { useState, Suspense } from "react";
+import React, { useState, Suspense, useEffect } from "react";
+import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Package,
   Database,
   Users,
   Settings,
-  MessageSquare,
   Grid,
   Factory,
   ArrowRight,
@@ -15,19 +16,14 @@ import {
   UserCheck,
   Layout,
   DatabaseZap,
-  MapPin,
   Settings2,
-  Terminal,
   History,
   BoxSelect,
   BrainCircuit,
   BookOpen,
   ShieldCheck,
-  SearchCode,
   TrendingUp,
   Kanban,
-  GanttChart,
-  Flame,
   GitBranch,
   Bell,
   Zap,
@@ -35,11 +31,16 @@ import {
   Smartphone,
   Beaker,
   ChevronDown,
+  Printer,
+  BarChart3,
+  FileText,
+  QrCode,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 // --- LAZY LOAD IMPORTS ---
 const RoadmapViewer = React.lazy(() => import("./RoadmapViewer"));
+const ProjectStructureExpertView = React.lazy(() => import("./ProjectStructureExpertView"));
 const AdminProductManager = React.lazy(() => import("./AdminProductManager"));
 const FactoryStructureManager = React.lazy(() =>
   import("./FactoryStructureManager")
@@ -49,36 +50,55 @@ const PersonnelManager = React.lazy(() => import("./PersonnelManager"));
 const AdminMatrixManager = React.lazy(() =>
   import("./matrixmanager/AdminMatrixManager")
 );
+const AdminBadgeGenerator = React.lazy(() => import("./AdminBadgeGenerator"));
 const AdminUsersView = React.lazy(() => import("./AdminUsersView"));
+const AdminPrinterManager = React.lazy(() => import("./AdminPrinterManager"));
 const AdminMessagesManagement = React.lazy(() => import("./AdminMessagesManagement"));
 const AdminDatabaseView = React.lazy(() => import("./AdminDatabaseView"));
 const AdminLogView = React.lazy(() => import("./AdminLogView"));
 const AdminSettingsView = React.lazy(() => import("./AdminSettingsView"));
+const ProductionTimeStandardsManager = React.lazy(() => import("./ProductionTimeStandardsManager"));
 const CapacityPlanningView = React.lazy(() => import("../planning/CapacityPlanningView"));
-const AdminLabelDesigner = React.lazy(() => import("./AdminLabelDesigner"));
 const AiCenterView = React.lazy(() => import("../ai/AiCenterView"));
+const AdminLabelManager = React.lazy(() => import("./AdminLabelManager"));
+const AdminToolingMoldsView = React.lazy(() => import("./AdminToolingMoldsView"));
+const PilotMigrationTool = React.lazy(() => import("./PilotMigrationTool"));
 // NIEUW: Referentie Tabel toevoegen
 const AdminReferenceTable = React.lazy(() => import("./AdminReferenceTable"));
 // NIEUW: Monday.com/vPlan-style Planning Views
 const KanbanBoardView = React.lazy(() => import("../planning/KanbanBoardView"));
-const GanttChartView = React.lazy(() => import("../planning/GanttChartView"));
-const WorkloadHeatmapView = React.lazy(() => import("../planning/WorkloadHeatmapView"));
 // Fase 2: Advanced Planning Features
 const OrderDependenciesView = React.lazy(() => import("../planning/OrderDependenciesView"));
 const NotificationRulesView = React.lazy(() => import("../planning/NotificationRulesView"));
 const AutomationRulesView = React.lazy(() => import("../planning/AutomationRulesView"));
-const TimeTrackingView = React.lazy(() => import("../planning/TimeTrackingView"));
 // Fase 3: Advanced Analytics & Future Planning
 const ShopFloorMobileApp = React.lazy(() => import("../planning/ShopFloorMobileApp"));
 const ScenarioPlanningView = React.lazy(() => import("../planning/ScenarioPlanningView"));
+// Reports & Analytics
+const AdminReportsView = React.lazy(() => import("./AdminReportsView"));
 
 /**
  * AdminDashboard V5.7 - Reference Hub Integration
  * Beheert alle MES-beheermodules inclusief de technische encyclopedie.
  */
 const AdminDashboard = () => {
+  const { t } = useTranslation();
   const { role, user } = useAdminAuth();
+  const location = useLocation();
   const [activeScreen, setActiveScreen] = useState(null);
+
+  // Reset naar dashboard overzicht als er op de sidebar knop wordt geklikt (geen state)
+  useEffect(() => {
+    if (location.state?.openScreen) {
+      setActiveScreen(location.state.openScreen);
+      return;
+    }
+
+    if (!location.state) {
+      setActiveScreen(null);
+    }
+  }, [location]);
+
   const [expandedCategories, setExpandedCategories] = useState([]); // All categories collapsed by default
 
   // Toggle category expansion
@@ -109,6 +129,16 @@ const AdminDashboard = () => {
           requiredModule: "digital_planning",
         },
         {
+          id: "production_standards",
+          title: "Productie Tijden",
+          desc: "Beheer standaard tijden en normen.",
+          icon: <Clock size={24} className="text-pink-600" />,
+          color: "bg-pink-50 border-pink-100",
+          roles: ["admin", "engineer"],
+          component: ProductionTimeStandardsManager,
+          requiredModule: "digital_planning",
+        },
+        {
           id: "kanban",
           title: "Kanban Board",
           desc: "Visuele orderworkflow met drag-and-drop.",
@@ -116,26 +146,6 @@ const AdminDashboard = () => {
           color: "bg-blue-50 border-blue-100",
           roles: ["admin", "engineer", "teamleader"],
           component: KanbanBoardView,
-          requiredModule: "digital_planning",
-        },
-        {
-          id: "gantt",
-          title: "Gantt Planning",
-          desc: "Timeline visualisatie per machine.",
-          icon: <GanttChart size={24} className="text-emerald-600" />,
-          color: "bg-emerald-50 border-emerald-100",
-          roles: ["admin", "engineer", "teamleader"],
-          component: GanttChartView,
-          requiredModule: "digital_planning",
-        },
-        {
-          id: "heatmap",
-          title: "Workload Heatmap",
-          desc: "Visueel overzicht machine/operator belasting.",
-          icon: <Flame size={24} className="text-orange-600" />,
-          color: "bg-orange-50 border-orange-100",
-          roles: ["admin", "engineer", "teamleader"],
-          component: WorkloadHeatmapView,
           requiredModule: "digital_planning",
         },
         {
@@ -149,16 +159,6 @@ const AdminDashboard = () => {
           requiredModule: "digital_planning",
         },
         {
-          id: "timetracking",
-          title: "Time Tracking",
-          desc: "Actual vs planned tijd vergelijking.",
-          icon: <Clock size={24} className="text-teal-600" />,
-          color: "bg-teal-50 border-teal-100",
-          roles: ["admin", "engineer", "teamleader"],
-          component: TimeTrackingView,
-          requiredModule: "digital_planning",
-        },
-        {
           id: "scenarios",
           title: "Scenario Planning",
           desc: "What-if analyse simulator.",
@@ -167,6 +167,23 @@ const AdminDashboard = () => {
           roles: ["admin", "engineer"],
           component: ScenarioPlanningView,
           requiredModule: "digital_planning",
+        },
+      ]
+    },
+    {
+      id: "reports",
+      title: "Rapportage & Analytics",
+      icon: <BarChart3 size={20} className="text-cyan-600" />,
+      color: "bg-cyan-50 border-cyan-200",
+      items: [
+        {
+          id: "reports",
+          title: "Rapportage Centre",
+          desc: "Uitgebreide rapporten voor productie, kwaliteit, efficiency en personeel.",
+          icon: <FileText size={24} className="text-cyan-600" />,
+          color: "bg-cyan-50 border-cyan-100",
+          roles: ["admin", "engineer", "teamleader"],
+          component: AdminReportsView,
         },
       ]
     },
@@ -248,13 +265,22 @@ const AdminDashboard = () => {
           component: ConversionManager,
         },
         {
-          id: "labels",
-          title: "Label Architect",
-          desc: "Ontwerp Zebra printer labels.",
+          id: "label_manager",
+          title: "Label Manager",
+          desc: "Ontwerp labels en beheer logica.",
           icon: <BoxSelect size={24} className="text-orange-600" />,
           color: "bg-orange-50 border-orange-100",
           roles: ["admin", "engineer"],
-          component: AdminLabelDesigner,
+          component: AdminLabelManager,
+        },
+        {
+          id: "tooling_molds",
+          title: "Mallen & Gereedschappen",
+          desc: "Centraal beheer voor alle mallen, met flens-tab voor cavity regels.",
+          icon: <Settings2 size={24} className="text-sky-600" />,
+          color: "bg-sky-50 border-sky-100",
+          roles: ["admin", "engineer"],
+          component: AdminToolingMoldsView,
         },
       ]
     },
@@ -310,6 +336,15 @@ const AdminDashboard = () => {
           component: AdminUsersView,
         },
         {
+          id: "badge_generator",
+          title: "Login Badges",
+          desc: "Genereer QR-code inlogpasjes voor snelle toegang.",
+          icon: <QrCode size={24} className="text-indigo-600" />,
+          color: "bg-indigo-50 border-indigo-100",
+          roles: ["admin"],
+          component: AdminBadgeGenerator,
+        },
+        {
           id: "settings",
           title: "Systeem Instellingen",
           desc: "Globale applicatie-configuratie.",
@@ -317,6 +352,15 @@ const AdminDashboard = () => {
           color: "bg-blue-50 border-blue-100",
           roles: ["admin"],
           component: AdminSettingsView,
+        },
+        {
+          id: "printers",
+          title: "Printer Beheer",
+          desc: "Netwerk- en labelprinters configureren.",
+          icon: <Printer size={24} className="text-orange-600" />,
+          color: "bg-orange-50 border-orange-100",
+          roles: ["admin"],
+          component: AdminPrinterManager,
         },
         {
           id: "messages_management",
@@ -363,6 +407,15 @@ const AdminDashboard = () => {
           component: RoadmapViewer,
         },
         {
+          id: "project_structure",
+          title: "Projectstructuur & Uitleg (Expert)",
+          desc: "Zeer gedetailleerd overzicht, AI-koppeling.",
+          icon: <BookOpen size={24} className="text-indigo-600" />,
+          color: "bg-indigo-50 border-indigo-100",
+          roles: ["admin", "engineer", "teamleader"],
+          component: ProjectStructureExpertView,
+        },
+        {
           id: "ai_training",
           title: "AI Training & QA",
           desc: "AI antwoorden en kennisbank.",
@@ -371,6 +424,15 @@ const AdminDashboard = () => {
           roles: ["admin", "engineer"],
           component: AiCenterView,
           requiredModule: "ai_assistant",
+        },
+        {
+          id: "pilot_migration",
+          title: "Pilot Migratie Tool",
+          desc: "Verplaats pilot-data naar productie en schoon op.",
+          icon: <DatabaseZap size={24} className="text-rose-600" />,
+          color: "bg-rose-50 border-rose-100",
+          roles: ["admin"],
+          component: PilotMigrationTool,
         },
       ]
     }
@@ -386,12 +448,20 @@ const AdminDashboard = () => {
     ...category,
     items: category.items.filter(item => {
       const hasRole = item.roles.some(r => r.toLowerCase() === currentRole);
-      
-      // Module check: Admin heeft altijd toegang, anders check modules array
-      if (item.requiredModule && currentRole !== 'admin') {
-        return hasRole && user?.modules?.includes(item.requiredModule);
+
+      // Admins hebben altijd volledige toegang
+      if (currentRole === 'admin') return hasRole;
+
+      if (item.requiredModule) {
+        // Nieuw systeem: check permissions object (moduleId → [featureIds])
+        const perms = user?.permissions || {};
+        const modulePerms = perms[item.requiredModule] || [];
+        const hasViaPermissions = modulePerms.length > 0;
+        // Fallback: oud modules-array systeem
+        const hasViaModules = (user?.modules || []).includes(item.requiredModule);
+        return hasRole && (hasViaPermissions || hasViaModules);
       }
-      
+
       return hasRole;
     })
   })).filter(category => category.items.length > 0); // Only show categories with accessible items
@@ -400,6 +470,13 @@ const AdminDashboard = () => {
   if (activeScreen) {
     const activeItem = allMenuItems.find((i) => i.id === activeScreen);
     const ActiveComponent = activeItem?.component;
+    const componentProps =
+      activeItem?.id === "personnel"
+        ? {
+            initialViewDate: location.state?.personnelDate,
+            initialTab: location.state?.personnelTab,
+          }
+        : {};
 
     return (
       <div className="flex flex-col h-full bg-slate-50 w-full animate-in fade-in overflow-hidden text-left">
@@ -432,7 +509,7 @@ const AdminDashboard = () => {
               </div>
             }
           >
-            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
+            {ActiveComponent ? <ActiveComponent user={user} canEdit={true} onNavigate={setActiveScreen} {...componentProps} /> : <div className="flex h-full items-center justify-center text-slate-400"><p>Component laden...</p></div>}
           </Suspense>
         </div>
       </div>
@@ -446,15 +523,15 @@ const AdminDashboard = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-200 pb-10">
           <div className="text-left">
             <h1 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight uppercase italic leading-none">
-              Admin <span className="text-blue-600">Hub</span>
+              {t('adminDashboard.title', 'Admin')} <span className="text-blue-600">{t('adminDashboard.hub', 'Hub')}</span>
             </h1>
             <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mt-2 italic text-left leading-none">
-              Control Center & Technical Reference
+              {t('adminDashboard.subtitle', 'Control Center & Technical Reference')}
             </p>
           </div>
           <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl border border-white/10">
             <ShieldAlert size={14} className="text-blue-400" />
-            Active Session: {role?.toUpperCase() || "NO ROLE"}
+            {t('adminDashboard.active_session', 'Active Session')}: {role?.toUpperCase() || t('adminDashboard.no_role', 'NO ROLE')}
           </div>
         </div>
 
@@ -478,7 +555,7 @@ const AdminDashboard = () => {
                         {category.title}
                       </h2>
                       <p className="text-xs text-slate-500 font-medium mt-1">
-                        {category.items.length} module{category.items.length !== 1 ? 's' : ''}
+                        {category.items.length} {t('adminDashboard.module', 'module')}{category.items.length !== 1 ? t('adminDashboard.modules', 's') : ''}
                       </p>
                     </div>
                   </div>
@@ -506,7 +583,7 @@ const AdminDashboard = () => {
                           {item.desc}
                         </p>
                         <div className="mt-8 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-300 group-hover:text-blue-600 transition-colors">
-                          Openen <ArrowRight size={14} />
+                          {t('open')} <ArrowRight size={14} />
                         </div>
                       </button>
                     ))}

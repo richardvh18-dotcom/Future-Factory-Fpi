@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   User,
   Mail,
-  Shield,
-  Bell,
   Save,
   CheckCircle2,
   Lock,
@@ -22,27 +21,33 @@ import {
   Monitor,
   Settings,
   BellRing,
-  Smartphone,
   ClipboardCheck,
   Factory,
   Package,
   Database,
+  Edit3,
 } from "lucide-react";
 import { useAdminAuth } from "../hooks/useAdminAuth";
-import { db } from "../config/firebase";
-import { getAuth, updatePassword, updateProfile } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { PATHS } from "../config/dbPaths";
+import { db, auth } from "../config/firebase";
+import { updatePassword, updateProfile } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import RoleSwitcher from "./admin/RoleSwitcher";
+import { useNotifications } from '../contexts/NotificationContext';
+import { updateUserProfile, clearPasswordChangeFlag } from '../services/planningSecurityService';
 
 /**
  * ProfileView V2.1 - Robuuste Identiteit Guard
  * GEFIXST: Gebruikt nu setDoc (merge) in plaats van updateDoc om "document not found" errors te voorkomen.
+ * UPDATE: Toegevoegd i18n ondersteuning en auth variabele conflict opgelost.
  */
 const ProfileView = () => {
+  const { t, i18n } = useTranslation();
   const { user } = useAdminAuth();
-  const auth = getAuth();
   const navigate = useNavigate();
 
   // Lokale states voor formulier
+  const { notify } = useNotifications();
   const [displayName, setDisplayName] = useState("");
   const [preferences, setPreferences] = useState({
     emailNotifications: false,
@@ -51,6 +56,7 @@ const ProfileView = () => {
     darkMode: false,
     phoneNumber: "",
     department: "",
+    signature: "",
   });
 
   // Beveiliging State
@@ -67,42 +73,22 @@ const ProfileView = () => {
   const [pwError, setPwError] = useState(null);
   const [showPw, setShowPw] = useState(false);
 
-  const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-
   // 1. Laad Profiel & Voorkeuren
   useEffect(() => {
     const loadPrefs = async () => {
       if (!user?.uid) return;
       try {
-        // We proberen het document op te halen via UID
-        const userRef = doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          "user_roles",
-          user.uid
-        );
+        // Gebruik de centrale PATHS configuratie (dezelfde als AdminMessagesView)
+        const userRef = doc(db, ...PATHS.USERS, user.uid);
         let snap = await getDoc(userRef);
-
-        // Fallback: Check op e-mail als ID (voor legacy accounts)
-        if (!snap.exists()) {
-          const emailRef = doc(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "user_roles",
-            user.email
-          );
-          snap = await getDoc(emailRef);
-        }
 
         if (snap.exists()) {
           const data = snap.data();
           setDisplayName(data.name || user.displayName || "");
+          
+          // Direct de taal toepassen als deze in het profiel staat
+          if (data.language) i18n.changeLanguage(data.language);
+
           setPreferences({
             emailNotifications: data.receivesValidationAlerts || false,
             systemAlerts: data.systemAlerts ?? true,
@@ -110,6 +96,7 @@ const ProfileView = () => {
             darkMode: data.darkMode || false,
             phoneNumber: data.phoneNumber || "",
             department: data.department || user.role || "",
+            signature: data.signature || "",
           });
         }
       } catch (err) {
@@ -119,9 +106,9 @@ const ProfileView = () => {
       }
     };
     loadPrefs();
-  }, [user, appId]);
+  }, [user]);
 
-  // 2. Opslaan Algemene Instellingen & Naam (Robuuste versie)
+  // 2. Opslaan Algemene Instellingen & Naam (via backend callable)
   const handleSaveGeneral = async () => {
     if (!user?.uid) return;
     setSaving(true);
@@ -132,38 +119,27 @@ const ProfileView = () => {
         await updateProfile(auth.currentUser, { displayName: displayName });
       }
 
-      // B. Update Firestore Document (Database)
-      // We gebruiken setDoc met merge: true zodat het document wordt aangemaakt als het nog niet bestond.
-      const userRef = doc(
-        db,
-        "artifacts",
-        appId,
-        "public",
-        "data",
-        "user_roles",
-        user.uid
-      );
-      await setDoc(
-        userRef,
-        {
-          uid: user.uid,
-          email: user.email,
-          name: displayName,
-          receivesValidationAlerts: preferences.emailNotifications,
-          systemAlerts: preferences.systemAlerts,
-          language: preferences.language,
-          darkMode: preferences.darkMode,
-          phoneNumber: preferences.phoneNumber,
-          lastUpdated: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      // B. Update Firestore via backend callable (server-side authorized)
+      await updateUserProfile({
+        name: displayName,
+        email: user.email,
+        emailNotifications: preferences.emailNotifications,
+        systemAlerts: preferences.systemAlerts,
+        language: preferences.language,
+        darkMode: preferences.darkMode,
+        phoneNumber: preferences.phoneNumber,
+        department: preferences.department,
+        signature: preferences.signature,
+      });
+
+      // Update ook direct de actieve taal
+      i18n.changeLanguage(preferences.language);
 
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error(err);
-      alert("Kon wijzigingen niet opslaan: " + err.message);
+      notify("Kon wijzigingen niet opslaan: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -185,16 +161,8 @@ const ProfileView = () => {
     setPwLoading(true);
     try {
       await updatePassword(auth.currentUser, passwordData.newPassword);
-      const userRef = doc(
-        db,
-        "artifacts",
-        appId,
-        "public",
-        "data",
-        "user_roles",
-        user.uid
-      );
-      await setDoc(userRef, { mustChangePassword: false }, { merge: true });
+      // Clear the requirePasswordChange flag via backend callable
+      await clearPasswordChangeFlag();
 
       setPwSuccess(true);
       setPasswordData({ newPassword: "", confirmPassword: "" });
@@ -230,7 +198,7 @@ const ProfileView = () => {
       <div className="h-full flex flex-col items-center justify-center p-20 bg-slate-50">
         <Loader2 className="animate-spin text-blue-500 mb-4" size={48} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Dossier ophalen...
+          {t('common.loading', 'Dossier ophalen...')}
         </p>
       </div>
     );
@@ -249,10 +217,10 @@ const ProfileView = () => {
               preferences.darkMode ? "text-white" : "text-slate-900"
             }`}
           >
-            Mijn <span className="text-blue-600">Dossier</span>
+            {t('profile.prefs.my_dossier').split(' ')[0]} <span className="text-blue-600">{t('profile.prefs.my_dossier').split(' ').slice(1).join(' ')}</span>
           </h1>
           <p className="text-slate-500 font-medium uppercase text-[10px] tracking-[0.3em]">
-            MES Personal Identity Guard
+            {t('profile.prefs.subtitle')}
           </p>
         </div>
         <button
@@ -263,7 +231,7 @@ const ProfileView = () => {
               : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
           }`}
         >
-          <LayoutGrid size={18} /> Terug naar Portal
+          <LayoutGrid size={18} /> {t('planning.hub.back_to_portal')}
         </button>
       </div>
 
@@ -289,13 +257,13 @@ const ProfileView = () => {
                 preferences.darkMode ? "text-white" : "text-slate-800"
               }`}
             >
-              <User size={20} className="text-blue-500" /> Identiteit & Weergave
+              <User size={20} className="text-blue-500" /> {t('profile.prefs.identity_title')}
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10 text-left">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1 ml-1 text-left">
-                  Weergavenaam
+                  {t('profile.labels.name')}
                 </label>
                 <div className="relative group">
                   <User
@@ -315,12 +283,12 @@ const ProfileView = () => {
                   />
                 </div>
                 <p className="text-[9px] text-slate-500 italic ml-1">
-                  Zichtbaar op de Portal en in de Sidebar badge.
+                  {/* Zichtbaar op de Portal en in de Sidebar badge. */}
                 </p>
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1 ml-1 text-left">
-                  Gekoppeld E-mail
+                  {t('profile.labels.email')}
                 </label>
                 <div
                   className={`p-4 rounded-2xl border-2 flex items-center gap-3 ${
@@ -335,6 +303,25 @@ const ProfileView = () => {
               </div>
             </div>
 
+            <div className="space-y-2 pt-4 border-t border-slate-100/10">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
+                {t('profile.prefs.signature')}
+              </label>
+              <div className="relative group">
+                <Edit3
+                  className="absolute left-5 top-4 text-slate-300 group-focus-within:text-blue-500"
+                  size={20}
+                />
+                <textarea
+                  className="w-full pl-14 pr-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-[25px] font-medium text-slate-600 outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner resize-none text-xs"
+                  rows={3}
+                  value={preferences.signature || ""}
+                  onChange={(e) => setPreferences({ ...preferences, signature: e.target.value })}
+                  placeholder="Met vriendelijke groet..."
+                />
+              </div>
+            </div>
+
             {/* BEVOEGDHEDEN OVERZICHT */}
             <div className="pt-10 border-t border-slate-100/10">
               <h4
@@ -342,8 +329,12 @@ const ProfileView = () => {
                   preferences.darkMode ? "text-emerald-400" : "text-emerald-600"
                 }`}
               >
-                <ShieldCheck size={16} /> Systeem Rechten (Rol:{" "}
-                {user?.role || "Guest"})
+                <ShieldCheck size={16} /> {t('profile.prefs.permissions_title')} ({t('profile.prefs.role', 'Rol')}: {user?.role || t('profile.prefs.guest', 'Guest')})
+                {user?.isImpersonating && (
+                  <span className="ml-2 bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[8px] border border-amber-200 animate-pulse">
+                    VIEW MODE
+                  </span>
+                )}
               </h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <PermissionItem
@@ -382,7 +373,7 @@ const ProfileView = () => {
             <div className="pt-8 border-t border-slate-100/10 flex items-center justify-between">
               {success && (
                 <span className="text-emerald-500 text-sm font-black flex items-center gap-2 animate-in fade-in">
-                  <CheckCircle2 size={18} /> Wijzigingen opgeslagen
+                  <CheckCircle2 size={18} /> {t('profile.saved', 'Wijzigingen opgeslagen')}
                 </span>
               )}
               <button
@@ -395,7 +386,7 @@ const ProfileView = () => {
                 ) : (
                   <Save size={18} />
                 )}
-                Profiel Bijwerken
+                {t('profile.save_btn')}
               </button>
             </div>
           </div>
@@ -414,24 +405,25 @@ const ProfileView = () => {
                   preferences.darkMode ? "text-white" : "text-slate-800"
                 }`}
               >
-                <Monitor size={18} className="text-purple-500" /> Personalisatie
+                <Monitor size={18} className="text-purple-500" /> {t('profile.prefs.personalization_title')}
               </h3>
               <div className="space-y-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase block ml-1 text-left">
-                    Taal
+                    {t('profile.prefs.language')}
                   </label>
                   <div
-                    className={`grid grid-cols-2 gap-2 p-1 rounded-2xl border ${
+                    className={`grid grid-cols-4 gap-2 p-1 rounded-2xl border ${
                       preferences.darkMode
                         ? "bg-white/5 border-white/10"
                         : "bg-slate-100/50 border-slate-100"
                     }`}
                   >
                     <button
-                      onClick={() =>
-                        setPreferences({ ...preferences, language: "nl" })
-                      }
+                      onClick={() => {
+                        setPreferences({ ...preferences, language: "nl" });
+                        i18n.changeLanguage("nl");
+                      }}
                       className={`py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 transition-all ${
                         preferences.language === "nl"
                           ? "bg-white text-blue-600 shadow-sm"
@@ -441,9 +433,10 @@ const ProfileView = () => {
                       <Languages size={14} /> NL
                     </button>
                     <button
-                      onClick={() =>
-                        setPreferences({ ...preferences, language: "en" })
-                      }
+                      onClick={() => {
+                        setPreferences({ ...preferences, language: "en" });
+                        i18n.changeLanguage("en");
+                      }}
                       className={`py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 transition-all ${
                         preferences.language === "en"
                           ? "bg-white text-blue-600 shadow-sm"
@@ -451,6 +444,32 @@ const ProfileView = () => {
                       }`}
                     >
                       <Languages size={14} /> EN
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPreferences({ ...preferences, language: "ar" });
+                        i18n.changeLanguage("ar");
+                      }}
+                      className={`py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                        preferences.language === "ar"
+                          ? "bg-white text-blue-600 shadow-sm"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      <Languages size={14} /> AR
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPreferences({ ...preferences, language: "de" });
+                        i18n.changeLanguage("de");
+                      }}
+                      className={`py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                        preferences.language === "de"
+                          ? "bg-white text-blue-600 shadow-sm"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      <Languages size={14} /> DE
                     </button>
                   </div>
                 </div>
@@ -480,7 +499,7 @@ const ProfileView = () => {
                         preferences.darkMode ? "text-white" : "text-slate-800"
                       }`}
                     >
-                      Dark Mode
+                      {t('profile.prefs.darkmode')}
                     </span>
                   </div>
                   <button
@@ -516,7 +535,7 @@ const ProfileView = () => {
                   preferences.darkMode ? "text-white" : "text-slate-800"
                 }`}
               >
-                <BellRing size={18} className="text-orange-500" /> Notificaties
+                <BellRing size={18} className="text-orange-500" /> {t('profile.prefs.notifications_title')}
               </h3>
               <div className="space-y-4">
                 <div
@@ -532,10 +551,10 @@ const ProfileView = () => {
                         preferences.darkMode ? "text-white" : "text-slate-800"
                       }`}
                     >
-                      Systeem Alerts
+                      {t('profile.prefs.alerts')}
                     </p>
                     <p className="text-[9px] text-slate-500">
-                      Planning & Productie
+                      {t('profile.prefs.alerts_desc', 'Planning & Productie')}
                     </p>
                   </div>
                   <button
@@ -573,10 +592,10 @@ const ProfileView = () => {
                         preferences.darkMode ? "text-white" : "text-slate-800"
                       }`}
                     >
-                      E-mail Meldingen
+                      {t('profile.prefs.notifications')}
                     </p>
                     <p className="text-[9px] text-slate-500">
-                      Validatie verzoeken
+                      {t('profile.prefs.notifications_desc', 'Validatie verzoeken')}
                     </p>
                   </div>
                   <button
@@ -614,10 +633,10 @@ const ProfileView = () => {
             </div>
             <div>
               <h3 className="font-black text-blue-400 flex items-center gap-3 uppercase tracking-wider text-xs mb-2 italic">
-                <Key size={18} /> Beveiliging
+                <Key size={18} /> {t('profile.security.title')}
               </h3>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
-                Wijzig hier je wachtwoord voor je persoonlijke MES-profiel.
+                {t('profile.security.description')}
               </p>
             </div>
 
@@ -627,7 +646,7 @@ const ProfileView = () => {
             >
               <div className="space-y-2">
                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 text-left">
-                  Nieuw Wachtwoord
+                  {t('profile.security.new_pass')}
                 </label>
                 <div className="relative group">
                   <Lock
@@ -658,7 +677,7 @@ const ProfileView = () => {
               </div>
               <div className="space-y-2">
                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 text-left">
-                  Bevestig
+                  {t('profile.security.confirm_pass')}
                 </label>
                 <div className="relative group">
                   <Lock
@@ -687,9 +706,8 @@ const ProfileView = () => {
                 </div>
               )}
               {pwSuccess && (
-                <div className="bg-emerald-500/20 text-emerald-300 p-4 rounded-2xl text-[10px] font-bold flex items-center gap-3 border border-emerald-500/30 animate-in zoom-in duration-300">
-                  <CheckCircle2 size={16} className="shrink-0" /> Wachtwoord
-                  bijgewerkt!
+                    <div className="bg-emerald-500/20 text-emerald-300 p-4 rounded-2xl text-[10px] font-bold flex items-center gap-3 border border-emerald-500/30 animate-in zoom-in duration-300">
+                  <CheckCircle2 size={16} className="shrink-0" /> {t('profile.prefs.password_updated', 'Wachtwoord bijgewerkt!')}
                 </div>
               )}
 
@@ -703,12 +721,14 @@ const ProfileView = () => {
                 ) : (
                   <Key size={18} />
                 )}{" "}
-                Update Wachtwoord
+                {t('profile.security.update_btn')}
               </button>
             </form>
           </div>
         </div>
       </div>
+
+      <RoleSwitcher />
     </div>
   );
 };

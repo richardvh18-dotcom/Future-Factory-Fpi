@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Save,
   Loader2,
@@ -19,18 +20,18 @@ import {
   CornerUpLeft,
   X as XIcon,
 } from "lucide-react";
-import { db, storage } from "../../config/firebase";
-import { doc, setDoc, serverTimestamp, getDoc, collection, query, where, getDocs, limit, deleteField } from "firebase/firestore";
+import { db, storage, logActivity } from "../../config/firebase";
+import { doc, serverTimestamp, getDoc, collection, query, where, getDocs, limit, addDoc } from "firebase/firestore";
+import { saveProductRecord } from "../../services/planningSecurityService";
 import { ref, uploadBytes, getDownloadURL, listAll } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
 import { useSettingsData } from "../../hooks/useSettingsData";
 import {
   ALL_PRODUCT_TYPES,
   CONNECTION_TYPES,
-  TYPES_WITH_SECOND_DIAMETER,
-  BELL_KEYS,
   VERIFICATION_STATUS,
 } from "../../data/constants";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 // Helper functies voor naamgeving en paden (buiten component om re-renders te voorkomen)
 const getTypeAbbr = (t) => {
@@ -45,6 +46,55 @@ const getTypeAbbr = (t) => {
     "Nipple": "Nip"
   };
   return map[t] || (t ? t.substring(0, 3) : "");
+};
+
+const normalizeProductType = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const normalized = raw.toLowerCase();
+  const aliasMap = {
+    elbow: "Elbow",
+    elb: "Elbow",
+    tee: "Tee",
+    "t-equal": "T-Equal",
+    "tequal": "T-Equal",
+    "t-unequal": "T-Unequal",
+    "tunequal": "T-Unequal",
+    "y-piece": "Y-Piece",
+    ypiece: "Y-Piece",
+    coupler: "Coupler",
+    cpl: "Coupler",
+    reducer: "Reducer",
+    flange: "Flange",
+    endcap: "EndCap",
+    "end cap": "EndCap",
+    socket: "Socket",
+    nipple: "Nipple",
+    adaptor: "Adaptor",
+    adapter: "Adaptor",
+  };
+
+  return aliasMap[normalized] || raw;
+};
+
+const buildGeneratedProductName = (productData) => {
+  const normalizedType = normalizeProductType(productData?.type);
+  const typeStr = getTypeAbbr(normalizedType);
+  const dnStr = productData?.dn
+    ? (productData?.dn2 ? `${productData.dn}x${productData.dn2}` : productData.dn)
+    : "";
+  const radiusStr = productData?.radius ? `R${String(productData.radius).replace("D", "")}` : "";
+  const angleVal = productData?.angle || productData?.specs?.alpha || productData?.specs?.angle || "";
+  const angleStr = angleVal ? `/${angleVal}` : "";
+  const pnStr = productData?.pn ? `PN${productData.pn}` : "";
+  const connStr = formatConnection(productData?.connection);
+
+  let generatedName = `${typeStr} ${dnStr}${radiusStr}${angleStr}`;
+  if (pnStr) generatedName += ` ${pnStr}`;
+  if (connStr) generatedName += ` ${connStr}`;
+
+  return generatedName.replace(/\s+/g, " ").trim();
 };
 
 const formatConnection = (c) => {
@@ -65,12 +115,15 @@ const sanitizeFileName = (name) => {
  * Slaat op in: /future-factory/production/products/
  */
 const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
+  const { t } = useTranslation();
   const {
     loading: settingsLoading,
     productRange,
     generalConfig,
   } = useSettingsData(user);
+  const { notify } = useNotifications();
   const [saving, setSaving] = useState(false);
+  const isAdminUser = String(user?.role || "").toLowerCase() === "admin";
 
   const productTypes = generalConfig?.product_names || ALL_PRODUCT_TYPES;
   const connectionTypes = generalConfig?.connections || CONNECTION_TYPES;
@@ -99,7 +152,11 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     imageFile: null, // for upload
     pdfFiles: [], // for upload
     verificationStatus: VERIFICATION_STATUS.PENDING,
+    assignedVerifier: "",
   });
+  const [adminOverride4Eyes, setAdminOverride4Eyes] = useState(false);
+  const normalizedFormType = normalizeProductType(formData.type);
+  const generatedProductName = buildGeneratedProductName({ ...formData, type: normalizedFormType });
 
   // LN Search State
   const [lnSearchResults, setLnSearchResults] = useState([]);
@@ -110,6 +167,19 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   const [showStoragePicker, setShowStoragePicker] = useState(false);
   const [pickerMode, setPickerMode] = useState(null); // 'image' or 'pdf'
   const [imagePreview, setImagePreview] = useState(null);
+  const [verifiers, setVerifiers] = useState([]);
+
+  // Fetch verifiers
+  useEffect(() => {
+    const fetchVerifiers = async () => {
+      try {
+        const q = query(collection(db, ...PATHS.USERS), where("canVerify", "==", true));
+        const snapshot = await getDocs(q);
+        setVerifiers(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (err) { console.error(err); }
+    };
+    fetchVerifiers();
+  }, []);
 
   // Cleanup preview URL om memory leaks te voorkomen
   useEffect(() => {
@@ -132,7 +202,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
     }
   };
 
-  const handleStorageSelect = (url, name) => {
+  const handleStorageSelect = (url) => {
     if (pickerMode === 'image') {
         setFormData(prev => ({ ...prev, imageUrl: url, imageFile: null }));
         setImagePreview(null);
@@ -155,6 +225,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         fittingSpecs: initialData.fittingSpecs || {},
         socketSpecs: initialData.socketSpecs || {},
         sourcePdfs: initialData.sourcePdfs || [],
+        assignedVerifier: initialData.assignedVerifier || "",
       }));
       if (initialData.articleCode) {
         setIsAutoLinked(true);
@@ -182,6 +253,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         imageFile: null,
         pdfFiles: [],
         verificationStatus: VERIFICATION_STATUS.PENDING,
+        assignedVerifier: "",
       });
       setIsAutoLinked(false);
     }
@@ -196,27 +268,13 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       return;
     }
 
-    const typeStr = getTypeAbbr(formData.type);
-    const dnStr = formData.dn ? (formData.dn2 ? `${formData.dn}x${formData.dn2}` : formData.dn) : "";
-    const radiusStr = formData.radius ? "R" + formData.radius.replace("D", "") : "";
-    const angleVal = formData.angle || formData.specs?.alpha || formData.specs?.angle || "";
-    const angleStr = angleVal ? `/${angleVal}` : "";
-    const pnStr = formData.pn ? `PN${formData.pn}` : "";
-    const connStr = formatConnection(formData.connection);
-
-    // Constructie: Elb 400R1.5/45 PN20 CBCB
-    let generatedName = `${typeStr} ${dnStr}${radiusStr}${angleStr}`;
-    if (pnStr) generatedName += ` ${pnStr}`;
-    if (connStr) generatedName += ` ${connStr}`;
-
-    generatedName = generatedName.replace(/\s+/g, " ").trim();
-
     setFormData((prev) => ({
       ...prev,
-      name: generatedName,
-      displayId: prev.displayId && prev.displayId !== "" ? prev.displayId : generatedName,
+      type: normalizedFormType,
+      name: generatedProductName,
+      displayId: prev.displayId && prev.displayId !== "" ? prev.displayId : generatedProductName,
     }));
-  }, [formData.type, formData.dn, formData.dn2, formData.pn, formData.angle, formData.radius, formData.specs, formData.connection]);
+  }, [normalizedFormType, generatedProductName, initialData]);
 
   // 3. Matrix Validatie: Beschikbare PN's ophalen o.b.v. Verbinding
   const availablePNs = useMemo(() => {
@@ -274,7 +332,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   // 5. Auto-fetch Specs uit Matrix/Database
   useEffect(() => {
     const fetchSpecs = async () => {
-      if (!formData.type || !formData.dn || !formData.pn || !formData.connection) return;
+      if (!normalizedFormType || !formData.dn || !formData.pn || !formData.connection) return;
 
       const connKey = formData.connection.split("/")[0].toUpperCase();
       const pnStr = `PN${formData.pn}`;
@@ -287,7 +345,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       const bellId = `${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
       
       // Generieke Fitting ID: TYPE_[ANGLE_]CONN_PN_ID
-      let fittingId = `${formData.type.toUpperCase()}`;
+      let fittingId = `${normalizedFormType.toUpperCase()}`;
       if (formData.angle) {
         fittingId += `_${formData.angle}`;
       }
@@ -326,7 +384,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         // 3. Haal Socket maten op (Stream 3)
         // Generiek patroon voor alle fittings: TYPE_SOCKET_CONN_PN_ID
         if (PATHS.SOCKET_SPECS) {
-          const socketId = `${formData.type.toUpperCase()}_SOCKET_${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
+          const socketId = `${normalizedFormType.toUpperCase()}_SOCKET_${connKey}_${pnStr}_${idStr}${extraCodeSuffix}`;
           const socketDocRef = doc(db, ...PATHS.SOCKET_SPECS, socketId);
           const socketSnap = await getDoc(socketDocRef);
           if (socketSnap.exists()) {
@@ -336,7 +394,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         }
 
         // 4. Haal Flens maten op (Stream 4 - Flens)
-        const isFlange = formData.type.toLowerCase().includes("flange") || formData.connection.toLowerCase().includes("flange");
+        const isFlange = normalizedFormType.toLowerCase().includes("flange") || formData.connection.toLowerCase().includes("flange");
         if (isFlange && PATHS.BORE_DIMENSIONS) {
           const q = query(
             collection(db, ...PATHS.BORE_DIMENSIONS), 
@@ -362,7 +420,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       }
     };
     fetchSpecs();
-  }, [formData.type, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode]);
+  }, [normalizedFormType, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode]);
 
   // 5b. LN Code Search Effect (Live)
   useEffect(() => {
@@ -412,7 +470,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   // 5c. Auto-link Infor-LN Code based on configuration
   useEffect(() => {
     const autoLink = async () => {
-      if (!formData.type || !formData.dn || !formData.pn) return;
+      if (!normalizedFormType || !formData.dn || !formData.pn) return;
 
       try {
         // Query Conversion Matrix by DN and PN
@@ -440,7 +498,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
         const candidates = snapshot.docs.map(d => d.data());
         
         // Client-side filtering
-        const formType = (formData.type || "").toLowerCase();
+        const formType = normalizedFormType.toLowerCase();
         const formEnds = (formData.connection || "").toLowerCase();
         const formSerie = (formData.extraCode || "").toLowerCase();
         const formAngle = formData.angle;
@@ -452,7 +510,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             const cDesc = (c.description || "").toLowerCase();
             const cTarget = (c.targetProductId || "").toLowerCase();
             
-            let typeMatch = false;
+            let typeMatch;
             if (formType.includes("elbow") || formType === "elb") {
                 typeMatch = cType.includes("el") || cType.includes("elmo") || cDesc.includes("elbow");
             } else if (formType.includes("tee")) {
@@ -520,40 +578,45 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
     const timer = setTimeout(autoLink, 800);
     return () => clearTimeout(timer);
-  }, [formData.type, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode, formData.radius]);
+  }, [normalizedFormType, formData.dn, formData.pn, formData.connection, formData.angle, formData.extraCode, formData.radius]);
 
   // 6. Opslaan naar Root
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.dn || !formData.pn) {
-      alert("Vul tenminste Naam, DN en PN in.");
+    if (!normalizedFormType || !generatedProductName || !formData.dn || !formData.pn) {
+      notify(t('productForm.fill_required'));
       return;
     }
 
     setSaving(true);
     try {
+      const useAdminOverride = isAdminUser && adminOverride4Eyes;
+      const resolvedProductType = normalizedFormType;
+      const resolvedProductName = buildGeneratedProductName({ ...formData, type: resolvedProductType });
+      const resolvedDisplayId = formData.displayId && formData.displayId !== "" ? formData.displayId : resolvedProductName;
+
       const productId =
         initialData?.id ||
-        `${formData.type}_ID${formData.dn}_${Date.now()}`.replace(
+        `${resolvedProductType}_ID${formData.dn}_${Date.now()}`.replace(
           /[^a-zA-Z0-9]/g,
           "_"
         );
-      const productRef = doc(db, ...PATHS.PRODUCTS, productId);
+      // productRef niet meer nodig — save loopt via callable
 
       // Bepaal opslagpad en metadata voor bibliotheek structuur
       const getStorageInfo = () => {
-        const typeFolder = (formData.type || "Other").replace(/\s+/g, "_");
+        const typeFolder = (resolvedProductType || "Other").replace(/\s+/g, "_");
         const angleSuffix = formData.angle ? `_${formData.angle}` : "";
         const connFolder = (formData.connection || "None").replace(/\//g, "-");
         
         // Label voor hergebruik (metadata)
-        const label = `${getTypeAbbr(formData.type)} ${formData.angle || ""} ${formatConnection(formData.connection)}`.trim();
+        const label = `${getTypeAbbr(resolvedProductType)} ${formData.angle || ""} ${formatConnection(formData.connection)}`.trim();
 
         return {
             basePath: `product_library/${typeFolder}${angleSuffix}/${connFolder}`,
             metadata: {
                 customMetadata: {
-                    productType: formData.type,
+                    productType: resolvedProductType,
                     connection: formData.connection,
                     angle: formData.angle || "",
                     label: label,
@@ -565,19 +628,12 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
       const storageInfo = getStorageInfo();
       
-      // Helper voor storage path voor picker
-      const getStoragePath = () => {
-        // Gebruik dezelfde logica als bij uploaden om de juiste map te openen
-        return storageInfo.basePath;
-      };
-
-
       // Upload image if present
       let imageUrl = formData.imageUrl;
       if (formData.imageFile) {
         const fileName = `${Date.now()}_${sanitizeFileName(formData.imageFile.name)}`;
         const imgRef = ref(storage, `${storageInfo.basePath}/images/${fileName}`);
-        await uploadBytes(imgRef, formData.imageFile, storageInfo.metadata);
+        await uploadBytes(imgRef, formData.imageFile);
         imageUrl = await getDownloadURL(imgRef);
       }
 
@@ -589,61 +645,103 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
           const pdfFile = formData.pdfFiles[i];
           const fileName = `${Date.now()}_${sanitizeFileName(pdfFile.name)}`;
           const pdfRef = ref(storage, `${storageInfo.basePath}/pdfs/${fileName}`);
-          await uploadBytes(pdfRef, pdfFile, storageInfo.metadata);
+          await uploadBytes(pdfRef, pdfFile);
           const url = await getDownloadURL(pdfRef);
           pdfUrls.push(url);
         }
       }
 
-      // Bepaal verificatie status (Admins kunnen direct valideren)
-      const isSystemAdmin = user?.role === "admin";
-      const finalStatus = isSystemAdmin
+      // Bepaal verificatie status (Altijd PENDING voor 4-ogen principe)
+      // Tijdelijke admin override kan status direct op VERIFIED zetten.
+      const finalStatus = useAdminOverride
         ? VERIFICATION_STATUS.VERIFIED
         : VERIFICATION_STATUS.PENDING;
 
       // Filter out spec fields and temporary file objects before saving
       // We want to store ONLY identification and system links, specs should be live fetched.
-      // eslint-disable-next-line no-unused-vars
-      const { 
-        specs, 
-        bellSpecs, 
-        fittingSpecs, 
-        socketSpecs, 
-        imageFile, 
-        pdfFiles, 
-        ...cleanFormData 
-      } = formData;
+      const cleanFormData = {
+        ...formData,
+        type: resolvedProductType,
+        name: resolvedProductName,
+        displayId: resolvedDisplayId,
+      };
+      delete cleanFormData.specs;
+      delete cleanFormData.bellSpecs;
+      delete cleanFormData.fittingSpecs;
+      delete cleanFormData.socketSpecs;
+      delete cleanFormData.imageFile;
+      delete cleanFormData.pdfFiles;
 
-      await setDoc(
-        productRef,
-        {
-          ...cleanFormData,
-          // Backward compatibility: Save diameter/pressure aliases for Catalog views
-          diameter: cleanFormData.dn,
-          pressure: cleanFormData.pn,
+      const productData = {
+        ...cleanFormData,
+        // Backward compatibility: Save diameter/pressure aliases for Catalog views
+        diameter: cleanFormData.dn,
+        pressure: cleanFormData.pn,
+        imageUrl,
+        sourcePdfs: pdfUrls,
+        id: productId,
+        verificationStatus: finalStatus,
+        fourEyesOverride: useAdminOverride,
+        active: true,
+      };
 
-          // Explicitly remove spec fields from DB to ensure live fetching
-          specs: deleteField(),
-          bellSpecs: deleteField(),
-          fittingSpecs: deleteField(),
-          socketSpecs: deleteField(),
-          imageUrl,
-          sourcePdfs: pdfUrls,
-          id: productId,
-          lastUpdated: serverTimestamp(),
-          lastModifiedBy: user?.uid || "system",
-          verificationStatus: initialData
-            ? VERIFICATION_STATUS.PENDING
-            : finalStatus,
-          active: true,
-        },
-        { merge: true }
+      if (useAdminOverride) {
+        productData.verifiedBy = {
+          uid: user?.uid || "system",
+          name: user?.displayName || user?.name || user?.email || "Admin",
+        };
+        productData.fourEyesOverrideBy = {
+          uid: user?.uid || "system",
+          name: user?.displayName || user?.name || user?.email || "Admin",
+          reason: "Tijdelijke admin override voor catalogusvalidatie",
+        };
+      }
+
+      await saveProductRecord({
+        productId,
+        productData,
+        clearVerification: !useAdminOverride,
+      });
+
+      await logActivity(
+        user?.uid || "system",
+        initialData ? "PRODUCT_UPDATE" : "PRODUCT_CREATE",
+        `${initialData ? "Product bijgewerkt" : "Product aangemaakt"}: ${resolvedProductName} (${productId})`
       );
+
+      // Send notification to verifier if assigned
+      if (formData.assignedVerifier) {
+        const verifier = verifiers.find(v => v.id === formData.assignedVerifier);
+        if (verifier && verifier.email) {
+           await addDoc(collection(db, ...PATHS.MESSAGES), {
+            to: verifier.email,
+            subject: t('productForm.verification_request') + resolvedProductName,
+            content: t('productForm.new_product_verification', { name: resolvedProductName }),
+            type: "validation_alert",
+            priority: "urgent",
+            read: false,
+            archived: false,
+            timestamp: serverTimestamp(),
+            senderId: user?.uid || "system",
+            senderName: user?.displayName || "System",
+            relatedProductId: productId
+          });
+          await logActivity(
+            user?.uid || "system",
+            "MESSAGE_SEND",
+            `Verificatieverzoek verstuurd voor product ${productId} naar ${verifier.email}`
+          );
+        }
+      }
 
       if (onSubmit) onSubmit();
     } catch (err) {
       console.error("Save failed:", err);
-      alert("Fout bij opslaan: " + err.message);
+      if (err.code === 'storage/unauthorized') {
+        notify(t('productForm.storage_unauthorized'));
+      } else {
+        notify(t('productForm.save_error') + err.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -671,7 +769,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
       <div className="flex flex-col items-center justify-center p-20 gap-4">
         <Loader2 className="animate-spin text-blue-600" size={48} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Configurator initialiseren...
+          {t('productForm.initializing')}
         </p>
       </div>
     );
@@ -686,10 +784,10 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
           </div>
           <div className="text-left">
             <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-              Product <span className="text-blue-600">Architect</span>
+              {t('productForm.product_architect').split(' ')[0]} <span className="text-blue-600">{t('productForm.product_architect').split(' ')[1]}</span>
             </h2>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 flex items-center gap-2">
-              <Database size={12} className="text-emerald-500" /> Root Sync: /
+              <Database size={12} className="text-emerald-500" /> {t('productForm.root_sync')}: /
               {PATHS.PRODUCTS.join("/")}
             </p>
           </div>
@@ -699,7 +797,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             onClick={onCancel}
             className="px-6 py-3 text-slate-400 hover:text-slate-600 font-black uppercase text-[10px] tracking-widest transition-all"
           >
-            Annuleren
+            {t('productForm.cancel')}
           </button>
           <button
             onClick={handleSave}
@@ -711,7 +809,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             ) : (
               <Save size={18} />
             )}
-            Publiceren naar Hub
+            {t('productForm.publish_to_hub')}
           </button>
         </div>
       </div>
@@ -723,15 +821,14 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             {/* Sectie: Identiteit */}
             <div className="bg-white p-6 rounded-[45px] border border-slate-200 shadow-sm space-y-6">
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
-                <BookOpen size={16} className="text-blue-500" /> Basis
-                Identificatie
+                <BookOpen size={16} className="text-blue-500" /> {t('productForm.basic_identification')}
               </h3>
 
               <div className="space-y-6">
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                    Productie Extra Code
+                    {t('productForm.production_extra_code')}
                   </label>
                   <select
                     className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -740,8 +837,8 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       setFormData({ ...formData, extraCode: e.target.value })
                     }
                   >
-                    <option value="">- Selecteer Code -</option>
-                    <option value="-">Geen Code</option>
+                    <option value="">{t('productForm.select_code')}</option>
+                    <option value="-">{t('productForm.no_code')}</option>
                     {(generalConfig?.codes || []).map((code) => (
                       <option key={code} value={code}>{code}</option>
                     ))}
@@ -751,7 +848,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Product Type
+                      {t('productForm.product_type')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -760,7 +857,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, type: e.target.value })
                       }
                     >
-                      <option value="">- Selecteer Type -</option>
+                      <option value="">{t('productForm.select_type')}</option>
                       {productTypes.map((t) => (
                         <option key={t} value={t}>
                           {t}
@@ -770,7 +867,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Verbinding
+                      {t('productForm.connection')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -779,7 +876,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, connection: e.target.value })
                       }
                     >
-                      <option value="">- Selecteer -</option>
+                      <option value="">{t('productForm.select')}</option>
                       {connectionTypes.map((c) => (
                         <option key={c} value={c}>{c}</option>
                       ))}
@@ -788,10 +885,10 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 </div>
 
                 {/* Conditional Fields for Elbow */}
-                {formData.type?.toLowerCase().includes("elbow") && (
+                {normalizedFormType.toLowerCase().includes("elbow") && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Graden (Hoek)</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2">{t('productForm.degrees_angle')}</label>
                       <select 
                         className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500" 
                         value={formData.angle} 
@@ -801,15 +898,15 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                           setFormData({...formData, angle: newAngle, radius: newRadius});
                         }}
                       >
-                        <option value="">- Kies Hoek -</option>
+                        <option value="">{t('productForm.choose_angle')}</option>
                         {(generalConfig?.angles || ["11.25", "22.5", "30", "45", "60", "90"]).map(a => <option key={a} value={a}>{a}°</option>)}
                       </select>
                     </div>
                     {formData.angle === "90" && (
                       <div className="space-y-2 animate-in slide-in-from-left-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Radius</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2">{t('productForm.radius')}</label>
                         <select className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500" value={formData.radius} onChange={e => setFormData({...formData, radius: e.target.value})}>
-                          <option value="">- Kies Radius -</option>
+                          <option value="">{t('productForm.choose_radius')}</option>
                           <option value="1.0D">1.0D</option>
                           <option value="1.5D">1.5D</option>
                         </select>
@@ -820,7 +917,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
                 <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Artikelgroep / Label
+                      {t('productForm.article_group_label')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -829,7 +926,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, label: e.target.value })
                       }
                     >
-                      <option value="">- Selecteer -</option>
+                      <option value="">{t('productForm.select')}</option>
                       {productLabels.map((l) => (
                         <option key={l} value={l}>
                           {l}
@@ -846,14 +943,14 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 <Zap size={120} />
               </div>
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic relative z-10">
-                <Ruler size={16} className="text-blue-500" /> Technische Matrix
+                <Ruler size={16} className="text-blue-500" /> {t('productForm.technical_matrix')}
               </h3>
 
               <div className="relative z-10">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Drukklasse (PN)
+                      {t('productForm.pressure_class_pn')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
@@ -862,7 +959,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, pn: e.target.value, dn: "" })
                       }
                     >
-                      <option value="">- Kies PN -</option>
+                      <option value="">{t('productForm.choose_pn')}</option>
                       {availablePNs.map((pn) => (
                         <option key={pn} value={pn}>
                           PN {pn}
@@ -873,7 +970,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
 
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
-                      Binnendiameter (ID)
+                      {t('productForm.inner_diameter_id')}
                     </label>
                     <select
                       className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-black italic outline-none focus:border-blue-500 transition-all text-blue-600"
@@ -882,7 +979,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setFormData({ ...formData, dn: e.target.value })
                       }
                     >
-                      <option value="">- Kies ID -</option>
+                      <option value="">{t('productForm.choose_id')}</option>
                       {availableDNs.map((dn) => (
                         <option key={dn} value={dn}>
                           ID {dn} mm
@@ -896,14 +993,14 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 {(Object.keys(formData.fittingSpecs || {}).length > 0 || Object.keys(formData.bellSpecs || {}).length > 0 || Object.keys(formData.socketSpecs || {}).length > 0) && (
                   <div className="mt-6 pt-6 border-t border-slate-100 animate-in slide-in-from-top-2">
                     <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                      <Info size={12} /> Gevonden Specificaties
+                      <Info size={12} /> {t('productForm.found_specs')}
                     </h4>
                     
                     <div className="space-y-4">
                       {/* Socket Maten Group */}
                       {(Object.keys(formData.bellSpecs || {}).length > 0 || Object.keys(formData.socketSpecs || {}).length > 0) && (
                         <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">Socket Maten</h5>
+                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">{t('productForm.socket_dimensions')}</h5>
                            <div className="grid grid-cols-3 gap-3">
                              {sortSpecs({...formData.bellSpecs, ...formData.socketSpecs}, SOCKET_ORDER)
                                .map(([key, value]) => (
@@ -919,7 +1016,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       {/* Fitting Maten Group */}
                       {Object.keys(formData.fittingSpecs || {}).length > 0 && (
                         <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">Fitting Maten</h5>
+                           <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">{t('productForm.fitting_dimensions')}</h5>
                            <div className="grid grid-cols-3 gap-3">
                              {sortSpecs(formData.fittingSpecs, FITTING_ORDER)
                                .map(([key, value]) => (
@@ -943,22 +1040,22 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             {/* Sectie: Artikelcodes */}
             <div className="bg-slate-900 p-6 rounded-[40px] shadow-2xl text-white space-y-4">
               <h3 className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em] flex items-center gap-3 italic">
-                <Hash size={16} /> Systeem Koppeling
+                <Hash size={16} /> {t('productForm.system_link')}
               </h3>
               <div className="space-y-4">
                 <div className="space-y-1.5 text-left">
                   <label className="text-[8px] font-black text-slate-500 uppercase ml-2">
-                    Gegenereerde Systeemnaam
+                    {t('productForm.generated_system_name')}
                   </label>
                   <input
                     readOnly
                     className="w-full p-4 bg-white/5 border border-white/10 rounded-xl font-black text-lg text-white italic tracking-tighter outline-none"
-                    value={formData.name}
+                    value={generatedProductName}
                   />
                 </div>
                 <div className="space-y-1.5 text-left relative">
                   <label className="text-[8px] font-black text-slate-500 uppercase ml-2">
-                    Infor-LN Artikelcode (Manufactured Item)
+                    {t('productForm.infor_ln_code')}
                   </label>
                   <div className="relative">
                     <input
@@ -971,7 +1068,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         setShowLnResults(false);
                       }}
                       onKeyDown={(e) => e.key === 'Enter' && setSearchEnabled(true)}
-                      placeholder="Zoek op LN Code of Tekening..."
+                      placeholder={t('productForm.search_placeholder')}
                     />
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                       {isAutoLinked && (
@@ -1011,7 +1108,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         ))
                       ) : (
                         <div className="p-3 text-center">
-                           <span className="text-xs text-slate-400">Geen resultaten gevonden</span>
+                           <span className="text-xs text-slate-400">{t('productForm.no_results')}</span>
                         </div>
                       )}
                     </div>
@@ -1023,17 +1120,17 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
             {/* Sectie: Media Upload */}
             <div className="bg-white p-6 rounded-[40px] border border-slate-200 shadow-sm space-y-4">
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
-                <ImageIcon size={16} className="text-blue-500" /> Afbeelding & PDF Upload
+                <ImageIcon size={16} className="text-blue-500" /> {t('productForm.image_pdf_upload')}
               </h3>
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Productafbeelding (JPG/PNG)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">{t('productForm.product_image')}</label>
                   <div className="flex gap-3">
                     <label className="flex-1 flex flex-col items-center justify-center h-32 border-2 border-slate-100 border-dashed rounded-2xl cursor-pointer bg-slate-50/50 hover:bg-blue-50 hover:border-blue-200 transition-all group">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                           <ImageIcon className="w-8 h-8 text-slate-300 group-hover:text-blue-500 mb-2 transition-colors" />
                           <p className="text-[10px] font-bold text-slate-400 group-hover:text-blue-600 uppercase tracking-widest">
-                              {formData.imageFile ? formData.imageFile.name : "Klik om te uploaden"}
+                              {formData.imageFile ? formData.imageFile.name : t('productForm.click_to_upload')}
                           </p>
                       </div>
                       <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
@@ -1044,7 +1141,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       className="w-32 h-32 flex flex-col items-center justify-center bg-white border-2 border-slate-100 rounded-2xl hover:border-blue-500 hover:text-blue-600 text-slate-400 transition-all shadow-sm active:scale-95"
                     >
                       <Folder size={24} className="mb-2" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Bibliotheek</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">{t('productForm.library')}</span>
                     </button>
                   </div>
                   
@@ -1057,7 +1154,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                         />
                         {imagePreview && (
                            <div className="absolute bottom-2 right-2 bg-blue-600/80 text-white text-[9px] font-bold px-2 py-1 rounded-lg backdrop-blur-sm">
-                              Nieuw
+                              {t('productForm.new')}
                            </div>
                         )}
                     </div>
@@ -1065,15 +1162,15 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">Technische PDF(s)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2 block">{t('productForm.technical_pdfs')}</label>
                   <div className="flex gap-3">
                     <label className="flex-1 flex flex-col items-center justify-center h-32 border-2 border-slate-100 border-dashed rounded-2xl cursor-pointer bg-slate-50/50 hover:bg-blue-50 hover:border-blue-200 transition-all group">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                           <FileText className="w-8 h-8 text-slate-300 group-hover:text-blue-500 mb-2 transition-colors" />
                           <p className="text-[10px] font-bold text-slate-400 group-hover:text-blue-600 uppercase tracking-widest">
                               {formData.pdfFiles && formData.pdfFiles.length > 0 
-                                  ? `${formData.pdfFiles.length} bestand(en) geselecteerd` 
-                                  : "Klik om PDF's te uploaden"}
+                                  ? `${formData.pdfFiles.length} ${t('productForm.files_selected')}` 
+                                  : t('productForm.click_to_upload_pdfs')}
                           </p>
                       </div>
                       <input type="file" accept="application/pdf" multiple onChange={handlePdfChange} className="hidden" />
@@ -1084,7 +1181,7 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
                       className="w-32 h-32 flex flex-col items-center justify-center bg-white border-2 border-slate-100 rounded-2xl hover:border-blue-500 hover:text-blue-600 text-slate-400 transition-all shadow-sm active:scale-95"
                     >
                       <Folder size={24} className="mb-2" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Bibliotheek</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">{t('productForm.library')}</span>
                     </button>
                   </div>
 
@@ -1115,24 +1212,60 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
               <div className="flex items-center gap-3">
                 <ShieldCheck size={18} className="text-emerald-500" />
                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">
-                  Master Data Selection
+                  {t('productForm.master_data_selection')}
                 </span>
               </div>
               <p className="text-[10px] font-medium text-slate-400 leading-relaxed italic">
-                Selecteer de gewenste drukklasse en diameter uit de globale bibliotheek.
-                Deze waarden worden gebruikt voor de technische specificaties.
+                {t('productForm.master_data_desc')}
               </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-[35px] border border-slate-200 shadow-sm flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <ShieldCheck size={18} className="text-emerald-500" />
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">
+                  {t('productForm.verification_control')}
+                </span>
+              </div>
+              <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
+                    {t('productForm.assign_verifier')}
+                  </label>
+                  <select
+                    className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
+                    value={formData.assignedVerifier || ""}
+                    onChange={(e) => setFormData({ ...formData, assignedVerifier: e.target.value })}
+                  >
+                    <option value="">{t('productForm.choose_verifier')}</option>
+                    {verifiers.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slate-400 italic ml-2">
+                    {t('productForm.verifier_note')}
+                  </p>
+              </div>
+
+              {isAdminUser && (
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={adminOverride4Eyes}
+                    onChange={(e) => setAdminOverride4Eyes(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <span className="text-[11px] font-bold text-amber-800 leading-relaxed">
+                    Tijdelijke Admin Override (4-ogen): direct als geverifieerd opslaan voor test van catalogus/tekeningen.
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* Informatieve Voetnoot */}
             <div className="p-8 bg-blue-50 rounded-[35px] border border-blue-100 flex items-start gap-4">
               <Info size={20} className="text-blue-500 shrink-0 mt-0.5" />
               <p className="text-[10px] font-bold text-blue-700/70 leading-relaxed uppercase tracking-wider italic">
-                Nieuwe of gewijzigde producten krijgen automatisch de status{" "}
-                <span className="text-orange-600 font-black">'PENDING'</span>.
-                Ze moeten door een tweede geautoriseerde gebruiker worden
-                geverifieerd voordat ze definitief worden vrijgegeven voor
-                productie.
+                {t('productForm.pending_status_info')}
               </p>
             </div>
           </div>
@@ -1151,27 +1284,8 @@ const ProductForm = ({ initialData, onSubmit, onCancel, user }) => {
   );
 };
 
-/**
- * Interne X icon component voor de modal
- */
-const X = ({ size, className }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="3"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <line x1="18" y1="6" x2="6" y2="18"></line>
-    <line x1="6" y1="6" x2="18" y2="18"></line>
-  </svg>
-);
-
 const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) => {
+  const { t } = useTranslation();
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1237,7 +1351,7 @@ const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) =
                         <Folder size={20} />
                     </div>
                     <div>
-                        <h3 className="font-black text-slate-800 uppercase text-sm tracking-wide">Bibliotheek</h3>
+                        <h3 className="font-black text-slate-800 uppercase text-sm tracking-wide">{t('productForm.library')}</h3>
                         <p className="text-[10px] text-slate-400 font-mono">/{currentPath}</p>
                     </div>
                 </div>
@@ -1249,7 +1363,7 @@ const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) =
                     onClick={handleUp} 
                     disabled={!currentPath || currentPath === "product_library"} 
                     className="p-2 hover:bg-white rounded-lg disabled:opacity-30 transition-all text-slate-600"
-                    title="Omhoog"
+                    title={t('productForm.up')}
                 >
                     <CornerUpLeft size={18} />
                 </button>
@@ -1278,7 +1392,7 @@ const StoragePicker = ({ onClose, onSelect, initialPath = "product_library" }) =
                         ))}
                         {items.length === 0 && (
                             <div className="col-span-full text-center py-10 text-slate-400 italic text-xs">
-                                Geen bestanden gevonden in deze map.
+                                {t('productForm.no_files_found')}
                             </div>
                         )}
                     </div>

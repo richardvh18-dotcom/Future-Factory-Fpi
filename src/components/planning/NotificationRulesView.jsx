@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   Bell, 
-  AlertTriangle, 
-  Clock, 
   Users, 
-  Settings,
   CheckCircle,
   XCircle,
   TrendingUp,
@@ -12,14 +9,16 @@ import {
   Plus
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * NotificationRulesView - Configure automated notifications
  * Triggers notifications based on system events
  */
 const NotificationRulesView = () => {
+  const { showConfirm , notify} = useNotifications();
   const [rules, setRules] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
@@ -100,7 +99,7 @@ const NotificationRulesView = () => {
     let severity = "info";
 
     switch (rule.trigger) {
-      case "capacity_shortage":
+      case "capacity_shortage": {
         // Check if capacity < demand by threshold
         const totalCapacity = occupancy.reduce((sum, o) => sum + (o.productionHours || 0), 0);
         const totalDemand = planning.reduce((sum, p) => sum + (p.estimatedHours || 0), 0);
@@ -112,8 +111,9 @@ const NotificationRulesView = () => {
           severity = "warning";
         }
         break;
+      }
 
-      case "low_efficiency":
+      case "low_efficiency": {
         // Check if efficiency drops below threshold
         const avgEfficiency = occupancy.reduce((sum, o) => {
           const eff = o.productionHours > 0 ? (o.actualHours || 0) / o.productionHours : 0;
@@ -126,8 +126,9 @@ const NotificationRulesView = () => {
           severity = "warning";
         }
         break;
+      }
 
-      case "order_delay":
+      case "order_delay": {
         // Check for orders past planned date
         const now = new Date();
         const delayedOrders = planning.filter(p => {
@@ -142,8 +143,9 @@ const NotificationRulesView = () => {
           severity = "critical";
         }
         break;
+      }
 
-      case "missing_operator":
+      case "missing_operator": {
         // Check for machines without operators
         const machinesWithoutOperators = occupancy.filter(o => 
           !o.operatorName || o.operatorName === ""
@@ -155,8 +157,9 @@ const NotificationRulesView = () => {
           severity = "warning";
         }
         break;
+      }
 
-      case "dependency_blocked":
+      case "dependency_blocked": {
         // Check for orders blocked by dependencies
         const blockedOrders = planning.filter(p => {
           if (!p.dependencies || p.dependencies.length === 0) return false;
@@ -173,6 +176,7 @@ const NotificationRulesView = () => {
           severity = "info";
         }
         break;
+      }
     }
 
     if (shouldTrigger) {
@@ -202,12 +206,18 @@ const NotificationRulesView = () => {
       createdAt: serverTimestamp(),
       read: false
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_CREATE",
+      `Automatische notificatie aangemaakt via regel ${notification.ruleName || notification.ruleId || "onbekend"}`
+    );
   };
 
   // Add new rule
   const addRule = async () => {
     if (!newRule.name) {
-      alert("Geef de regel een naam");
+      notify("Geef de regel een naam");
       return;
     }
 
@@ -215,6 +225,12 @@ const NotificationRulesView = () => {
       ...newRule,
       createdAt: serverTimestamp()
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_RULE_CREATE",
+      `Notificatieregel aangemaakt: ${newRule.name} (${newRule.trigger})`
+    );
 
     setNewRule({
       name: "",
@@ -228,9 +244,21 @@ const NotificationRulesView = () => {
 
   // Delete rule
   const deleteRule = async (ruleId) => {
-    if (confirm("Weet je zeker dat je deze regel wilt verwijderen?")) {
-      await deleteDoc(doc(db, ...PATHS.NOTIFICATION_RULES, ruleId));
-    }
+    const confirmed = await showConfirm({
+      title: "Notificatieregel verwijderen",
+      message: "Weet je zeker dat je deze regel wilt verwijderen?",
+      confirmText: "Verwijderen",
+      cancelText: "Annuleren",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    await deleteDoc(doc(db, ...PATHS.NOTIFICATION_RULES, ruleId));
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_RULE_DELETE",
+      `Notificatieregel verwijderd: ${ruleId}`
+    );
   };
 
   // Toggle rule
@@ -238,6 +266,12 @@ const NotificationRulesView = () => {
     await updateDoc(doc(db, ...PATHS.NOTIFICATION_RULES, ruleId), {
       enabled: !currentState
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_RULE_TOGGLE",
+      `Notificatieregel ${ruleId} ${!currentState ? "ingeschakeld" : "uitgeschakeld"}`
+    );
   };
 
   // Mark notification as read
@@ -245,6 +279,12 @@ const NotificationRulesView = () => {
     await updateDoc(doc(db, ...PATHS.NOTIFICATION_LOGS, notifId), {
       read: true
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "NOTIFICATION_READ",
+      `Notificatie gemarkeerd als gelezen: ${notifId}`
+    );
   };
 
   const getTriggerLabel = (trigger) => {

@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 
 import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db, storage } from "../../config/firebase";
+import { db, storage, auth, logActivity } from "../../config/firebase";
 import { generateProductPDF } from "../../utils/pdfGenerator";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
@@ -43,7 +43,7 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
   const [liveSpecs, setLiveSpecs] = useState(null);
   const [boreSpecs, setBoreSpecs] = useState(null); // NIEUW: State voor boringen
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [, setError] = useState(null);
 
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
@@ -275,6 +275,11 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                           await updateDoc(productRef, {
                             sourcePdfs: arrayUnion({ name: file.name, url })
                           });
+                          await logActivity(
+                            auth.currentUser?.uid,
+                            "PRODUCT_PDF_UPLOAD",
+                            `PDF toegevoegd aan product ${product.id}: ${file.name}`
+                          );
                           // Trigger AI learning direct (optioneel: feedback)
                           try {
                             await aiService.learnFromPdfUrl(url, file.name);
@@ -417,7 +422,7 @@ const ProductDetailModal = ({ product, onClose, userRole }) => {
                             const decodedPath = decodeURIComponent(path);
                             const fileName = decodedPath.split('/').pop();
                             name = fileName.replace(/^\d+_/, ''); // Verwijder timestamp prefix
-                          } catch (e) { /* fallback */ }
+                          } catch { /* fallback */ }
                         }
 
                         return (

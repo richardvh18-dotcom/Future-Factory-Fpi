@@ -1,18 +1,24 @@
 import React, { useState, useEffect, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useLocation } from "react-router-dom";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 import {
   ArrowLeft,
   Activity,
   Monitor,
   Cpu,
-  Users,
   Calendar,
   Loader2,
   AlertTriangle,
 } from "lucide-react";
 
-import DepartmentStationSelector from "./DepartmentStationSelector";
-import PlannerHub from "./PlannerHub";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+
+const DepartmentStationSelector = React.lazy(() => import("./DepartmentStationSelector"));
+const PlannerHub = React.lazy(() => import("./PlannerHub"));
+const TeamleaderHub = React.lazy(() => import("./TeamleaderHub"));
 
 /**
  * DigitalPlanningHub V5.0 - Stability Edition
@@ -20,20 +26,62 @@ import PlannerHub from "./PlannerHub";
  * het opvangen van ontbrekende router states.
  */
 const DigitalPlanningHub = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAdminAuth();
   const [activeDept, setActiveDept] = useState(null);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [searchOrderNumber, setSearchOrderNumber] = useState(null);
+  const [factoryConfig, setFactoryConfig] = useState(null);
+  const [configLoading, setConfigLoading] = useState(true);
+
+  // Laad factory config voor station-afdeling mapping
+  useEffect(() => {
+    const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
+    const unsubscribe = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        setFactoryConfig(snap.data());
+      }
+      setConfigLoading(false);
+    }, (err) => {
+        console.error("Factory config error in DigitalPlanningHub:", err);
+        setConfigLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // --- REFRESH VEILIGHEID ---
   useEffect(() => {
+    // Auto-navigatie voor gebruikers met maar één toegewezen station
+    if (!configLoading && user && factoryConfig && user.allowedStations?.length === 1) {
+      const singleStationName = user.allowedStations[0];
+      
+      // Ga niet automatisch naar de teamleader hub
+      if (singleStationName.toUpperCase() === 'TEAMLEADER') {
+          return;
+      }
+
+      let stationDept = null;
+      for (const dept of factoryConfig.departments || []) {
+        const station = (dept.stations || []).find(s => s.name === singleStationName);
+        if (station) {
+          stationDept = dept.id || dept.slug;
+          break;
+        }
+      }
+
+      if (stationDept) {
+        setActiveDept(stationDept.toUpperCase());
+        return; // Stop verdere logica om reset te voorkomen
+      }
+    }
+
     try {
       console.log('[DigitalPlanningHub] Location:', location.pathname);
       console.log('[DigitalPlanningHub] State:', location.state);
       
-      // Als we een order zoeken via AI link
       if (location.state?.searchOrder) {
         console.log('[DigitalPlanningHub] Search order:', location.state.searchOrder);
         setSearchOrderNumber(location.state.searchOrder);
@@ -43,41 +91,45 @@ const DigitalPlanningHub = () => {
       if (location.state?.initialView) {
         console.log('[DigitalPlanningHub] Setting activeDept:', location.state.initialView);
         setActiveDept(location.state.initialView);
+      } else if (!location.state?.searchOrder) {
+        // FIX: Reset naar hoofdmenu als er geen specifieke state is (bijv. klik op Sidebar)
+        // Dit zorgt ervoor dat een klik op 'Planning' je altijd terugbrengt naar de start
+        setActiveDept(null);
       }
     } catch (err) {
       console.error("Fout bij initialiseren planning view:", err);
       setErrorMessage(err.message);
       setHasError(true);
     }
-  }, [location.state?.initialView, location.state?.searchOrder]);
+  }, [location, user, factoryConfig, configLoading]); // Trigger bij elke navigatie en als user/config data laadt
 
   const DEPARTMENTS = [
     {
       id: "FITTINGS",
-      title: "Fitting Productions",
+      title: t("digitalplanning.hub.fitting_title"),
       icon: <Monitor size={40} />,
-      description: "Hulpstukken & Voorbewerking",
+      description: "",
       color: "bg-emerald-600",
     },
     {
       id: "PIPES",
-      title: "Pipe Productions",
+      title: t("digitalplanning.hub.pipe_title"),
       icon: <Cpu size={40} />,
-      description: "Leidingwerk & Lamineren",
+      description: "",
       color: "bg-orange-600",
     },
     {
       id: "SPOOLS",
-      title: "Spools Productions",
+      title: t("digitalplanning.hub.spools_title"),
       icon: <Activity size={40} />,
-      description: "Assemblage & Prefab",
+      description: "",
       color: "bg-purple-600",
     },
     {
       id: "PLANNER",
-      title: "Central Planner",
+      title: t("digitalplanning.hub.planner_title"),
       icon: <Calendar size={40} />,
-      description: "Werkvoorbereiding & Planning",
+      description: t("digitalplanning.hub.planner_desc"),
       color: "bg-slate-600",
     },
   ];
@@ -88,10 +140,10 @@ const DigitalPlanningHub = () => {
       <div className="h-full flex flex-col items-center justify-center p-10 bg-slate-50">
         <AlertTriangle size={48} className="text-rose-500 mb-4" />
         <h2 className="text-xl font-black uppercase">
-          Systeemfout in Planning
+          {t("digitalplanning.hub.system_error_title")}
         </h2>
         <p className="text-slate-500 text-sm mt-2">
-          De module kon niet correct worden geladen.
+          {t("digitalplanning.hub.system_error_desc")}
         </p>
         {errorMessage && (
           <p className="text-rose-600 text-xs mt-2 font-mono bg-rose-50 p-3 rounded">
@@ -102,7 +154,7 @@ const DigitalPlanningHub = () => {
           onClick={() => window.location.reload()}
           className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold uppercase text-xs"
         >
-          Herstellen
+          {t("digitalplanning.hub.recover")}
         </button>
       </div>
     );
@@ -119,6 +171,21 @@ const DigitalPlanningHub = () => {
         }
       >
         <PlannerHub onBack={() => setActiveDept(null)} />
+      </Suspense>
+    );
+  }
+
+  // Toon de Teamleader Hub (Direct Dashboard)
+  if (activeDept === "TEAMLEADER") {
+    return (
+      <Suspense
+        fallback={
+          <div className="h-full flex items-center justify-center">
+            <Loader2 className="animate-spin text-blue-500" />
+          </div>
+        }
+      >
+        <TeamleaderHub onBack={() => setActiveDept(null)} />
       </Suspense>
     );
   }
@@ -149,10 +216,10 @@ const DigitalPlanningHub = () => {
       <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col justify-center py-10">
         <div className="text-center mb-12">
           <h1 className="text-5xl md:text-6xl font-black text-slate-900 mb-3 uppercase italic tracking-tighter leading-none">
-            Productie <span className="text-blue-600">Hub</span>
+            {t("digitalplanning.hub.title")} <span className="text-blue-600">{t("digitalplanning.hub.title_hub")}</span>
           </h1>
           <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">
-            Industrial Operations Center
+            {t("digitalplanning.hub.subtitle")}
           </p>
         </div>
 
@@ -169,9 +236,11 @@ const DigitalPlanningHub = () => {
               <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2 group-hover:text-blue-600 transition-colors italic">
                 {dept.title}
               </h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide leading-relaxed">
-                {dept.description}
-              </p>
+              {dept.description && (
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide leading-relaxed">
+                  {dept.description}
+                </p>
+              )}
             </button>
           ))}
         </div>
@@ -181,7 +250,7 @@ const DigitalPlanningHub = () => {
             onClick={() => navigate("/portal")}
             className="flex items-center gap-2 text-slate-400 hover:text-slate-600 font-black uppercase text-[10px] tracking-[0.2em] transition-all bg-slate-50 px-6 py-3 rounded-xl border border-slate-200"
           >
-            <ArrowLeft size={14} /> Terug naar Portal
+            <ArrowLeft size={14} /> {t("digitalplanning.hub.back_to_portal")}
           </button>
         </div>
       </div>

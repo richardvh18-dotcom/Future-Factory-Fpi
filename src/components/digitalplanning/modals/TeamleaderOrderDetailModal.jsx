@@ -2,21 +2,28 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
   Calendar,
-  Clock,
   MapPin,
   FileText,
   Activity,
-  CheckCircle,
   AlertTriangle,
+  AlertOctagon,
   Zap,
   Droplets,
   Ruler,
   ArrowRight,
-  History
+  History,
+  Star,
+  Ban
 } from "lucide-react";
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
-import { db } from "../../../config/firebase.js";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db, auth, logActivity } from "../../../config/firebase.js";
+import { PATHS } from "../../../config/dbPaths";
+import { useAdminAuth } from "../../../hooks/useAdminAuth";
+import { formatDateTimeSafe } from "../../../utils/dateUtils";
+import { resolvePostLossenStation } from "../../../utils/workstationLogic";
+import { updatePlanningOrderPriority, cancelPlanningOrder } from "../../../services/planningSecurityService";
 import StatusBadge from "../common/StatusBadge.jsx";
+import CancelOrderModal from "./CancelOrderModal";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
@@ -25,10 +32,7 @@ const getAppId = () => {
 
 // Helper voor datum weergave
 const formatDate = (timestamp) => {
-  if (!timestamp) return "-";
-  // Support voor Firestore Timestamp en JS Date
-  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-  return date.toLocaleString("nl-NL", {
+  return formatDateTimeSafe(timestamp, "nl-NL", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -40,7 +44,13 @@ const formatDate = (timestamp) => {
 const TeamleaderOrderDetailModal = ({ order, onClose }) => {
   const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showOnlyRejects, setShowOnlyRejects] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const appId = getAppId();
+  const { role } = useAdminAuth();
+
+  // Alleen Admins en Teamleiders mogen prioriteit aanpassen (Planners niet)
+  const canEditPriority = ["admin", "teamleader"].includes(role);
 
   // Bepaal materiaal type voor badges
   const getMaterialInfo = (itemString) => {
@@ -52,20 +62,21 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
 
   const matInfo = getMaterialInfo(order?.item);
 
-  // NIEUW: Bepaal de processtappen o.b.v. FL in de naam
+  // Bepaal de processtappen o.b.v. FL in de naam
   const processSteps = useMemo(() => {
-    const itemStr = (order?.item || "").toUpperCase();
-    
-    // Als het een FL product is (Flens/Flenzen?) -> Mazak route
-    if (itemStr.includes("FL")) {
-        return ["Wikkelen", "Lossen", "Mazak", "Eindinspectie", "Klaar"];
-    }
-    
-    // Standaard route
-    return ["Wikkelen", "Lossen", "Nabewerking", "Eindinspectie", "Klaar"];
-  }, [order?.item]);
+    const nextStationAfterLossen = resolvePostLossenStation(
+      order?.item || "",
+      order?.originMachine || order?.machine
+    );
 
-  // NIEUW: Bepaal huidige stap voor highlighting
+    if (nextStationAfterLossen === "Mazak") {
+      return ["Wikkelen", "Lossen", "Mazak", "Eindinspectie", "Klaar"];
+    }
+
+    return ["Wikkelen", "Lossen", "Nabewerking", "Eindinspectie", "Klaar"];
+  }, [order?.item, order?.originMachine, order?.machine]);
+
+  // Bepaal huidige stap voor highlighting
   const currentStepIndex = useMemo(() => {
     if (!order) return -1;
     if (order.status === "completed") return 4; // Klaar
@@ -80,6 +91,12 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
     // Fallback logic
     return 0; 
   }, [order, processSteps]);
+
+  // Bereken aantal afgekeurde producten
+  const rejectedCount = useMemo(() => {
+    const unitRejects = units.filter(u => ['rejected', 'Rejected'].includes(u.status)).length;
+    return unitRejects || order.rejectedCount || 0;
+  }, [units, order]);
 
   // Haal gekoppelde productie-units op
   useEffect(() => {
@@ -108,6 +125,46 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
     fetchUnits();
   }, [order, appId]);
 
+  const handleSetPriority = async (level) => {
+    if (!order.id) return;
+    // Toggle logic: als huidige priority gelijk is aan gekozen level, zet uit (false)
+    const currentPrio = order.priority === true ? "high" : order.priority;
+    const newPriority = currentPrio === level ? false : level;
+
+    try {
+      await updatePlanningOrderPriority({
+        orderDocId: order.id,
+        priority: newPriority,
+        source: "TeamleaderOrderDetailModal",
+        actorLabel: auth.currentUser?.email,
+      });
+    } catch (e) {
+      console.error("Fout bij wijzigen prioriteit:", e);
+    }
+  };
+
+  const handleCancelOrder = async (reason) => {
+    try {
+      await cancelPlanningOrder({
+        orderDocId: order.id,
+        reason,
+        source: "TeamleaderOrderDetailModal",
+        actorLabel: auth.currentUser?.email,
+      });
+
+      await logActivity(
+        auth.currentUser?.uid,
+        "ORDER_CANCELLED", 
+        `Order ${order.orderId} geannuleerd. Reden: ${reason}`
+      );
+
+      setShowCancelModal(false);
+      onClose();
+    } catch (error) {
+      console.error("Fout bij annuleren:", error);
+    }
+  };
+
   if (!order) return null;
 
   return (
@@ -128,6 +185,45 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
               )}
             </div>
             <p className="text-sm font-medium text-gray-600">{order.item}</p>
+
+            {/* Priority Buttons - Alleen voor Admin/Teamleader */}
+            {canEditPriority && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button
+                    onClick={() => handleSetPriority("high")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
+                      order.priority === "high" || order.priority === true
+                        ? "bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/20"
+                        : "bg-white text-slate-400 hover:bg-slate-100 border border-slate-200"
+                    }`}
+                  >
+                    <Star size={12} fill={order.priority === "high" || order.priority === true ? "currentColor" : "none"} />
+                    Prio
+                  </button>
+                  <button
+                    onClick={() => handleSetPriority("urgent")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
+                      order.priority === "urgent"
+                        ? "bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+                        : "bg-white text-slate-400 hover:bg-slate-100 border border-slate-200"
+                    }`}
+                  >
+                    <AlertTriangle size={12} fill={order.priority === "urgent" ? "currentColor" : "none"} />
+                    Spoed
+                  </button>
+                  <button
+                    onClick={() => handleSetPriority("immediate")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
+                      order.priority === "immediate"
+                        ? "bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-500/20"
+                        : "bg-white text-slate-400 hover:bg-slate-100 border border-slate-200"
+                    }`}
+                  >
+                    <Zap size={12} fill={order.priority === "immediate" ? "currentColor" : "none"} />
+                    1e Prio
+                  </button>
+                </div>
+            )}
           </div>
           <button 
             onClick={onClose}
@@ -165,6 +261,10 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                   <p className="text-[10px] text-gray-500 uppercase font-bold">Week</p>
                   <p className="text-sm font-medium text-gray-900">Week {order.weekNumber || "?"} ({order.year || new Date().getFullYear()})</p>
                 </div>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase font-bold">Tekening</p>
+                  <p className="text-sm font-medium text-gray-900">{order.drawing || "-"}</p>
+                </div>
               </div>
             </div>
 
@@ -177,7 +277,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                 <div>
                   <p className="text-[10px] text-gray-500 uppercase font-bold">Huidige Machine/Station</p>
                   <p className="text-sm font-black text-gray-900 flex items-center gap-2">
-                    {order.machine || "Onbekend"}
+                    {order.machine?.replace("_INBOX", "") || "Onbekend"}
                     {order.status === 'in_progress' && <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>}
                   </p>
                 </div>
@@ -195,6 +295,15 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                     </span>
                   </div>
                 </div>
+                {rejectedCount > 0 && (
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold">Kwaliteit (Afkeur)</p>
+                    <div className="flex items-center gap-2 mt-1 text-rose-600 font-bold text-sm">
+                        <AlertOctagon size={16} />
+                        <span>{rejectedCount} {rejectedCount === 1 ? 'stuk' : 'stuks'} afgekeurd</span>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] text-gray-500 uppercase font-bold">Vervolgstappen</p>
                   <div className="text-xs text-gray-700 flex flex-wrap gap-1 mt-1 items-center">
@@ -227,7 +336,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
             {/* Opmerkingen & Specs */}
             <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100">
               <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <FileText size={14} /> Opmerkingen
+                <FileText size={14} /> PO Text / Opmerkingen
               </h3>
               <div className="h-full">
                 {order.notes ? (
@@ -256,10 +365,23 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
 
           {/* Details Tabel (Units & Metingen) */}
           <div>
-            <h3 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
-              <Activity size={20} className="text-blue-600" /> 
-              Productie Details & Metingen
-            </h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                <Activity size={20} className="text-blue-600" /> 
+                Productie Details & Metingen
+              </h3>
+              <label className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors select-none">
+                <input 
+                  type="checkbox" 
+                  checked={showOnlyRejects}
+                  onChange={(e) => setShowOnlyRejects(e.target.checked)}
+                  className="rounded text-rose-600 focus:ring-rose-500 border-gray-300 w-4 h-4"
+                />
+                <span className={`text-[10px] font-black uppercase tracking-wide ${showOnlyRejects ? "text-rose-600" : "text-slate-500"}`}>
+                  Alleen Afkeur
+                </span>
+              </label>
+            </div>
             
             {loading ? (
               <div className="p-8 text-center text-gray-400 animate-pulse">Laden van details...</div>
@@ -276,16 +398,26 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
-                    {units.map((unit) => (
-                      <tr key={unit.id} className="hover:bg-blue-50/50 transition-colors">
+                    {units.filter(u => !showOnlyRejects || ['rejected', 'Rejected'].includes(u.status)).length === 0 && showOnlyRejects && (
+                      <tr>
+                        <td colSpan="5" className="p-8 text-center text-slate-400 text-xs italic">
+                          Geen afgekeurde producten gevonden in deze order.
+                        </td>
+                      </tr>
+                    )}
+                    {units.filter(u => !showOnlyRejects || ['rejected', 'Rejected'].includes(u.status)).map((unit) => {
+                      const isRejected = ['rejected', 'Rejected'].includes(unit.status);
+                      return (
+                      <tr key={unit.id} className={`transition-colors ${isRejected ? "bg-rose-50 hover:bg-rose-100" : "hover:bg-blue-50/50"}`}>
                         <td className="px-4 py-3 font-bold text-gray-900 font-mono">{unit.lotNumber}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
                             unit.status === 'completed' ? 'bg-green-100 text-green-700' :
                             unit.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                            isRejected ? 'bg-rose-100 text-rose-700' :
                             'bg-gray-100 text-gray-600'
                           }`}>
-                            {unit.status === 'in_progress' ? 'Actief' : unit.status === 'completed' ? 'Gereed' : unit.status}
+                            {unit.status === 'in_progress' ? 'Actief' : unit.status === 'completed' ? 'Gereed' : isRejected ? 'Afkeur' : unit.status}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-600">{unit.currentStation || "-"}</td>
@@ -306,7 +438,7 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
                           )}
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
@@ -321,6 +453,15 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
         
         {/* Footer Actions */}
         <div className="bg-gray-50 p-4 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+          {/* Cancel Button - Alleen voor bevoegde rollen */}
+          {['admin', 'teamleader', 'planner'].includes(role) && (
+             <button
+               onClick={() => setShowCancelModal(true)}
+               className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 rounded-lg font-bold text-sm transition-colors mr-auto"
+             >
+               <Ban size={16} /> Order Annuleren
+             </button>
+           )}
           <button 
             onClick={onClose}
             className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-100 transition-colors"
@@ -328,6 +469,13 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
             Sluiten
           </button>
         </div>
+
+        <CancelOrderModal 
+            isOpen={showCancelModal}
+            onClose={() => setShowCancelModal(false)}
+            onConfirm={handleCancelOrder}
+            orderId={order?.orderId}
+        />
       </div>
     </div>
   );

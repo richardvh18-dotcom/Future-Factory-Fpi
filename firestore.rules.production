@@ -1,0 +1,362 @@
+// ============================================================
+// PRODUCTIE-KLARE FIRESTORE RULES
+// Gebruik deze versie zodra je overstapt van pilot naar productie.
+//
+// HOE OVERSTAPPEN:
+//   cp firestore.rules.production firestore.rules
+//   firebase deploy --only firestore:rules
+//
+// VERSCHIL MET PILOT-VERSIE:
+// Alle paden die via Cloud Functions (Admin SDK) worden beheerd
+// hebben direct client schrijven geblokkeerd (allow write: if false).
+// Reads blijven volledig intact.
+//
+// GEMIGREERDE CALLABLES (writes via planningCallables.js):
+//   - saveProductRecord / deleteProductRecord / verifyProductRecord
+//     → production/tracked_products, production/products
+//   - upsertConversionRecord / deleteConversionRecord / upsertConversionBatch
+//     → production/conversion_matrix (of equivalent pad)
+//   - processInforUpdate
+//     → production/efficiency_hours, production/digital_planning, production/archive
+//   - saveAiContextConfig → settings/ai_config
+//   - createAiDocumentRecord / updateAiDocumentRecord / deleteAiDocumentRecord
+//     → settings/ai_documents
+//   - verifyAiKnowledgeEntry / deleteAiKnowledgeEntry / migrateAiKnowledgeFields
+//     → settings/ai_knowledge_base
+// ============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDocPath() {
+      return /databases/$(database)/documents/future-factory/Users/Accounts/$(request.auth.uid);
+    }
+
+    function hasUserRecord() {
+      return isSignedIn() && exists(userDocPath());
+    }
+
+    function userRole() {
+      return hasUserRecord() ? get(userDocPath()).data.role : null;
+    }
+
+    function hasAnyRole(roles) {
+      return hasUserRecord() && userRole() in roles;
+    }
+
+    function isAdmin() {
+      return hasAnyRole(['admin']);
+    }
+
+    function canOperateProduction() {
+      return hasAnyRole([
+        'admin',
+        'planner',
+        'teamleader',
+        'qc',
+        'engineer',
+        'operator',
+        'logistics',
+        'management',
+        'maintenance',
+        'user'
+      ]);
+    }
+
+    function canManageMasters() {
+      return hasAnyRole(['admin', 'planner', 'teamleader', 'engineer', 'qc']);
+    }
+
+    function canManagePlanningSettings() {
+      return hasAnyRole(['admin', 'planner']);
+    }
+
+    function isOwnUserDoc(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function allowedSelfProfileFields() {
+      return [
+        'uid',
+        'email',
+        'name',
+        'receivesValidationAlerts',
+        'systemAlerts',
+        'language',
+        'darkMode',
+        'phoneNumber',
+        'signature',
+        'department',
+        'lastUpdated',
+        'defaultRoute',
+        'defaultStation',
+        'requirePasswordChange'
+      ];
+    }
+
+    function validSelfProfileCreate(userId) {
+      return isOwnUserDoc(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly(allowedSelfProfileFields());
+    }
+
+    function validSelfProfileUpdate(userId) {
+      return isOwnUserDoc(userId)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(allowedSelfProfileFields())
+        && (!('uid' in resource.data) || request.resource.data.uid == resource.data.uid)
+        && (!('email' in resource.data) || request.resource.data.email == resource.data.email)
+        && (!('role' in resource.data) || request.resource.data.role == resource.data.role)
+        && (!('modules' in resource.data) || request.resource.data.modules == resource.data.modules)
+        && (!('permissions' in resource.data) || request.resource.data.permissions == resource.data.permissions)
+        && (!('allowedStations' in resource.data) || request.resource.data.allowedStations == resource.data.allowedStations);
+    }
+
+    function validAccountRequest() {
+      return request.resource.data.keys().hasOnly([
+          'name',
+          'email',
+          'country',
+          'department',
+          'status',
+          'requestedAt',
+          'processedAt',
+          'processedBy'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && request.resource.data.country is string
+        && request.resource.data.department is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.email.size() >= 5
+        && request.resource.data.status == 'pending'
+        && request.resource.data.processedAt == null
+        && request.resource.data.processedBy == null;
+    }
+
+    function validMessageCreate() {
+      return request.resource.data.keys().hasAll(['senderId', 'to'])
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.senderId is string
+        && request.resource.data.to is string
+        && (!('message' in request.resource.data) || request.resource.data.message is string)
+        && (!('subject' in request.resource.data) || request.resource.data.subject is string);
+    }
+
+    function validPrintQueueCreate() {
+      return request.resource.data.keys().hasOnly([
+          'printerId',
+          'zpl',
+          'status',
+          'createdAt',
+          'createdBy',
+          'metadata',
+          'retryCount'
+        ])
+        && request.resource.data.printerId is string
+        && request.resource.data.printerId.size() >= 2
+        && request.resource.data.printerId.size() <= 80
+        && request.resource.data.zpl is string
+        && request.resource.data.zpl.size() > 0
+        && request.resource.data.zpl.size() <= 120000
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.retryCount == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.metadata is map;
+    }
+
+    function validPrintStatusTransition() {
+      return (
+        resource.data.status == 'pending' && request.resource.data.status in ['printing', 'cancelled', 'error']
+      ) || (
+        resource.data.status == 'printing' && request.resource.data.status in ['completed', 'error']
+      ) || (
+        resource.data.status == 'error' && request.resource.data.status in ['pending', 'cancelled']
+      );
+    }
+
+    function validPrintQueueUpdate() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'retryCount',
+          'processedAt',
+          'printedAt',
+          'error'
+        ])
+        && (!('printerId' in resource.data) || request.resource.data.printerId == resource.data.printerId)
+        && (!('zpl' in resource.data) || request.resource.data.zpl == resource.data.zpl)
+        && (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy)
+        && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
+        && validPrintStatusTransition()
+        && request.resource.data.retryCount is int
+        && request.resource.data.retryCount >= (('retryCount' in resource.data && resource.data.retryCount is int) ? resource.data.retryCount : 0)
+        && request.resource.data.retryCount <= 5;
+    }
+
+    match /future-factory/Users/Accounts/{userId} {
+      allow get: if isAdmin() || isOwnUserDoc(userId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() || validSelfProfileCreate(userId);
+      allow update: if isAdmin() || validSelfProfileUpdate(userId);
+      allow delete: if isAdmin();
+    }
+
+    match /future-factory/Users/Personnel/{personId} {
+      allow read: if hasUserRecord();
+      allow create, update, delete: if canOperateProduction();
+    }
+
+    match /future-factory/Users/AccountRequests/{requestId} {
+      allow create: if validAccountRequest();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /future-factory/settings/general_configs/main {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /future-factory/settings/{document=**} {
+      allow read: if hasUserRecord();
+      allow write: if isAdmin();
+    }
+
+    match /future-factory/production/messages/config/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /future-factory/production/messages/{messageId} {
+      allow read: if hasUserRecord() && (
+        isAdmin()
+        || resource.data.senderId == request.auth.uid
+        || resource.data.to == request.auth.token.email
+        || resource.data.to == 'all'
+      );
+      allow create: if hasUserRecord() && validMessageCreate();
+      allow update: if hasUserRecord() && (
+        isAdmin()
+        || resource.data.senderId == request.auth.uid
+        || resource.data.to == request.auth.token.email
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /future-factory/production/print_queue/{jobId} {
+      allow read: if canOperateProduction();
+      allow create: if canOperateProduction() && validPrintQueueCreate();
+      allow update: if canOperateProduction() && validPrintQueueUpdate();
+      allow delete: if isAdmin();
+    }
+
+    // PRODUCTIE: writes geblokkeerd — beheerd via saveProductRecord / deleteProductRecord callable.
+    match /future-factory/production/tracked_products/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if false;
+    }
+
+    // PRODUCTIE: writes geblokkeerd — beheerd via processInforUpdate / planning callables.
+    match /future-factory/production/digital_planning/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if false;
+    }
+
+    // PRODUCTIE: writes geblokkeerd — beheerd via planning callables.
+    match /future-factory/production/data/digital_planning/orders/{orderId} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if false;
+    }
+
+    match /future-factory/production/{collectionId}/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if (
+        collectionId in [
+          'machine_occupancy',
+          'efficiency_hours',
+          'time_logs',
+          'downtime_reports',
+          'defect_reports',
+          'archive',
+          'counters'
+        ] && canOperateProduction()
+      ) || (
+        // PRODUCTIE: 'products' verwijderd — beheerd via saveProductRecord callable.
+        collectionId in [
+          'inventory',
+          'time_standards'
+        ] && canManageMasters()
+      ) || (
+        collectionId in [
+          'dimensions'
+        ] && isAdmin()
+      );
+    }
+
+    match /future-factory/planning/scenarios/{scenarioId} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if canManagePlanningSettings();
+    }
+
+    match /future-factory/automation/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if canManagePlanningSettings();
+    }
+
+    match /future-factory/notifications/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if canManagePlanningSettings();
+    }
+
+    match /future-factory/logs/activity_logs/{logId} {
+      allow create: if hasUserRecord() || isSignedIn();
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ISO 27001 / ISO 9001: Audit logs are append-only from the backend (Admin SDK).
+    // Clients can NEVER write — entries are tamper-evident by design.
+    // Only admins and auditors can read.
+    match /future-factory/audit/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /future-factory/logs/activity_logs_archive/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /future-factory/temp_labels/orders/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if canOperateProduction();
+    }
+
+    match /future-factory/settings/ai_memory/{memoryId} {
+      allow read, create: if hasUserRecord() || isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /future-factory/settings/ai_conversations/{userId} {
+      allow read, write: if isOwnUserDoc(userId) || isAdmin();
+    }
+
+    // PRODUCTIE: writes geblokkeerd — beheerd via verifyAiKnowledgeEntry / deleteAiKnowledgeEntry callables.
+    match /future-factory/settings/ai_knowledge_base/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if false;
+    }
+
+    // PRODUCTIE: writes geblokkeerd — beheerd via createAiDocumentRecord / updateAiDocumentRecord callables.
+    match /future-factory/settings/ai_documents/{document=**} {
+      allow read: if hasUserRecord() || isSignedIn();
+      allow write: if false;
+    }
+
+    match /artifacts/{appId}/{document=**} {
+      allow read, write: if hasUserRecord() || isSignedIn();
+    }
+  }
+}

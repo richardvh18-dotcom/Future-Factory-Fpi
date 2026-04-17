@@ -1,18 +1,12 @@
-import React, { useState, useEffect } from "react";
-import { db, auth } from "../../config/firebase";
+import React, { useState } from "react";
+import { db } from "../../config/firebase";
 import { collection, getDocs, limit, query } from "firebase/firestore";
 import {
-  Terminal,
   Database,
-  ShieldAlert,
-  CheckCircle2,
-  SearchCode,
   Bug,
   Zap,
   Activity,
   ShieldCheck,
-  XCircle,
-  AlertTriangle,
 } from "lucide-react";
 import { PATHS } from "../../config/dbPaths";
 
@@ -26,7 +20,7 @@ const FirestoreDebugger = () => {
   const activeAppId =
     typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
-  const addLog = (msg, type = "info") => {
+  const addLog = (msg) => {
     setLogs((prev) =>
       [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 15)
     );

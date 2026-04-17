@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Check, Layers, Activity, Hash, Info, AlertCircle, Copy, ArrowRight } from "lucide-react";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 /**
  * AvailabilityView V6.0 - Matrix Validation Core
@@ -12,6 +13,7 @@ const AvailabilityView = ({
   setMatrixData,
   setHasUnsavedChanges,
 }) => {
+  const { showConfirm } = useNotifications();
   // Selecteer standaard de eerste verbinding uit de bibliotheek
   const [selectedConn, setSelectedConn] = useState(
     libraryData?.connections?.[0] || ""
@@ -54,10 +56,17 @@ const AvailabilityView = ({
     return currentIds.includes(Number(id));
   };
 
-  const handleCopyConnection = () => {
+  const handleCopyConnection = async () => {
     if (!copySourceConn || !selectedConn || copySourceConn === selectedConn) return;
     
-    if (!window.confirm(`Weet je zeker dat je de configuratie van ${copySourceConn} wilt kopiëren naar ${selectedConn}? Dit overschrijft de huidige selectie.`)) return;
+    const confirmed = await showConfirm({
+      title: 'Configuratie kopieren',
+      message: `Weet je zeker dat je de configuratie van ${copySourceConn} wilt kopieren naar ${selectedConn}? Dit overschrijft de huidige selectie.`,
+      confirmText: 'Kopieren',
+      cancelText: 'Annuleren',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
 
     setMatrixData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev));

@@ -1,367 +1,835 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
-  TrendingUp, 
   Clock, 
-  Target, 
+  AlertTriangle, 
+  TrendingUp, 
   Activity,
-  AlertCircle,
-  CheckCircle2,
+  Search,
   Timer,
-  BarChart3,
-  Calendar
-} from "lucide-react";
-import { collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
-import { db } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
-import {
-  calculateEfficiency,
-  calculateBatchEfficiency,
-  formatMinutes,
-  calculateDuration,
-  getEfficiencyColor,
-  getEfficiencyLabel,
-  isBehindSchedule,
-  calculateTimeDeviation
-} from "../../utils/efficiencyCalculator";
+  BrainCircuit,
+  History
+} from 'lucide-react';
+import { collection, onSnapshot, doc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { PATHS, getEfficiencyArchivePath, getPlanningArchivePath } from '../../config/dbPaths';
+import { format as formatDate, getISOWeek, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
+import { calculateDuration, formatMinutes, getEfficiencyColor } from '../../utils/efficiencyCalculator';
+import { calculateWorkingMinutes } from '../../utils/workingTimeUtils';
+import AiPredictionView from './AiPredictionView';
 
-/**
- * EfficiencyDashboard
- * Toont real-time efficiency metrics op basis van verwachte vs werkelijke productietijden
- */
-const EfficiencyDashboard = React.memo(({ selectedStation, dateRange = 'today' }) => {
-  const [loading, setLoading] = useState(true);
-  const [timeStandards, setTimeStandards] = useState([]);
-  const [completedProducts, setCompletedProducts] = useState([]);
-  const [activeProducts, setActiveProducts] = useState([]);
+const EfficiencyDashboard = () => {
+  const { t } = useTranslation();
+  const readPaths = PATHS;
+  const [standards, setStandards] = useState([]);
+  const [tracking, setTracking] = useState([]);
+  const [planningOrders, setPlanningOrders] = useState([]);
+  const [, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState('all'); // 'active', 'all'
+  const [departmentFilter, setDepartmentFilter] = useState('ALL'); // Nieuw: Afdeling filter
+  const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive'
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [periodMode, setPeriodMode] = useState('week');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showAiAnalysis, setShowAiAnalysis] = useState(false);
+  const [factoryConfig, setFactoryConfig] = useState({ departments: [] });
 
-  useEffect(() => {
-    loadData();
-  }, [selectedStation, dateRange]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      // Laad productie standaarden
-      const standardsSnapshot = await getDocs(
-        collection(db, ...PATHS.PRODUCTION_STANDARDS)
-      );
-      const standards = standardsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setTimeStandards(standards);
-
-      // Laad afgeronde producten (laatste 24 uur)
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      const completedQuery = query(
-        collection(db, ...PATHS.TRACKING),
-        where("status", "==", "completed"),
-        where("updatedAt", ">=", yesterday),
-        ...(selectedStation ? [where("originMachine", "==", selectedStation)] : []),
-        orderBy("updatedAt", "desc"),
-        limit(100)
-      );
-      
-      const completedSnapshot = await getDocs(completedQuery);
-      const completed = completedSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          // Bereken werkelijke productietijd
-          actualTime: calculateDuration(
-            data.timestamps?.station_start || data.startTime,
-            data.timestamps?.completed || data.updatedAt
-          )
-        };
-      });
-      setCompletedProducts(completed);
-
-      // Laad actieve producten
-      const activeQuery = query(
-        collection(db, ...PATHS.TRACKING),
-        where("status", "==", "in_progress"),
-        ...(selectedStation ? [where("currentStation", "==", selectedStation)] : [])
-      );
-      
-      const activeSnapshot = await getDocs(activeQuery);
-      const active = activeSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          // Bereken tot nu toe verstreken tijd
-          actualTime: calculateDuration(
-            data.timestamps?.station_start || data.startTime,
-            new Date()
-          )
-        };
-      });
-      setActiveProducts(active);
-
-    } catch (error) {
-      console.error("Error loading efficiency data:", error);
-    } finally {
-      setLoading(false);
-    }
+  const toDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate) return value.toDate();
+    const d = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
   };
 
-  // Koppel standaard tijden aan producten
-  const enrichedCompleted = useMemo(() => {
-    return completedProducts.map(product => {
-      const standard = timeStandards.find(std => 
-        std.itemCode === product.item && 
-        std.machine === product.originMachine
-      );
-      
-      return {
-        ...product,
-        targetTime: standard?.standardMinutes || null,
-        efficiency: standard?.standardMinutes 
-          ? calculateEfficiency(product.actualTime, standard.standardMinutes)
-          : null
-      };
-    });
-  }, [completedProducts, timeStandards]);
-
-  const enrichedActive = useMemo(() => {
-    return activeProducts.map(product => {
-      const standard = timeStandards.find(std => 
-        std.itemCode === product.item && 
-        std.machine === product.currentStation
-      );
-      
-      const targetTime = standard?.standardMinutes || null;
-      const isBehind = targetTime ? isBehindSchedule(
-        product.timestamps?.station_start || product.startTime,
-        targetTime
-      ) : false;
-      
-      const deviation = targetTime ? calculateTimeDeviation(
-        product.timestamps?.station_start || product.startTime,
-        targetTime
-      ) : 0;
-      
-      return {
-        ...product,
-        targetTime,
-        isBehind,
-        deviation
-      };
-    });
-  }, [activeProducts, timeStandards]);
-
-  // Bereken overall statistics
-  const stats = useMemo(() => {
-    const batchStats = calculateBatchEfficiency(enrichedCompleted);
-    
-    const onTimeCount = enrichedCompleted.filter(p => 
-      p.efficiency && p.efficiency >= 85
-    ).length;
-    
-    const behindCount = enrichedActive.filter(p => p.isBehind).length;
-    
-    return {
-      ...batchStats,
-      onTimePercentage: batchStats.productCount > 0 
-        ? Math.round((onTimeCount / batchStats.productCount) * 100)
-        : 0,
-      behindCount
+  const getTrackingDurationMinutes = (log) => {
+    const contextMachine = log?.originMachine || log?.machine || log?.currentStation || log?.lastStation;
+    const contextDepartment = log?.department || inferDepartmentFromMachine(contextMachine);
+    const durationContext = {
+      department: contextDepartment,
+      machine: contextMachine,
+      station: log?.currentStation || log?.lastStation,
+      originMachine: log?.originMachine,
     };
-  }, [enrichedCompleted, enrichedActive]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <Clock className="animate-spin text-blue-600" size={32} />
-      </div>
+    const start = toDateValue(
+      log?.timestamps?.station_start ||
+      log?.timestamps?.started ||
+      log?.startTime ||
+      log?.startedAt
     );
+    if (start) {
+      const end = toDateValue(
+        log?.timestamps?.finished ||
+        log?.timestamps?.completed ||
+        log?.endTime ||
+        log?.completedAt ||
+        log?.updatedAt
+      ) || new Date();
+
+      const minutes = calculateWorkingMinutes(start, end, durationContext);
+      if (Number.isFinite(minutes) && minutes > 0) return minutes;
+    }
+
+    const ts = log?.timestamps || {};
+    let total = 0;
+
+    const addRange = (startValue, endValue) => {
+      const s = toDateValue(startValue);
+      const e = toDateValue(endValue);
+      if (!s || !e) return;
+      const diff = calculateWorkingMinutes(s, e, durationContext);
+      if (Number.isFinite(diff) && diff > 0) total += diff;
+    };
+
+    // Product-flow paden uit tracked_products
+    addRange(ts.wikkelen_start || log?.createdAt, ts.wikkelen_end);
+    addRange(ts.lossen_start, ts.lossen_end);
+    addRange(ts.nabewerking_start, ts.nabewerking_end || new Date());
+    addRange(ts.station_start, ts.finished || ts.completed || new Date());
+
+    // Fallback op history-start als timestampvelden incompleet zijn.
+    if (total <= 0 && Array.isArray(log?.history)) {
+      const startHistory = log.history.find((h) => String(h?.action || '').toLowerCase().includes('start'));
+      const startFromHistory = toDateValue(startHistory?.timestamp);
+      const bestEnd = toDateValue(ts.wikkelen_end || ts.lossen_end || ts.nabewerking_end || log?.updatedAt);
+      if (startFromHistory && bestEnd) {
+        const diff = calculateWorkingMinutes(startFromHistory, bestEnd, durationContext);
+        if (Number.isFinite(diff) && diff > 0) total += diff;
+      }
+    }
+
+    return total > 0 ? total : 0;
+  };
+
+  const resolveDepartmentNameFromId = (departmentId) => {
+    if (!departmentId) return '';
+    const idLower = String(departmentId).trim().toLowerCase();
+    const dept = (factoryConfig.departments || []).find(
+      (d) => String(d?.id || '').trim().toLowerCase() === idLower
+    );
+    return dept?.name || '';
+  };
+
+  const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+  const parseNumber = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  const inferDepartmentFromMachine = (machine) => {
+    const m = String(machine || '').trim().toUpperCase();
+    if (m.startsWith('BH')) return 'Fittings';
+    if (m.startsWith('BA')) return 'Pipes';
+    if (m.startsWith('BM')) return 'Spools';
+    return '';
+  };
+
+  const getOrderActualMinutes = (orderLike) => {
+    if (!orderLike) return 0;
+
+    const hoursCandidates = [
+      orderLike.totalActualHours,
+      orderLike.actualHours,
+      orderLike.spentProductionTime,
+      orderLike.hoursWorked,
+      orderLike.productionHours,
+    ];
+
+    for (const candidate of hoursCandidates) {
+      const hours = parseNumber(candidate);
+      if (hours > 0) return hours * 60;
+    }
+
+    const minuteCandidates = [
+      orderLike.actualMinutes,
+      orderLike.totalActualMinutes,
+      orderLike.spentMinutes,
+      orderLike.productionMinutes,
+    ];
+
+    for (const candidate of minuteCandidates) {
+      const minutes = parseNumber(candidate);
+      if (minutes > 0) return minutes;
+    }
+
+    return 0;
+  };
+
+  const getOrderSplitMinutes = (orderLike) => {
+    if (!orderLike) {
+      return {
+        productionMinutes: 0,
+        postMinutes: 0,
+        qcMinutes: 0,
+      };
+    }
+
+    const productionMinutes = parseNumber(orderLike.plannedMinutesBH) || (parseNumber(orderLike.plannedHoursBH) * 60);
+    const postMinutes = parseNumber(orderLike.plannedMinutesNabewerken) || (parseNumber(orderLike.plannedHoursNabewerken) * 60);
+    const qcMinutes = parseNumber(orderLike.plannedMinutesBM01) || (parseNumber(orderLike.plannedHoursBM01) * 60);
+
+    return {
+      productionMinutes,
+      postMinutes,
+      qcMinutes,
+    };
+  };
+
+  const getLogActivityDates = (log) => {
+    const ts = log?.timestamps || {};
+    const historyDates = Array.isArray(log?.history)
+      ? log.history.map((h) => toDateValue(h?.timestamp)).filter(Boolean)
+      : [];
+
+    return [
+      ts.wikkelen_start,
+      ts.lossen_start,
+      ts.nabewerking_start,
+      ts.bm01_start,
+      ts.station_start,
+      ts.started,
+      ts.wikkelen_end,
+      ts.lossen_end,
+      ts.nabewerking_end,
+      ts.finished,
+      ts.completed,
+      log?.startedAt,
+      log?.startTime,
+      log?.createdAt,
+      log?.updatedAt,
+      ...historyDates,
+    ]
+      .map((value) => toDateValue(value))
+      .filter(Boolean);
+  };
+
+  const getRangeForPeriod = () => {
+    const dayStart = startOfDay(selectedDate);
+    const dayEnd = endOfDay(selectedDate);
+    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 });
+    const monthStart = startOfMonth(selectedDate);
+    const monthEnd = endOfMonth(selectedDate);
+
+    if (periodMode === 'day') return { start: dayStart, end: dayEnd };
+    if (periodMode === 'month') return { start: monthStart, end: monthEnd };
+    return { start: weekStart, end: weekEnd };
+  };
+
+  const navigatePrevious = () => {
+    setSelectedDate((prev) => (
+      periodMode === 'day'
+        ? subDays(prev, 1)
+        : periodMode === 'month'
+          ? subMonths(prev, 1)
+          : subWeeks(prev, 1)
+    ));
+  };
+
+  const navigateNext = () => {
+    setSelectedDate((prev) => (
+      periodMode === 'day'
+        ? addDays(prev, 1)
+        : periodMode === 'month'
+          ? addMonths(prev, 1)
+          : addWeeks(prev, 1)
+    ));
+  };
+
+  const jumpToToday = () => setSelectedDate(new Date());
+
+  const matchesDepartmentFilter = (row) => {
+    if (departmentFilter === 'ALL') return true;
+
+    const filter = normalizeText(departmentFilter);
+    const candidates = [
+      row.department,
+      row.departmentName,
+      row.departmentId,
+      inferDepartmentFromMachine(row.machine),
+      resolveDepartmentNameFromId(row.departmentId),
+    ]
+      .map(normalizeText)
+      .filter(Boolean);
+
+    return candidates.some((candidate) =>
+      candidate === filter || candidate.includes(filter) || filter.includes(candidate)
+    );
+  };
+
+  useEffect(() => {
+    setLoading(true);
+
+    if (!readPaths || !readPaths.EFFICIENCY_HOURS || !readPaths.TRACKING) {
+      setLoading(false);
+      return;
+    }
+
+    // 1. Haal de standaarden op (Targets uit Infor LN import)
+    // Wissel tussen actuele collectie en archief op basis van viewMode
+    const collectionPath = viewMode === 'active' 
+      ? readPaths.EFFICIENCY_HOURS
+      : getEfficiencyArchivePath(selectedYear);
+
+    const standardsRef = collection(db, ...collectionPath);
+    const unsubStandards = onSnapshot(standardsRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setStandards(data);
+    });
+
+    // 2. Haal de werkelijke tracking data op (Actuals van de vloer)
+    // We gebruiken de tracking collectie waar operators hun start/stop tijden loggen
+    const trackingRef = collection(db, ...readPaths.TRACKING);
+    const unsubTracking = onSnapshot(trackingRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setTracking(data);
+    });
+
+    const planningCollectionPath = viewMode === 'active'
+      ? readPaths.PLANNING
+      : getPlanningArchivePath(selectedYear);
+
+    const planningRef = collection(db, ...planningCollectionPath);
+    const unsubPlanning = onSnapshot(planningRef, (snapshot) => {
+      const data = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
+      setPlanningOrders(data);
+    });
+
+    const configRef = doc(db, ...readPaths.FACTORY_CONFIG);
+    const unsubFactory = onSnapshot(configRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setFactoryConfig(docSnap.data() || { departments: [] });
+      }
+    });
+
+    setLoading(false);
+
+    return () => {
+      unsubStandards();
+      unsubTracking();
+      unsubPlanning();
+      unsubFactory();
+    };
+  }, [viewMode, selectedYear, readPaths]);
+
+  const dashboardData = useMemo(() => {
+    const orderById = new Map();
+    planningOrders.forEach((order) => {
+      const orderId = String(order.orderId || '').trim();
+      const docId = String(order.id || '').trim();
+      if (orderId) orderById.set(orderId, order);
+      if (docId && !orderById.has(docId)) orderById.set(docId, order);
+    });
+
+    const periodRange = getRangeForPeriod();
+
+    // 1. AI Learning: Bouw een kennisbank op van historische tijden per product
+    const productKnowledgeBase = {};
+    
+    tracking.forEach(log => {
+      if ((log.status === 'completed' || log.status === 'shipped') && (log.itemCode || log.item)) {
+        const duration = getTrackingDurationMinutes(log);
+        
+        if (duration > 0) {
+          const key = log.itemCode || log.item;
+          if (!productKnowledgeBase[key]) {
+            productKnowledgeBase[key] = { totalTime: 0, count: 0 };
+          }
+          productKnowledgeBase[key].totalTime += duration;
+          productKnowledgeBase[key].count += 1;
+        }
+      }
+    });
+
+    // Combineer standaarden met werkelijke data
+    let processed = standards.map(std => {
+      const itemCode = std.itemCode || std.productId || "Onbekend";
+      const stdOrderId = String(std.orderId || std.id || '').trim();
+      const planningOrder = orderById.get(stdOrderId);
+      // Vind alle tracking records voor deze order
+      // We matchen op orderId (string comparison voor veiligheid)
+      const relatedLogs = tracking.filter(t => 
+        String(t.orderId || t.orderNumber) === stdOrderId
+      );
+
+      // Bereken totaal bestede tijd en voortgang
+      let actualMinutes = 0;
+      let producedQty = 0;
+      
+      relatedLogs.forEach(log => {
+        actualMinutes += getTrackingDurationMinutes(log);
+
+        // Aantal berekening (alleen voltooide items tellen)
+        if (log.status === 'completed' || log.status === 'shipped') {
+          producedQty += 1; 
+        }
+      });
+
+      if (actualMinutes <= 0) {
+        actualMinutes = Math.max(
+          getOrderActualMinutes(std),
+          getOrderActualMinutes(planningOrder)
+        );
+      }
+
+      const splitFromOrder = getOrderSplitMinutes(planningOrder);
+      const prodTotal = Number(std.productionTimeTotal || 0) > 0
+        ? Number(std.productionTimeTotal || 0)
+        : splitFromOrder.productionMinutes;
+      const postTotal = Number(std.postProcessingTimeTotal || 0) > 0
+        ? Number(std.postProcessingTimeTotal || 0)
+        : splitFromOrder.postMinutes;
+      const qcTotal = Number(std.qcTimeTotal || 0) > 0
+        ? Number(std.qcTimeTotal || 0)
+        : splitFromOrder.qcMinutes;
+      const targetTotal = Number(std.standardTimeTotal || 0) > 0
+        ? Number(std.standardTimeTotal || 0)
+        : (prodTotal + postTotal);
+      
+      // Efficiency Formule: (Verdiende Tijd / Werkelijke Tijd) * 100
+      // We gebruiken 'Earned Value' (Geproduceerd * Norm) zodat de score ook klopt
+      // voor orders die halverwege instromen (ramp-up fase).
+      const stdQty = Number(std.quantity || planningOrder?.quantity || planningOrder?.plan || 0);
+      const normPerUnit = Number(std.minutesPerUnit || 0) > 0
+        ? Number(std.minutesPerUnit || 0)
+        : (stdQty > 0 ? targetTotal / stdQty : 0);
+      const earnedMinutes = producedQty * normPerUnit;
+
+      let efficiency = 0;
+      if (actualMinutes > 0) {
+        efficiency = (earnedMinutes / actualMinutes) * 100;
+      } else if (producedQty > 0) {
+        efficiency = 100; // Wel productie, (nog) geen tijd geregistreerd -> aanname 100%
+      }
+
+      // Voorspelling: Als we op dit tempo doorgaan, halen we het dan?
+      const isOverrun = actualMinutes > targetTotal;
+      
+      // AI Voorspelling ophalen
+      const history = productKnowledgeBase[itemCode];
+      const aiAveragePerUnit = history ? (history.totalTime / history.count) : normPerUnit;
+      const aiPredictedTotal = aiAveragePerUnit * (std.quantity || 1);
+      const firstLog = relatedLogs[0] || {};
+      const departmentId = std.departmentId || planningOrder?.departmentId || firstLog.departmentId || firstLog.deptId || null;
+      const machine = planningOrder?.machine || std.machine || firstLog.machine || firstLog.currentStation;
+      const departmentName = std.department || std.departmentName || planningOrder?.department || firstLog.department || inferDepartmentFromMachine(machine) || resolveDepartmentNameFromId(departmentId) || 'Overig';
+
+      const eventDates = [
+        ...relatedLogs.flatMap((log) => getLogActivityDates(log)),
+        toDateValue(std?.createdAt),
+        toDateValue(std?.updatedAt),
+        toDateValue(planningOrder?.plannedDate),
+        toDateValue(planningOrder?.createdAt),
+        toDateValue(planningOrder?.updatedAt),
+      ].filter(Boolean);
+
+      const inSelectedPeriod =
+        viewMode === 'archive'
+          ? true
+          : eventDates.some((d) => isWithinInterval(d, periodRange));
+
+      return {
+        ...std,
+        actualMinutes,
+        producedQty,
+        efficiency,
+        isOverrun,
+        logsCount: relatedLogs.length,
+        qcTimeTotal: qcTotal,
+        productionTimeTotal: prodTotal,
+        postProcessingTimeTotal: postTotal,
+        aiPredictedTotal, // De voorspelde tijd op basis van historie
+        aiConfidence: history ? Math.min(100, history.count * 10) : 0, // Hoe zeker is de AI? (meer data = meer zekerheid)
+        departmentId,
+        departmentName,
+        department: departmentName,
+        machine,
+        inSelectedPeriod,
+      };
+    });
+
+    // Fallback: toon ook orders die wel tracking hebben maar (nog) geen efficiency import.
+    const knownOrderIds = new Set(
+      standards
+        .map((std) => String(std.orderId || std.id || '').trim())
+        .filter(Boolean)
+    );
+    const trackingByOrder = {};
+
+    tracking.forEach((log) => {
+      const orderId = String(log.orderId || log.orderNumber || '').trim();
+      if (!orderId || knownOrderIds.has(orderId)) return;
+      if (!trackingByOrder[orderId]) trackingByOrder[orderId] = [];
+      trackingByOrder[orderId].push(log);
+    });
+
+    const fallbackRows = Object.entries(trackingByOrder).map(([orderId, relatedLogs]) => {
+      let actualMinutes = 0;
+      let producedQty = 0;
+      const planningOrder = orderById.get(orderId);
+
+      relatedLogs.forEach((log) => {
+        actualMinutes += getTrackingDurationMinutes(log);
+
+        if (log.status === 'completed' || log.status === 'shipped') {
+          producedQty += 1;
+        }
+      });
+
+      if (actualMinutes <= 0) {
+        actualMinutes = getOrderActualMinutes(planningOrder);
+      }
+
+      const first = relatedLogs[0] || {};
+      const departmentId = planningOrder?.departmentId || first.departmentId || first.deptId || null;
+      const machine = planningOrder?.machine || first.machine || first.currentStation;
+      const departmentName = planningOrder?.department || first.department || inferDepartmentFromMachine(machine) || resolveDepartmentNameFromId(departmentId) || 'Overig';
+      const inferredMinutesPerUnit = producedQty > 0 && actualMinutes > 0
+        ? actualMinutes / producedQty
+        : 0;
+
+      const eventDates = [
+        ...relatedLogs.flatMap((log) => getLogActivityDates(log)),
+        toDateValue(planningOrder?.plannedDate),
+        toDateValue(planningOrder?.createdAt),
+        toDateValue(planningOrder?.updatedAt),
+      ].filter(Boolean);
+
+      const inSelectedPeriod =
+        viewMode === 'archive'
+          ? true
+          : eventDates.some((d) => isWithinInterval(d, periodRange));
+
+      return {
+        id: orderId,
+        orderId,
+        itemCode: first.itemCode || first.item || 'Onbekend',
+        item: first.item || first.itemCode || 'Tracking order',
+        quantity: planningOrder?.quantity || first.quantity || producedQty || 0,
+        status: planningOrder?.status || first.status || 'in_progress',
+        minutesPerUnit: inferredMinutesPerUnit,
+        standardTimeTotal: actualMinutes,
+        productionTimeTotal: 0,
+        postProcessingTimeTotal: 0,
+        qcTimeTotal: 0,
+        actualMinutes,
+        producedQty,
+        efficiency: actualMinutes > 0 ? 100 : 0,
+        isOverrun: false,
+        logsCount: relatedLogs.length,
+        aiPredictedTotal: actualMinutes,
+        aiConfidence: 0,
+        departmentId,
+        departmentName,
+        department: departmentName,
+        machine,
+        inSelectedPeriod,
+      };
+    });
+
+    processed = [...processed, ...fallbackRows];
+
+    if (viewMode === 'active') {
+      processed = processed.filter((i) => i.inSelectedPeriod);
+    }
+
+    // Filteren
+    if (filterStatus === 'active' && viewMode === 'active') {
+      processed = processed.filter(i => i.status !== 'completed' && i.status !== 'completed_in_ln');
+    }
+
+    processed = processed.filter((i) => matchesDepartmentFilter(i));
+
+    if (searchTerm) {
+      const lower = searchTerm.toLowerCase();
+      processed = processed.filter(i => 
+        String(i.orderId).toLowerCase().includes(lower)
+      );
+    }
+
+    // Sorteren: Orders met meeste aandacht nodig bovenaan (laagste efficiency eerst, maar wel met activiteit)
+    processed.sort((a, b) => {
+        if (a.actualMinutes === 0 && b.actualMinutes > 0) return 1;
+        if (a.actualMinutes > 0 && b.actualMinutes === 0) return -1;
+        return a.efficiency - b.efficiency;
+    });
+
+    // KPI Aggregates
+    const totalTarget = processed.reduce((sum, i) => sum + (i.standardTimeTotal || 0), 0);
+    const totalActual = processed.reduce((sum, i) => sum + i.actualMinutes, 0);
+    const avgEfficiency = totalActual > 0 ? Math.round((totalTarget / totalActual) * 100) : 0;
+    
+    const activeCount = processed.length;
+    const overrunCount = processed.filter(i => i.isOverrun).length;
+
+    return {
+      items: processed,
+      kpi: {
+        avgEfficiency,
+        activeCount,
+        overrunCount,
+        totalActual
+      }
+    };
+  }, [standards, tracking, planningOrders, filterStatus, searchTerm, viewMode, departmentFilter, factoryConfig, selectedDate, periodMode]);
+
+  if (showAiAnalysis) {
+    return <AiPredictionView onClose={() => setShowAiAnalysis(false)} />;
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter">
-            Productie <span className="text-blue-600">Efficiency</span>
-          </h2>
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-            {selectedStation || 'Alle Machines'} • Laatste 24 uur
-          </p>
+    <div className="space-y-6 p-6 max-w-7xl mx-auto">
+      {/* Header & KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className={`p-3 rounded-xl ${dashboardData.kpi.avgEfficiency >= 85 ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
+            <Activity size={24} />
+          </div>
+          <div>
+            <div className="text-sm text-slate-500 font-bold uppercase tracking-wider">{t('efficiency_dashboard.avg_efficiency')}</div>
+            <div className="text-2xl font-black text-slate-800">{dashboardData.kpi.avgEfficiency}%</div>
+          </div>
         </div>
-        <button
-          onClick={loadData}
-          className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition"
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="p-3 rounded-xl bg-blue-100 text-blue-600">
+            <TrendingUp size={24} />
+          </div>
+          <div>
+            <div className="text-sm text-slate-500 font-bold uppercase tracking-wider">{t('efficiency_dashboard.active_orders')}</div>
+            <div className="text-2xl font-black text-slate-800">{dashboardData.kpi.activeCount}</div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="p-3 rounded-xl bg-purple-100 text-purple-600">
+            <Clock size={24} />
+          </div>
+          <div>
+            <div className="text-sm text-slate-500 font-bold uppercase tracking-wider">{t('efficiency_dashboard.hours_spent')}</div>
+            <div className="text-2xl font-black text-slate-800">{formatMinutes(dashboardData.kpi.totalActual)}</div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className={`p-3 rounded-xl ${dashboardData.kpi.overrunCount > 0 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400'}`}>
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <div className="text-sm text-slate-500 font-bold uppercase tracking-wider">{t('efficiency_dashboard.overruns')}</div>
+            <div className="text-2xl font-black text-slate-800">{dashboardData.kpi.overrunCount}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Filters & Search */}
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+        {/* Afdeling Filter */}
+        <select
+          value={departmentFilter}
+          onChange={(e) => setDepartmentFilter(e.target.value)}
+          className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5 font-bold outline-none"
         >
-          Ververs
-        </button>
+          <option value="ALL">Alle Afdelingen</option>
+          <option value="FITTINGS">Fittings</option>
+          <option value="PIPES">Pipes</option>
+          <option value="SPOOLS">Spools</option>
+        </select>
+
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <Search className="text-slate-400" size={20} />
+          <input 
+            type="text" 
+            placeholder={t('efficiency_dashboard.search_placeholder')} 
+            className="bg-transparent border-none focus:ring-0 text-slate-700 font-medium w-full"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        
+        <div className="flex flex-wrap gap-2 items-center">
+          <button
+            onClick={() => setShowAiAnalysis(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl shadow-md font-black text-[10px] uppercase tracking-wider hover:bg-purple-700 transition-all"
+          >
+            <BrainCircuit size={16} />
+            <span className="hidden sm:inline">AI Analyse</span>
+          </button>
+
+          {/* View Mode Selector (Actueel vs Archief) */}
+          <div className="flex items-center bg-slate-100 rounded-lg p-1 mr-2">
+            <button
+              onClick={() => setViewMode('active')}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              {t('efficiency_dashboard.view_active')}
+            </button>
+            <button
+              onClick={() => setViewMode('archive')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${viewMode === 'archive' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <History size={12} />
+              {t('efficiency_dashboard.view_archive')}
+            </button>
+          </div>
+
+          {viewMode === 'archive' && (
+            <select 
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+              className="bg-white border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-purple-500 focus:border-purple-500 block p-2 font-bold"
+            >
+              {[0, 1, 2, 3].map(offset => {
+                const y = new Date().getFullYear() - offset;
+                return <option key={y} value={y}>{y}</option>;
+              })}
+            </select>
+          )}
+
+          {viewMode === 'active' && (
+            <>
+              <div className="flex bg-slate-100 rounded-lg p-1">
+                <button onClick={() => setFilterStatus('active')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${filterStatus === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>{t('efficiency_dashboard.filter_open')}</button>
+                <button onClick={() => setFilterStatus('all')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${filterStatus === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>{t('efficiency_dashboard.filter_all')}</button>
+              </div>
+
+              <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                <button
+                  onClick={() => setPeriodMode('day')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-bold ${periodMode === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  Dag
+                </button>
+                <button
+                  onClick={() => setPeriodMode('week')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-bold ${periodMode === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  Week
+                </button>
+                <button
+                  onClick={() => setPeriodMode('month')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-bold ${periodMode === 'month' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >
+                  Maand
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button onClick={navigatePrevious} className="px-2 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold">
+                  Vorige
+                </button>
+                <span className="text-xs font-bold text-slate-600 min-w-[150px] text-center">
+                  {periodMode === 'day'
+                    ? formatDate(selectedDate, 'dd-MM-yyyy')
+                    : periodMode === 'month'
+                      ? formatDate(selectedDate, 'MMMM yyyy')
+                      : `Week ${getISOWeek(selectedDate)} - ${formatDate(selectedDate, 'yyyy')}`}
+                </span>
+                <button onClick={navigateNext} className="px-2 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold">
+                  Volgende
+                </button>
+                <button onClick={jumpToToday} className="px-2 py-1.5 rounded-md bg-blue-500 text-white text-xs font-bold">
+                  Vandaag
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Overall Efficiency */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-3">
-            <Target className="text-blue-600" size={24} />
-            {stats.averageEfficiency && (
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getEfficiencyColor(stats.averageEfficiency)}`}>
-                {getEfficiencyLabel(stats.averageEfficiency)}
-              </span>
-            )}
-          </div>
-          <div className="text-3xl font-black text-slate-900">
-            {stats.averageEfficiency ? `${stats.averageEfficiency}%` : '—'}
-          </div>
-          <div className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-            Gemiddelde Efficiency
-          </div>
-        </div>
+      {/* Orders List */}
+      <div className="grid grid-cols-1 gap-4">
+        {dashboardData.items.map((item) => (
+          <div key={item.orderId} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex flex-col md:flex-row justify-between gap-6">
+              
+              {/* Order Info */}
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-1">
+                  <span className="text-lg font-black text-slate-800">{item.orderId}</span>
+                  <span className={`px-2 py-1 rounded-md text-xs font-bold uppercase ${item.isOverrun ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {item.isOverrun ? t('efficiency_dashboard.status_overrun') : t('efficiency_dashboard.status_on_schedule')}
+                  </span>
+                </div>
+                <div className="text-sm font-bold text-blue-600 mb-2">
+                  {item.itemCode} <span className="text-slate-400">•</span> {item.item}
+                </div>
 
-        {/* On Time */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-3">
-            <CheckCircle2 className="text-emerald-600" size={24} />
-          </div>
-          <div className="text-3xl font-black text-slate-900">
-            {stats.onTimePercentage}%
-          </div>
-          <div className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-            Op Tijd of Sneller
-          </div>
-        </div>
+                <div className="text-xs text-slate-500 flex flex-wrap gap-4 items-center">
+                  <span>{t('efficiency_dashboard.qty')}: <b>{item.quantity}</b></span>
+                  <span>{t('efficiency_dashboard.produced')}: <b>{item.producedQty}</b></span>
+                  <span>{t('efficiency_dashboard.norm')}: <b>{Math.round(item.minutesPerUnit * 10) / 10}m</b> / {t('efficiency_dashboard.per_piece')}</span>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {item.productionTimeTotal > 0 && (
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-bold border border-blue-100" title={t('efficiency_dashboard.prod_tooltip')}>
+                        {t('efficiency_dashboard.prod')}: {formatMinutes(item.productionTimeTotal)}
+                      </span>
+                    )}
+                    {item.postProcessingTimeTotal > 0 && (
+                      <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-bold border border-purple-100" title={t('efficiency_dashboard.post_tooltip')}>
+                        {t('efficiency_dashboard.post')}: {formatMinutes(item.postProcessingTimeTotal)}
+                      </span>
+                    )}
+                    {item.qcTimeTotal > 0 && (
+                      <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-bold border border-amber-100" title={t('efficiency_dashboard.qc_excluded')}>
+                        {t('efficiency_dashboard.qc')}: {formatMinutes(item.qcTimeTotal)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
 
-        {/* Total Produced */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-3">
-            <BarChart3 className="text-purple-600" size={24} />
-          </div>
-          <div className="text-3xl font-black text-slate-900">
-            {stats.productCount}
-          </div>
-          <div className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-            Afgeronde Units
-          </div>
-        </div>
+              {/* Progress Bar & Stats */}
+              <div className="flex-1 flex flex-col justify-center">
+                <div className="flex justify-between text-sm font-bold mb-2">
+                  <span className="text-slate-600">
+                    {formatMinutes(item.actualMinutes)} {t('efficiency_dashboard.spent')}
+                  </span>
+                  <div className="text-right">
+                    <span className="text-slate-400 block text-[10px] uppercase">Target</span>
+                    <span className="text-slate-600">{formatMinutes(item.standardTimeTotal)}</span>
+                  </div>
+                </div>
+                <div className="h-4 bg-slate-100 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-500 ${getEfficiencyColor(item.efficiency).replace('text-', 'bg-').split(' ')[1]}`}
+                    style={{ width: `${Math.min(100, (item.actualMinutes / item.standardTimeTotal) * 100)}%` }}
+                  />
+                </div>
+              </div>
 
-        {/* Behind Schedule */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-3">
-            <AlertCircle className={stats.behindCount > 0 ? "text-rose-600" : "text-slate-400"} size={24} />
+              {/* Efficiency Score */}
+              <div className="flex flex-col items-end justify-center min-w-[100px]">
+                <div className={`text-3xl font-black ${getEfficiencyColor(item.efficiency).split(' ')[0]}`}>
+                  {Math.round(item.efficiency)}%
+                </div>
+                <div className="text-xs text-slate-400 font-bold uppercase">{t('efficiency_dashboard.efficiency')}</div>
+                
+                {/* AI Prediction Badge */}
+                <div className="mt-2 flex items-center gap-1 bg-purple-50 px-2 py-1 rounded border border-purple-100" title={`Gebaseerd op ${Math.round(item.aiConfidence/10)} eerdere producties`}>
+                  <BrainCircuit size={10} className="text-purple-500" />
+                  <span className="text-[9px] font-bold text-purple-700">AI: ~{formatMinutes(item.aiPredictedTotal)}</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className={`text-3xl font-black ${stats.behindCount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-            {stats.behindCount}
+        ))}
+
+        {dashboardData.items.length === 0 && (
+          <div className="text-center py-12 text-slate-400">
+            <Timer size={48} className="mx-auto mb-4 opacity-20" />
+            <p>
+              {viewMode === 'active' 
+                ? t('efficiency_dashboard.no_data_active')
+                : t('efficiency_dashboard.no_data_archive', { year: selectedYear })}
+            </p>
           </div>
-          <div className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-            Achterlopend
-          </div>
-        </div>
+        )}
       </div>
-
-      {/* Active Production - Real-time */}
-      {enrichedActive.length > 0 && (
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="text-blue-600" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
-              Lopende Productie ({enrichedActive.length})
-            </h3>
-          </div>
-          <div className="space-y-3">
-            {enrichedActive.slice(0, 5).map(product => (
-              <div key={product.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <div>
-                  <div className="text-sm font-bold text-slate-800">{product.item}</div>
-                  <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
-                    <span>{product.lotNumber}</span>
-                    <span>•</span>
-                    <span>{product.currentStation}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  {product.targetTime ? (
-                    <>
-                      <div className="text-sm font-bold text-slate-800">
-                        {formatMinutes(product.actualTime)} / {formatMinutes(product.targetTime)}
-                      </div>
-                      {product.isBehind ? (
-                        <div className="text-xs text-rose-600 font-bold flex items-center gap-1 justify-end mt-1">
-                          <AlertCircle size={12} />
-                          {formatMinutes(Math.abs(product.deviation))} te laat
-                        </div>
-                      ) : (
-                        <div className="text-xs text-emerald-600 font-bold flex items-center gap-1 justify-end mt-1">
-                          <CheckCircle2 size={12} />
-                          {formatMinutes(product.deviation)} over
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-xs text-slate-400">Geen standaard</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Completed */}
-      {enrichedCompleted.length > 0 && (
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Timer className="text-emerald-600" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
-              Recent Afgerond ({enrichedCompleted.length})
-            </h3>
-          </div>
-          <div className="space-y-3">
-            {enrichedCompleted.slice(0, 10).map(product => (
-              <div key={product.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <div>
-                  <div className="text-sm font-bold text-slate-800">{product.item}</div>
-                  <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
-                    <span>{product.lotNumber}</span>
-                    <span>•</span>
-                    <span>{product.originMachine}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  {product.efficiency ? (
-                    <>
-                      <div className={`px-3 py-1 rounded-full text-xs font-bold border inline-block ${getEfficiencyColor(product.efficiency)}`}>
-                        {product.efficiency}%
-                      </div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        {formatMinutes(product.actualTime)} / {formatMinutes(product.targetTime)}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-xs text-slate-400">Geen standaard</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* No Data State */}
-      {enrichedCompleted.length === 0 && enrichedActive.length === 0 && (
-        <div className="text-center py-12 text-slate-400">
-          <Calendar size={48} className="mx-auto mb-4 opacity-50" />
-          <p className="text-sm font-bold uppercase tracking-widest">
-            Geen productie data beschikbaar
-          </p>
-          <p className="text-xs mt-2">
-            Start productie om efficiency metrics te zien
-          </p>
-        </div>
-      )}
     </div>
   );
-});
+};
 
 export default EfficiencyDashboard;

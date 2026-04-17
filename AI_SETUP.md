@@ -79,6 +79,7 @@ De AI heeft uitgebreide kennis over:
 - GRE, EST, CST specificaties
 - Product codes en categorieën
 - Afdelingen: Spuitgieten, Verpakking, Lossen
+- **Definitie Lossen:** Producten worden om een mal gewikkeld. Na een uur voorharden op 100°C wordt het product van de mal gehaald; dit heet "lossen".
 - Shift tijden en kleuren
 
 ### Document Analyse
@@ -101,8 +102,8 @@ De AI heeft uitgebreide kennis over:
 - **Gereedschap:** Voorraad beheer
 - **Calculator:** Berekeningstools
 - **Berichten:** Notificaties en communicatie
-- **Profiel:** Persoonlijke instellingen
-- **Admin:** Beheer paneel (alleen admins)
+- **Profiel:** Persoonlijke instellingen (AI heeft GEEN toegang tot persoonsgegevens)
+- **Admin:** Beheer paneel (AI heeft GEEN toegang tot gebruikers/rollen)
 
 ### Features
 - Personeel toewijzing
@@ -123,6 +124,15 @@ De AI heeft uitgebreide kennis over:
 2. Typ je vraag
 3. Druk Enter
 4. AI opent met je vraag
+
+## 🔒 Privacy & Beveiliging
+
+### Uitgesloten Data
+De AI heeft expliciet **GEEN** toegang tot:
+- ❌ Gebruikerslijsten en contactgegevens (Users collectie)
+- ❌ Wachtwoorden of inloggegevens
+- ❌ Rol-definities en rechtenstructuur (AdminUsersView)
+- ❌ Persoonlijke profielen
 
 ## ⚠️ Troubleshooting
 

@@ -1,3 +1,14 @@
+/* Shake animation for login form */
+.shake {
+  animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-8px); }
+  40%, 60% { transform: translateX(8px); }
+}
 /* Basis styles voor de FPi Future Factory Portal */
 @tailwind base;
 @tailwind components;
@@ -7,6 +18,13 @@
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+@font-face {
+  font-family: 'RoktIcons';
+  src: url('https://apps.rokt.com/icons/rokt-icons.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
 }
 
 body {
@@ -123,6 +141,8 @@ body {
   animation: animateIn 0.3s ease-out;
 }
 
+
+
 @keyframes animateIn {
   from {
     opacity: 0;
@@ -131,6 +151,46 @@ body {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes shrink-width {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+/* iOS/Safari Optimalisaties */
+html, body {
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Enable momentum scrolling op iOS */
+.custom-scrollbar,
+[style*="WebkitOverflowScrolling"] {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Preventeer zoom op input focus op iOS */
+input, textarea, select {
+  font-size: 16px;
+}
+
+/* Fix voor fixed positioning op iOS */
+@supports (-webkit-appearance: none) {
+  @media (max-width: 768px) {
+    header[class*="fixed"] {
+      position: fixed !important;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+    }
   }
 }
 

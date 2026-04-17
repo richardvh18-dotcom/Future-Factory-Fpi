@@ -3,6 +3,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import TeamleaderHub from "./TeamleaderHub";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -49,6 +50,8 @@ const TeamleaderPipesHub = React.memo((props) => {
     };
   }, []);
 
+  const { t } = useTranslation();
+
   if (loading)
     return (
       <div className="h-full flex items-center justify-center">
@@ -62,7 +65,7 @@ const TeamleaderPipesHub = React.memo((props) => {
     <TeamleaderHub
       {...props}
       fixedScope="pipe"
-      departmentName="Pipe Productions"
+      departmentName={t('teamleader.pipe_productions', 'Pijp Productie')}
       allowedMachines={machineIds}
     />
   );

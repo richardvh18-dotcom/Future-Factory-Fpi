@@ -1,25 +1,63 @@
-import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDocs, setDoc, deleteDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
+import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import {
-  Package,
-  Loader2,
-  ClipboardCheck,
-  History,
-  ArrowRight,
-} from "lucide-react";
+import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, advanceTrackedProduct } from "../../services/planningSecurityService";
+import { Package,
+    Loader2,
+    ClipboardCheck,
+    History,
+    ArrowRight,
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+    ScanBarcode,
+    Keyboard } from "lucide-react";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { getNextFlowState } from "../../utils/workstationLogic";
+import { useNotifications } from '../../contexts/NotificationContext';
 
-// Helper om diameter uit item omschrijving te halen (het eerste getal is de diameter)
+const QR_CODE_OK_CONFIRMATION = 'FPI-ACTION-APPROVE-OK';
+const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17"]);
+const LOSSEN_1218_STATION_NORM = "LOSSEN12/18";
+
+// Helper voor diameter (simpel)
 const getDiameter = (str) => {
-  if (!str) return 0;
-  const match = str.match(/(\d+)/);
-  if (match) return parseInt(match[1], 10);
-  return 0;
+  const text = String(str || "").toUpperCase();
+  const numberMatches = Array.from(text.matchAll(/\d{2,4}/g)).map((m) => Number(m[0]));
+  const candidates = numberMatches.filter((n) => Number.isFinite(n) && n >= 25 && n <= 2000);
+  
+  return candidates.length > 0 ? candidates[0] : 0;
+};
+
+const shouldGoToCentralLossen = (item) => {
+  const originNorm = normalizeMachine(item?.originMachine || item?.machine || item?.currentStation || "");
+  if (LOSSEN_1218_SOURCE_STATIONS.has(originNorm)) return true;
+
+  const itemStr = String(item?.item || "").toUpperCase();
+  const d = getDiameter(item?.item || "");
+  const isTB = itemStr.includes("TB");
+  const isCB = itemStr.includes("CB");
+  const isELB = itemStr.includes("ELB");
+  const isAB = /\bAB\b/.test(itemStr);
+  const isSB = /\bSB\b/.test(itemStr);
+  const isElbow = isELB || isCB;
+
+  // Alle AB en SB elbows altijd naar centraal LOSSEN
+  if (isElbow && (isAB || isSB)) return true;
+
+  // BH18 business rule: Elbows met AB-mof gaan altijd naar centraal LOSSEN (oude regel, nu afgevangen door regel hierboven)
+
+  // TB >= 300mm naar centraal, < 300mm lokaal
+  if (isTB && d >= 300) return true;
+  // CB/ELB >= 350mm naar centraal, < 350mm lokaal
+  if ((isCB || isELB) && d >= 350) return true;
+
+  return false;
 };
 
 /**
@@ -27,40 +65,202 @@ const getDiameter = (str) => {
  * Gefikst: BH31 naar Nabewerking flow hersteld door betere normalisatie.
  * Update: Gebruikt nu 'products' prop indien beschikbaar om dubbele fetching te voorkomen.
  */
-const LossenView = ({ stationId, appId, products }) => {
+const LossenView = ({ stationId, appId, products = [] }) => {
+  const { t } = useTranslation();
   const { user } = useAdminAuth();
+  const { notify } = useNotifications();
   const [items, setItems] = useState([]);
+  const [occupancy, setOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [showFinishModal, setShowFinishModal] = useState(false);
+  const [bulkSeriesProducts, setBulkSeriesProducts] = useState([]);
+  const [showActionModal, setShowActionModal] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState({});
+  const [scanInput, setScanInput] = useState("");
+  const [scannerMode, setScannerMode] = useState(true);
+  const scanInputRef = useRef(null);
+  const selectedProductRef = useRef(null); // Ref om huidige selectie bij te houden tijdens async acties
+
+  // Sync ref met state
+  useEffect(() => {
+    selectedProductRef.current = selectedProduct;
+  }, [selectedProduct]);
+
+  // Auto-focus logic voor scanner
+  useEffect(() => {
+    // Alleen auto-focus gebruiken als Scanner Modus AAN staat
+    if (!scannerMode) return;
+
+    const handleClick = (e) => {
+      // Focus niet stelen als er op een interactief element wordt geklikt
+      const target = e?.target;
+      if (!target) return;
+      if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) return;
+        
+        if (!showActionModal) {
+            scanInputRef.current?.focus();
+        }
+    };
+    
+      scanInputRef.current?.focus();
+
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+      }, [showActionModal, scannerMode]);
+
+  const handleScan = async (e) => {
+    if (e.key === 'Enter') {
+      const code = scanInput.trim().toUpperCase();
+      if (!code) return;
+
+      // --- NIEUW: Goedkeuren met QR-code ---
+      if (code === QR_CODE_OK_CONFIRMATION && selectedProduct) {
+        // Direct input vrijmaken voor volgende scan
+        setScanInput("");
+        // Huidig product vastleggen voor verwerking
+        const productToProcess = selectedProduct;
+
+        if (isAdvancedStation) {
+          // Geef product expliciet mee om race-conditions te voorkomen
+          await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, productToProcess);
+        } else {
+          // Voor Lossen: GEEN auto-release, want meting is verplicht.
+          notify(
+            t(
+              "lossen.measurement_required_for_ok_qr",
+              "Let op: Voor Lossen is een meting verplicht. Vul de meetwaarden in op het scherm in plaats van de OK-QR te scannen."
+            )
+          );
+        }
+        return;
+      }
+        
+      const found = items.find(i => 
+        (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
+        (i.orderId || "").toLowerCase() === code.toLowerCase()
+      );
+        
+      if (found) {
+        handleItemClick(found);
+        setScanInput("");
+      } else {
+        notify(t('lossen.item_not_found', 'Item {{code}} niet gevonden', { code }));
+        setScanInput("");
+        setSelectedProduct(null);
+      }
+      // Na scan altijd weer focus op het scanveld
+      setTimeout(() => {
+        scanInputRef.current?.focus();
+      }, 50);
+    }
+  };
+
+  // Haal occupancy data op voor operator tracking
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, ...PATHS.OCCUPANCY), (snap) => {
+      setOccupancy(snap.docs.map(d => d.data()));
+    });
+    return () => unsub();
+  }, []);
+
+  // Helper om te checken of een shift momenteel actief is
+  const isShiftActive = (shiftLabel) => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentTime = currentHour * 60 + currentMinute;
+    const label = (shiftLabel || "").toUpperCase();
+    
+    if (label.includes("OCHTEND") || label.includes("MORNING") || label.includes("EARLY")) {
+      return currentTime >= 5 * 60 + 30 && currentTime < 14 * 60;
+    }
+    if (label.includes("AVOND") || label.includes("EVENING") || label.includes("LATE")) {
+      return currentTime >= 14 * 60 && currentTime < 22 * 60 + 30;
+    }
+    if (label.includes("NACHT") || label.includes("NIGHT")) {
+      return currentTime >= 22 * 60 + 30 || currentTime < 5 * 60 + 30;
+    }
+    if (label.includes("DAG") || label === "DAGDIENST") {
+      return currentTime >= 7 * 60 + 15 && currentTime < 16 * 60;
+    }
+    return true;
+  };
+
+  // Bereken actieve operators voor dit station
+  const activeOperators = useMemo(() => {
+    if (!stationId || occupancy.length === 0) return [];
+    const currentStation = normalizeMachine(stationId);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return occupancy.filter(occ => {
+      const occStation = normalizeMachine(occ.station || occ.machineId || "");
+      if (occStation !== currentStation) return false;
+      const occDate = occ.date.toDate ? occ.date.toDate() : new Date(occ.date);
+      occDate.setHours(0, 0, 0, 0);
+      return occDate.getTime() === today.getTime() && isShiftActive(occ.shift);
+    }).map(o => o.operatorNumber).filter(Boolean);
+  }, [occupancy, stationId]);
 
   useEffect(() => {
     if (!stationId) return;
 
     // Verwerkingslogica losgekoppeld zodat deze voor zowel prop als snapshot werkt
     const processData = (sourceData) => {
+      const currentStationNorm = normalizeMachine(stationId);
+        const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
+        const isBM01Station = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
+        const isMazakStation = cleanStationId === "MAZAK";
+        const isNabewerkingStation = cleanStationId === "NABEWERKING" || cleanStationId === "NABW" || cleanStationId.includes("NABEWERK");
+
       const filtered = sourceData.filter((item) => {
+        const stepUpper = String(item.currentStep || "").toUpperCase().trim();
+        const statusUpper = String(item.status || "").toUpperCase().trim();
+        const inspectionStatus = String(item.inspection?.status || "").toUpperCase().trim();
+
+          const isDefRejected =
+            inspectionStatus === "AFKEUR" ||
+            statusUpper === "REJECTED" ||
+            statusUpper === "AFKEUR" ||
+            stepUpper === "REJECTED";
+          if (isDefRejected) return false;
+
+          const isTempRejected = inspectionStatus === "TIJDELIJKE AFKEUR" || stepUpper === "HOLD_AREA";
+          if (isTempRejected && !isNabewerkingStation) return false;
+
         // Filter op currentStation die overeenkomt met dit werkstation
         // Fallback naar 'machine' (origin) als currentStation niet is gezet
         const itemStationNorm = normalizeMachine(item.currentStation || item.machine || "");
-        const currentStationNorm = normalizeMachine(stationId);
-        const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
-        const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
-        const isMazak = cleanStationId === "MAZAK";
-        const isNabewerking = cleanStationId === "NABEWERKING" || cleanStationId === "NABW" || cleanStationId.includes("NABEWERK");
+          const isDownstreamStation = isBM01Station || isMazakStation || isNabewerkingStation;
+
+        if (!isDownstreamStation) {
+          const isLossenCandidate =
+            stepUpper.includes("LOSSEN") ||
+            statusUpper === "TE LOSSEN" ||
+            itemStationNorm === "LOSSEN" ||
+            itemStationNorm === LOSSEN_1218_STATION_NORM;
+
+          // Toon op wikkel/lossen-stations alleen items die daadwerkelijk in de lossen-fase zitten.
+          if (!isLossenCandidate) return false;
+        }
         
         let isOurStation = itemStationNorm === currentStationNorm;
 
-        // FIX: Als item op 'Lossen' staat, toon het ook op het station van herkomst (bv BH11)
-        if (!isOurStation && (item.currentStep === "Lossen" || normalizeMachine(item.currentStation) === "LOSSEN")) {
+        // FIX: Als item op 'Lossen' staat, toon het alleen op het station van herkomst als het NIET naar centraal Lossen hoort
+        if (!isOurStation && (item.currentStep === "Lossen" || item.currentStep === "Wacht op Lossen" || normalizeMachine(item.currentStation) === "LOSSEN")) {
           const originNorm = normalizeMachine(item.originMachine || item.machine || "");
           if (originNorm === currentStationNorm) {
-            isOurStation = true;
+            // BH18: toon lokaal alle niet-centrale Lossen-items, ook als legacy data currentStation op LOSSEN heeft gezet.
+            if ((currentStationNorm === "BH18" || currentStationNorm === "18") && !shouldGoToCentralLossen(item)) {
+                isOurStation = true;
+            } else if (!(currentStationNorm === "BH18" || currentStationNorm === "18")) {
+                isOurStation = true;
+            }
           }
         }
 
         // FIX: Flexibele matching voor Nabewerking (Nabewerking vs Nabewerken)
-        if (isNabewerking) {
+          if (isNabewerkingStation) {
           const itemClean = (itemStationNorm || "").toUpperCase().replace(/\s/g, "");
           const stepClean = (item.currentStep || "").toUpperCase().replace(/\s/g, "");
           const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
@@ -73,13 +273,13 @@ const LossenView = ({ stationId, appId, products }) => {
         }
 
         // FIX: Flexibele matching voor Mazak
-        if (isMazak) {
+          if (isMazakStation) {
           const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
           if (statusClean.includes("MAZAK")) isOurStation = true;
         }
 
         // FIX: Flexibele matching voor BM01
-        if (isBM01) {
+          if (isBM01Station) {
           const itemClean = (itemStationNorm || "").toUpperCase().replace(/\s/g, "");
           const stepClean = (item.currentStep || "").toUpperCase().replace(/\s/g, "");
           const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
@@ -92,69 +292,269 @@ const LossenView = ({ stationId, appId, products }) => {
 
         // --- CENTRAAL LOSSEN LOGICA ---
         // Als we naar het station "LOSSEN" kijken, toon dan ook items van specifieke machines
-        if (currentStationNorm === "LOSSEN") {
-          const origin = normalizeMachine(item.machine || "");
+        if (currentStationNorm === "LOSSEN" || currentStationNorm === LOSSEN_1218_STATION_NORM) {
+          const origin = normalizeMachine(item.originMachine || item.machine || "");
           const originLabel = normalizeMachine(item.stationLabel || "");
           const current = normalizeMachine(item.currentStation || "");
-          
-          const targetMachines = ["BH31", "BH16", "BH11", "31", "16", "11"];
-          if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
-            isOurStation = true;
-          } else if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || current === "BH18") {
-            // Alleen ID groter dan 300mm van BH18
-            const diameter = getDiameter(item.item || "");
-            if (diameter > 300) isOurStation = true;
+
+          const lossen1218Origins = ["BH12", "BH15", "BH17", "12", "15", "17"];
+          const lossenOrigins = ["BH18", "18", "BH31", "BH16", "BH11", "31", "16", "11"];
+          const isLossen1218Station = currentStationNorm === LOSSEN_1218_STATION_NORM;
+
+          let targetMachines = isLossen1218Station ? lossen1218Origins : [...lossenOrigins, ...lossen1218Origins];
+          let useStrictFilter = false;
+
+          // Filter op toegewezen stations van de gebruiker (indien specifiek ingesteld)
+          if (user && user.allowedStations && user.allowedStations.length > 0) {
+             const userTargets = user.allowedStations
+                .map(s => normalizeMachine(s))
+                .filter(s => s !== "LOSSEN" && s !== "TEAMLEADER");
+             
+             if (userTargets.length > 0) {
+                 targetMachines = userTargets;
+                 useStrictFilter = true;
+             }
           }
+
+           if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
+             if (lossen1218Origins.includes(origin) || lossen1218Origins.includes(originLabel) || lossen1218Origins.includes(current)) {
+               isOurStation = isLossen1218Station;
+             } else if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current)) {
+               if (shouldGoToCentralLossen(item)) {
+                 isOurStation = !isLossen1218Station;
+               } else {
+                 isOurStation = false;
+               }
+             } else {
+                 isOurStation = !isLossen1218Station;
+             }
+           } else if (!useStrictFilter && (lossen1218Origins.includes(origin) || lossen1218Origins.includes(originLabel) || lossen1218Origins.includes(current))) {
+             isOurStation = isLossen1218Station;
+           } else if (!useStrictFilter && isLossen1218Station && (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current))) {
+             // BH18-producten die NIET naar centraal lossen gaan, tonen op LOSSEN12/18
+             if (!shouldGoToCentralLossen(item)) {
+               isOurStation = true;
+             }
+          }
+
         }
 
-        // Alleen items tonen die op "Lossen" stap staan
-        const isLossenStep = item.currentStep === "Lossen" || isBM01 || isMazak || isNabewerking;
-
-        // Of items die status "in_progress" hebben en nog niet finished zijn
-        // FIX: 'completed' toegestaan voor BM01/Mazak/Nabewerking omdat inkomende items deze status kunnen hebben van vorig station
-        const isActive = (item.status === "in_progress" || item.status === "Te Lossen" || item.status === "Wacht op Lossen" || ((isBM01 || isMazak || isNabewerking) && !["Finished", "GEREED"].includes(item.status))) && item.currentStep !== "Finished" && item.status !== "rejected" && item.currentStep !== "REJECTED";
-
-        return isOurStation && isLossenStep && isActive;
+        return isOurStation;
       });
 
-      setItems(
-        filtered.sort((a, b) => {
-          const tA = a.updatedAt?.seconds || 0;
-          const tB = b.updatedAt?.seconds || 0;
-          return tA - tB; // FIFO: Oudste eerst voor correcte verwerkingsvolgorde
-        })
-      );
+      const sorted = filtered.sort((a, b) => {
+        const tA = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+        const tB = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+        return tB - tA;
+      });
 
+      setItems(sorted);
       setLoading(false);
     };
 
-    // OPTIMALISATIE: Gebruik meegegeven data indien beschikbaar
-    if (products) {
+    // Als 'products' prop is meegegeven, gebruik die direct.
+    // Anders, zet een snapshot listener op.
+    if (products && products.length > 0) {
       processData(products);
-      return;
-    }
+      setLoading(false);
 
-    // FALLBACK: Zelf fetchen als geen data is meegegeven
-    setLoading(true);
-    const productsRef = collection(db, ...PATHS.TRACKING);
-
-    const unsubscribe = onSnapshot(
-      productsRef,
-      (snapshot) => {
-        const docs = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        processData(docs);
-      },
-      (err) => {
-        console.error("Lossen fout:", err);
+      // Optioneel: toch een listener opzetten voor live updates, maar de eerste render is snel.
+      const q = query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted"]));
+      const unsub = onSnapshot(q, (snap) => {
+        const sourceData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        processData(sourceData);
+      }, (err) => {
+        console.error("Error in LossenView snapshot:", err);
         setLoading(false);
-      }
-    );
+      });
+      return () => unsub();
 
-    return () => unsubscribe();
-  }, [stationId, appId, products]);
+    } else {
+      const q = query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted"]));
+      const unsub = onSnapshot(q, (snap) => {
+        const sourceData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        processData(sourceData);
+      }, (err) => {
+        console.error("Error in LossenView snapshot:", err);
+        setLoading(false);
+      });
+      return () => unsub();
+    }
+  }, [stationId, user, products]); // Dependency op 'products' toegevoegd
+
+  const handleItemClick = (item) => {
+    if (supportsSeriesGrouping && item?.seriesGroupId) {
+      const sameSeries = items.filter(
+        (seriesItem) =>
+          seriesItem.seriesGroupId === item.seriesGroupId &&
+          String(seriesItem.status || "").toUpperCase() !== "REJECTED" &&
+          String(seriesItem.currentStep || "").toUpperCase() !== "REJECTED"
+      );
+      setBulkSeriesProducts(sameSeries.length > 1 ? sameSeries : []);
+    } else {
+      setBulkSeriesProducts([]);
+    }
+    setSelectedProduct(item);
+  };
+
+  const handleOpenActionModal = () => {
+    if (!selectedProduct) return;
+    setShowActionModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setBulkSeriesProducts([]);
+    setSelectedProduct(null);
+    setShowActionModal(false);
+  };
+
+  const currentStationNorm = useMemo(() => normalizeMachine(stationId), [stationId]);
+  const isBM01 = currentStationNorm === "BM01";
+  const isMazak = currentStationNorm === "MAZAK";
+  const isNabewerking = currentStationNorm === "NABEWERKING" || currentStationNorm === "NABW" || currentStationNorm.includes("NABEWERK");
+  const supportsSeriesGrouping = !isBM01 && !isMazak && !isNabewerking;
+
+  const viewTitle = useMemo(() => {
+    if (isBM01 || isMazak || isNabewerking) return t('bm01.to_offer');
+    if (currentStationNorm === "LOSSEN" || currentStationNorm === LOSSEN_1218_STATION_NORM) return t('lossen.wait_for_unload');
+    return t('lossen.waiting_receipt');
+  }, [isBM01, isMazak, isNabewerking, currentStationNorm, t]);
+  const isAdvancedStation = isBM01 || isMazak || isNabewerking;
+
+  const groupedSeries = useMemo(() => {
+    if (!supportsSeriesGrouping) return new Map();
+    const grouped = new Map();
+    items.forEach((item) => {
+      const groupId = item?.seriesGroupId;
+      if (!groupId) return;
+      if (!grouped.has(groupId)) grouped.set(groupId, []);
+      grouped.get(groupId).push(item);
+    });
+    return grouped;
+  }, [items, supportsSeriesGrouping]);
+
+  useEffect(() => {
+    setCollapsedGroups((prev) => {
+      const next = { ...prev };
+      groupedSeries.forEach((group, groupId) => {
+        if (group.length <= 1) return;
+        if (!(groupId in next)) next[groupId] = true;
+      });
+      Object.keys(next).forEach((groupId) => {
+        const group = groupedSeries.get(groupId);
+        if (!group || group.length <= 1) delete next[groupId];
+      });
+      return next;
+    });
+  }, [groupedSeries]);
+
+  const displayRows = useMemo(() => {
+    const rendered = new Set();
+    const rows = [];
+
+    items.forEach((item) => {
+      const groupId = item?.seriesGroupId;
+      const group = groupId ? groupedSeries.get(groupId) || [] : [];
+      const isSeriesGroup = groupId && group.length > 1;
+
+      if (isSeriesGroup && !rendered.has(groupId)) {
+        rows.push({
+          id: `series_header_${groupId}`,
+          isSeriesHeader: true,
+          seriesGroupId: groupId,
+          orderId: group[0]?.orderId || item?.orderId || "-",
+          seriesCount: group.length,
+          seriesUnits: group,
+        });
+        rendered.add(groupId);
+      }
+
+      if (!isSeriesGroup || !collapsedGroups[groupId]) {
+        rows.push(item);
+      }
+    });
+
+    return rows;
+  }, [items, groupedSeries, collapsedGroups]);
+
+  // --- NIEUW: Aparte handler voor afronden in Lossen vs. Nabewerking ---
+  const handlePostProcessingFinish = async (status, data, productOverride = null) => {
+    const product = productOverride || selectedProduct;
+    if (!product) return;
+
+    const productId = product.id || product.lotNumber;
+    try {
+      if (status === "completed" && isAdvancedStation) {
+        const finishType = stationId === "BM01" ? "archive" : "forward";
+        await completeTrackedProduct({
+          productId,
+          finishType,
+          fromStation: stationId,
+          note: data.note || "",
+          actorLabel: user?.email || "Operator",
+          source: "LossenView",
+        });
+        await logActivity(
+          user?.uid || "system",
+          "POST_PROCESS_COMPLETE",
+          `${stationId} afgerond${finishType === "archive" ? " en gearchiveerd" : " → BM01"}: lot ${product.lotNumber || productId}`
+        );
+        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+        return;
+      }
+
+      if (status === "rejected") {
+        await rejectTrackedProductFinal({
+          productId,
+          reasons: data.reasons || [],
+          note: data.note || "",
+          source: "LossenView",
+          actorLabel: user?.email || "Operator",
+        });
+        await logActivity(
+          user?.uid || "system",
+          "QUALITY_REJECT_FINAL",
+          `Lossen Definitieve afkeur en gearchiveerd: lot ${product.lotNumber || productId}`
+        );
+        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+        return;
+      }
+
+      if (status === "temp_reject") {
+        await tempRejectTrackedProduct({
+          productId,
+          reasons: data.reasons || [],
+          note: data.note || "",
+          station: stationId,
+          actorLabel: user?.email || "Operator",
+          source: "LossenView",
+        });
+      } else if (status === "completed" && !isAdvancedStation) {
+        const flowState = getNextFlowState("FINISH_WINDING");
+        await advanceTrackedProduct({
+          productId,
+          nextStation: flowState.currentStation || stationId,
+          nextStep: flowState.currentStep || "Lossen",
+          nextStatus: flowState.status || "In Productie",
+          lastStation: stationId,
+          note: data.note || "",
+          actorLabel: user?.email || "Operator",
+          previousStep: product.currentStep || stationId,
+          historyAction: "Stap Voltooid",
+          historyDetails: "Verwerking afgerond",
+          source: "LossenView",
+        });
+      }
+      await logActivity(
+        user?.uid || "system",
+        status === "completed" ? "POST_PROCESS_COMPLETE" : "QUALITY_TEMP_REJECT",
+        `Lossen afhandeling: lot ${product.lotNumber || productId}, station ${stationId}, status ${status}`
+      );
+      if (selectedProductRef.current?.id === product.id) handleCloseModal();
+    } catch (error) {
+      console.error("Fout bij afronden:", error);
+    }
+  };
 
   if (loading)
     return (
@@ -163,206 +563,218 @@ const LossenView = ({ stationId, appId, products }) => {
       </div>
     );
 
-  const currentStationNorm = normalizeMachine(stationId);
-  const cleanStationId = (currentStationNorm || "").toUpperCase().replace(/\s/g, "");
-  const isBM01 = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
-  const isMazak = cleanStationId === "MAZAK";
-  const isNabewerking = cleanStationId === "NABEWERKING" || cleanStationId === "NABW" || cleanStationId.includes("NABEWERK");
-  
-  // Bepaal of we de geavanceerde modal (met afkeur opties) moeten gebruiken
-  const isAdvancedStation = isNabewerking || isMazak || isBM01;
-
-  const handleItemClick = (item) => {
-    setSelectedProduct(item);
-    if (isAdvancedStation) {
-      setShowFinishModal(true);
-    }
-  };
-
-  const handleCloseModal = () => {
-    setSelectedProduct(null);
-    setShowFinishModal(false);
-  };
-
-  const handlePostProcessingFinish = async (status, data) => {
-    if (!selectedProduct) return;
-    
-    try {
-      const productRef = doc(db, ...PATHS.TRACKING, selectedProduct.id || selectedProduct.lotNumber);
-      
-      const updates = {
-        updatedAt: serverTimestamp(),
-        note: data.note || "",
-        processedBy: user?.email || "Unknown",
-      };
-
-      if (status === "completed") {
-        if (isBM01) {
-          updates.currentStation = "GEREED";
-          updates.currentStep = "Finished";
-          updates.status = "completed";
-          updates["timestamps.finished"] = serverTimestamp();
-          updates.lastStation = "BM01";
-
-          // ARCHIVERING LOGICA
-          const year = new Date().getFullYear();
-          const archiveRef = doc(db, "future-factory", "production", "archive", String(year), "items", selectedProduct.id || selectedProduct.lotNumber);
-          
-          const finalData = { 
-              ...selectedProduct, 
-              ...updates,
-              updatedAt: new Date(),
-              timestamps: {
-                  ...selectedProduct.timestamps,
-                  finished: new Date()
-              }
-          };
-
-          await setDoc(archiveRef, finalData);
-          await deleteDoc(productRef);
-          handleCloseModal();
-          return;
-        } else {
-          updates.currentStation = "BM01";
-          updates.currentStep = "BM01";
-          updates.status = "in_progress"; // Reset status zodat item zichtbaar wordt op BM01
-          updates.lastStation = stationId;
-          updates["timestamps.bm01_start"] = serverTimestamp();
-        }
-      } else if (status === "temp_reject") {
-        updates.inspection = {
-          status: "Tijdelijke afkeur",
-          reasons: data.reasons,
-          timestamp: new Date().toISOString(),
-        };
-        updates.currentStep = "HOLD_AREA";
-      } else if (status === "rejected") {
-        updates.status = "rejected";
-        updates.currentStep = "REJECTED";
-        updates.currentStation = "AFKEUR";
-        updates.inspection = {
-          status: "Afkeur",
-          reasons: data.reasons,
-          timestamp: new Date().toISOString(),
-        };
-        
-        // Update order teller bij definitieve afkeur
-        if (selectedProduct.orderId && selectedProduct.orderId !== "NOG_TE_BEPALEN") {
-             try {
-                const orderQuery = query(
-                  collection(db, ...PATHS.PLANNING),
-                  where("orderId", "==", selectedProduct.orderId)
-                );
-                const orderSnap = await getDocs(orderQuery);
-                
-                if (!orderSnap.empty) {
-                  const orderDoc = orderSnap.docs[0];
-                  const orderData = orderDoc.data();
-                  const originStation = selectedProduct.originMachine || selectedProduct.currentStation;
-                  const stationField = `started_${originStation.replace(/[^a-zA-Z0-9]/g, '_')}`;
-                  const currentStarted = orderData[stationField] || 0;
-                  
-                  if (currentStarted > 0) {
-                    await updateDoc(doc(db, ...PATHS.PLANNING, orderDoc.id), {
-                      [stationField]: currentStarted - 1,
-                    });
-                  }
-                }
-              } catch (err) {
-                console.error("Fout bij updaten order teller:", err);
-              }
-        }
-      }
-
-      await updateDoc(productRef, updates);
-      handleCloseModal();
-    } catch (error) {
-      console.error("Fout bij afronden:", error);
-    }
-  };
-
   return (
-    <div className="p-4 space-y-3 bg-white h-full overflow-y-auto custom-scrollbar text-left">
-      {selectedProduct && (
+    <div className="flex h-full overflow-hidden bg-white">
+      
+      {/* Pulse animatie stylesheet */}
+      <style>{`
+        @keyframes scan-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+          50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+        }
+        .scan-pulse {
+          animation: scan-pulse 2s infinite;
+        }
+        @keyframes pulse-text {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .pulse-text {
+          animation: pulse-text 1.5s ease-in-out infinite;
+        }
+      `}</style>
+
+      {showActionModal && selectedProduct && (
         isAdvancedStation ? (
           <PostProcessingFinishModal
             product={selectedProduct}
             onClose={handleCloseModal}
             onConfirm={handlePostProcessingFinish}
             currentStation={stationId}
+            autoFocus={!scannerMode}
           />
         ) : (
           <ProductReleaseModal
             isOpen={true}
             product={selectedProduct}
-            onClose={() => setSelectedProduct(null)}
+            bulkProducts={bulkSeriesProducts}
+            forceLossenMode={true}
+            onClose={handleCloseModal}
             appId={appId}
+            activeOperators={activeOperators}
+            autoFocus={false}
           />
         )
       )}
 
-      {items.length === 0 ? (
-        <div className="p-12 text-center bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200 opacity-40">
-          <Package size={48} className="mx-auto mb-4 text-slate-300" />
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Geen inkomende items voor {stationId}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 mb-4 ml-2">
-            <ArrowRight size={16} className="text-emerald-500" />
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
-              {isBM01 || isMazak || isNabewerking ? "Aan te bieden" : (currentStationNorm === "LOSSEN" ? "Wacht op Lossen" : "Wachtend op ontvangst")} ({items.length})
-            </h3>
-          </div>
-          {items.map((item) => (
-            <div
-              key={item.id}
-              className="bg-white border-2 border-slate-100 rounded-[35px] p-6 shadow-sm hover:border-emerald-300 transition-all group animate-in slide-in-from-bottom-2"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className="text-left">
-                  <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">
-                    Lotnummer
-                  </span>
-                  <span className="font-black text-slate-900 text-lg tracking-tighter italic">
-                    {item.lotNumber}
-                  </span>
-                  <p className="text-xs font-bold text-slate-600 mt-1">
-                    {item.item}
-                  </p>
+        {/* INKOMEND VIEW */}
+        <>
+          <div className={`w-full lg:w-2/3 p-4 pb-32 space-y-3 border-r border-slate-100 overflow-y-auto custom-scrollbar ${selectedProduct ? "hidden lg:block" : "block"}`} style={{ paddingBottom: "max(8rem, env(safe-area-inset-bottom))" }}>
+          <div className="mb-6 space-y-2">
+            <div className="flex justify-between items-end">
+                {/* Scan Indicator Label */}
+                <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-lg border border-blue-100 w-fit">
+                <div className="w-2 h-2 bg-blue-500 rounded-full pulse-text"></div>
+                <span className="text-xs font-black text-blue-600 uppercase tracking-widest">
+                    🔍 {t('lossen.ready_to_scan', 'Klaar voor scan')}
+                </span>
                 </div>
-                <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[9px] font-black uppercase">
-                  Ontvangen
-                </div>
-              </div>
-              <div className="bg-slate-50 rounded-2xl p-4 mb-5 border border-slate-100">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                  Manufactured Item
-                </p>
-                <p className="text-xs font-mono font-bold text-slate-700 truncate">
-                  {item.itemCode}
-                </p>
-                {item.lastStation && (
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 opacity-80">
-                    <History size={10} className="text-blue-500" />
-                    <span className="text-[8px] font-black text-slate-500 uppercase italic">
-                      {isBM01 ? "Van: " : "Herkomst: "}{item.lastStation}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <button
-                onClick={() => handleItemClick(item)}
-                className="w-full py-5 bg-slate-900 text-white rounded-[22px] font-black uppercase text-[10px] tracking-[0.2em] flex items-center justify-center gap-3 hover:bg-emerald-600 transition-all shadow-lg active:scale-95"
-              >
-                <ClipboardCheck size={18} /> Verwerken & Vrijgeven
-              </button>
+
+                {/* Scanner Mode Toggle */}
+                <button 
+                    onClick={() => setScannerMode(!scannerMode)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-bold text-xs uppercase tracking-widest transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
+                  title={scannerMode ? t("digitalplanning.terminal.scanner_keyboard_hidden", "Toetsenbord verborgen (Scanner modus)") : t("digitalplanning.terminal.normal_input", "Normale invoer")}
+                >
+                    {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
+                  {scannerMode ? t("digitalplanning.terminal.scanner_mode", "Scanner modus") : t("digitalplanning.terminal.keyboard", "Toetsenbord")}
+                </button>
             </div>
-          ))}
-        </div>
-      )}
+            {/* Scan Input Field */}
+            <div className="relative">
+              <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 transition-all scan-pulse" size={24} />
+              <input
+                  ref={scanInputRef}
+                  type="text"
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  inputMode={scannerMode ? "none" : "text"}
+                  onKeyDown={handleScan}
+                  placeholder={t("digitalplanning.terminal.scan_lot_or_order", "Scan lotnummer of order...")}
+                  className="w-full pl-14 pr-4 py-4 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
+              />
+            </div>
+          </div>
+
+          {items.length === 0 ? (
+            <div className="p-12 text-center bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200 opacity-40">
+              <Package size={48} className="mx-auto mb-4 text-slate-300" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                {t('lossen.no_incoming_items', { station: stationId })}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 mb-4 ml-2">
+                <ArrowRight size={16} className="text-emerald-500" />
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                {viewTitle} ({items.length})
+                </h3>
+              </div>
+              {displayRows.map((item) => {
+                if (item.isSeriesHeader) {
+                  const isCollapsed = !!collapsedGroups[item.seriesGroupId];
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => handleItemClick(item.seriesUnits[0])}
+                      className="bg-blue-50 border-2 border-blue-200 rounded-[24px] p-4 cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">{t("digitalplanning.terminal.series", "Serie")}</p>
+                          <p className="text-base font-black text-blue-900">{t("productionStartModal.labels.order", "Order")} {item.orderId}</p>
+                          <p className="text-[10px] font-bold text-blue-700 uppercase">{t("digitalplanning.terminal.series_count", "Serie {{count}} stuks", { count: item.seriesCount })}</p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCollapsedGroups((prev) => ({
+                              ...prev,
+                              [item.seriesGroupId]: !prev[item.seriesGroupId],
+                            }));
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-blue-200 text-blue-700 text-[10px] font-black uppercase"
+                        >
+                          {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                          {isCollapsed ? t("digitalplanning.terminal.expand", "Uitklappen") : t("digitalplanning.terminal.collapse", "Inklappen")}
+                        </button>
+                      </div>
+                      <p className="mt-2 text-[10px] font-bold text-blue-700/80 uppercase tracking-wide">
+                        {t("digitalplanning.terminal.select_for_complete_right_panel", "Selecteer voor gereedmelden in rechterpaneel")}
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => handleItemClick(item)}
+                    className={`bg-white border-2 rounded-[35px] p-6 shadow-sm hover:border-emerald-300 transition-all group animate-in slide-in-from-bottom-2 cursor-pointer
+                      ${selectedProduct?.id === item.id ? 'border-purple-400 ring-4 ring-purple-200' : 'border-slate-100'}`}
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="text-left">
+                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">
+                          {t('lossen.lot_number')}
+                        </span>
+                        <span className="font-black text-slate-900 text-lg tracking-tighter italic">
+                          {item.lotNumber}
+                        </span>
+                        <p className="text-xs font-bold text-slate-600 mt-1">
+                          {item.item}
+                        </p>
+                      </div>
+                      <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[9px] font-black uppercase">
+                        {t('lossen.received')}
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                        {t('lossen.manufactured_item')}
+                      </p>
+                      <p className="text-xs font-mono font-bold text-slate-700 truncate">
+                        {item.itemCode}
+                      </p>
+                      {item.lastStation && (
+                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 opacity-80">
+                          <History size={10} className="text-blue-500" />
+                          <span className="text-[8px] font-black text-slate-500 uppercase italic">
+                            {isBM01 ? t('lossen.from') + ": " : t('lossen.origin') + ": "}{item.lastStation}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          </div>
+
+          <div className={`w-full lg:w-1/3 bg-slate-50 p-6 md:p-8 overflow-y-auto custom-scrollbar ${!selectedProduct ? "hidden lg:flex" : "flex"} flex-col`}>
+            {selectedProduct ? (
+              <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left w-full">
+                <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
+                  <button onClick={() => setSelectedProduct(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
+                  <div className="text-left flex-1">
+                    <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("digitalplanning.terminal.dossier", "Dossier")}</span>
+                    <h2 className="text-3xl font-black italic leading-none text-left">{selectedProduct.lotNumber}</h2>
+                    <p className="text-xs font-bold text-white/70 mt-2">{selectedProduct.item}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-5 text-left">
+                  {bulkSeriesProducts.length > 1 && (
+                    <button onClick={handleOpenActionModal} className="w-full py-4 bg-emerald-600 text-white rounded-[22px] font-black uppercase text-sm shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                      <ClipboardCheck size={20} /> {t("digitalplanning.terminal.series_report_ready", "Serie gereedmelden")} ({bulkSeriesProducts.length}x)
+                    </button>
+                  )}
+
+                  <button onClick={handleOpenActionModal} className="w-full py-6 bg-slate-900 text-white rounded-[30px] font-black uppercase text-base shadow-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-4 active:scale-95 group">
+                    <ClipboardCheck size={28} /> {t('lossen.process_release')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center opacity-30 text-center text-left">
+                <Package size={80} className="mb-6 text-slate-200" />
+                <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">{t("digitalplanning.terminal.select_active_lot", "Selecteer actief lot")}</h4>
+              </div>
+            )}
+          </div>
+      </>
     </div>
   );
 };

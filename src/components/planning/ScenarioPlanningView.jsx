@@ -2,27 +2,21 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Beaker, 
   Plus, 
-  Play,
   Trash2,
   Copy,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  CheckCircle,
-  Calendar,
-  Users
 } from "lucide-react";
 import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { format, addDays, differenceInDays } from "date-fns";
-import { nl } from "date-fns/locale";
+import { addDays } from "date-fns";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * ScenarioPlanningView - What-if analysis for capacity planning
  * Simulate changes before implementing them
  */
 const ScenarioPlanningView = () => {
+  const { showConfirm , notify} = useNotifications();
   const [scenarios, setScenarios] = useState([]);
   const [occupancy, setOccupancy] = useState([]);
   const [planning, setPlanning] = useState([]);
@@ -169,7 +163,7 @@ const ScenarioPlanningView = () => {
   // Create scenario
   const createScenario = async () => {
     if (!newScenario.name) {
-      alert("Geef het scenario een naam");
+      notify("Geef het scenario een naam");
       return;
     }
 
@@ -178,6 +172,12 @@ const ScenarioPlanningView = () => {
       createdAt: serverTimestamp(),
       createdBy: "current_user"
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "SCENARIO_CREATE",
+      `Scenario aangemaakt: ${newScenario.name}`
+    );
 
     setNewScenario({
       name: "",
@@ -189,11 +189,23 @@ const ScenarioPlanningView = () => {
 
   // Delete scenario
   const deleteScenario = async (scenarioId) => {
-    if (confirm("Weet je zeker dat je dit scenario wilt verwijderen?")) {
-      await deleteDoc(doc(db, ...PATHS.SCENARIOS, scenarioId));
-      if (activeScenario?.id === scenarioId) {
-        setActiveScenario(null);
-      }
+    const confirmed = await showConfirm({
+      title: "Scenario verwijderen",
+      message: "Weet je zeker dat je dit scenario wilt verwijderen?",
+      confirmText: "Verwijderen",
+      cancelText: "Annuleren",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    await deleteDoc(doc(db, ...PATHS.SCENARIOS, scenarioId));
+    await logActivity(
+      auth.currentUser?.uid,
+      "SCENARIO_DELETE",
+      `Scenario verwijderd: ${scenarioId}`
+    );
+    if (activeScenario?.id === scenarioId) {
+      setActiveScenario(null);
     }
   };
 
@@ -206,6 +218,12 @@ const ScenarioPlanningView = () => {
       createdAt: serverTimestamp(),
       createdBy: "current_user"
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "SCENARIO_CLONE",
+      `Scenario gekloond: ${scenario.name}`
+    );
   };
 
   // Add change to new scenario

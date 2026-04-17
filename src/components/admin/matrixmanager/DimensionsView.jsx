@@ -1,37 +1,32 @@
-import React, { useState, useEffect, useMemo, Suspense, lazy } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Loader2,
-  Edit3,
   Trash2,
   Ruler,
   Search,
   Layout,
-  Settings,
   ChevronRight,
   Plus,
   Box,
   Target,
   Save,
   RefreshCw,
-  Layers,
   Database,
-  AlertCircle,
   Info,
   X,
 } from "lucide-react";
 import {
   collection,
-  getDocs,
   doc,
   setDoc,
   deleteDoc,
   onSnapshot,
   query,
-  orderBy,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 /**
  * DimensionsView V7.1 - Vite Fix Edition
@@ -39,6 +34,7 @@ import { PATHS } from "../../../config/dbPaths";
  * FIX: Import van AdminToleranceView verwijderd om build-error op te lossen.
  */
 const DimensionsView = ({ libraryData, blueprints, productRange }) => {
+  const { showConfirm , notify} = useNotifications();
   const [activeMode, setActiveMode] = useState("bell"); // bell, fitting, bore
   const [bellSubType, setBellSubType] = useState("cb"); // cb, tb
   const [dimData, setDimData] = useState([]);
@@ -177,7 +173,7 @@ const DimensionsView = ({ libraryData, blueprints, productRange }) => {
     const pathKey = getPathKey();
     if (!pathKey) return;
 
-    let id = "";
+    let id;
     let baseData = {
       pressure: Number(dimFilters.pn),
       diameter: Number(dimFilters.id),
@@ -185,7 +181,7 @@ const DimensionsView = ({ libraryData, blueprints, productRange }) => {
 
     if (activeMode === "bore") {
       if (!dimFilters.drilling || !dimFilters.id)
-        return alert("Selecteer Boring en ID.");
+        return notify("Selecteer Boring en ID.");
       id = `${dimFilters.drilling.replace(/\s+/g, "_")}_ID${
         dimFilters.id
       }`.toUpperCase();
@@ -194,7 +190,7 @@ const DimensionsView = ({ libraryData, blueprints, productRange }) => {
         diameter: Number(dimFilters.id),
       };
     } else {
-      if (!dimFilters.pn || !dimFilters.id) return alert("Selecteer PN en ID.");
+      if (!dimFilters.pn || !dimFilters.id) return notify("Selecteer PN en ID.");
       const variant = bellSubType.toUpperCase();
       const typePrefix =
         activeMode === "fitting" ? `${dimFilters.type.toUpperCase()}_` : "";
@@ -233,21 +229,39 @@ const DimensionsView = ({ libraryData, blueprints, productRange }) => {
         { merge: true }
       );
 
+      await logActivity(
+        auth.currentUser?.uid,
+        "DIMENSION_SAVE",
+        `Maatvoering opgeslagen: ${editingDim.id} (${pathKey})`
+      );
+
       setEditingDim(null);
     } catch (e) {
-      alert("Fout bij opslaan: " + e.message);
+      notify("Fout bij opslaan: " + e.message);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(`Item ${id} definitief verwijderen?`)) return;
+    const confirmed = await showConfirm({
+      title: 'Item verwijderen',
+      message: `Item ${id} definitief verwijderen?`,
+      confirmText: 'Verwijderen',
+      cancelText: 'Annuleren',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       const pathKey = getPathKey();
       await deleteDoc(doc(db, ...PATHS[pathKey], id));
+      await logActivity(
+        auth.currentUser?.uid,
+        "DIMENSION_DELETE",
+        `Maatvoering verwijderd: ${id} (${pathKey})`
+      );
     } catch (e) {
-      alert(e.message);
+      notify(e.message);
     }
   };
 

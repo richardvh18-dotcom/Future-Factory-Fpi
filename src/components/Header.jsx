@@ -1,16 +1,38 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Search, Factory, X, Bot, Sparkles, Menu } from "lucide-react";
+import { PATHS, getPathString } from "../config/dbPaths";
 
 /**
  * Header - Donker Thema v2.3 - Responsive voor mobiel en tablet
  * Nu met AI Assistant integratie in zoekbalk
  */
-const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMenuToggle }) => {
+const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [isAIMode, setIsAIMode] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => {
+    if (typeof navigator === "undefined") return true;
+    return navigator.onLine;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  const planningPathLabel = `/${getPathString(PATHS.PLANNING)}`;
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -33,7 +55,7 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMe
   };
 
   return (
-    <header className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-3 md:px-6 shrink-0 z-50 shadow-lg">
+    <header className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-3 md:px-6 shrink-0 z-50 shadow-lg fixed top-0 left-0 right-0 md:relative">
       {/* Hamburger Menu voor mobiel/tablet */}
       <button
         onClick={onMenuToggle}
@@ -62,13 +84,28 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMe
             </div>
           )}
           <div className="text-left">
-            <h1 className="text-base md:text-xl font-black uppercase italic tracking-tighter leading-none text-white">
-              {appName || (
-                <>Future <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-orange-400">Factory</span></>
-              )}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base md:text-xl font-black uppercase italic tracking-tighter leading-none text-white">
+                {appName || (
+                  <>
+                    {t('header.branding_main1', 'Future')}
+                    {' '}
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-orange-400">
+                      {t('header.branding_main2', 'Factory')}
+                    </span>
+                  </>
+                )}
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-500 text-black shadow-lg shadow-amber-500/40 animate-pulse">
+                TEST
+              </span>
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg ${isOnline ? "bg-emerald-500/20 text-emerald-300 shadow-emerald-900/20" : "bg-rose-500/20 text-rose-300 shadow-rose-900/20"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-400" : "bg-rose-400"}`}></span>
+                {isOnline ? "Online" : "Offline"}
+              </span>
+            </div>
             <p className="hidden sm:block text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1.5">
-              {t('header.branding_sub')}
+              {t('header.branding_sub', 'Smart Manufacturing Platform')}
             </p>
           </div>
         </div>
@@ -94,8 +131,8 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMe
             type="text"
             placeholder={
               isAIMode || searchQuery.startsWith('?') 
-                ? "Vraag AI..."
-                : t('header.search_placeholder')
+                ? t('header.search_ai_placeholder', 'Vraag AI...')
+                : t('header.search_placeholder', 'Zoeken...')
             }
             className={`w-full border rounded-2xl py-2 md:py-2.5 pl-10 md:pl-12 pr-20 md:pr-24 text-xs md:text-sm font-medium outline-none transition-all placeholder:text-slate-600 ${
               isAIMode || searchQuery.startsWith('?')
@@ -122,7 +159,7 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMe
                   ? 'bg-purple-500 text-white'
                   : 'hover:bg-white/10 text-slate-500'
               }`}
-              title="AI Assistent activeren"
+              title={t('header.ai_button_title', 'AI Assistent activeren')}
             >
               <Bot size={16} />
             </button>
@@ -132,10 +169,22 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onAIQuery, onMe
 
       {/* Rechterkant: Systeem status (verborgen op kleine schermen) */}
       <div className="hidden lg:flex min-w-[280px] justify-end">
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5"
+          title={`Databron: Huidige DB\nPLANNING: ${planningPathLabel}`}
+        >
+          <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`}></div>
           <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic select-none">
-            {t('header.system_status')}
+            {isOnline ? t('header.system_status', 'Systeem actief') : 'Offline cache actief'}
+          </span>
+          <span className={`text-[9px] font-black uppercase tracking-widest select-none ${isOnline ? "text-emerald-400" : "text-rose-400"}`}>
+            {isOnline ? 'Online' : 'Offline'}
+          </span>
+          <span className="text-[9px] font-black uppercase tracking-widest select-none text-slate-600">
+            Current
+          </span>
+          <span className="max-w-[210px] truncate text-[9px] font-semibold text-slate-400 normal-case tracking-normal">
+            {planningPathLabel}
           </span>
         </div>
       </div>

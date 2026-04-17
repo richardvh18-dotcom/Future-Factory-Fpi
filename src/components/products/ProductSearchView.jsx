@@ -1,10 +1,53 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useProductsData } from "../../hooks/useProductsData";
 import ProductFilterSidebar from "./ProductFilterSidebar";
 import ProductCard from "./ProductCard";
 import ProductDetailModal from "./ProductDetailModal";
 import { Search, ChevronDown, Layers, Box, Filter } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+
+// Simple AutoSizer implementation to avoid external dependency issues
+const AutoSizer = ({ children }) => {
+  const ref = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const observer = new ResizeObserver((entries) => {
+      if (entries[0]) {
+        const { width, height } = entries[0].contentRect;
+        setSize({ width, height });
+      }
+    });
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+      {size.width > 0 && size.height > 0 && children(size)}
+    </div>
+  );
+};
+
+// Simple List implementation to replace react-window and avoid import issues
+const List = forwardRef(({ height, width, itemCount, itemSize, children: Row, itemData }, ref) => {
+  useImperativeHandle(ref, () => ({
+    resetAfterIndex: () => {},
+    scrollTo: () => {},
+    scrollToItem: () => {},
+  }));
+
+  return (
+    <div style={{ height, width, overflowY: 'auto', overflowX: 'hidden' }}>
+      {Array.from({ length: itemCount }).map((_, index) => (
+        <div key={index} style={{ height: typeof itemSize === 'function' ? itemSize(index) : itemSize, width: '100%' }}>
+          <Row index={index} style={{ height: '100%', width: '100%' }} data={itemData} />
+        </div>
+      ))}
+    </div>
+  );
+});
 
 const ProductSearchView = ({ showFilters, setShowFilters }) => {
   const { user } = useAdminAuth();
@@ -134,6 +177,130 @@ const ProductSearchView = ({ showFilters, setShowFilters }) => {
     }));
   };
 
+  // --- 4. Virtualized List Component ---
+  const VirtualizedProductList = ({ width, height, groupedProducts, expandedGroups, toggleGroup, onSelectProduct }) => {
+    const columnCount = useMemo(() => {
+      if (width >= 1280) return 5;
+      if (width >= 1024) return 4;
+      if (width >= 768) return 3;
+      if (width >= 640) return 2;
+      return 1;
+    }, [width]);
+
+    const flattenedItems = useMemo(() => {
+      const items = [];
+      Object.entries(groupedProducts).forEach(([groupName, products]) => {
+        items.push({ type: 'header', groupName, count: products.length });
+        if (expandedGroups[groupName]) {
+          for (let i = 0; i < products.length; i += columnCount) {
+            items.push({
+              type: 'row',
+              products: products.slice(i, i + columnCount),
+              key: `${groupName}_row_${i}`
+            });
+          }
+        }
+      });
+      return items;
+    }, [groupedProducts, expandedGroups, columnCount]);
+
+    const listRef = useRef(null);
+
+    useEffect(() => {
+      if (listRef.current) {
+        listRef.current.resetAfterIndex(0);
+      }
+    }, [flattenedItems]);
+
+    const getItemSize = (index) => {
+      const item = flattenedItems[index];
+      return item.type === 'header' ? 100 : 450;
+    };
+
+    const Row = ({ index, style, data }) => {
+      const { items, toggleGroup, expandedGroups, onSelectProduct, columnCount } = data;
+      const item = items[index];
+
+      if (item.type === 'header') {
+        const isExpanded = !!expandedGroups[item.groupName];
+        return (
+          <div style={{ ...style, height: 80 }} className="px-4 md:px-8 py-2">
+             <button
+                onClick={() => toggleGroup(item.groupName)}
+                className={`w-full flex items-center justify-between p-5 rounded-[2rem] border transition-all duration-300 ${
+                  isExpanded
+                    ? "bg-white border-slate-200 shadow-xl"
+                    : "bg-white/50 border-transparent hover:bg-white hover:border-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-6">
+                  <div
+                    className={`p-3 rounded-2xl transition-all duration-500 shadow-sm ${
+                      isExpanded
+                        ? "bg-blue-600 text-white rotate-0"
+                        : "bg-white text-slate-400 -rotate-90 border border-slate-100"
+                    }`}
+                  >
+                    <ChevronDown size={20} strokeWidth={3} />
+                  </div>
+
+                  <div className="flex flex-col text-left">
+                    <h3 className="text-[15px] font-black text-slate-900 uppercase italic tracking-wider flex items-center gap-4">
+                      {item.groupName}
+                      <span
+                        className={`text-[9px] px-3 py-1 rounded-full normal-case font-black not-italic transition-all border ${
+                          isExpanded
+                            ? "bg-blue-50 text-blue-600 border-blue-100"
+                            : "bg-slate-100 text-slate-500 border-slate-200"
+                        }`}
+                      >
+                        {item.count} items
+                      </span>
+                    </h3>
+                  </div>
+                </div>
+                <div className="h-px bg-slate-100 flex-1 mx-10 hidden lg:block opacity-60"></div>
+                <Layers
+                  size={22}
+                  className={`transition-all duration-500 ${
+                    isExpanded ? "text-blue-500 scale-110" : "text-slate-200"
+                  }`}
+                />
+              </button>
+          </div>
+        );
+      }
+
+      return (
+        <div style={style} className="px-4 md:px-8">
+          <div className="grid gap-6" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
+            {item.products.map(product => (
+              <ProductCard
+                key={product.id || product.productCode}
+                product={product}
+                onSelect={() => onSelectProduct(product)}
+                onClick={() => onSelectProduct(product)}
+              />
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <List
+        ref={listRef}
+        height={height}
+        width={width}
+        itemCount={flattenedItems.length}
+        itemSize={getItemSize}
+        itemData={{ items: flattenedItems, toggleGroup, expandedGroups, onSelectProduct, columnCount }}
+      >
+        {Row}
+      </List>
+    );
+  };
+
   // --- Render ---
   if (loading)
     return (
@@ -215,7 +382,7 @@ const ProductSearchView = ({ showFilters, setShowFilters }) => {
         </div>
 
         {/* Scrollbaar Gebied met Groepen */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-40">
+        <div className="flex-1 overflow-hidden pb-0">
           {filteredProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-20 m-6 bg-white rounded-[3rem] border-2 border-dashed border-slate-200 animate-in">
               <Box className="text-slate-200 mb-6" size={60} />
@@ -244,79 +411,18 @@ const ProductSearchView = ({ showFilters, setShowFilters }) => {
               </button>
             </div>
           ) : (
-            <div className="space-y-4 text-left">
-              {Object.entries(groupedProducts).map(([groupName, items]) => {
-                const isExpanded = !!expandedGroups[groupName];
-
-                return (
-                  <div
-                    key={groupName}
-                    className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
-                  >
-                    <button
-                      onClick={() => toggleGroup(groupName)}
-                      className={`w-full flex items-center justify-between p-5 rounded-[2rem] border transition-all duration-300 ${
-                        isExpanded
-                          ? "bg-white border-slate-200 shadow-xl"
-                          : "bg-white/50 border-transparent hover:bg-white hover:border-slate-200"
-                      }`}
-                    >
-                      <div className="flex items-center gap-6">
-                        <div
-                          className={`p-3 rounded-2xl transition-all duration-500 shadow-sm ${
-                            isExpanded
-                              ? "bg-blue-600 text-white rotate-0"
-                              : "bg-white text-slate-400 -rotate-90 border border-slate-100"
-                          }`}
-                        >
-                          <ChevronDown size={20} strokeWidth={3} />
-                        </div>
-
-                        <div className="flex flex-col text-left">
-                          <h3 className="text-[15px] font-black text-slate-900 uppercase italic tracking-wider flex items-center gap-4">
-                            {groupName}
-                            <span
-                              className={`text-[9px] px-3 py-1 rounded-full normal-case font-black not-italic transition-all border ${
-                                isExpanded
-                                  ? "bg-blue-50 text-blue-600 border-blue-100"
-                                  : "bg-slate-100 text-slate-500 border-slate-200"
-                              }`}
-                            >
-                              {items.length} items
-                            </span>
-                          </h3>
-                        </div>
-                      </div>
-
-                      <div className="h-px bg-slate-100 flex-1 mx-10 hidden lg:block opacity-60"></div>
-
-                      <Layers
-                        size={22}
-                        className={`transition-all duration-500 ${
-                          isExpanded
-                            ? "text-blue-500 scale-110"
-                            : "text-slate-200"
-                        }`}
-                      />
-                    </button>
-
-                    {isExpanded && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 px-2 animate-in slide-in-from-top-4">
-                        {items.map((product) => (
-                          <ProductCard
-                            key={product.id || product.productCode}
-                            product={product}
-                            // FIX: Beide props meegeven om crashes te voorkomen
-                            onSelect={() => setSelectedProduct(product)}
-                            onClick={() => setSelectedProduct(product)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <AutoSizer>
+              {({ height, width }) => (
+                <VirtualizedProductList
+                  height={height}
+                  width={width}
+                  groupedProducts={groupedProducts}
+                  expandedGroups={expandedGroups}
+                  toggleGroup={toggleGroup}
+                  onSelectProduct={setSelectedProduct}
+                />
+              )}
+            </AutoSizer>
           )}
         </div>
       </div>

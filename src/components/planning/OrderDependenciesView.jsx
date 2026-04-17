@@ -6,19 +6,21 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle,
-  XCircle,
   Link,
   TrendingUp
 } from "lucide-react";
-import { collection, onSnapshot, doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
+import { addOrderDependency, removeOrderDependency } from "../../services/planningSecurityService";
+import { useNotifications } from '../../contexts/NotificationContext';
 
 /**
  * OrderDependenciesView - Manage order dependencies and critical path
  * Shows which orders block others and calculates critical path
  */
 const OrderDependenciesView = () => {
+  const { notify } = useNotifications();
   const [orders, setOrders] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showAddDependency, setShowAddDependency] = useState(false);
@@ -138,13 +140,20 @@ const OrderDependenciesView = () => {
 
     // Check for circular dependencies
     if (wouldCreateCircular(selectedOrder.id, potentialDependency)) {
-      alert("⚠️ Dit zou een circulaire dependency cre\u00ebren!");
+      notify("⚠️ Dit zou een circulaire dependency cre\u00ebren!");
       return;
     }
 
-    await updateDoc(doc(db, ...PATHS.PLANNING, selectedOrder.id), {
-      dependencies: arrayUnion(potentialDependency)
+    await addOrderDependency({
+      orderId: selectedOrder.id,
+      dependencyId: potentialDependency,
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "ORDER_DEPENDENCY_ADD",
+      `Dependency toegevoegd: ${selectedOrder.id} <- ${potentialDependency}`
+    );
 
     setPotentialDependency("");
     setShowAddDependency(false);
@@ -152,9 +161,16 @@ const OrderDependenciesView = () => {
 
   // Remove dependency
   const removeDependency = async (orderId, depId) => {
-    await updateDoc(doc(db, ...PATHS.PLANNING, orderId), {
-      dependencies: arrayRemove(depId)
+    await removeOrderDependency({
+      orderId,
+      dependencyId: depId,
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "ORDER_DEPENDENCY_REMOVE",
+      `Dependency verwijderd: ${orderId} -/-> ${depId}`
+    );
   };
 
   // Check if adding dependency would create circular reference

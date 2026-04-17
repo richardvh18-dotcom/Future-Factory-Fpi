@@ -56,3 +56,27 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+self.addEventListener('notificationclick', (event) => {
+  console.log('[Service Worker] Notification click received.', event);
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        try {
+          for (const client of clientList) {
+            if (client.url.includes('/messages') && 'focus' in client) {
+              return client.focus();
+            }
+          }
+          if (clients.openWindow) {
+            return clients.openWindow('/messages');
+          }
+        } catch (err) {
+          console.error('Error handling notification click:', err);
+        }
+      })
+      .catch((err) => {
+        console.error('Error in notificationclick event:', err);
+      })
+  );
+});

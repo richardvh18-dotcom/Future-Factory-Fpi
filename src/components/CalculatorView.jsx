@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Activity, RotateCcw, Ruler, Info } from "lucide-react";
 import {
   STANDARD_DIAMETERS,
@@ -41,6 +42,8 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
     setState((prev) => ({ ...prev, [field]: value }));
   };
 
+  const { t } = useTranslation();
+
   return (
     <div className="flex h-full w-full bg-slate-50 relative overflow-hidden">
       {/* Background Decorations */}
@@ -57,10 +60,10 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
               </div>
               <div>
                 <h2 className="text-2xl font-black text-slate-800 tracking-tight">
-                  Z-Maat
+                  {t('calculator.zmaat', 'Z-Maat')}
                 </h2>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                  Calculator
+                  {t('calculator.calculator', 'Calculator')}
                 </p>
               </div>
             </div>
@@ -69,7 +72,7 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
               {/* Type Select */}
               <div className="space-y-2">
                 <label className="text-xs font-black text-slate-400 uppercase tracking-wider ml-1">
-                  Type Fitting
+                  {t('calculator.type_fitting', 'Type Fitting')}
                 </label>
                 <div className="relative group">
                   <select
@@ -92,7 +95,7 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
               {/* Connection Select */}
               <div className="space-y-2">
                 <label className="text-xs font-black text-slate-400 uppercase tracking-wider ml-1">
-                  Verbinding
+                  {t('calculator.connection', 'Verbinding')}
                 </label>
                 <div className="relative group">
                   <select
@@ -116,7 +119,7 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase tracking-wider ml-1">
-                    Druk (PN)
+                    {t('calculator.pressure', 'Druk (PN)')}
                   </label>
                   <select
                     value={state.pressure}
@@ -132,7 +135,7 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase tracking-wider ml-1">
-                    Diameter (DN)
+                    {t('calculator.diameter', 'Diameter (DN)')}
                   </label>
                   <select
                     value={state.diameter}
@@ -159,7 +162,7 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
               <div className="flex items-center gap-3 mb-2 opacity-50">
                 <Ruler size={20} />
                 <span className="text-xs font-black uppercase tracking-[0.2em]">
-                  Resultaat
+                  {t('calculator.result', 'Resultaat')}
                 </span>
               </div>
               <h3 className="text-3xl font-bold text-white mb-1">
@@ -167,7 +170,7 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
                 <span className="text-emerald-400">DN{state.diameter}</span>
               </h3>
               <p className="text-slate-400 text-sm font-medium">
-                Configuratie: {state.connection} • PN{state.pressure}
+                {t('calculator.configuration', 'Configuratie')}: {state.connection} • PN{state.pressure}
               </p>
             </div>
 
@@ -175,37 +178,37 @@ const CalculatorView = ({ bellDimensions, standardFittingDims }) => {
               <div className="flex-1 flex flex-col items-center justify-center opacity-30 gap-4">
                 <Info size={48} />
                 <p className="text-sm font-bold uppercase tracking-widest">
-                  Geen data beschikbaar
+                  {t('calculator.no_data', 'Geen data beschikbaar')}
                 </p>
               </div>
             ) : (
               <div className="relative z-10 mt-8 space-y-8">
                 <div className="bg-white/10 backdrop-blur-md rounded-3xl p-8 border border-white/10">
                   <span className="block text-center text-emerald-400 text-xs font-black uppercase tracking-widest mb-2">
-                    Berekende Z-Maat
+                    {t('calculator.calculated_zmaat', 'Berekende Z-Maat')}
                   </span>
                   <div className="flex items-baseline justify-center gap-4">
                     <span className="text-[100px] font-black tracking-tighter italic leading-none text-white">
                       {result?.zMaat}
                     </span>
                     <span className="text-2xl font-bold text-emerald-500 uppercase italic">
-                      mm
+                      {t('calculator.mm', 'mm')}
                     </span>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-6 bg-white/5 p-8 rounded-[2rem] border border-white/10 font-mono text-sm shadow-inner">
                   <div className="flex flex-col gap-1 border-r border-white/10 pr-6 text-left">
                     <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider">
-                      Totale Lengte (L)
+                      {t('calculator.total_length', 'Totale Lengte (L)')}
                     </span>
-                    <span className="text-xl font-bold">{result?.L} mm</span>
+                    <span className="text-xl font-bold">{result?.L} {t('calculator.mm', 'mm')}</span>
                   </div>
                   <div className="flex flex-col gap-1 pl-6 text-left">
                     <span className="text-[9px] text-emerald-500 font-black uppercase tracking-wider">
-                      Insteekdiepte (B1)
+                      {t('calculator.insertion_depth', 'Insteekdiepte (B1)')}
                     </span>
                     <span className="text-xl font-bold text-emerald-400">
-                      {result?.B1} mm
+                      {result?.B1} {t('calculator.mm', 'mm')}
                     </span>
                   </div>
                 </div>

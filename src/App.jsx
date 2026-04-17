@@ -1,9 +1,9 @@
 import React, { useState, Suspense, lazy, useEffect } from "react";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { auth, db } from "./config/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { auth, db, logActivity } from "./config/firebase";
+import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
 import LoggedOutView from "./components/LoggedOutView";
 
 // Basis Componenten
@@ -15,16 +15,20 @@ import ProfileView from "./components/ProfileView";
 import ProductSearchView from "./components/products/ProductSearchView";
 import ForcePasswordChangeView from "./components/ForcePasswordChangeView";
 import GodModeBootstrap from "./components/admin/GodModeBootstrap";
+import AutoLogoutWarning from "./components/AutoLogoutWarning";
 
 // Notification System
 import { NotificationProvider } from "./contexts/NotificationContext";
 import ToastContainer from "./components/notifications/ToastContainer";
+import ConfirmDialog from "./components/notifications/ConfirmDialog";
 
 // Hooks
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useProductsData } from "./hooks/useProductsData";
 import { useSettingsData } from "./hooks/useSettingsData";
 import { useMessages } from "./hooks/useMessages";
+import { useAutoLogout } from "./hooks/useAutoLogout";
+import { PATHS } from "./config/dbPaths";
 
 // Lazy Loading Modules
 const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
@@ -32,7 +36,7 @@ const AdminMessagesView = lazy(() =>
   import("./components/admin/AdminMessagesView")
 ); // NIEUW: Directe import voor route
 const DigitalPlanningHub = lazy(() =>
-  import("./components/digitalplanning/DigitalPlanningHub")
+  import("./components/digitalplanning/DigitalPlanningHub.jsx")
 );
 const MobileScanner = lazy(() =>
   import("./components/digitalplanning/MobileScanner")
@@ -41,8 +45,12 @@ const ShopFloorMobileApp = lazy(() =>
   import("./components/planning/ShopFloorMobileApp")
 );
 const CalculatorView = lazy(() => import("./components/CalculatorView"));
-const AiAssistantView = lazy(() => import("./components/AiAssistantView.jsx"));
+const AiAssistantView = lazy(() => import("./components/ai/AiAssistantView.jsx"));
+const AdminLogView = lazy(() => import("./components/admin/AdminLogView"));
 
+const PrintQueueAdminView = lazy(() =>
+  import("./components/printer/PrintQueueAdminView")
+);
 /**
  * App.jsx V18.0 - Responsive Design
  * + Mobile menu state management
@@ -59,28 +67,106 @@ const App = () => {
   const { user, isAdmin, role, loading: authLoading } = useAdminAuth();
   const { products = [] } = useProductsData(user);
   const { generalConfig } = useSettingsData(user);
-  const { messages = [] } = useMessages(user);
+  useMessages(user);
 
-  const unreadCount = messages
-    ? messages.filter((m) => !m.read && !m.archived).length
-    : 0;
+  // Auto-logout na inactiviteit (60 minuten inactiviteit, 5 minuten waarschuwing)
+  const { showWarning, remainingTime, dismissWarning } = useAutoLogout(
+    60, // Timeout in minuten
+    5,  // Waarschuwing in minuten voor timeout
+    !!user // Alleen actief als gebruiker ingelogd is
+  );
 
   // Check of gebruiker wachtwoord moet wijzigen
   useEffect(() => {
+    console.log("🔐 App mounted, user:", user?.email || "No user");
+    console.log("📊 Auth loading:", authLoading);
+    console.log("👤 Role:", role);
+    console.log("🔧 Is Admin:", isAdmin);
+    
     if (user) {
       const checkPasswordChange = async () => {
         try {
+          console.log("🔍 Checking password change requirement for:", user.uid);
           const userDoc = await getDoc(doc(db, "future-factory", "Users", "Accounts", user.uid));
           if (userDoc.exists() && userDoc.data().requirePasswordChange) {
+            console.log("⚠️ Password change required");
             setRequiresPasswordChange(true);
+          } else {
+            console.log("✅ No password change required");
           }
         } catch (err) {
-          console.error("Error checking password change:", err);
+          console.error("❌ Error checking password change:", err);
         }
       };
       checkPasswordChange();
     }
-  }, [user]);
+  }, [user, authLoading, role, isAdmin]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !user?.email) return undefined;
+
+    let initialized = false;
+
+    const createConnectivityMessage = async (online) => {
+      const eventKey = `connectivity:${online ? "online" : "offline"}`;
+      const lastRaw = window.localStorage.getItem("ff_last_connectivity_message");
+      const now = Date.now();
+
+      if (lastRaw) {
+        try {
+          const last = JSON.parse(lastRaw);
+          if (last?.key === eventKey && now - Number(last?.timestamp || 0) < 30000) {
+            return;
+          }
+        } catch {
+          // Ignore malformed localStorage values.
+        }
+      }
+
+      await addDoc(collection(db, ...PATHS.MESSAGES), {
+        to: user.email.toLowerCase(),
+        from: "SYSTEM",
+        senderId: "system-connectivity",
+        subject: online ? "Verbinding hersteld" : "Offline modus actief",
+        content: online
+          ? "De verbinding met het netwerk is hersteld. Live synchronisatie is weer actief."
+          : "De netwerkverbinding is weggevallen. De app draait verder op lokale cache totdat de verbinding terug is.",
+        timestamp: serverTimestamp(),
+        read: false,
+        archived: false,
+        priority: "normal",
+        type: "system",
+        targetGroup: user.email.toLowerCase(),
+      });
+
+      window.localStorage.setItem(
+        "ff_last_connectivity_message",
+        JSON.stringify({ key: eventKey, timestamp: now })
+      );
+    };
+
+    const handleConnectivityChange = (online) => {
+      if (!initialized) {
+        initialized = true;
+        return;
+      }
+      createConnectivityMessage(online).catch((error) => {
+        console.error("Kon verbindingsmelding niet opslaan:", error);
+      });
+    };
+
+    const handleOnline = () => handleConnectivityChange(true);
+    const handleOffline = () => handleConnectivityChange(false);
+
+    initialized = true;
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [user?.email]);
 
   const handleLogin = async (email, password) => {
     setLoginError(null);
@@ -88,11 +174,13 @@ const App = () => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log("✅ Login succesvol! UID:", userCredential.user.uid);
+      await logActivity(userCredential.user.uid, "LOGIN", `Succesvol ingelogd via email: ${email}`);
       navigate("/");
     } catch (err) {
       console.error("❌ Login fout:", err);
       console.error("Error code:", err.code);
       console.error("Error message:", err.message);
+      await logActivity("system", "LOGIN_FAILED", `Mislukte inlogpoging voor: ${email}. Reden: ${err.code}`, "warning");
       
       let errorMessage = "E-mail of wachtwoord onjuist.";
       
@@ -116,6 +204,7 @@ const App = () => {
 
 
   if (authLoading) {
+    console.log("⏳ Auth loading...");
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-slate-950">
         <Loader2 className="animate-spin text-blue-400" size={48} />
@@ -128,38 +217,35 @@ const App = () => {
 
   // Check for specialized bootstrapping view (Orphaned Admin)
   const bootstrapAdminUid = import.meta.env.VITE_BOOTSTRAP_ADMIN_UID;
+  let content;
+
   if (user?.uid === bootstrapAdminUid && role === "guest") {
-    return <GodModeBootstrap />;
-  }
-
-
-  // Fallback: Afmeldpagina tonen als user null is en niet loading, behalve op /login
-  if (!user && !authLoading) {
+    console.log("🔧 Bootstrap admin mode");
+    content = <GodModeBootstrap />;
+  } else if (!user && !authLoading) {
+    console.log("🚫 No user, showing logged out view");
     const path = window.location.pathname;
     if (path === "/login") {
-      return <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
+      console.log("📝 Showing login view");
+      content = <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
+    } else {
+      content = <LoggedOutView />;
     }
-    return <LoggedOutView />;
-  }
-
-  if (role === "guest") {
-    return <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
-  }
-
-  // Force password change voor nieuwe gebruikers
-  if (requiresPasswordChange) {
-    return (
+  } else if (role === "guest") {
+    console.log("👤 Guest role, showing login");
+    content = <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
+  } else if (requiresPasswordChange) {
+    console.log("🔑 Password change required");
+    content = (
       <ForcePasswordChangeView 
         user={user} 
         onComplete={() => setRequiresPasswordChange(false)} 
       />
     );
-  }
-
-  return (
-    <NotificationProvider>
+  } else {
+    console.log("✅ Rendering main app");
+    content = (
       <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
-        <ToastContainer />
         <Header
           user={user}
           searchQuery={searchQuery}
@@ -168,12 +254,15 @@ const App = () => {
           onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         />
 
-        <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex overflow-hidden relative md:mt-0 pt-16 md:pt-0">
           <Sidebar
             user={user}
             isAdmin={isAdmin}
             role={role}
             onLogout={async () => {
+              if (user) {
+                await logActivity(user.uid, "LOGOUT", `Gebruiker uitgelogd: ${user.email}`);
+              }
               await signOut(auth);
               navigate("/login");
             }}
@@ -181,7 +270,7 @@ const App = () => {
             onMobileMenuClose={() => setIsMobileMenuOpen(false)}
           />
 
-          <main className="flex-1 flex flex-col overflow-hidden relative md:pl-16">
+          <main className="flex-1 flex flex-col overflow-hidden relative md:pl-16" style={{ WebkitOverflowScrolling: 'touch' }}>
             <Suspense
               fallback={
                 <div className="flex-1 flex items-center justify-center bg-white">
@@ -200,14 +289,31 @@ const App = () => {
                 <Route path="/calculator" element={<CalculatorView />} />
                 <Route path="/assistant" element={<AiAssistantView />} />
                 <Route path="/messages" element={<AdminMessagesView user={user} />} />
+                <Route path="/printer-queue" element={<PrintQueueAdminView />} />
                 <Route path="/admin/*" element={<AdminDashboard />} />
+                <Route path="/logs" element={<AdminLogView />} />
                 <Route path="/login" element={<LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
           </main>
         </div>
+
+        {showWarning && (
+          <AutoLogoutWarning 
+            remainingTime={remainingTime} 
+            onDismiss={dismissWarning} 
+          />
+        )}
       </div>
+    );
+  }
+
+  return (
+    <NotificationProvider>
+      <ToastContainer />
+      <ConfirmDialog />
+      {content}
     </NotificationProvider>
   );
 };

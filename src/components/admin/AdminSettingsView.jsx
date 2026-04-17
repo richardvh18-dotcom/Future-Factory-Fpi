@@ -1,4 +1,6 @@
+import { useNotifications } from '../../contexts/NotificationContext';
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   Save,
   Loader2,
@@ -13,15 +15,25 @@ import {
   CheckCircle2,
   AlertCircle,
   Settings,
-  BrainCircuit,
   Rocket,
 } from "lucide-react";
-import { doc, onSnapshot, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import {
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
+import { db, auth, logActivity } from "../../config/firebase";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+import {
+  PATHS,
+  ACTIVE_SITE,
+  getPathString,
+} from "../../config/dbPaths";
 
 // Handige presets voor snelle branding
 const PRESET_LOGOS = [
+  // ... (presets blijven hetzelfde)
   {
     id: "simple_ff",
     url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%233b82f6' width='100' height='100' rx='20'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='0.35em' font-family='Arial Black' font-size='40' fill='white' font-weight='900'%3EFF%3C/text%3E%3C/svg%3E",
@@ -39,15 +51,20 @@ const PRESET_LOGOS = [
   },
 ];
 
+
 /**
  * AdminSettingsView V6.0 - Root Integrated
  * Beheert globale applicatie-instellingen, branding en thema.
  * Pad: /future-factory/settings/general_configs/main
  */
 const AdminSettingsView = () => {
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
+  useAdminAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(null);
+  const [activeTab, setActiveTab] = useState("general");
   const [uploadedLogos, setUploadedLogos] = useState([]);
   const fileInputRef = useRef(null);
 
@@ -58,7 +75,6 @@ const AdminSettingsView = () => {
     maintenanceMode: false,
     uploadedLogos: [], // Array om alle geüploade logo's bij te houden
   });
-  const [aiPrompt, setAiPrompt] = useState("");
 
   // 1. Live Sync met de Root
   useEffect(() => {
@@ -69,7 +85,10 @@ const AdminSettingsView = () => {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          setSettings((prev) => ({ ...prev, ...data }));
+          setSettings((prev) => ({
+            ...prev,
+            ...data,
+          }));
           setUploadedLogos(data.uploadedLogos || []);
         }
         setLoading(false);
@@ -81,18 +100,6 @@ const AdminSettingsView = () => {
     );
 
     return () => unsubscribe();
-  }, []);
-
-  // 1b. Laad AI Context (losse fetch om traffic te sparen)
-  useEffect(() => {
-    const fetchAiConfig = async () => {
-      try {
-        const docRef = doc(db, ...PATHS.AI_CONFIG);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) setAiPrompt(snap.data().systemPrompt || "");
-      } catch (e) { console.error(e); }
-    };
-    fetchAiConfig();
   }, []);
 
   // 2. Opslaan naar de Root
@@ -111,14 +118,7 @@ const AdminSettingsView = () => {
         { merge: true }
       );
 
-      // Sla AI prompt apart op
-      if (aiPrompt) {
-        await setDoc(doc(db, ...PATHS.AI_CONFIG), {
-          systemPrompt: aiPrompt,
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
+      await logActivity(auth.currentUser?.uid, "SETTINGS_UPDATE", "General settings updated");
       setStatus({ type: "success", msg: "Systeeminstellingen gepubliceerd!" });
       setTimeout(() => setStatus(null), 3000);
     } catch (error) {
@@ -135,7 +135,7 @@ const AdminSettingsView = () => {
     if (!file) return;
 
     if (file.size > 500 * 1024) {
-      alert("Bestand te groot (max 500KB).");
+      notify("Bestand te groot (max 500KB).");
       return;
     }
 
@@ -201,15 +201,20 @@ const AdminSettingsView = () => {
           </div>
           <div className="text-left">
             <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
-              Systeem <span className="text-blue-600">Configuratie</span>
+              {t('system')} <span className="text-blue-600">{t('configuration')}</span>
             </h2>
             <div className="mt-3 flex items-center gap-3">
               <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-100 uppercase italic">
-                <ShieldCheck size={10} /> Root Encrypted
+                <ShieldCheck size={10} /> {t('rootEncrypted')}
               </span>
-              <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
-                Target: /{PATHS.GENERAL_SETTINGS.join("/")}
-              </p>
+              <div className="flex flex-col">
+                <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
+                  Site: <span className="text-blue-600 font-bold">{ACTIVE_SITE}</span>
+                </p>
+                <p className="text-[8px] font-mono text-slate-300 uppercase tracking-widest">
+                  Target: /{PATHS.GENERAL_SETTINGS.join("/")}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -219,11 +224,26 @@ const AdminSettingsView = () => {
           disabled={saving}
           className="bg-slate-900 text-white px-10 py-5 rounded-[22px] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-3 relative z-10"
         >
-          {saving ? <Loader2 className="animate-spin" /> : <Save size={18} />}{" "}
-          Publiceren naar Root
+          {saving ? <Loader2 className="animate-spin" /> : <Save size={18} />} {t('publishToRoot')}
         </button>
       </div>
 
+      {/* TABS */}
+      <div className="flex gap-2 border-b border-slate-200 pb-1">
+        <button
+          onClick={() => setActiveTab("general")}
+          className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center gap-2 ${
+            activeTab === "general"
+              ? "bg-slate-900 text-white shadow-lg"
+              : "bg-white text-slate-500 hover:bg-slate-50 border border-slate-200"
+          }`}
+        >
+          <Settings size={16} />
+          Algemeen
+        </button>
+      </div>
+
+      {activeTab === "general" && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         {/* LINKS: ALGEMENE INFO */}
         <div className="space-y-8">
@@ -283,6 +303,34 @@ const AdminSettingsView = () => {
             <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
               <Settings size={16} className="text-blue-500" /> Systeem Tools
             </h3>
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-left">
+              <p className="text-[10px] text-slate-500 font-medium">
+                Product- en malbeheer staat nu onder Product & Data Management in de tegel "Mallen & Gereedschappen".
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3 text-left">
+              <div>
+                <h4 className="text-sm font-black text-slate-800">Productie databron</h4>
+                <p className="text-[10px] text-slate-500 font-medium mt-1">
+                  De app leest en schrijft nu vast op de productiecollecties. Testen kan per machine-map zonder database-switch.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actieve paden</p>
+                <p className="mt-2 text-[10px] font-mono text-slate-600 break-all">
+                  PLANNING: /{getPathString(PATHS.PLANNING)}
+                </p>
+                <p className="mt-1 text-[10px] font-mono text-slate-600 break-all">
+                  TRACKING: /{getPathString(PATHS.TRACKING)}
+                </p>
+                <p className="mt-1 text-[10px] font-mono text-slate-600 break-all">
+                  EFFICIENCY: /{getPathString(PATHS.EFFICIENCY_HOURS)}
+                </p>
+              </div>
+            </div>
             
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div>
@@ -469,24 +517,6 @@ const AdminSettingsView = () => {
           )}
         </div>
 
-        {/* AI CONFIGURATIE */}
-        <div className="space-y-4 pt-6 border-t border-slate-100">
-          <h3 className="text-xs font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-3 italic">
-            <BrainCircuit size={16} className="text-purple-500" /> AI Kennisbank (System Prompt)
-          </h3>
-          <div className="relative">
-            <textarea 
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              className="w-full h-64 p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono text-xs text-slate-600 outline-none focus:border-purple-500 transition-all resize-y"
-              placeholder="Plak hier de volledige context en instructies voor de AI..."
-            />
-            <div className="absolute bottom-4 right-4 text-[9px] font-bold text-slate-400 bg-white px-2 py-1 rounded border border-slate-200">
-              {aiPrompt.length} karakters
-            </div>
-          </div>
-        </div>
-
         {/* RECHTS: SAVE BUTTON */}
         <div className="space-y-4">
           <button
@@ -508,6 +538,7 @@ const AdminSettingsView = () => {
           </button>
         </div>
       </div>
+      )}
 
       {/* STATUS MELDINGEN */}
       {status && (

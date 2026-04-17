@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { 
   Zap, 
   Plus, 
@@ -6,7 +7,6 @@ import {
   CheckCircle,
   XCircle,
   Play,
-  Pause,
   ArrowRight,
   Edit,
   AlertTriangle,
@@ -18,15 +18,18 @@ import {
   Upload
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { executeRuleWithLogging } from "../../utils/automationEngine";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 /**
  * AutomationRulesView - "When X happens, then Y" automation engine
  * Centralized automation met gemigreerde hardcoded logica
  */
 const AutomationRulesView = () => {
+  const { t } = useTranslation();
+  const { showConfirm , notify} = useNotifications();
   const [rules, setRules] = useState([]);
   const [executions, setExecutions] = useState([]);
   const [showAddRule, setShowAddRule] = useState(false);
@@ -81,7 +84,7 @@ const AutomationRulesView = () => {
   // Add or Update automation rule
   const saveRule = async () => {
     if (!newRule.name) {
-      alert("Geef de regel een naam");
+      notify(t("planning.automationRules.alerts.ruleNameRequired", "Geef de regel een naam"));
       return;
     }
 
@@ -91,6 +94,11 @@ const AutomationRulesView = () => {
         ...newRule,
         updatedAt: serverTimestamp()
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "AUTOMATION_RULE_UPDATE",
+        `Automationregel bijgewerkt: ${editingRule.id} (${newRule.name})`
+      );
     } else {
       // Voeg nieuwe regel toe
       await addDoc(collection(db, ...PATHS.AUTOMATION_RULES), {
@@ -99,6 +107,11 @@ const AutomationRulesView = () => {
         executionCount: 0,
         lastExecuted: null
       });
+      await logActivity(
+        auth.currentUser?.uid,
+        "AUTOMATION_RULE_CREATE",
+        `Automationregel aangemaakt: ${newRule.name}`
+      );
     }
 
     // Reset state
@@ -128,9 +141,21 @@ const AutomationRulesView = () => {
 
   // Delete rule
   const deleteRule = async (ruleId) => {
-    if (confirm("Weet je zeker dat je deze automation regel wilt verwijderen?")) {
-      await deleteDoc(doc(db, ...PATHS.AUTOMATION_RULES, ruleId));
-    }
+    const confirmed = await showConfirm({
+      title: t("planning.automationRules.alerts.deleteTitle", "Automationregel verwijderen"),
+      message: t("planning.automationRules.alerts.confirmDelete", "Weet je zeker dat je deze automation regel wilt verwijderen?"),
+      confirmText: t("common.delete", "Verwijderen"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    await deleteDoc(doc(db, ...PATHS.AUTOMATION_RULES, ruleId));
+    await logActivity(
+      auth.currentUser?.uid,
+      "AUTOMATION_RULE_DELETE",
+      `Automationregel verwijderd: ${ruleId}`
+    );
   };
 
   // Toggle rule
@@ -138,6 +163,12 @@ const AutomationRulesView = () => {
     await updateDoc(doc(db, ...PATHS.AUTOMATION_RULES, ruleId), {
       enabled: !currentState
     });
+
+    await logActivity(
+      auth.currentUser?.uid,
+      "AUTOMATION_RULE_TOGGLE",
+      `Automationregel ${ruleId} ${!currentState ? "ingeschakeld" : "uitgeschakeld"}`
+    );
   };
 
   // Test rule (manual execution using automation engine)
@@ -147,17 +178,17 @@ const AutomationRulesView = () => {
       const result = await executeRuleWithLogging(rule);
       
       if (result.skipped) {
-        alert(`⏸️ ${result.message}`);
+        notify(`⏸️ ${result.message}`);
       } else if (result.error) {
-        alert(`❌ Error: ${result.error}`);
+        notify(`❌ ${t("planning.automationRules.alerts.error", "Fout")}: ${result.error}`);
       } else if (result.triggered) {
-        alert(`✅ Regel uitgevoerd!\n\n${result.message || 'Actie succesvol uitgevoerd'}`);
+        notify(`✅ ${t("planning.automationRules.alerts.ruleExecuted", "Regel uitgevoerd!")}\n\n${result.message || t("planning.automationRules.alerts.actionSuccess", "Actie succesvol uitgevoerd")}`);
       } else {
-        alert(`ℹ️ Trigger niet geactiveerd\n\n${result.message || 'Condities niet voldaan'}`);
+        notify(`ℹ️ ${t("planning.automationRules.alerts.triggerNotActivated", "Trigger niet geactiveerd")}\n\n${result.message || t("planning.automationRules.alerts.conditionsNotMet", "Condities niet voldaan")}`);
       }
     } catch (error) {
       console.error("Test error:", error);
-      alert(`❌ Fout bij uitvoeren: ${error.message}`);
+      notify(`❌ ${t("planning.automationRules.alerts.executionFailed", "Fout bij uitvoeren")}: ${error.message}`);
     } finally {
       setIsTesting(false);
     }
@@ -166,37 +197,71 @@ const AutomationRulesView = () => {
   const getTriggerLabel = (trigger) => {
     const labels = {
       // Existing
-      order_status_change: "Order Status Wijziging",
-      capacity_threshold: "Capaciteit Threshold",
-      time_based: "Tijd-gebaseerd",
-      dependency_complete: "Dependency Voltooid",
-      efficiency_drop: "Efficiency Daling",
+      order_status_change: t("planning.automationRules.triggers.order_status_change", "Order Status Wijziging"),
+      capacity_threshold: t("planning.automationRules.triggers.capacity_threshold", "Capaciteit Threshold"),
+      time_based: t("planning.automationRules.triggers.time_based", "Tijd-gebaseerd"),
+      dependency_complete: t("planning.automationRules.triggers.dependency_complete", "Dependency Voltooid"),
+      efficiency_drop: t("planning.automationRules.triggers.efficiency_drop", "Efficiency Daling"),
       // Migrated from NotificationRulesView
-      capacity_shortage: "Capaciteitstekort",
-      low_efficiency: "Lage Efficiency",
-      order_delay: "Order Vertraging",
-      missing_operator: "Ontbrekende Operator",
-      dependency_blocked: "Geblokkeerde Dependencies",
+      capacity_shortage: t("planning.automationRules.triggers.capacity_shortage", "Capaciteitstekort"),
+      low_efficiency: t("planning.automationRules.triggers.low_efficiency", "Lage Efficiency"),
+      order_delay: t("planning.automationRules.triggers.order_delay", "Order Vertraging"),
+      missing_operator: t("planning.automationRules.triggers.missing_operator", "Ontbrekende Operator"),
+      dependency_blocked: t("planning.automationRules.triggers.dependency_blocked", "Geblokkeerde Dependencies"),
       // Migrated from WorkstationHub
-      inspection_overdue: "Inspectie Overdue",
+      inspection_overdue: t("planning.automationRules.triggers.inspection_overdue", "Inspectie Overdue"),
       // Migrated from autoLearningService
-      standard_deviation: "Standaard Afwijking"
+      standard_deviation: t("planning.automationRules.triggers.standard_deviation", "Standaard Afwijking")
     };
     return labels[trigger.type] || trigger.type;
   };
 
   const getActionLabel = (action) => {
     const labels = {
-      send_notification: "Stuur Notificatie",
-      update_status: "Update Status",
-      assign_operator: "Wijs Operator Toe",
-      reschedule_order: "Herplan Order",
-      create_log: "Maak Log Entry",
+      send_notification: t("planning.automationRules.actions.send_notification", "Stuur Notificatie"),
+      update_status: t("planning.automationRules.actions.update_status", "Update Status"),
+      assign_operator: t("planning.automationRules.actions.assign_operator", "Wijs Operator Toe"),
+      reschedule_order: t("planning.automationRules.actions.reschedule_order", "Herplan Order"),
+      create_log: t("planning.automationRules.actions.create_log", "Maak Log Entry"),
       // New migrated actions
-      auto_learning_update: "Update Standaarden (AI)",
-      inspection_reminder: "Stuur Inspectie Reminder"
+      auto_learning_update: t("planning.automationRules.actions.auto_learning_update", "Update Standaarden (AI)"),
+      inspection_reminder: t("planning.automationRules.actions.inspection_reminder", "Stuur Inspectie Reminder")
     };
     return labels[action.type] || action.type;
+  };
+
+  const getConditionSummary = (rule) => {
+    if (!rule.trigger?.conditions) return null;
+
+    if (rule.trigger.type === "capacity_shortage") {
+      return t("planning.automationRules.summaries.thresholdHours", "Threshold: {{value}}h", { value: rule.trigger.conditions.threshold });
+    }
+    if (rule.trigger.type === "low_efficiency") {
+      return t("planning.automationRules.summaries.minPercent", "Min: {{value}}%", { value: rule.trigger.conditions.threshold });
+    }
+    if (rule.trigger.type === "order_delay") {
+      return t("planning.automationRules.summaries.minOrders", "Min orders: {{value}}", { value: rule.trigger.conditions.minDelayedOrders || 1 });
+    }
+    if (rule.trigger.type === "missing_operator") {
+      return t("planning.automationRules.summaries.minMachines", "Min machines: {{value}}", { value: rule.trigger.conditions.threshold || 1 });
+    }
+    if (rule.trigger.type === "dependency_blocked") {
+      return t("planning.automationRules.summaries.minBlocked", "Min blocked: {{value}}", { value: rule.trigger.conditions.threshold || 1 });
+    }
+    if (rule.trigger.type === "inspection_overdue") {
+      return t("planning.automationRules.summaries.inspectionOverdue", "{{days}} dagen{{station}}", {
+        days: rule.trigger.conditions.daysOverdue || 7,
+        station: rule.trigger.conditions.station ? ` @ ${rule.trigger.conditions.station}` : "",
+      });
+    }
+    if (rule.trigger.type === "standard_deviation") {
+      return t("planning.automationRules.summaries.standardDeviation", "Min samples: {{samples}}, Dev: {{deviation}}%", {
+        samples: rule.trigger.conditions.minSamples || 5,
+        deviation: rule.trigger.conditions.minDeviation || 5,
+      });
+    }
+
+    return null;
   };
 
   const getTriggerIcon = (type) => {
@@ -215,9 +280,14 @@ const AutomationRulesView = () => {
 
   // Import standaard rules (gemigreerd van oude modules)
   const importDefaultRules = async () => {
-    if (!confirm("Dit importeert vooraf geconfigureerde automation rules gebaseerd op de oude hardcoded logica. Doorgaan?")) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: t("planning.automationRules.alerts.importTitle", "Standaardregels importeren"),
+      message: t("planning.automationRules.alerts.confirmImportDefaults", "Dit importeert vooraf geconfigureerde automation rules gebaseerd op de oude hardcoded logica. Doorgaan?"),
+      confirmText: t("common.continue", "Doorgaan"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "warning",
+    });
+    if (!confirmed) return;
 
     setIsImporting(true);
     
@@ -353,10 +423,15 @@ const AutomationRulesView = () => {
           lastExecuted: null
         });
       }
-      alert(`✅ ${defaultRules.length} standaard automation rules geïmporteerd!`);
+      await logActivity(
+        auth.currentUser?.uid,
+        "AUTOMATION_RULES_IMPORT",
+        `${defaultRules.length} standaard automationregels geimporteerd`
+      );
+      notify(`✅ ${t("planning.automationRules.alerts.defaultsImported", "{{count}} standaard automation rules geïmporteerd!", { count: defaultRules.length })}`);
     } catch (error) {
       console.error("Import error:", error);
-      alert(`❌ Fout bij importeren: ${error.message}`);
+      notify(`❌ ${t("planning.automationRules.alerts.importFailed", "Fout bij importeren")}: ${error.message}`);
     } finally {
       setIsImporting(false);
     }
@@ -369,16 +444,16 @@ const AutomationRulesView = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-black text-slate-800">
-              Automation <span className="text-purple-600">Rules</span>
+              {t("planning.automationRules.titlePrefix", "Automation")} <span className="text-purple-600">{t("planning.automationRules.titleAccent", "Rules")}</span>
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              "When X happens, then Y" - Automatiseer acties op basis van triggers
+              {t("planning.automationRules.subtitle", '"When X happens, then Y" - Automatiseer acties op basis van triggers')}
             </p>
           </div>
 
           <div className="flex items-center gap-4">
             <div className="px-4 py-2 bg-purple-50 border-2 border-purple-200 rounded-xl">
-              <div className="text-xs text-purple-600 font-bold uppercase">Active Rules</div>
+              <div className="text-xs text-purple-600 font-bold uppercase">{t("planning.automationRules.activeRules", "Active Rules")}</div>
               <div className="text-2xl font-black text-purple-600">
                 {rules.filter(r => r.enabled).length}
               </div>
@@ -390,10 +465,10 @@ const AutomationRulesView = () => {
               className={`flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold transition-colors ${
                 isImporting ? "opacity-50 cursor-not-allowed" : ""
               }`}
-              title="Importeer vooraf geconfigureerde rules van oude modules"
+              title={t("planning.automationRules.importDefaultsTitle", "Importeer vooraf geconfigureerde rules van oude modules")}
             >
               <Upload size={16} />
-              {isImporting ? "Importeren..." : "Importeer Defaults"}
+              {isImporting ? t("planning.automationRules.importing", "Importeren...") : t("planning.automationRules.importDefaults", "Importeer Defaults")}
             </button>
 
             <button
@@ -404,7 +479,7 @@ const AutomationRulesView = () => {
               className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-xl font-bold transition-colors"
             >
               <Plus size={16} />
-              Nieuwe Regel
+              {t("planning.automationRules.newRule", "Nieuwe Regel")}
             </button>
           </div>
         </div>
@@ -416,17 +491,17 @@ const AutomationRulesView = () => {
           {showAddRule && (
             <div className="bg-white rounded-2xl shadow-sm border-2 border-purple-200 p-6">
               <h3 className="text-lg font-bold text-slate-800 mb-4">
-                {editingRule ? "Automation Regel Bewerken" : "Nieuwe Automation Regel"}
+                {editingRule ? t("planning.automationRules.editRule", "Automation Regel Bewerken") : t("planning.automationRules.newAutomationRule", "Nieuwe Automation Regel")}
               </h3>
               
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-bold text-slate-700 uppercase mb-2 block">
-                    Regel Naam
+                    {t("planning.automationRules.ruleName", "Regel Naam")}
                   </label>
                   <input
                     type="text"
-                    placeholder="Bijv: Auto-notify bij productie start"
+                    placeholder={t("planning.automationRules.ruleNamePlaceholder", "Bijv: Auto-notify bij productie start")}
                     value={newRule.name}
                     onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
                     className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
@@ -437,7 +512,7 @@ const AutomationRulesView = () => {
                   {/* Trigger */}
                   <div>
                     <label className="text-xs font-bold text-slate-700 uppercase mb-2 block">
-                      WHEN (Trigger)
+                      {t("planning.automationRules.whenTrigger", "WHEN (Trigger)")}
                     </label>
                     <select
                       value={newRule.trigger.type}
@@ -447,34 +522,34 @@ const AutomationRulesView = () => {
                       })}
                       className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm mb-2"
                     >
-                      <optgroup label="📊 Capaciteit & Planning">
-                        <option value="capacity_shortage">Capaciteitstekort</option>
-                        <option value="low_efficiency">Lage Efficiency</option>
-                        <option value="order_delay">Order Vertraging</option>
-                        <option value="missing_operator">Ontbrekende Operator</option>
+                      <optgroup label={t("planning.automationRules.groups.capacityPlanning", "📊 Capaciteit & Planning")}>
+                        <option value="capacity_shortage">{t("planning.automationRules.triggers.capacity_shortage", "Capaciteitstekort")}</option>
+                        <option value="low_efficiency">{t("planning.automationRules.triggers.low_efficiency", "Lage Efficiency")}</option>
+                        <option value="order_delay">{t("planning.automationRules.triggers.order_delay", "Order Vertraging")}</option>
+                        <option value="missing_operator">{t("planning.automationRules.triggers.missing_operator", "Ontbrekende Operator")}</option>
                       </optgroup>
-                      <optgroup label="🔗 Dependencies & Workflow">
-                        <option value="dependency_blocked">Geblokkeerde Dependencies</option>
-                        <option value="order_status_change">Order Status Wijziging</option>
+                      <optgroup label={t("planning.automationRules.groups.workflow", "🔗 Dependencies & Workflow")}>
+                        <option value="dependency_blocked">{t("planning.automationRules.triggers.dependency_blocked", "Geblokkeerde Dependencies")}</option>
+                        <option value="order_status_change">{t("planning.automationRules.triggers.order_status_change", "Order Status Wijziging")}</option>
                       </optgroup>
-                      <optgroup label="🔍 Kwaliteit & Inspectie">
-                        <option value="inspection_overdue">Inspectie Overdue</option>
+                      <optgroup label={t("planning.automationRules.groups.quality", "🔍 Kwaliteit & Inspectie")}>
+                        <option value="inspection_overdue">{t("planning.automationRules.triggers.inspection_overdue", "Inspectie Overdue")}</option>
                       </optgroup>
-                      <optgroup label="🤖 AI & Learning">
-                        <option value="standard_deviation">Standaard Afwijking</option>
+                      <optgroup label={t("planning.automationRules.groups.ai", "🤖 AI & Learning")}>
+                        <option value="standard_deviation">{t("planning.automationRules.triggers.standard_deviation", "Standaard Afwijking")}</option>
                       </optgroup>
-                      <optgroup label="⏰ Tijd & Scheduling">
-                        <option value="time_based">Tijd-gebaseerd</option>
+                      <optgroup label={t("planning.automationRules.groups.time", "⏰ Tijd & Scheduling")}>
+                        <option value="time_based">{t("planning.automationRules.triggers.time_based", "Tijd-gebaseerd")}</option>
                       </optgroup>
                     </select>
 
                     {/* Capacity Shortage Conditions */}
                     {newRule.trigger.type === "capacity_shortage" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Tekort threshold (uren)</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.thresholdHours", "Tekort threshold (uren)")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 40"
+                          placeholder={t("planning.automationRules.placeholders.example40", "Bijv: 40")}
                           value={newRule.trigger.conditions?.threshold || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -491,10 +566,10 @@ const AutomationRulesView = () => {
                     {/* Low Efficiency Conditions */}
                     {newRule.trigger.type === "low_efficiency" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Minimum efficiency (%)</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.minEfficiency", "Minimum efficiency (%)")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 80"
+                          placeholder={t("planning.automationRules.placeholders.example80", "Bijv: 80")}
                           value={newRule.trigger.conditions?.threshold || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -511,10 +586,10 @@ const AutomationRulesView = () => {
                     {/* Order Delay Conditions */}
                     {newRule.trigger.type === "order_delay" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Minimum vertraagde orders</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.minDelayedOrders", "Minimum vertraagde orders")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 1"
+                          placeholder={t("planning.automationRules.placeholders.example1", "Bijv: 1")}
                           value={newRule.trigger.conditions?.minDelayedOrders || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -531,10 +606,10 @@ const AutomationRulesView = () => {
                     {/* Missing Operator Conditions */}
                     {newRule.trigger.type === "missing_operator" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Minimum machines zonder operator</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.minMachinesWithoutOperator", "Minimum machines zonder operator")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 1"
+                          placeholder={t("planning.automationRules.placeholders.example1", "Bijv: 1")}
                           value={newRule.trigger.conditions?.threshold || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -551,10 +626,10 @@ const AutomationRulesView = () => {
                     {/* Dependency Blocked Conditions */}
                     {newRule.trigger.type === "dependency_blocked" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Minimum geblokkeerde orders</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.minBlockedOrders", "Minimum geblokkeerde orders")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 1"
+                          placeholder={t("planning.automationRules.placeholders.example1", "Bijv: 1")}
                           value={newRule.trigger.conditions?.threshold || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -571,10 +646,10 @@ const AutomationRulesView = () => {
                     {/* Inspection Overdue Conditions */}
                     {newRule.trigger.type === "inspection_overdue" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Dagen overdue</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.daysOverdue", "Dagen overdue")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 7"
+                          placeholder={t("planning.automationRules.placeholders.example7", "Bijv: 7")}
                           value={newRule.trigger.conditions?.daysOverdue || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -588,10 +663,10 @@ const AutomationRulesView = () => {
                           })}
                           className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
                         />
-                        <label className="text-xs text-slate-600">Station (optioneel)</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.stationOptional", "Station (optioneel)")}</label>
                         <input
                           type="text"
-                          placeholder="Bijv: NABEWERKING"
+                          placeholder={t("planning.automationRules.placeholders.exampleStation", "Bijv: NABEWERKING")}
                           value={newRule.trigger.conditions?.station || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -611,10 +686,10 @@ const AutomationRulesView = () => {
                     {/* Standard Deviation Conditions */}
                     {newRule.trigger.type === "standard_deviation" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Minimum samples</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.minSamples", "Minimum samples")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 5"
+                          placeholder={t("planning.automationRules.placeholders.example5", "Bijv: 5")}
                           value={newRule.trigger.conditions?.minSamples || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -628,10 +703,10 @@ const AutomationRulesView = () => {
                           })}
                           className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
                         />
-                        <label className="text-xs text-slate-600">Minimum afwijking (%)</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.minDeviation", "Minimum afwijking (%)")}</label>
                         <input
                           type="number"
-                          placeholder="Bijv: 5"
+                          placeholder={t("planning.automationRules.placeholders.example5", "Bijv: 5")}
                           value={newRule.trigger.conditions?.minDeviation || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -651,7 +726,7 @@ const AutomationRulesView = () => {
                     {/* Order Status Change Conditions */}
                     {newRule.trigger.type === "order_status_change" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Target status</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.conditions.targetStatus", "Target status")}</label>
                         <select
                           value={newRule.trigger.conditions?.targetStatus || ""}
                           onChange={(e) => setNewRule({ 
@@ -663,12 +738,12 @@ const AutomationRulesView = () => {
                           })}
                           className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
                         >
-                          <option value="planned">Gepland</option>
-                          <option value="in_production">In Productie</option>
-                          <option value="quality_check">Controle</option>
-                          <option value="ready_to_ship">Verzendklaar</option>
-                          <option value="shipped">Verzonden</option>
-                          <option value="completed">Voltooid</option>
+                          <option value="planned">{t("planning.automationRules.statuses.planned", "Gepland")}</option>
+                          <option value="in_production">{t("planning.automationRules.statuses.in_production", "In Productie")}</option>
+                          <option value="quality_check">{t("planning.automationRules.statuses.quality_check", "Controle")}</option>
+                          <option value="ready_to_ship">{t("planning.automationRules.statuses.ready_to_ship", "Verzendklaar")}</option>
+                          <option value="shipped">{t("planning.automationRules.statuses.shipped", "Verzonden")}</option>
+                          <option value="completed">{t("planning.automationRules.statuses.completed", "Voltooid")}</option>
                         </select>
                       </div>
                     )}
@@ -677,7 +752,7 @@ const AutomationRulesView = () => {
                   {/* Action */}
                   <div>
                     <label className="text-xs font-bold text-slate-700 uppercase mb-2 block">
-                      THEN (Action)
+                      {t("planning.automationRules.thenAction", "THEN (Action)")}
                     </label>
                     <select
                       value={newRule.action.type}
@@ -687,18 +762,18 @@ const AutomationRulesView = () => {
                       })}
                       className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm mb-2"
                     >
-                      <option value="send_notification">Stuur Notificatie</option>
-                      <option value="create_log">Maak Log Entry</option>
-                      <option value="inspection_reminder">Stuur Inspectie Reminder</option>
-                      <option value="auto_learning_update">Update Standaarden (AI)</option>
-                      <option value="update_status">Update Status</option>
-                      <option value="assign_operator">Wijs Operator Toe</option>
-                      <option value="reschedule_order">Herplan Order</option>
+                      <option value="send_notification">{t("planning.automationRules.actions.send_notification", "Stuur Notificatie")}</option>
+                      <option value="create_log">{t("planning.automationRules.actions.create_log", "Maak Log Entry")}</option>
+                      <option value="inspection_reminder">{t("planning.automationRules.actions.inspection_reminder", "Stuur Inspectie Reminder")}</option>
+                      <option value="auto_learning_update">{t("planning.automationRules.actions.auto_learning_update", "Update Standaarden (AI)")}</option>
+                      <option value="update_status">{t("planning.automationRules.actions.update_status", "Update Status")}</option>
+                      <option value="assign_operator">{t("planning.automationRules.actions.assign_operator", "Wijs Operator Toe")}</option>
+                      <option value="reschedule_order">{t("planning.automationRules.actions.reschedule_order", "Herplan Order")}</option>
                     </select>
 
                     {newRule.action.type === "send_notification" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Severity</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.severity", "Severity")}</label>
                         <select
                           value={newRule.action.params?.severity || "info"}
                           onChange={(e) => setNewRule({ 
@@ -710,15 +785,15 @@ const AutomationRulesView = () => {
                           })}
                           className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
                         >
-                          <option value="info">Info</option>
-                          <option value="warning">Warning</option>
-                          <option value="critical">Critical</option>
-                          <option value="alert">Alert</option>
+                          <option value="info">{t("planning.automationRules.severities.info", "Info")}</option>
+                          <option value="warning">{t("planning.automationRules.severities.warning", "Warning")}</option>
+                          <option value="critical">{t("planning.automationRules.severities.critical", "Critical")}</option>
+                          <option value="alert">{t("planning.automationRules.severities.alert", "Alert")}</option>
                         </select>
-                        <label className="text-xs text-slate-600">Custom bericht (optioneel)</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.customMessageOptional", "Custom bericht (optioneel)")}</label>
                         <input
                           type="text"
-                          placeholder="Laat leeg voor auto bericht"
+                          placeholder={t("planning.automationRules.leaveEmptyAutoMessage", "Laat leeg voor auto bericht")}
                           value={newRule.action.params?.message || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -734,11 +809,11 @@ const AutomationRulesView = () => {
 
                     {newRule.action.type === "auto_learning_update" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Learning Rate (0-1)</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.learningRate", "Learning Rate (0-1)")}</label>
                         <input
                           type="number"
                           step="0.1"
-                          placeholder="Bijv: 0.3"
+                          placeholder={t("planning.automationRules.placeholders.exampleLearningRate", "Bijv: 0.3")}
                           value={newRule.action.params?.learningRate || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -767,17 +842,17 @@ const AutomationRulesView = () => {
                               } 
                             })}
                           />
-                          <span className="text-xs text-slate-600">Dry Run (alleen simuleren)</span>
+                          <span className="text-xs text-slate-600">{t("planning.automationRules.dryRun", "Dry Run (alleen simuleren)")}</span>
                         </label>
                       </div>
                     )}
 
                     {newRule.action.type === "create_log" && (
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-600">Log bericht (optioneel)</label>
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.logMessageOptional", "Log bericht (optioneel)")}</label>
                         <input
                           type="text"
-                          placeholder="Laat leeg voor auto bericht"
+                          placeholder={t("planning.automationRules.leaveEmptyAutoMessage", "Laat leeg voor auto bericht")}
                           value={newRule.action.params?.logMessage || ""}
                           onChange={(e) => setNewRule({ 
                             ...newRule, 
@@ -796,11 +871,11 @@ const AutomationRulesView = () => {
                 {/* Debounce Setting */}
                 <div className="pt-2 border-t border-slate-200">
                   <label className="text-xs font-bold text-slate-700 uppercase mb-2 block">
-                    Debounce (minuten)
+                    {t("planning.automationRules.debounceMinutes", "Debounce (minuten)")}
                   </label>
                   <input
                     type="number"
-                    placeholder="Bijv: 60"
+                    placeholder={t("planning.automationRules.placeholders.example60", "Bijv: 60")}
                     value={newRule.debounceMinutes || ""}
                     onChange={(e) => setNewRule({ 
                       ...newRule, 
@@ -809,7 +884,7 @@ const AutomationRulesView = () => {
                     className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Voorkomt dubbele executions binnen deze tijd
+                    {t("planning.automationRules.debounceHelp", "Voorkomt dubbele executions binnen deze tijd")}
                   </p>
                 </div>
 
@@ -818,7 +893,7 @@ const AutomationRulesView = () => {
                     onClick={saveRule}
                     className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg font-bold transition-colors"
                   >
-                    {editingRule ? "Wijzigingen Opslaan" : "Regel Opslaan"}
+                    {editingRule ? t("planning.automationRules.saveChanges", "Wijzigingen Opslaan") : t("planning.automationRules.saveRule", "Regel Opslaan")}
                   </button>
                   <button
                     onClick={() => {
@@ -827,7 +902,7 @@ const AutomationRulesView = () => {
                     }}
                     className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold transition-colors"
                   >
-                    Annuleren
+                    {t("planning.automationRules.cancel", "Annuleren")}
                   </button>
                 </div>
               </div>
@@ -837,12 +912,12 @@ const AutomationRulesView = () => {
           {/* Active Rules */}
           <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200">
             <div className="p-4 border-b-2 border-slate-200 bg-slate-50">
-              <h3 className="text-sm font-bold text-slate-800">Automation Regels</h3>
+              <h3 className="text-sm font-bold text-slate-800">{t("planning.automationRules.rulesHeader", "Automation Regels")}</h3>
             </div>
             <div className="p-4 space-y-3">
               {rules.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
-                  Nog geen automation rules geconfigureerd
+                  {t("planning.automationRules.noRulesConfigured", "Nog geen automation rules geconfigureerd")}
                 </div>
               ) : (
                 rules.map(rule => (
@@ -860,19 +935,19 @@ const AutomationRulesView = () => {
                           {rule.name}
                           {rule.debounceMinutes && (
                             <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded font-normal">
-                              {rule.debounceMinutes}min debounce
+                              {t("planning.automationRules.debounceBadge", "{{count}}min debounce", { count: rule.debounceMinutes })}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-xs flex-wrap">
                           <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded font-bold flex items-center gap-1">
                             {getTriggerIcon(rule.trigger.type)}
-                            WHEN
+                            {t("planning.automationRules.when", "WHEN")}
                           </span>
                           <span className="text-slate-600">{getTriggerLabel(rule.trigger)}</span>
                           <ArrowRight size={12} className="text-slate-400" />
                           <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded font-bold">
-                            THEN
+                            {t("planning.automationRules.then", "THEN")}
                           </span>
                           <span className="text-slate-600">{getActionLabel(rule.action)}</span>
                         </div>
@@ -880,13 +955,7 @@ const AutomationRulesView = () => {
                         {/* Trigger Conditions Summary */}
                         {rule.trigger.conditions && Object.keys(rule.trigger.conditions).length > 0 && (
                           <div className="mt-2 text-xs text-slate-500">
-                            {rule.trigger.type === "capacity_shortage" && `Threshold: ${rule.trigger.conditions.threshold}h`}
-                            {rule.trigger.type === "low_efficiency" && `Min: ${rule.trigger.conditions.threshold}%`}
-                            {rule.trigger.type === "order_delay" && `Min orders: ${rule.trigger.conditions.minDelayedOrders || 1}`}
-                            {rule.trigger.type === "missing_operator" && `Min machines: ${rule.trigger.conditions.threshold || 1}`}
-                            {rule.trigger.type === "dependency_blocked" && `Min blocked: ${rule.trigger.conditions.threshold || 1}`}
-                            {rule.trigger.type === "inspection_overdue" && `${rule.trigger.conditions.daysOverdue || 7} dagen${rule.trigger.conditions.station ? ` @ ${rule.trigger.conditions.station}` : ''}`}
-                            {rule.trigger.type === "standard_deviation" && `Min samples: ${rule.trigger.conditions.minSamples || 5}, Dev: ${rule.trigger.conditions.minDeviation || 5}%`}
+                            {getConditionSummary(rule)}
                           </div>
                         )}
                       </div>
@@ -895,7 +964,7 @@ const AutomationRulesView = () => {
                         <button
                           onClick={() => handleEditRule(rule)}
                           className="p-1 hover:bg-blue-100 rounded-lg transition-colors"
-                          title="Bewerken"
+                          title={t("planning.automationRules.edit", "Bewerken")}
                         >
                           <Edit className="text-blue-600" size={14} />
                         </button>
@@ -907,7 +976,7 @@ const AutomationRulesView = () => {
                               ? "bg-slate-100 cursor-not-allowed" 
                               : "hover:bg-blue-100"
                           }`}
-                          title="Test uitvoeren"
+                          title={t("planning.automationRules.testRun", "Test uitvoeren")}
                         >
                           <Play className={isTesting ? "text-slate-400" : "text-blue-600"} size={14} />
                         </button>
@@ -935,10 +1004,10 @@ const AutomationRulesView = () => {
                     </div>
 
                     <div className="flex items-center gap-4 text-xs text-slate-500">
-                      <span>Uitgevoerd: {rule.executionCount || 0}x</span>
+                      <span>{t("planning.automationRules.executedCount", "Uitgevoerd: {{count}}x", { count: rule.executionCount || 0 })}</span>
                       {rule.lastExecuted && (
                         <span>
-                          Laatst: {new Date(rule.lastExecuted.seconds * 1000).toLocaleString('nl-NL', {
+                          {t("planning.automationRules.lastExecuted", "Laatst")}: {new Date(rule.lastExecuted.seconds * 1000).toLocaleString('nl-NL', {
                             day: '2-digit',
                             month: '2-digit',
                             hour: '2-digit',
@@ -957,12 +1026,12 @@ const AutomationRulesView = () => {
         {/* Execution History */}
         <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200">
           <div className="p-4 border-b-2 border-slate-200 bg-slate-50">
-            <h3 className="text-sm font-bold text-slate-800">Execution History</h3>
+            <h3 className="text-sm font-bold text-slate-800">{t("planning.automationRules.executionHistory", "Execution History")}</h3>
           </div>
           <div className="p-4 space-y-2 max-h-[700px] overflow-y-auto">
             {executions.length === 0 ? (
               <div className="text-center py-12 text-slate-400 text-sm">
-                Nog geen executions
+                {t("planning.automationRules.noExecutions", "Nog geen executions")}
               </div>
             ) : (
               executions.map(exec => (
@@ -982,7 +1051,7 @@ const AutomationRulesView = () => {
                       <XCircle className="text-red-600" size={12} />
                     )}
                   </div>
-                  <div className="text-xs text-slate-600">{exec.message || "No message"}</div>
+                  <div className="text-xs text-slate-600">{exec.message || t("planning.automationRules.noMessage", "No message")}</div>
                   {exec.executedAt && (
                     <div className="text-xs text-slate-400 mt-1">
                       {new Date(exec.executedAt.seconds * 1000).toLocaleString('nl-NL', {
@@ -1005,21 +1074,21 @@ const AutomationRulesView = () => {
         <div className="flex items-start gap-4">
           <Zap className="text-purple-600 flex-shrink-0" size={24} />
           <div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Centralized Automation Engine 🚀</h3>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">{t("planning.automationRules.infoTitle", "Centralized Automation Engine 🚀")}</h3>
             <div className="text-sm text-slate-700 space-y-1">
-              <p>✅ <strong>Gemigreerde Logica:</strong> Alle hardcoded automation rules zijn nu data-driven</p>
-              <p>✅ <strong>8 Trigger Types:</strong> Capacity shortage, Low efficiency, Order delay, Missing operator, Dependency blocked, Inspection overdue, Standard deviation, Status change</p>
-              <p>✅ <strong>7 Action Types:</strong> Notificaties, Logs, Inspectie reminders, AI learning updates, Status updates, Operator toewijzingen, Herplanningen</p>
-              <p>✅ <strong>Smart Debouncing:</strong> Voorkomt dubbele executions binnen geconfigureerde tijd</p>
-              <p>✅ <strong>Real-time Testing:</strong> Test elke regel direct met actuele data via Play knop</p>
-              <p>✅ <strong>Execution History:</strong> Volledige logging van alle uitgevoerde rules</p>
+              <p>✅ <strong>{t("planning.automationRules.info.migratedLogicLabel", "Gemigreerde Logica:")}</strong> {t("planning.automationRules.info.migratedLogicText", "Alle hardcoded automation rules zijn nu data-driven")}</p>
+              <p>✅ <strong>{t("planning.automationRules.info.triggerTypesLabel", "8 Trigger Types:")}</strong> {t("planning.automationRules.info.triggerTypesText", "Capacity shortage, Low efficiency, Order delay, Missing operator, Dependency blocked, Inspection overdue, Standard deviation, Status change")}</p>
+              <p>✅ <strong>{t("planning.automationRules.info.actionTypesLabel", "7 Action Types:")}</strong> {t("planning.automationRules.info.actionTypesText", "Notificaties, Logs, Inspectie reminders, AI learning updates, Status updates, Operator toewijzingen, Herplanningen")}</p>
+              <p>✅ <strong>{t("planning.automationRules.info.smartDebouncingLabel", "Smart Debouncing:")}</strong> {t("planning.automationRules.info.smartDebouncingText", "Voorkomt dubbele executions binnen geconfigureerde tijd")}</p>
+              <p>✅ <strong>{t("planning.automationRules.info.realTimeTestingLabel", "Real-time Testing:")}</strong> {t("planning.automationRules.info.realTimeTestingText", "Test elke regel direct met actuele data via Play knop")}</p>
+              <p>✅ <strong>{t("planning.automationRules.info.executionHistoryLabel", "Execution History:")}</strong> {t("planning.automationRules.info.executionHistoryText", "Volledige logging van alle uitgevoerde rules")}</p>
             </div>
             <div className="mt-3 p-3 bg-white/50 rounded-lg border border-purple-200">
-              <p className="text-xs font-bold text-purple-700 mb-1">🎯 Migratie Succesvol:</p>
+              <p className="text-xs font-bold text-purple-700 mb-1">{t("planning.automationRules.info.migrationSuccessTitle", "🎯 Migratie Succesvol:")}</p>
               <p className="text-xs text-slate-600">
-                <strong>NotificationRulesView:</strong> 5 trigger types → Automation Rules<br />
-                <strong>WorkstationHub:</strong> Inspection reminders → Automation Rules<br />
-                <strong>autoLearningService:</strong> AI standard updates → Automation Rules
+                <strong>NotificationRulesView:</strong> {t("planning.automationRules.info.notificationRulesViewText", "5 trigger types → Automation Rules")}<br />
+                <strong>WorkstationHub:</strong> {t("planning.automationRules.info.workstationHubText", "Inspection reminders → Automation Rules")}<br />
+                <strong>autoLearningService:</strong> {t("planning.automationRules.info.autoLearningServiceText", "AI standard updates → Automation Rules")}
               </p>
             </div>
           </div>

@@ -1,18 +1,14 @@
-import React, { useState, useMemo } from "react";
+import { updatePlanningOrderPriority } from "../../../services/planningSecurityService";
+import React, { useState, useMemo, useRef, useEffect as useResizeEffect } from "react";
 import {
   X,
   Info,
-  Clock,
-  CheckCircle2,
   Ruler,
   ShieldCheck,
   Box,
   History,
   Activity,
-  User,
-  Folder,
   FileText,
-  Calendar,
   AlertTriangle,
   Plus,
   ArrowRightLeft,
@@ -20,17 +16,25 @@ import {
   Loader2,
   Star,
   Zap,
+  Eye,
+  EyeOff,
+  Printer,
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
-import { WORKSTATIONS } from "../../../utils/workstationLogic";
+import { WORKSTATIONS, REJECTION_REASONS } from "../../../utils/workstationLogic";
 import { format } from "date-fns";
-import { getISOWeekInfo } from "../../../utils/hubHelpers";
-import { findDrawingForOrder, syncOrderDrawing } from "../../../utils/drawingLinker.js";
-import { collection, query, where, getDocs, doc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { findDrawingForOrder, syncOrderDrawing } from "../../../utils/drawingLinker.jsx";
+import { collection, query, where, getDocs, getDoc, doc, arrayUnion, limit } from "firebase/firestore";
+import { db, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import ProductDetailModal from "../../products/ProductDetailModal";
+import LabelVisualPreview from "../../printer/LabelVisualPreview";
+import { useLabelPreview } from "../../../hooks/useLabelPreview";
+import ConfirmationModal from "./ConfirmationModal";
+import { formatDateTimeSafe, toDateSafe } from "../../../utils/dateUtils";
+import { useNotifications } from '../../../contexts/NotificationContext';
+import { rejectTrackedProductFinal, queuePrintJob } from "../../../services/planningSecurityService";
 
 /**
  * ProductDossierModal: Toont proces-stappen, kwaliteitsmetingen en order-info.
@@ -44,24 +48,85 @@ const ProductDossierModal = ({
   onAddNote,
   onMoveLot,
 }) => {
+  const { notify } = useNotifications();
   const [newNote, setNewNote] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
   const [targetStation, setTargetStation] = useState("");
+  const [repairInstruction, setRepairInstruction] = useState("");
   const [overrideLoading, setOverrideLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [catalogProduct, setCatalogProduct] = useState(null);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
-  const { role } = useAdminAuth();
-  const canEditPriority = ["admin", "planner", "teamleader"].includes(role);
+  const [historyWithOperators, setHistoryWithOperators] = useState([]);
+  const [isReprinting, setIsReprinting] = useState(false);
+  const [reprintQuantity, setReprintQuantity] = useState("1");
+  const [showLabelPreview, setShowLabelPreview] = useState(false);
+  const [resolvedLabelZPL, setResolvedLabelZPL] = useState("");
+  const [resolvedLabelTemplateId, setResolvedLabelTemplateId] = useState(null);
+  const [isResolvingLabel, setIsResolvingLabel] = useState(false);
+  const { role, user } = useAdminAuth();
+  const canEditPriority = ["admin", "teamleader"].includes(role);
+  const [showConfirmMove, setShowConfirmMove] = useState(false);
+  const [showConfirmReject, setShowConfirmReject] = useState(false);
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [rejectReasons, setRejectReasons] = useState([]);
+  const [rejectNote, setRejectNote] = useState("");
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const previewContainerRef = useRef(null);
+
+  const _DOSSIER_PPM = 3.78;
+  const labelProductData = useMemo(() => product ? {
+    ...product,
+    orderNumber: product.orderId || product.orderNumber,
+    lotNumber: product.lotNumber,
+    item: product.item,
+  } : {}, [product]);
+  const { selectedLabel: dossierLabel, previewData: dossierPreviewData } = useLabelPreview(labelProductData, resolvedLabelTemplateId);
+
+  useResizeEffect(() => {
+    const el = previewContainerRef.current;
+    if (!el || !dossierLabel) return;
+    const recalc = () => {
+      const W = el.clientWidth - 24;
+      const H = Math.max(el.clientHeight - 24, 120);
+      const lW = dossierLabel.width * _DOSSIER_PPM;
+      const lH = dossierLabel.height * _DOSSIER_PPM;
+      if (lW > 0 && lH > 0) setPreviewZoom(Math.min(2, W / lW, H / lH));
+    };
+    recalc();
+    const ro = new ResizeObserver(recalc);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [dossierLabel, showLabelPreview]);
+
+  const isTijdelijkeAfkeur = product?.inspection?.status === "Tijdelijke afkeur";
+
+  const REJECTION_REASON_LABELS = {
+    "rejection.surfaceDamage": "Oppervlakteschade",
+    "rejection.dimensionDeviation": "Maatafwijking (TW/TF/W)",
+    "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
+    "rejection.incorrectLabel": "Onjuist label",
+    "rejection.linerDamaged": "Liner beschadigd",
+    "rejection.other": "Overig",
+  };
+
+  const toggleRejectReason = (reason) => {
+    setRejectReasons((prev) =>
+      prev.includes(reason) ? prev.filter((r) => r !== reason) : [...prev, reason]
+    );
+  };
 
   const handleDrawingSync = async () => {
-    if (!parentOrder.itemCode) return;
+    const hasCode = parentOrder.itemCode || parentOrder.item || parentOrder.productId || parentOrder.manufacturedId || parentOrder.articleCode;
+    if (!hasCode) return;
     setIsSyncing(true);
     const drawing = await findDrawingForOrder(parentOrder);
     if (drawing) {
       await syncOrderDrawing(parentOrder.id, drawing);
+    } else {
+      console.warn("[Dossier Sync] Geen tekening gevonden voor order:", parentOrder.id, { itemCode: parentOrder.itemCode, item: parentOrder.item, productId: parentOrder.productId });
     }
     setIsSyncing(false);
   };
@@ -69,32 +134,26 @@ const ProductDossierModal = ({
   const handleSetPriority = async (level) => {
     if (!parentOrder.id) return;
     // Toggle logic: als huidige priority gelijk is aan gekozen level, zet uit (false)
-    const currentPrio = parentOrder.priority === true ? "high" : parentOrder.priority;
+    const currentPrio =
+      parentOrder.priority === true
+        ? "high"
+        : String(parentOrder.priority || "").toLowerCase().trim();
     const newPriority = currentPrio === level ? false : level;
 
     try {
-      const orderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
-      await updateDoc(orderRef, {
+      await updatePlanningOrderPriority({
+        orderDocId: parentOrder.id,
         priority: newPriority,
-        lastUpdated: new Date()
+        productDocId: product.id || "",
+        source: "ProductDossierModal",
+        actorLabel: user?.email || role || "Admin",
       });
 
-      // Update history in the product dossier (Tracked Product)
-      if (product.id) {
-        const collectionPath = product.id === parentOrder.id ? PATHS.PLANNING : PATHS.TRACKING;
-        const productRef = doc(db, ...collectionPath, product.id);
-
-        await updateDoc(productRef, {
-          history: arrayUnion({
-            station: "PLANNING",
-            user: role || "Admin",
-            action: "Prioriteit Wijziging",
-            details: `Prioriteit gewijzigd naar: ${newPriority ? (newPriority === true ? "HIGH" : newPriority.toUpperCase()) : "NORMAAL"}`,
-            time: new Date().toISOString()
-          }),
-          lastUpdated: new Date()
-        });
-      }
+      await logActivity(
+        user?.uid || "system",
+        "ORDER_PRIORITY_UPDATE",
+        `Dossier prioriteit gewijzigd: order ${parentOrder.id || displayOrderId}, naar ${newPriority || "normaal"}`
+      );
     } catch (e) {
       console.error("Fout bij wijzigen prioriteit:", e);
     }
@@ -102,26 +161,144 @@ const ProductDossierModal = ({
 
   if (!isOpen || !product) return null;
 
-  const parentOrder = orders.find((o) => o.orderId === product.orderId) || {};
+  const productOrderId =
+    product.orderId ||
+    product.order ||
+    product.orderNumber ||
+    product.orderNr ||
+    product.parentOrderId ||
+    "";
+
+  const parentOrder =
+    orders.find((o) => {
+      const orderKeys = [o.orderId, o.order, o.orderNumber, o.orderNr, o.id]
+        .filter(Boolean)
+        .map((v) => String(v));
+      return orderKeys.includes(String(productOrderId));
+    }) ||
+    {};
+
+  const displayOrderId =
+    productOrderId ||
+    parentOrder.orderId ||
+    parentOrder.orderNumber ||
+    parentOrder.order ||
+    parentOrder.orderNr ||
+    parentOrder.id ||
+    "-";
+
   const hasDrawing = parentOrder.drawing && parentOrder.drawing !== "-" && parentOrder.drawing !== "";
+  const effectiveLabelZPL = String(resolvedLabelZPL || product?.labelZPL || "").trim();
+  const normalizedParentPriority =
+    parentOrder.priority === true
+      ? "high"
+      : String(parentOrder.priority || "").toLowerCase().trim();
+
+  React.useEffect(() => {
+    const resolveLabelFromQueue = async () => {
+      if (!isOpen || !product) return;
+
+      const directZpl = String(product?.labelZPL || "").trim();
+      if (directZpl) {
+        setResolvedLabelZPL(directZpl);
+        setResolvedLabelTemplateId(product?.labelTemplateId || null);
+        return;
+      }
+
+      const lot = String(product?.lotNumber || product?.id || "").trim();
+      const order = String(product?.orderId || productOrderId || "").trim();
+      if (!lot && !order) {
+        setResolvedLabelZPL("");
+        setResolvedLabelTemplateId(null);
+        return;
+      }
+
+      setIsResolvingLabel(true);
+      try {
+        const queuePath = PATHS?.PRINT_QUEUE || ["future-factory", "production", "print_queue"];
+        const queueRef = collection(db, ...queuePath);
+        const calls = [];
+
+        if (lot) calls.push(getDocs(query(queueRef, where("metadata.lotNumber", "==", lot), limit(20))));
+        if (order) calls.push(getDocs(query(queueRef, where("metadata.orderId", "==", order), limit(20))));
+
+        const snaps = await Promise.all(calls);
+        const candidates = snaps.flatMap((snap) =>
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        );
+
+        const uniqueById = new Map(candidates.map((c) => [c.id, c]));
+        const best = Array.from(uniqueById.values())
+          .filter((j) => String(j?.zpl || j?.printData || "").trim())
+          .sort((a, b) => {
+            const ta = a?.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const tb = b?.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return tb - ta;
+          })[0];
+
+        setResolvedLabelZPL(String(best?.zpl || best?.printData || "").trim());
+        setResolvedLabelTemplateId(best?.metadata?.templateId || null);
+      } catch (e) {
+        console.warn("Kon labeldata niet uit print queue ophalen:", e);
+        setResolvedLabelZPL("");
+        setResolvedLabelTemplateId(null);
+      } finally {
+        setIsResolvingLabel(false);
+      }
+    };
+
+    resolveLabelFromQueue();
+  }, [isOpen, product, productOrderId]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setShowLabelPreview(false);
+  }, [isOpen, product?.id, product?.lotNumber]);
 
   const handleOpenDetail = async () => {
     if (!hasDrawing) return;
     
     setLoadingCatalog(true);
     try {
-      const appId = window.__app_id || "fittings-app-v1";
-      const productsRef = collection(db, "artifacts", appId, "public", "data", "products");
+      const productsRef = collection(db, ...PATHS.PRODUCTS);
+      const drawingId = parentOrder.drawing;
       
-      // Zoek op tekening nummer
-      const q = query(productsRef, where("drawing", "==", parentOrder.drawing));
-      const snap = await getDocs(q);
+      // Eerst probeer direct op document ID (manualSyncDrawings slaat product ID op)
+      const directRef = doc(db, ...PATHS.PRODUCTS, drawingId);
+      const directSnap = await getDoc(directRef);
       
-      if (!snap.empty) {
-        setCatalogProduct({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      if (directSnap.exists()) {
+        setCatalogProduct({ id: directSnap.id, ...directSnap.data() });
         setShowDetailModal(true);
       } else {
-        alert("Geen product gevonden in catalogus met deze tekening.");
+        // Fallback: zoek op articleCode
+        const q = query(productsRef, where("articleCode", "==", drawingId));
+        const snap = await getDocs(q);
+        
+        if (!snap.empty) {
+          setCatalogProduct({ id: snap.docs[0].id, ...snap.docs[0].data() });
+          setShowDetailModal(true);
+        } else {
+          // Materiaalvariant fallback: CST(C) ↔ EST(E) op positie 6
+          const upper = drawingId.toUpperCase();
+          let variantCode = null;
+          if (upper.length >= 8) {
+            if (upper[6] === "C") variantCode = upper.slice(0, 6) + "E" + upper.slice(7);
+            else if (upper[6] === "E") variantCode = upper.slice(0, 6) + "C" + upper.slice(7);
+          }
+          if (variantCode) {
+            const vq = query(productsRef, where("articleCode", "==", variantCode));
+            const vSnap = await getDocs(vq);
+            if (!vSnap.empty) {
+              setCatalogProduct({ id: vSnap.docs[0].id, ...vSnap.docs[0].data() });
+              setShowDetailModal(true);
+            } else {
+              notify("Geen product gevonden in catalogus met deze tekening.");
+            }
+          } else {
+            notify("Geen product gevonden in catalogus met deze tekening.");
+          }
+        }
       }
     } catch (e) {
       console.error("Fout bij openen product detail:", e);
@@ -148,18 +325,173 @@ const ProductDossierModal = ({
     return uniqueStations.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
   }, []);
 
+  const moveStations = useMemo(() => {
+    if (!isTijdelijkeAfkeur) return sortedStations;
+    const allowed = new Set(["BH31", "Nabewerking"]);
+    return sortedStations.filter((s) => allowed.has(s.id));
+  }, [isTijdelijkeAfkeur, sortedStations]);
+
+  // Effect: Verrijk historie met operator data uit occupancy als deze ontbreekt
+  React.useEffect(() => {
+    const enrichHistory = async () => {
+      if (!product?.history) {
+        setHistoryWithOperators([]);
+        return;
+      }
+
+      const enriched = await Promise.all(product.history.map(async (entry) => {
+        // Als operator al bekend is in de entry, gebruik die
+        if (entry.operator || entry.operatorNumber || entry.operatorName) return entry;
+        
+        // Als we geen station of tijd hebben, kunnen we niet zoeken
+        if (!entry.station || (!entry.timestamp && !entry.time)) return entry;
+
+        try {
+          const ts = toDateSafe(entry.timestamp || entry.time);
+          if (!ts || isNaN(ts.getTime())) return entry;
+          
+          const dateStr = ts.toISOString().split('T')[0];
+          const station = entry.station;
+
+          // Zoek in occupancy (eerst exact, dan uppercase)
+          let q = query(
+            collection(db, ...PATHS.OCCUPANCY),
+            where("date", "==", dateStr),
+            where("machineId", "==", station)
+          );
+          let snap = await getDocs(q);
+
+          if (snap.empty) {
+             q = query(collection(db, ...PATHS.OCCUPANCY), where("date", "==", dateStr), where("machineId", "==", station.toUpperCase()));
+             snap = await getDocs(q);
+          }
+
+          if (!snap.empty) {
+            const opData = snap.docs[0].data();
+            return { ...entry, operatorName: opData.operatorName, operatorNumber: opData.operatorNumber };
+          }
+        } catch (e) {
+          console.warn("Kon historie niet verrijken:", e);
+        }
+        return entry;
+      }));
+      setHistoryWithOperators(enriched);
+    };
+    enrichHistory();
+  }, [product, isOpen]);
+
   const formatDeadline = (val) => {
-    if (!val) return "-";
-    if (val?.toDate) return format(val.toDate(), "dd-MM-yyyy");
-    const date = new Date(val);
-    if (!isNaN(date.getTime())) return format(date, "dd-MM-yyyy");
+    const date = toDateSafe(val);
+    if (date) return format(date, "dd-MM-yyyy");
     return String(val);
   };
 
-  const normalizeMachine = (val) => {
-    if (!val) return "-";
-    const str = String(val).toUpperCase();
-    return str.startsWith("40") ? str.substring(2) : str;
+  const handleDefinitiveRejection = async () => {
+    if (!product?.id || rejectReasons.length === 0) return;
+    setRejectLoading(true);
+    const reasonLabels = rejectReasons.map(r => REJECTION_REASON_LABELS[r] || r).join(", ");
+    try {
+      await rejectTrackedProductFinal({
+        productId: product.id,
+        reasons: rejectReasons,
+        note: rejectNote || "",
+        source: "ProductDossierModal",
+        actorLabel: role || "Systeem",
+      });
+
+      await logActivity(
+        user?.uid || "system",
+        "QUALITY_REJECT_FINAL",
+        `Definitieve afkeur: lot ${product.lotNumber || product.id}, order ${displayOrderId}, redenen: ${reasonLabels}${rejectNote ? `; opmerking: ${rejectNote}` : ""}`
+      );
+    } catch (err) {
+      console.error("Fout bij definitieve afkeur:", err);
+    } finally {
+      setRejectLoading(false);
+      setShowConfirmReject(false);
+      setRejectReasons([]);
+      setRejectNote("");
+      onClose();
+    }
+  };
+
+  const handleExecuteMove = async () => {
+    if (!targetStation) return;
+    
+    setOverrideLoading(true);
+    await onMoveLot(product.id, targetStation, {
+      isRepairMove: isTijdelijkeAfkeur,
+      repairInstruction: repairInstruction.trim(),
+    });
+
+    // Planning order machine/week updates lopen nu server-side via moveTrackedProductManual callable.
+
+    await logActivity(
+      user?.uid || "system",
+      "LOT_MANUAL_MOVE",
+      `${isTijdelijkeAfkeur ? "Reparatie verplaatsing" : "Handmatige verplaatsing"}: lot ${product.lotNumber || product.id} -> ${targetStation} (order ${displayOrderId})${repairInstruction.trim() ? ` | instructie: ${repairInstruction.trim()}` : ""}`
+    );
+
+    setOverrideLoading(false);
+    setIsMoving(false);
+    setRepairInstruction("");
+    onClose();
+  };
+
+  const printerHasStation = (printer, station) => {
+    if (!printer || !station) return false;
+    const linked = Array.isArray(printer.linkedStations) ? printer.linkedStations : [];
+    const queue = Array.isArray(printer.queueStations) ? printer.queueStations : [];
+    return [...linked, ...queue].includes(station);
+  };
+
+  const handleReprintLabel = async () => {
+    const zplToReprint = String(effectiveLabelZPL || "").trim();
+    if (!zplToReprint) {
+      notify("Geen labeldata gevonden om te herprinten.");
+      return;
+    }
+
+    setIsReprinting(true);
+    try {
+      const BM01_STATION = "BM01";
+      const quantity = Math.max(1, parseInt(reprintQuantity, 10) || 1);
+      const prnPaths = PATHS?.PRINTERS || ["future-factory", "settings", "printers"];
+      const snap = await getDocs(collection(db, ...prnPaths));
+      const printers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      const stationPrinter = printers.find((p) => printerHasStation(p, BM01_STATION));
+      const fallbackDefault = printers.find((p) => p.isDefault);
+      const targetPrinter = stationPrinter || fallbackDefault || null;
+
+      if (!targetPrinter) {
+        throw new Error("Geen BM01/default printer gevonden in Printer Beheer.");
+      }
+
+      await queuePrintJob(targetPrinter.id, zplToReprint, {
+        description: `Herprint label voor ${displayOrderId} (Lot: ${product.lotNumber || product.id || "-"}) (x${quantity})`,
+        quantity,
+        orderId: displayOrderId,
+        lotNumber: product.lotNumber || product.id || null,
+        stationId: BM01_STATION,
+        templateId: product.labelTemplateId || resolvedLabelTemplateId || null,
+        targetPrinterName: targetPrinter.name || targetPrinter.id,
+        source: "product_dossier_reprint",
+      });
+
+      await logActivity(
+        user?.uid || "system",
+        "LABEL_REPRINT",
+        `Herprint aangevraagd: order ${displayOrderId}, lot ${product.lotNumber || product.id || "-"}, printer ${targetPrinter.id}, aantal ${quantity}`
+      );
+
+      notify(`${quantity} herprint(s) naar wachtrij gestuurd (${targetPrinter.name || targetPrinter.id}) via station BM01.`);
+    } catch (e) {
+      console.error("Herprint mislukt:", e);
+      notify(`Herprint mislukt: ${e.message}`);
+    } finally {
+      setIsReprinting(false);
+    }
   };
 
   return (
@@ -190,16 +522,16 @@ const ProductDossierModal = ({
                   )}
                   {(parentOrder.priority || parentOrder.isMoved) && (
                     <p className={`text-xs font-bold uppercase tracking-wider mt-1 flex items-center gap-1 ${
-                      parentOrder.priority === "immediate" ? "text-rose-500" :
-                      parentOrder.priority === "urgent" ? "text-orange-500" :
+                      normalizedParentPriority === "immediate" ? "text-rose-500" :
+                      normalizedParentPriority === "urgent" ? "text-orange-500" :
                       "text-amber-400"
                     }`}>
                       <ArrowRightLeft size={12} /> 
                       {parentOrder.isMoved ? "Verplaatst" : ""}
                       {parentOrder.isMoved && parentOrder.priority ? " & " : ""}
-                      {parentOrder.priority === "immediate" ? "1e Prio" : 
-                       parentOrder.priority === "urgent" ? "Spoed" : 
-                       (parentOrder.priority === "high" || parentOrder.priority === true) ? "Prio" : ""}
+                      {normalizedParentPriority === "immediate" ? "1e Prio" : 
+                       normalizedParentPriority === "urgent" ? "Spoed" : 
+                       (normalizedParentPriority === "high" || parentOrder.priority === true) ? "Prio" : ""}
                     </p>
                   )}
                   {canEditPriority && parentOrder.id && (
@@ -207,34 +539,34 @@ const ProductDossierModal = ({
                       <button
                         onClick={() => handleSetPriority("high")}
                         className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
-                          parentOrder.priority === "high" || parentOrder.priority === true
+                          normalizedParentPriority === "high" || parentOrder.priority === true
                             ? "bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/20"
                             : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white border border-white/10"
                         }`}
                       >
-                        <Star size={12} fill={parentOrder.priority === "high" || parentOrder.priority === true ? "currentColor" : "none"} />
+                        <Star size={12} fill={normalizedParentPriority === "high" || parentOrder.priority === true ? "currentColor" : "none"} />
                         Prio
                       </button>
                       <button
                         onClick={() => handleSetPriority("urgent")}
                         className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
-                          parentOrder.priority === "urgent"
+                          normalizedParentPriority === "urgent"
                             ? "bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20"
                             : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white border border-white/10"
                         }`}
                       >
-                        <AlertTriangle size={12} fill={parentOrder.priority === "urgent" ? "currentColor" : "none"} />
+                        <AlertTriangle size={12} fill={normalizedParentPriority === "urgent" ? "currentColor" : "none"} />
                         Spoed
                       </button>
                       <button
                         onClick={() => handleSetPriority("immediate")}
                         className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${
-                          parentOrder.priority === "immediate"
+                          normalizedParentPriority === "immediate"
                             ? "bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-500/20"
                             : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white border border-white/10"
                         }`}
                       >
-                        <Zap size={12} fill={parentOrder.priority === "immediate" ? "currentColor" : "none"} />
+                        <Zap size={12} fill={normalizedParentPriority === "immediate" ? "currentColor" : "none"} />
                         1e Prio
                       </button>
                     </div>
@@ -267,8 +599,16 @@ const ProductDossierModal = ({
                   {loadingCatalog ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
                 </button>
                 <h4 className="font-black text-xs uppercase text-blue-900 tracking-widest">
-                  Order Informatie (Excel Context)
+                  Order Informatie
                 </h4>
+              </div>
+              <div>
+                <span className="text-[9px] font-black text-blue-400 uppercase">
+                  Order
+                </span>
+                <p className="text-sm font-bold text-slate-800">
+                  {displayOrderId}
+                </p>
               </div>
               <div>
                 <span className="text-[9px] font-black text-blue-400 uppercase">
@@ -324,13 +664,89 @@ const ProductDossierModal = ({
               {parentOrder.notes && (
                 <div className="lg:col-span-4 mt-2 pt-4 border-t border-blue-200/50">
                   <span className="text-[9px] font-black text-blue-400 uppercase">
-                    Extra Info (Import)
+                    PO Text / Opmerkingen
                   </span>
                   <p className="text-sm font-medium text-slate-700 italic">
                     {parentOrder.notes}
                   </p>
                 </div>
               )}
+
+              {/* Label sectie altijd zichtbaar; toont status/fallback als ZPL ontbreekt */}
+              <div className="lg:col-span-4 mt-4 pt-4 border-t border-blue-200/50">
+                <h4 className="text-[9px] font-black text-blue-400 uppercase mb-2">Label (Her)print</h4>
+                {isResolvingLabel ? (
+                  <div className="bg-white/60 p-4 rounded-lg border border-blue-100/50 text-xs font-bold text-slate-500 flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin" /> Labelgegevens laden...
+                  </div>
+                ) : effectiveLabelZPL ? (
+                  <>
+                    <div className="bg-white/60 rounded-lg p-3 border border-blue-100/50 flex flex-wrap items-center gap-2">
+                        <select
+                          value={reprintQuantity}
+                          onChange={(e) => setReprintQuantity(e.target.value)}
+                          disabled={isReprinting}
+                          className="text-[10px] font-bold text-slate-700 bg-white/90 border border-slate-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-50"
+                          title="Aantal herprints"
+                        >
+                          <option value="1">1x</option>
+                          <option value="2">2x</option>
+                          <option value="5">5x</option>
+                          <option value="10">10x</option>
+                        </select>
+                        <button
+                          onClick={handleReprintLabel}
+                          disabled={isReprinting}
+                          className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1 transition-colors bg-emerald-100/80 hover:bg-emerald-200/80 px-2 py-1 rounded-md disabled:opacity-50"
+                          title="Herprint label via BM01 (Print Queue)"
+                        >
+                          {isReprinting ? <Loader2 size={12} className="animate-spin" /> : <Printer size={12} />}
+                          {isReprinting ? "Verzenden..." : "Herprint BM01"}
+                        </button>
+                        <button
+                          onClick={() => setShowLabelPreview((prev) => !prev)}
+                          className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 transition-colors bg-blue-100/80 hover:bg-blue-200/80 px-2 py-1 rounded-md"
+                          title={showLabelPreview ? "Verberg label voorbeeld" : "Toon label voorbeeld"}
+                        >
+                          {showLabelPreview ? <EyeOff size={12} /> : <Eye size={12} />}
+                          {showLabelPreview ? "Verberg voorbeeld" : "Toon voorbeeld"}
+                        </button>
+                    </div>
+
+                    {showLabelPreview && (
+                      <div
+                        ref={previewContainerRef}
+                        className="mt-3 bg-white/60 p-3 rounded-lg border border-blue-100/50 flex items-center justify-center overflow-hidden min-h-[140px]"
+                      >
+                        {dossierLabel ? (
+                          <LabelVisualPreview
+                            label={dossierLabel}
+                            data={dossierPreviewData}
+                            zoom={previewZoom}
+                            className="shadow-md"
+                          />
+                        ) : isResolvingLabel ? (
+                          <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">Laden...</span>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">Geen labeltemplate beschikbaar</span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="bg-white/60 p-4 rounded-lg border border-blue-100/50 flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-slate-500">Geen opgeslagen label gevonden voor dit product.</span>
+                    <button
+                      onClick={handleReprintLabel}
+                      disabled
+                      className="text-[9px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-md cursor-not-allowed"
+                      title="Geen labeldata beschikbaar"
+                    >
+                      Herprint BM01
+                    </button>
+                  </div>
+                )}
+              </div>
             </section>
 
             {/* Actual Status */}
@@ -353,7 +769,7 @@ const ProductDossierModal = ({
                   Kwaliteit Status
                 </span>
                 <StatusBadge
-                  label={product.inspection?.status || "Niet gecontroleerd"}
+                  status={product.inspection?.status || "Niet gecontroleerd"}
                 />
               </div>
             </div>
@@ -439,7 +855,7 @@ const ProductDossierModal = ({
                             {note.user || "Systeem"}
                           </span>
                           <span className="text-[10px] font-mono text-slate-400">
-                            {new Date(note.timestamp).toLocaleString()}
+                            {formatDateTimeSafe(note.timestamp)}
                           </span>
                         </div>
                         <p className="text-sm text-slate-700 font-medium whitespace-pre-wrap">
@@ -502,18 +918,21 @@ const ProductDossierModal = ({
                 <History className="text-blue-500" /> Volledige Proces Historie
               </h4>
               <div className="space-y-3">
-                {product.history?.map((entry, idx) => (
+                {(historyWithOperators.length > 0 ? historyWithOperators : product.history)?.map((entry, idx) => (
                   <div key={idx} className="flex gap-4 items-start">
                     <div className="w-10 h-10 rounded-full bg-slate-100 border-2 border-white shadow-sm flex items-center justify-center shrink-0">
                       <div className="w-2 h-2 rounded-full bg-blue-500" />
                     </div>
-                    <div className="bg-slate-50 flex-1 p-5 rounded-2xl border border-slate-100 flex justify-between items-center">
+                    <div 
+                      className="bg-slate-50 flex-1 p-5 rounded-2xl border border-slate-100 flex justify-between items-center hover:bg-blue-50/50 transition-colors cursor-help"
+                      title={`Operator: ${entry.operatorName || entry.operator || (entry.user && entry.user.includes('@') ? entry.user.split('@')[0] : entry.user) || "Onbekend"}`}
+                    >
                       <div>
                         <p className="text-xs font-black text-slate-700 uppercase">
                           {entry.station}
                         </p>
                         <p className="text-[10px] font-bold text-slate-400">
-                          {entry.user || "Systeem"}
+                          {entry.operatorNumber || entry.operatorName || entry.operator || (entry.user && entry.user.includes('@') ? entry.user.split('@')[0] : entry.user) || "Systeem"}
                         </p>
                         {(entry.action || entry.details) && (
                           <p className="text-[10px] font-medium text-slate-600 mt-1 italic">
@@ -522,12 +941,7 @@ const ProductDossierModal = ({
                         )}
                       </div>
                       <span className="text-[10px] font-mono font-bold text-slate-400">
-                        {(() => {
-                          const val = entry.time || entry.timestamp;
-                          if (!val) return "-";
-                          const date = val.toDate ? val.toDate() : new Date(val);
-                          return isNaN(date.getTime()) ? "-" : date.toLocaleString("nl-NL");
-                        })()}
+                        {formatDateTimeSafe(entry.time || entry.timestamp)}
                       </span>
                     </div>
                   </div>
@@ -540,7 +954,7 @@ const ProductDossierModal = ({
             <div className="flex items-center gap-4 text-left">
               <ShieldCheck size={24} className="text-blue-500" />
               <p className="text-[10px] font-bold text-slate-500 uppercase leading-tight">
-                Digitaal dossier conform KMS FPI-GRE (ISO 9001 Traceability)
+                Digitaal dossier conform ISO 9001 Traceability
               </p>
             </div>
             <div className="flex gap-3">
@@ -552,48 +966,24 @@ const ProductDossierModal = ({
                     className="px-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-xs text-slate-700 outline-none focus:border-blue-500"
                   >
                     <option value="">Kies station...</option>
-                    {sortedStations.map((s) => (
+                    {moveStations.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
                       </option>
                     ))}
                   </select>
+                  {isTijdelijkeAfkeur && (
+                    <textarea
+                      value={repairInstruction}
+                      onChange={(e) => setRepairInstruction(e.target.value)}
+                      className="px-4 py-3 bg-white border-2 border-slate-200 rounded-2xl font-medium text-xs text-slate-700 outline-none focus:border-blue-500 min-w-[260px] min-h-[92px]"
+                      placeholder="Wat moet de operator repareren?"
+                    />
+                  )}
                   <button
                     onClick={async () => {
                       if (!targetStation) return;
-                      setOverrideLoading(true);
-                      await onMoveLot(product.id, targetStation);
-
-                      // 1. Update history on the tracked product
-                      const productRef = doc(db, ...PATHS.TRACKING, product.id);
-                      await updateDoc(productRef, {
-                        history: arrayUnion({
-                          station: product.currentStation || "Dossier",
-                          user: role || "Systeem",
-                          action: "Handmatige Verplaatsing",
-                          details: `Verplaatst naar station: ${targetStation}`,
-                          time: new Date().toISOString(),
-                        }),
-                      });
-
-                      // 2. Update the planning order to reflect the move for terminal views
-                      if (parentOrder.id) {
-                        const now = new Date();
-                        const { week: currentWeek, year: currentYear } = getISOWeekInfo(now);
-                        const planningOrderRef = doc(db, ...PATHS.PLANNING, parentOrder.id);
-                        await updateDoc(planningOrderRef, {
-                          machine: targetStation,
-                          normMachine: normalizeMachine(targetStation),
-                          isMoved: true,
-                          weekNumber: currentWeek,
-                          weekYear: currentYear,
-                          lastUpdated: new Date(),
-                        });
-                      }
-
-                      setOverrideLoading(false);
-                      setIsMoving(false);
-                      onClose();
+                      setShowConfirmMove(true);
                     }}
                     disabled={overrideLoading || !targetStation}
                     className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all"
@@ -601,7 +991,10 @@ const ProductDossierModal = ({
                     {overrideLoading ? "..." : "Bevestig"}
                   </button>
                   <button
-                    onClick={() => setIsMoving(false)}
+                    onClick={() => {
+                      setIsMoving(false);
+                      setRepairInstruction("");
+                    }}
                     className="px-6 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
                   >
                     Annuleer
@@ -609,12 +1002,21 @@ const ProductDossierModal = ({
                 </div>
               ) : (
                 <>
+                  {isTijdelijkeAfkeur && (
+                    <button
+                      onClick={() => setShowConfirmReject(true)}
+                      disabled={rejectLoading}
+                      className="px-6 py-4 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg"
+                    >
+                      <X size={16} /> {rejectLoading ? "..." : "Definitieve Afkeur"}
+                    </button>
+                  )}
                   {onMoveLot && (
                     <button
                       onClick={() => setIsMoving(true)}
                       className="px-6 py-4 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-all flex items-center gap-2"
                     >
-                      <ArrowRightLeft size={16} /> Verplaats
+                      <ArrowRightLeft size={16} /> {isTijdelijkeAfkeur ? "Reparatie" : "Verplaats"}
                     </button>
                   )}
                   <button
@@ -635,6 +1037,114 @@ const ProductDossierModal = ({
           product={catalogProduct}
           onClose={() => setShowDetailModal(false)}
         />
+      )}
+
+      <ConfirmationModal
+        isOpen={showConfirmMove}
+        onClose={() => setShowConfirmMove(false)}
+        onConfirm={handleExecuteMove}
+        title={isTijdelijkeAfkeur ? "Reparatie Inplannen" : "Product Verplaatsen"}
+        message={isTijdelijkeAfkeur
+          ? `Weet je zeker dat je deze tijdelijke afkeur wilt doorzetten naar ${moveStations.find(s => s.id === targetStation)?.name || targetStation}?`
+          : `Weet je zeker dat je dit product wilt verplaatsen naar ${moveStations.find(s => s.id === targetStation)?.name || targetStation}?`}
+        confirmText={isTijdelijkeAfkeur ? "Ja, Reparatie" : "Ja, Verplaatsen"}
+      />
+
+      {showConfirmReject && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col border border-slate-200 max-h-[90vh]">
+            <div className="bg-red-50 px-6 py-4 border-b border-red-100 flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-red-800 uppercase tracking-tight">
+                  Definitieve Afkeur
+                </h3>
+                <p className="text-xs text-red-500 font-mono font-bold">
+                  {product?.lotNumber}
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowConfirmReject(false); setRejectReasons([]); setRejectNote(""); }}
+                className="p-2 hover:bg-red-100 rounded-full"
+              >
+                <X size={20} className="text-red-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
+              <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                <h4 className="font-bold text-red-900 text-xs uppercase mb-3 flex items-center gap-2">
+                  <AlertTriangle size={14} /> Reden van afkeur
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {REJECTION_REASONS.map((reason) => (
+                    <div
+                      key={reason}
+                      onClick={() => toggleRejectReason(reason)}
+                      className={`p-2 rounded-lg border cursor-pointer text-xs font-medium transition-all flex items-center gap-2 ${
+                        rejectReasons.includes(reason)
+                          ? "bg-white border-red-500 text-red-700 shadow-sm"
+                          : "bg-white/50 border-transparent text-slate-500 hover:bg-white"
+                      }`}
+                    >
+                      <div
+                        className={`w-3 h-3 rounded-full border flex items-center justify-center shrink-0 ${
+                          rejectReasons.includes(reason)
+                            ? "bg-red-500 border-red-500"
+                            : "border-slate-300"
+                        }`}
+                      >
+                        {rejectReasons.includes(reason) && (
+                          <span className="text-white text-[8px] font-bold">&#10003;</span>
+                        )}
+                      </div>
+                      {REJECTION_REASON_LABELS[reason] || reason}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 mb-2">
+                  Opmerking (optioneel)
+                </label>
+                <textarea
+                  value={rejectNote}
+                  onChange={(e) => setRejectNote(e.target.value)}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none"
+                  placeholder="Bijv. kras op flensvlak, niet herstelbaar..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-xs font-bold text-amber-800">
+                  &#9888; Let op: Dit kan niet ongedaan worden gemaakt. Het product wordt definitief afgekeurd.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3 shrink-0">
+              <button
+                onClick={() => { setShowConfirmReject(false); setRejectReasons([]); setRejectNote(""); }}
+                className="px-4 py-2 rounded-lg text-slate-500 font-bold hover:bg-slate-200 text-sm"
+              >
+                Annuleren
+              </button>
+              <button
+                onClick={handleDefinitiveRejection}
+                disabled={rejectLoading || rejectReasons.length === 0}
+                className="px-6 py-2 rounded-lg font-bold text-white text-sm shadow-md flex items-center gap-2 transition-all bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {rejectLoading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <X size={16} />
+                )}
+                Definitief Afkeuren
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

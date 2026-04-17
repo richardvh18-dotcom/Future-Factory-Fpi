@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { X, ArrowRight, Users, Building2, Clock } from "lucide-react";
-import { doc, setDoc, collection, onSnapshot } from "firebase/firestore";
-import { db } from "../../../config/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db, auth } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { format, parse } from "date-fns";
+import { useNotifications } from '../../../contexts/NotificationContext';
+import { loanPersonnelToDepartment } from "../../../services/planningSecurityService";
 
 /**
  * LoanPersonnelModal - Personeel uitlenen aan andere afdelingen (V2)
@@ -11,6 +13,7 @@ import { format, parse } from "date-fns";
  * - Uitgeleende persoon krijgt de shift-tijden van de doelafdeling
  */
 const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
+  const { notify } = useNotifications();
   const [targetDepartment, setTargetDepartment] = useState("");
   const [targetStation, setTargetStation] = useState("");
   const [targetShift, setTargetShift] = useState("");
@@ -53,7 +56,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
       if (diff < 0) diff += 24;
       const deduction = shiftObj.id === "DAGDIENST" ? 0.75 : 0; // Pauze aftrek voor dagdienst
       return Math.max(0, diff - deduction);
-    } catch (e) {
+    } catch {
       return 8.0;
     }
   };
@@ -68,35 +71,33 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
     try {
       const selectedShiftData = availableShifts.find(s => s.id === targetShift);
       if (!selectedShiftData) {
-        alert("Selecteer een geldige shift.");
+        notify("Selecteer een geldige shift.");
         setSaving(false);
         return;
       }
 
-      // Maak een nieuwe occupancy record voor de doelstation met de NIEUWE shift-tijden
-      const loanId = `loan_${person.operatorNumber}_${targetDepartment}_${Date.now()}`;
-      await setDoc(doc(db, ...PATHS.OCCUPANCY, loanId), {
-        operatorNumber: person.operatorNumber,
-        operatorName: person.operatorName,
-        machineId: targetStation,
-        departmentId: targetDepartment,
+      await loanPersonnelToDepartment({
+        operatorNumber: person?.operatorNumber,
+        operatorName: person?.operatorName,
+        targetDepartment,
+        targetStation,
         date: todayStr,
-        shift: selectedShiftData.label,
+        shiftLabel: selectedShiftData.label,
         shiftStart: selectedShiftData.start,
         shiftEnd: selectedShiftData.end,
         hoursWorked: calculateShiftHours(selectedShiftData),
         isPloeg: selectedShiftData.id !== "DAGDIENST",
-        isLoan: true,
-        loanFromDepartment: currentDepartment.id,
-        loanFromStation: person.machineId,
-        originalShift: person.shift, // Bewaar originele shift voor referentie
-        timestamp: new Date().toISOString()
+        loanFromDepartment: currentDepartment?.id,
+        loanFromStation: person?.machineId,
+        originalShift: person?.shift,
+        source: "LoanPersonnelModal",
+        actorLabel: auth.currentUser?.email,
       });
 
       onClose();
     } catch (error) {
       console.error("Fout bij uitlenen personeel:", error);
-      alert("Er is een fout opgetreden bij het uitlenen van personeel.");
+      notify("Er is een fout opgetreden bij het uitlenen van personeel.");
     } finally {
       setSaving(false);
     }

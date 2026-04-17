@@ -1,8 +1,7 @@
-import React, { useMemo } from "react";
+import React from "react";
 import {
   Layers,
   Hash,
-  Ruler,
   Type,
   Target,
   Zap,
@@ -24,7 +23,6 @@ import { useState } from "react";
 
 const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, blueprints = {} }) => {
     // State voor selectie van blauwdruk en targetveld
-    const [selectedBlueprint, setSelectedBlueprint] = useState(null);
     const [targetField, setTargetField] = useState("product_names");
   // Helper om een item toe te voegen aan een specifieke lijst in de state
   const addItem = (key, val) => {

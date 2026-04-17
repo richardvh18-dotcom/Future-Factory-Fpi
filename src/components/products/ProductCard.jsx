@@ -1,9 +1,6 @@
 import React from "react";
 import {
-  Package,
   ChevronRight,
-  Ruler,
-  Database,
   ImageIcon,
 } from "lucide-react";
 

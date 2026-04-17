@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Layers,
   Zap,
   CheckCircle2,
   AlertOctagon,
+  Star,
   Users,
   Cpu,
   Clock,
@@ -12,6 +13,12 @@ import {
 } from "lucide-react";
 
 const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
+  const [planningKpiMode, setPlanningKpiMode] = useState("products");
+
+  const planningProducts = Number(metrics.totalPlanned || 0);
+  const planningOrders = Number(metrics.plannedOrdersCount || 0);
+  const planningValue = planningKpiMode === "orders" ? planningOrders : planningProducts;
+
   return (
     <div className="h-full overflow-y-auto custom-scrollbar space-y-8 pr-2 pb-20">
       {/* PRODUCTIE KPI'S */}
@@ -19,21 +26,22 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-3">
           Productie KPI's
         </h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
             {
               id: "gepland",
               label: "Planning",
-              val: metrics.totalPlanned,
+              val: Math.round(planningValue),
+              valueSuffix: planningKpiMode === "orders" ? "Orders" : "Producten",
               icon: Layers,
-              color: "text-slate-400",
+              color: "text-blue-600",
             },
             {
               id: "in_proces",
               label: "Lopend",
               val: metrics.activeCount,
               icon: Zap,
-              color: "text-blue-500",
+              color: "text-purple-600",
             },
             {
               id: "gereed",
@@ -56,6 +64,13 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
               icon: AlertTriangle,
               color: "text-orange-500",
             },
+            {
+              id: "prioriteit",
+              label: "Prioriteit",
+              val: metrics.priorityCount || 0,
+              icon: Star,
+              color: "text-amber-500",
+            },
           ].map((item) => (
             <div
               key={item.id}
@@ -69,6 +84,20 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
               <p className="text-2xl font-black text-slate-800 italic">
                 {item.val}
               </p>
+              {item.id === "gepland" && (
+                <div className="mt-2 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPlanningKpiMode((prev) => (prev === "products" ? "orders" : "products"));
+                    }}
+                    className="text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
+                  >
+                    Switch: {item.valueSuffix}
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -188,15 +217,15 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
                         Plan
                       </span>
                       <span className="text-xs font-black text-slate-700 italic">
-                        {machine.planned}
+                        {Math.round(machine.planned)}
                       </span>
                     </div>
                   )}
                   <div>
-                    <span className="text-[7px] font-black text-blue-400 uppercase block mb-0.5">
+                    <span className={`text-[7px] font-black uppercase block mb-0.5 ${machine.isDownstream ? "text-purple-400" : "text-blue-400"}`}>
                       {machine.isDownstream ? "Aanbod" : "Actief"}
                     </span>
-                    <span className="text-xs font-black text-blue-600 italic">
+                    <span className={`text-xs font-black italic ${machine.isDownstream ? "text-purple-600" : "text-blue-600"}`}>
                       {machine.active}
                     </span>
                   </div>

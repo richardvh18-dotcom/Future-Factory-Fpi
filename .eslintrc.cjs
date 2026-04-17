@@ -1,0 +1,12 @@
+module.exports = {
+  root: true,
+  ignorePatterns: ['src/lang/*.js'],
+  parser: '@typescript-eslint/parser',
+  plugins: ['i18next'],
+  extends: [
+    'plugin:i18next/recommended',
+  ],
+  rules: {
+    // Add or override i18next rules here if needed
+  },
+};

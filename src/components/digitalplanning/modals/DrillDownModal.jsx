@@ -10,14 +10,16 @@ import {
   Database,
   Trash2,
   History,
-  Clock,
   CheckCircle2,
   AlertCircle,
   Loader2,
   TrendingUp,
   MapPin,
+  ShieldCheck,
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
+import { formatDateTimeSafe } from "../../../utils/dateUtils";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 /**
  * DrillDownModal V2.0 - Industrial Performance Edition
@@ -32,6 +34,7 @@ const DrillDownModal = React.memo(({
   isManager,
   onDeleteLot,
 }) => {
+  const { showConfirm } = useNotifications();
   const [expandedId, setExpandedId] = useState(null);
   const [internalSearch, setInternalSearch] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(40);
@@ -50,16 +53,6 @@ const DrillDownModal = React.memo(({
   }, [items, internalSearch]);
 
   if (!isOpen || location.pathname.includes("/login")) return null;
-
-  // Helper voor Excel datums indien aanwezig
-  const formatExcelDate = (val) => {
-    if (!val) return "-";
-    if (!isNaN(val) && parseFloat(val) > 30000) {
-      const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-      return date.toLocaleDateString("nl-NL");
-    }
-    return String(val);
-  };
 
   return (
     <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[250] flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-300">
@@ -137,6 +130,7 @@ const DrillDownModal = React.memo(({
                     className={`p-5 flex items-center justify-between cursor-pointer group rounded-[33px] transition-colors ${
                       isExpanded ? "bg-blue-50/20" : "hover:bg-slate-50/50"
                     }`}
+                    title={`Operator: ${item.operator || "Onbekend"}`}
                   >
                     <div className="flex items-center gap-5">
                       <div
@@ -174,10 +168,17 @@ const DrillDownModal = React.memo(({
                       </div>
                       {isManager && item.lotNumber && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            if (window.confirm("Dit record permanent wissen?"))
-                              onDeleteLot?.(item.lotNumber);
+                            const confirmed = await showConfirm({
+                              title: "Record verwijderen",
+                              message: "Dit record permanent wissen?",
+                              confirmText: "Verwijderen",
+                              cancelText: "Annuleren",
+                              tone: "danger",
+                            });
+                            if (!confirmed) return;
+                            onDeleteLot?.(item.lotNumber);
                           }}
                           className="p-3 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
                         >
@@ -318,15 +319,12 @@ const DrillDownModal = React.memo(({
                                   </p>
                                   {st.time ? (
                                     <p className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg mt-1 inline-block">
-                                      {new Date(st.time).toLocaleString(
-                                        "nl-NL",
-                                        {
-                                          day: "2-digit",
-                                          month: "short",
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                        }
-                                      )}
+                                      {formatDateTimeSafe(st.time, "nl-NL", {
+                                        day: "2-digit",
+                                        month: "short",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
                                     </p>
                                   ) : (
                                     <p className="text-[9px] font-medium text-slate-300 uppercase tracking-tighter mt-1 italic">
