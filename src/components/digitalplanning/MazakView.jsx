@@ -28,6 +28,7 @@ import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedPro
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import LabelVisualPreview from "../printer/LabelVisualPreview";
+import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";
 import StatusBadge from "./common/StatusBadge";
 import { getISOWeek, addWeeks, subWeeks } from "date-fns";
@@ -219,23 +220,25 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
       processData(products);
       setLoading(false);
 
-      const liveQuery = query(
-        collection(db, ...PATHS.TRACKING),
-        where("status", "not-in", ["completed", "shipped", "deleted"])
-      );
-      const unsub = onSnapshot(liveQuery, (snap) => {
-        processData(snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
-      }, () => setLoading(false));
+      const unsub = subscribeTrackedProducts({
+        db,
+        statusExclusions: ["completed", "shipped", "deleted"],
+        onData: (items) => {
+          processData(items);
+        },
+        onError: () => setLoading(false),
+      });
       return () => unsub();
     }
 
-    const liveQuery = query(
-      collection(db, ...PATHS.TRACKING),
-      where("status", "not-in", ["completed", "shipped", "deleted"])
-    );
-    const unsub = onSnapshot(liveQuery, (snap) => {
-      processData(snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
-    }, () => setLoading(false));
+    const unsub = subscribeTrackedProducts({
+      db,
+      statusExclusions: ["completed", "shipped", "deleted"],
+      onData: (items) => {
+        processData(items);
+      },
+      onError: () => setLoading(false),
+    });
     return () => unsub();
   }, [stationId, products]);
 

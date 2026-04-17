@@ -33,6 +33,7 @@ import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
 import { collection, getDoc, getDocs, query, where, limit, doc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
+import { trackedLotExistsActive } from "../../utils/trackedProducts";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import {
   updatePlanningOrderPriority,
@@ -306,9 +307,7 @@ const OrderDetail = React.memo(({
     const normalizedLot = String(lotToCheck || "").trim().toUpperCase();
     if (!normalizedLot) return false;
 
-    const trackingRef = collection(db, ...PATHS.TRACKING);
-    const activeSnap = await getDocs(query(trackingRef, where("lotNumber", "==", normalizedLot), limit(5)));
-    const hasActiveConflict = activeSnap.docs.some((d) => d.id !== excludeDocId);
+    const hasActiveConflict = await trackedLotExistsActive({ db, lotNumber: normalizedLot, excludeDocId });
     if (hasActiveConflict) return true;
 
     const currentYear = new Date().getFullYear();

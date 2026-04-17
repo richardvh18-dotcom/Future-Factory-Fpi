@@ -28,6 +28,7 @@ import { lookupProductByManufacturedId } from "../../../utils/conversionLogic";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { generatePrintData, generateLotBatchZPL } from "../../../utils/zplHelper";
 import { getDriver } from "../../../utils/printerDrivers";
+import { trackedLotExistsActive } from "../../../utils/trackedProducts";
 import { reserveAutoLotNumberRange, queuePrintJob } from "../../../services/planningSecurityService";
 import AutoScaledLabelPreview from "../../printer/AutoScaledLabelPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
@@ -487,9 +488,8 @@ const ProductionStartModal = ({
       if (localExists) return true;
 
       // 2) Actieve tracking check (bron van waarheid voor lopende productie)
-      const trackingRef = collection(db, ...PATHS.TRACKING);
-      const trackingByLotSnap = await getDocs(query(trackingRef, where("lotNumber", "==", normalizedLot), limit(1)));
-      if (!trackingByLotSnap.empty) return true;
+      const activeExists = await trackedLotExistsActive({ db, lotNumber: normalizedLot });
+      if (activeExists) return true;
 
       // 3) Legacy active production check (orders met activeLot)
       const actPaths = PATHS?.ACTIVE_PRODUCTION || ["future-factory", "production", "active"];

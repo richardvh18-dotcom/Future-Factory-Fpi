@@ -36,6 +36,7 @@ import { normalizeMachine, FITTING_MACHINES, PIPE_MACHINES, getStartedCounterFie
 import { toDateSafe } from "../../utils/dateUtils";
 import ActiveProductionView from "./views/ActiveProductionView";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
+import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 
 import Terminal from "./Terminal";
 import Nabewerken from "./Nabewerken";
@@ -447,17 +448,19 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       unsubs.push(unsubScopedOrders);
       
       // LISTENER 2: Products (also starts immediately, in parallel)
-      const unsubProds = onSnapshot(
-        query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted", "archived_rejected"]), limit(200)),
-        (snap) => {
-          if (isMounted) setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const unsubProds = subscribeTrackedProducts({
+        db,
+        statusExclusions: ["completed", "shipped", "deleted", "archived_rejected"],
+        maxItems: 200,
+        onData: (items) => {
+          if (isMounted) setRawProducts(items);
           markStreamReady();
         },
-        (error) => {
+        onError: (error) => {
           console.warn("Tracking Sync Error:", error);
-          markStreamReady(); // Still mark as ready even on error
-        }
-      );
+          markStreamReady();
+        },
+      });
       unsubs.push(unsubProds);
       
       // LISTENER 3: Occupancy (lazy load after main data is ready)

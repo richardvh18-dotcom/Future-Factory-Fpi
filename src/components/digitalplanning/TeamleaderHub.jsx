@@ -23,6 +23,7 @@ import { db, logActivity } from "../../config/firebase";
 import { getISOWeek, format, subDays, startOfISOWeek, endOfISOWeek, addWeeks } from "date-fns";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import * as XLSX from "xlsx";
+import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 
 // Helpers & Modals
   import { normalizeMachine, PIPE_MACHINES, FITTING_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
@@ -222,36 +223,18 @@ const TeamleaderHub = React.memo(({
 
       // LISTENER 2: Products (also starts immediately, in parallel)
       // Read both root and scoped products
-      const unsubProds = onSnapshot(
-        collectionGroup(db, "items"),
-        (snap) => {
+      const unsubProds = subscribeTrackedProducts({
+        db,
+        onData: (items) => {
           if (!isMounted) return;
-          const rootProducts = snap.docs
-            .filter((d) => {
-              const path = d.ref.path || "";
-              return path.startsWith("future-factory/production/tracked_products/") && !path.includes("/machines/");
-            })
-            .map((d) => ({ id: d.id, ...d.data() }));
-          
-          const scopedProducts = snap.docs
-            .filter((d) => {
-              const path = d.ref.path || "";
-              return path.includes("tracked_products/") && path.includes("/machines/") && path.includes("/items/");
-            })
-            .map((d) => ({ id: d.id, ...d.data() }));
-          
-          // Merge: scoped overwrites root by docId
-          const merged = new Map();
-          rootProducts.forEach((p) => merged.set(p.id, p));
-          scopedProducts.forEach((p) => merged.set(p.id, p));
-          setRawProducts(Array.from(merged.values()));
+          setRawProducts(items);
         },
-        (err) => {
+        onError: (err) => {
           if (err.code === 'permission-denied') return;
           console.warn("Tracked Products Sync Error:", err.code);
-          markStreamReady(); // Mark ready even on error
-        }
-      );
+          markStreamReady();
+        },
+      });
       unsubs.push(unsubProds);
       markStreamReady(); // Count products listener as ready immediately
 

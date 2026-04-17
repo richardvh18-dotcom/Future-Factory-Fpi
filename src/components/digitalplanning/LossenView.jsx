@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, advanceTrackedProduct } from "../../services/planningSecurityService";
@@ -20,6 +20,7 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import { useNotifications } from '../../contexts/NotificationContext';
+import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 
 const QR_CODE_OK_CONFIRMATION = 'FPI-ACTION-APPROVE-OK';
 const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17"]);
@@ -359,24 +360,30 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       setLoading(false);
 
       // Optioneel: toch een listener opzetten voor live updates, maar de eerste render is snel.
-      const q = query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted"]));
-      const unsub = onSnapshot(q, (snap) => {
-        const sourceData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        processData(sourceData);
-      }, (err) => {
+      const unsub = subscribeTrackedProducts({
+        db,
+        statusExclusions: ["completed", "shipped", "deleted"],
+        onData: (sourceData) => {
+          processData(sourceData);
+        },
+        onError: (err) => {
         console.error("Error in LossenView snapshot:", err);
         setLoading(false);
+        },
       });
       return () => unsub();
 
     } else {
-      const q = query(collection(db, ...PATHS.TRACKING), where("status", "not-in", ["completed", "shipped", "deleted"]));
-      const unsub = onSnapshot(q, (snap) => {
-        const sourceData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        processData(sourceData);
-      }, (err) => {
+      const unsub = subscribeTrackedProducts({
+        db,
+        statusExclusions: ["completed", "shipped", "deleted"],
+        onData: (sourceData) => {
+          processData(sourceData);
+        },
+        onError: (err) => {
         console.error("Error in LossenView snapshot:", err);
         setLoading(false);
+        },
       });
       return () => unsub();
     }
