@@ -221,10 +221,31 @@ const TeamleaderHub = React.memo(({
       unsubs.push(unsubScopedOrders);
 
       // LISTENER 2: Products (also starts immediately, in parallel)
+      // Read both root and scoped products
       const unsubProds = onSnapshot(
-        collection(db, ...PATHS.TRACKING),
-        (snap) =>
-          isMounted && setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+        collectionGroup(db, "items"),
+        (snap) => {
+          if (!isMounted) return;
+          const rootProducts = snap.docs
+            .filter((d) => {
+              const path = d.ref.path || "";
+              return path.startsWith("future-factory/production/tracked_products/") && !path.includes("/machines/");
+            })
+            .map((d) => ({ id: d.id, ...d.data() }));
+          
+          const scopedProducts = snap.docs
+            .filter((d) => {
+              const path = d.ref.path || "";
+              return path.includes("tracked_products/") && path.includes("/machines/") && path.includes("/items/");
+            })
+            .map((d) => ({ id: d.id, ...d.data() }));
+          
+          // Merge: scoped overwrites root by docId
+          const merged = new Map();
+          rootProducts.forEach((p) => merged.set(p.id, p));
+          scopedProducts.forEach((p) => merged.set(p.id, p));
+          setRawProducts(Array.from(merged.values()));
+        },
         (err) => {
           if (err.code === 'permission-denied') return;
           console.warn("Tracked Products Sync Error:", err.code);
