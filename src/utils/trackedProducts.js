@@ -90,7 +90,12 @@ export const subscribeTrackedProducts = ({
   const rootUnsub = onSnapshot(
     collection(db, ...PATHS.TRACKING),
     (snap) => {
-      rootDocs = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      rootDocs = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        __docPath: docSnap.ref.path,
+        sourcePath: docSnap.ref.path,
+        ...docSnap.data(),
+      }));
       emit();
     },
     (error) => onError?.(error)
@@ -101,7 +106,15 @@ export const subscribeTrackedProducts = ({
     onSnapshot(
       collection(db, ...PATHS.TRACKING, department, "machines", machine, "items"),
       (snap) => {
-        scopedBuckets.set(key, snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
+        scopedBuckets.set(
+          key,
+          snap.docs.map((docSnap) => ({
+            id: docSnap.id,
+            __docPath: docSnap.ref.path,
+            sourcePath: docSnap.ref.path,
+            ...docSnap.data(),
+          }))
+        );
         emit();
       },
       (error) => onError?.(error)
