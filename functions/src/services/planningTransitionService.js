@@ -662,14 +662,13 @@ const rejectTrackedProductFinalService = async ({
   dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
-  const productRef = db.collection(ctx.trackingPath).doc(productId);
-  const productSnap = await productRef.get();
-
-  if (!productSnap.exists) {
+  const trackedDoc = await getTrackedProductDocByIdOrLot(productId, ctx._rds);
+  if (!trackedDoc) {
     throw new Error('NOT_FOUND_PRODUCT');
   }
 
-  const productData = productSnap.data() || {};
+  const productRef = trackedDoc.ref;
+  const productData = trackedDoc.data() || {};
   const now = new Date();
   const year = now.getFullYear();
 
@@ -693,7 +692,7 @@ const rejectTrackedProductFinalService = async ({
 
   const archiveRef = db
     .collection(ctx.archiveRejectedPath(year))
-    .doc(productId);
+    .doc(trackedDoc.id);
 
   const rejectionData = {
     ...productData,
@@ -756,7 +755,7 @@ const rejectTrackedProductFinalService = async ({
 
   return {
     ok: true,
-    productId,
+    productId: trackedDoc.id,
     archivedYear: year,
     orderUpdated,
   };
