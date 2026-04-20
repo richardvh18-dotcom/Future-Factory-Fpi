@@ -17,6 +17,7 @@ import { format as formatDate, getISOWeek, startOfDay, endOfDay, startOfWeek, en
 import { calculateDuration, formatMinutes, getEfficiencyColor } from '../../utils/efficiencyCalculator';
 import { calculateWorkingMinutes } from '../../utils/workingTimeUtils';
 import AiPredictionView from './AiPredictionView';
+import { getDeliveryPlanningState, resolveDeliveryDate } from '../../utils/dateUtils';
 
 const EfficiencyDashboard = () => {
   const { t } = useTranslation();
@@ -421,6 +422,41 @@ const EfficiencyDashboard = () => {
         toDateValue(std?.createdAt),
         toDateValue(std?.updatedAt),
         toDateValue(planningOrder?.plannedDate),
+        (() => {
+          const delivery = resolveDeliveryDate(
+            planningOrder?.deliveryDate,
+            planningOrder?.plannedDeliveryDate,
+            planningOrder?.dueDate,
+            planningOrder?.deadline
+          );
+          return delivery;
+        })(),
+        (() => {
+          const delivery = resolveDeliveryDate(
+            planningOrder?.deliveryDate,
+            planningOrder?.plannedDeliveryDate,
+            planningOrder?.dueDate,
+            planningOrder?.deadline
+          );
+          const planningState = getDeliveryPlanningState(delivery, {
+            productionLeadDays: 21,
+            finishBufferDays: 4,
+          });
+          return planningState.productionStartDate;
+        })(),
+        (() => {
+          const delivery = resolveDeliveryDate(
+            planningOrder?.deliveryDate,
+            planningOrder?.plannedDeliveryDate,
+            planningOrder?.dueDate,
+            planningOrder?.deadline
+          );
+          const planningState = getDeliveryPlanningState(delivery, {
+            productionLeadDays: 21,
+            finishBufferDays: 4,
+          });
+          return planningState.finishTargetDate;
+        })(),
         toDateValue(planningOrder?.createdAt),
         toDateValue(planningOrder?.updatedAt),
       ].filter(Boolean);
@@ -493,6 +529,41 @@ const EfficiencyDashboard = () => {
       const eventDates = [
         ...relatedLogs.flatMap((log) => getLogActivityDates(log)),
         toDateValue(planningOrder?.plannedDate),
+        (() => {
+          const delivery = resolveDeliveryDate(
+            planningOrder?.deliveryDate,
+            planningOrder?.plannedDeliveryDate,
+            planningOrder?.dueDate,
+            planningOrder?.deadline
+          );
+          return delivery;
+        })(),
+        (() => {
+          const delivery = resolveDeliveryDate(
+            planningOrder?.deliveryDate,
+            planningOrder?.plannedDeliveryDate,
+            planningOrder?.dueDate,
+            planningOrder?.deadline
+          );
+          const planningState = getDeliveryPlanningState(delivery, {
+            productionLeadDays: 21,
+            finishBufferDays: 4,
+          });
+          return planningState.productionStartDate;
+        })(),
+        (() => {
+          const delivery = resolveDeliveryDate(
+            planningOrder?.deliveryDate,
+            planningOrder?.plannedDeliveryDate,
+            planningOrder?.dueDate,
+            planningOrder?.deadline
+          );
+          const planningState = getDeliveryPlanningState(delivery, {
+            productionLeadDays: 21,
+            finishBufferDays: 4,
+          });
+          return planningState.finishTargetDate;
+        })(),
         toDateValue(planningOrder?.createdAt),
         toDateValue(planningOrder?.updatedAt),
       ].filter(Boolean);

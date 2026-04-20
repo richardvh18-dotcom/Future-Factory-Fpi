@@ -1768,8 +1768,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     if (!cancelConfirmed) return;
 
     try {
+      const cancelProductRef = String(product.__docPath || productId || "").trim();
       await cancelTrackedProduction({
-        productId,
+        productId: cancelProductRef,
         selectedStation,
         source: "WorkstationHub",
         actorLabel: currentUser?.email,
@@ -2093,7 +2094,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           <>
             {activeTab === "winding" && (
               ((selectedStation || "").toUpperCase().replace(/\s/g, "").includes("NABEWERK")) ? (
-                <Nabewerken products={rawProducts} />
+                <Nabewerken products={rawProducts} orders={rawOrders} />
               ) : (
                 <ActiveProductionView
                   activeUnits={activeUnitsHere}
@@ -2112,6 +2113,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
                     products={rawProducts}
                     stationId={selectedStation}
                   />
+                ) : ((selectedStation || "").toUpperCase().replace(/\s/g, "").includes("NABEWERK")) ? (
+                  <Nabewerken products={rawProducts} orders={rawOrders} />
                 ) : (String(selectedStation || "").toUpperCase().replace(/\s/g, "") === "MAZAK") ? (
                   <MazakView
                     products={rawProducts}

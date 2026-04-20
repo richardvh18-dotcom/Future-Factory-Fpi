@@ -272,7 +272,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           produced,
           plannedDeliveryDate: deliveryObj ? deliveryObj.toISOString() : null,
           deliveryDate: deliveryObj ? deliveryObj.toISOString() : null,
-          plannedDate: deliveryObj ? subWeeks(deliveryObj, 2).toISOString() : null,
+          plannedDate: deliveryObj ? subWeeks(deliveryObj, 3).toISOString() : null,
           weekNumber,
           orderStatus: rawStatus,
           drawing: idxDrawing !== -1 ? clean(row[idxDrawing]) : "",
@@ -544,6 +544,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         if (!isNaN(d.getTime())) {
           deliveryDate = d.toISOString();
           weekNumber = getISOWeek(d);
+          // Sitebrede regel: productie start standaard 3 weken voor levering.
+          if (!rest.plannedDate) {
+            rest.plannedDate = subWeeks(d, 3).toISOString();
+          }
         } else {
           deliveryDate = null;
         }

@@ -59,7 +59,7 @@ const PlanningSidebar = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMachine, setSelectedMachine] = useState("ALL");
   const [sortMode, setSortMode] = useState("week_backlog");
-  const [dataScope, setDataScope] = useState("active");
+  const [dataScope, setDataScope] = useState("all");
   const [rejectPeriod, setRejectPeriod] = useState("this_week");
   const [archivedOrders, setArchivedOrders] = useState([]);
   const [loadingArchive, setLoadingArchive] = useState(false);
@@ -69,6 +69,76 @@ const PlanningSidebar = ({
 
   const isHistoryScope = dataScope === "history" || dataScope === "all";
   const isRejectScope = dataScope === "temp_reject" || dataScope === "definitive_reject";
+
+  const getLotFromRecord = (record) => {
+    const directLot = String(record?.lotNumber || record?.activeLot || "").trim();
+    if (directLot) return directLot;
+
+    const rawId = String(record?.id || "").trim();
+    if (!rawId) return "";
+
+    const lotFromId = rawId.match(/_(\d{6,})$/);
+    return lotFromId ? lotFromId[1] : "";
+  };
+
+  const getOrderIdFromRecord = (record) => {
+    const directOrderId = String(record?.orderId || "").trim();
+    if (directOrderId) return directOrderId;
+
+    const rawId = String(record?.id || "").trim();
+    if (!rawId) return "";
+
+    return rawId.replace(/_\d{6,}$/, "");
+  };
+
+  const getTrackedStatus = (product) => String(product?.status || "").trim().toLowerCase();
+  const getTrackedStep = (product) => String(product?.currentStep || "").trim().toLowerCase();
+  const isInactiveTrackedProduct = (product) => {
+    const status = getTrackedStatus(product);
+    const step = getTrackedStep(product);
+    const inspectionStatus = String(product?.inspection?.status || "").trim().toLowerCase();
+
+    return (
+      ["finished", "completed", "gereed", "rejected", "afkeur", "archived_rejected"].includes(status) ||
+      ["finished", "rejected"].includes(step) ||
+      inspectionStatus === "afkeur"
+    );
+  };
+
+  const getEntryPriority = (entry) => {
+    if (!entry) return 0;
+    if (entry?.isArchivedOrder) return 1;
+    if (entry?.isTrackingDerivedOrder) return 2;
+    return 3;
+  };
+
+  const mergeOrderEntries = (existing, incoming) => {
+    if (!existing) return incoming;
+
+    const existingLots = Array.isArray(existing?.lotNumbers) ? existing.lotNumbers : [];
+    const incomingLots = Array.isArray(incoming?.lotNumbers) ? incoming.lotNumbers : [];
+    const combinedLots = Array.from(
+      new Set(
+        [...existingLots, ...incomingLots]
+          .map((lot) => String(lot || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    const existingPriority = getEntryPriority(existing);
+    const incomingPriority = getEntryPriority(incoming);
+    const base = incomingPriority >= existingPriority ? incoming : existing;
+    const overlay = base === incoming ? existing : incoming;
+
+    return {
+      ...overlay,
+      ...base,
+      lotNumbers: combinedLots,
+      lotNumbersText: combinedLots.join(" "),
+      isArchivedOrder: !!existing?.isArchivedOrder && !!incoming?.isArchivedOrder,
+      isTrackingDerivedOrder: base?.isTrackingDerivedOrder === true && getEntryPriority(base) === 2,
+    };
+  };
 
   const normalizeOrderStatus = (status) =>
     String(status || "")
@@ -128,9 +198,9 @@ const PlanningSidebar = ({
     ].includes(normalized);
   };
 
-  // Haal archief data op wanneer history scope actief is
+  // Haal archief data op wanneer history scope actief is of wanneer er gezocht wordt
   useEffect(() => {
-    if (isHistoryScope && archivedOrders.length === 0) {
+    if ((isHistoryScope || !!searchTerm) && archivedOrders.length === 0) {
       setLoadingArchive(true);
       const fetchArchive = async () => {
         try {
@@ -153,10 +223,11 @@ const PlanningSidebar = ({
           // Dedupliceren op orderId en tegelijk lotnummers aggregeren
           const uniqueMap = new Map();
           data.forEach(item => {
-            const orderId = String(item?.orderId || "").trim();
+            const parsedOrderIdFromId = String(item?.id || "").trim().replace(/_\d{6,}$/, "");
+            const orderId = String(item?.orderId || parsedOrderIdFromId || "").trim();
             if (!orderId) return;
 
-            const lot = String(item?.lotNumber || item?.activeLot || "").trim();
+            const lot = getLotFromRecord(item);
             const finishedAt =
               (typeof item?.timestamps?.finished?.toMillis === "function" && item.timestamps.finished.toMillis()) ||
               (item?.timestamps?.finished ? new Date(item.timestamps.finished).getTime() : 0) ||
@@ -208,7 +279,52 @@ const PlanningSidebar = ({
       };
       fetchArchive();
     }
-  }, [isHistoryScope, archivedOrders.length]);
+  }, [isHistoryScope, archivedOrders.length, searchTerm]);
+
+  const trackingDerivedOrders = useMemo(() => {
+    const byOrder = new Map();
+
+    trackedProducts.forEach((product) => {
+      if (isInactiveTrackedProduct(product)) return;
+
+      const orderId = getOrderIdFromRecord(product);
+      if (!orderId) return;
+
+      const lot = getLotFromRecord(product);
+      const current = byOrder.get(orderId);
+      const nextLots = Array.from(
+        new Set([...(current?.lotNumbers || []), ...(lot ? [lot] : [])].filter(Boolean))
+      );
+
+      byOrder.set(orderId, {
+        ...current,
+        id: orderId,
+        orderId,
+        machine:
+          product?.currentStation ||
+          product?.currentStep ||
+          product?.originMachine ||
+          product?.machine ||
+          current?.machine ||
+          "Onbekend",
+        item:
+          current?.item ||
+          product?.item ||
+          product?.itemDescription ||
+          product?.itemCode ||
+          "Onbekend product",
+        itemDescription: current?.itemDescription || product?.itemDescription || product?.item || "",
+        itemCode: current?.itemCode || product?.itemCode || "",
+        status: current?.status || product?.status || "in_progress",
+        currentStation: product?.currentStation || current?.currentStation || "",
+        lotNumbers: nextLots,
+        lotNumbersText: nextLots.join(" "),
+        isTrackingDerivedOrder: true,
+      });
+    });
+
+    return Array.from(byOrder.values());
+  }, [trackedProducts]);
 
   // Bepaal de bron data: Actief, History of beide
   const sourceData = useMemo(() => {
@@ -261,21 +377,40 @@ const PlanningSidebar = ({
     if (dataScope === "history") return archivedOrders;
     if (dataScope === "all") {
       const byOrder = new Map();
-      orders.forEach((o) => {
-        const key = String(o?.orderId || o?.id || "").trim();
-        if (!key) return;
-        byOrder.set(key, o);
-      });
-      // Archive record overschrijft actieve record zodat status correct "completed" is.
       archivedOrders.forEach((o) => {
         const key = String(o?.orderId || o?.id || "").trim();
         if (!key) return;
-        byOrder.set(key, o);
+        const current = byOrder.get(key);
+        byOrder.set(key, mergeOrderEntries(current, o));
+      });
+      trackingDerivedOrders.forEach((o) => {
+        const key = String(o?.orderId || o?.id || "").trim();
+        if (!key) return;
+        const current = byOrder.get(key);
+        byOrder.set(key, mergeOrderEntries(current, o));
+      });
+      orders.forEach((o) => {
+        const key = String(o?.orderId || o?.id || "").trim();
+        if (!key) return;
+        const current = byOrder.get(key);
+        byOrder.set(key, mergeOrderEntries(current, o));
       });
       return Array.from(byOrder.values());
     }
-    return orders;
-  }, [dataScope, orders, archivedOrders, trackedProducts, currentWeek, currentYear]);
+
+    const byOrder = new Map();
+    trackingDerivedOrders.forEach((o) => {
+      const key = String(o?.orderId || o?.id || "").trim();
+      if (!key) return;
+      byOrder.set(key, mergeOrderEntries(byOrder.get(key), o));
+    });
+    orders.forEach((o) => {
+      const key = String(o?.orderId || o?.id || "").trim();
+      if (!key) return;
+      byOrder.set(key, mergeOrderEntries(byOrder.get(key), o));
+    });
+    return Array.from(byOrder.values());
+  }, [dataScope, orders, archivedOrders, trackingDerivedOrders, trackedProducts, currentWeek, currentYear]);
 
   // Helper om te bepalen of een order nieuw is (< 24 uur)
   const isOrderNew = (order) => {
@@ -294,7 +429,7 @@ const PlanningSidebar = ({
     const allProducts = [...trackedProducts, ...archivedProducts];
 
     allProducts.forEach((product) => {
-      const orderKey = String(product?.orderId || "").trim();
+      const orderKey = getOrderIdFromRecord(product);
       if (!orderKey) return;
 
       const set = byOrder.get(orderKey) || new Set();
@@ -314,6 +449,22 @@ const PlanningSidebar = ({
       byOrder.set(orderKey, set);
     });
 
+    return byOrder;
+  }, [trackedProducts, archivedProducts]);
+
+  // Lot-nummers per orderId ophalen vanuit trackedProducts en archivedProducts
+  const orderLotMap = useMemo(() => {
+    const byOrder = new Map();
+    const allProducts = [...trackedProducts, ...archivedProducts];
+    allProducts.forEach((product) => {
+      const orderKey = getOrderIdFromRecord(product);
+      if (!orderKey) return;
+      const lot = getLotFromRecord(product) || String(product?.id || "").trim();
+      if (!lot) return;
+      const set = byOrder.get(orderKey) || new Set();
+      set.add(lot.toLowerCase());
+      byOrder.set(orderKey, set);
+    });
     return byOrder;
   }, [trackedProducts, archivedProducts]);
 
@@ -517,10 +668,39 @@ const PlanningSidebar = ({
         .filter((v) => v !== null && v !== undefined)
         .map((v) => String(v).toLowerCase());
 
+      // Voeg lotnummers toe vanuit tracked/archived products
+      const orderKey = String(order?.orderId || order?.id || "").trim();
+      const trackedLots = orderLotMap.get(orderKey);
+      if (trackedLots) {
+        trackedLots.forEach((lot) => searchableFields.push(lot));
+      }
+
       return terms.every((part) =>
         searchableFields.some((value) => value.includes(part))
       );
     });
+
+      // Als scope 'active' is, voeg ook archiefmatches toe op basis van zoekterm
+      if (dataScope === "active" && archivedOrders.length > 0) {
+        const existingIds = new Set(result.map((o) => String(o?.orderId || o?.id || "").trim()));
+        const archiveMatches = archivedOrders.filter((order) => {
+          const key = String(order?.orderId || order?.id || "").trim();
+          if (existingIds.has(key)) return false;
+          const fields = [
+            order?.orderId,
+            order?.item,
+            order?.itemDescription,
+            order?.itemCode,
+            order?.machine,
+            order?.lotNumber,
+            order?.lotNumbersText,
+          ]
+            .filter(Boolean)
+            .map((v) => String(v).toLowerCase());
+          return terms.every((part) => fields.some((v) => v.includes(part)));
+        });
+        result = [...result, ...archiveMatches];
+      }
     }
 
     // 4. Sorteren (standaard): Huidige/Toekomstige weken eerst, daarna Backlog (Oude weken)
@@ -576,7 +756,7 @@ const PlanningSidebar = ({
       // Fallback: Order ID
       return (a.orderId || "").localeCompare(b.orderId || "");
     });
-  }, [sourceData, searchTerm, selectedMachine, dataScope, currentWeek, currentYear, sortMode, rejectPeriod, isRejectScope, orderStationMap]);
+  }, [sourceData, searchTerm, selectedMachine, dataScope, currentWeek, currentYear, sortMode, rejectPeriod, isRejectScope, orderStationMap, archivedOrders, orderLotMap]);
 
   const handleExportCurrentList = () => {
     if (!filteredOrders.length) return;
@@ -634,7 +814,7 @@ const PlanningSidebar = ({
     const allProducts = [...trackedProducts, ...archivedProducts];
 
     allProducts.forEach((product) => {
-      const orderKey = String(product?.orderId || "").trim();
+      const orderKey = getOrderIdFromRecord(product);
       if (!orderKey || !orderLookup.has(orderKey)) return;
 
       const lotNumber = String(product?.lotNumber || product?.activeLot || product?.id || "").trim();
@@ -778,7 +958,7 @@ const PlanningSidebar = ({
   const trackedFinishedByOrder = useMemo(() => {
     const map = new Map();
     trackedProducts.forEach((product) => {
-      const orderId = String(product?.orderId || "").trim();
+      const orderId = getOrderIdFromRecord(product);
       if (!orderId) return;
       const status = String(product?.status || "").toLowerCase();
       const step = String(product?.currentStep || "").toLowerCase();

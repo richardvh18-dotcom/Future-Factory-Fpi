@@ -7,7 +7,7 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import { collection, onSnapshot, doc } from "firebase/firestore";
+import { collection, collectionGroup, onSnapshot, doc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
 import { updateOrderPlannedDate } from "../../services/planningSecurityService";
@@ -27,6 +27,7 @@ import {
   isToday
 } from "date-fns";
 import { nl } from "date-fns/locale";
+import { getDeliveryPlanningState, resolveDeliveryDate, toDateSafe } from "../../utils/dateUtils";
 
 /**
  * GanttChartView - Timeline visualization for order planning
@@ -87,11 +88,7 @@ const GanttChartView = (props = {}) => {
 
   // Helper voor robuuste datum parsing
   const parseDate = (dateInput) => {
-    if (!dateInput) return null;
-    if (dateInput.toDate) return dateInput.toDate(); // Firestore Timestamp
-    if (dateInput instanceof Date) return dateInput;
-    const d = new Date(dateInput);
-    return isNaN(d.getTime()) ? null : d;
+    return toDateSafe(dateInput);
   };
 
   useEffect(() => {
@@ -120,37 +117,116 @@ const GanttChartView = (props = {}) => {
       return undefined;
     }
 
-    // Load orders
-    const unsubOrders = onSnapshot(
+    let rootOrders = [];
+    let scopedOrders = [];
+
+    const mergeOrders = () => {
+      const merged = new Map();
+      [...rootOrders, ...scopedOrders].forEach((order, idx) => {
+        const key = String(order.orderId || order.id || `order-${idx}`).trim();
+        if (!key) return;
+        merged.set(key, order);
+      });
+      setLiveOrders(Array.from(merged.values()));
+      setLoading(false);
+    };
+
+    const unsubRootOrders = onSnapshot(
       collection(db, ...readPaths.PLANNING),
       (snapshot) => {
-        const ordersData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setLiveOrders(ordersData);
-        setLoading(false);
+        rootOrders = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        mergeOrders();
+      },
+      () => {
+        rootOrders = [];
+        mergeOrders();
       }
     );
 
-    return () => unsubOrders();
+    const unsubScopedOrders = onSnapshot(
+      collectionGroup(db, "orders"),
+      (snapshot) => {
+        scopedOrders = snapshot.docs
+          .filter((d) => {
+            const path = d.ref.path || "";
+            return (
+              path.includes("/production/digital_planning/") &&
+              path.includes("/machines/") &&
+              path.includes("/orders/")
+            );
+          })
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        mergeOrders();
+      },
+      () => {
+        scopedOrders = [];
+        mergeOrders();
+      }
+    );
+
+    return () => {
+      unsubRootOrders();
+      unsubScopedOrders();
+    };
   }, [readPaths, useProvidedOrders]);
 
   useEffect(() => {
     if (!readPaths || useProvidedTrackedProducts) return undefined;
 
-    const unsubTracking = onSnapshot(
+    let rootTracked = [];
+    let scopedTracked = [];
+
+    const mergeTracked = () => {
+      const merged = new Map();
+      [...rootTracked, ...scopedTracked].forEach((row, idx) => {
+        const key = String(row.__docPath || row.id || `tracked-${idx}`).trim();
+        if (!key) return;
+        merged.set(key, row);
+      });
+      setLiveTrackedProducts(Array.from(merged.values()));
+    };
+
+    const unsubRootTracking = onSnapshot(
       collection(db, ...readPaths.TRACKING),
       (snapshot) => {
-        const products = snapshot.docs.map((docSnap) => ({
+        rootTracked = snapshot.docs.map((docSnap) => ({
           id: docSnap.id,
+          __docPath: docSnap.ref.path,
           ...docSnap.data(),
         }));
-        setLiveTrackedProducts(products);
+        mergeTracked();
+      },
+      () => {
+        rootTracked = [];
+        mergeTracked();
       }
     );
 
-    return () => unsubTracking();
+    const unsubScopedTracking = onSnapshot(
+      collectionGroup(db, "items"),
+      (snapshot) => {
+        scopedTracked = snapshot.docs
+          .filter((d) => {
+            const path = d.ref.path || "";
+            return path.includes("/production/tracked_products/") && path.includes("/items/");
+          })
+          .map((docSnap) => ({
+            id: docSnap.id,
+            __docPath: docSnap.ref.path,
+            ...docSnap.data(),
+          }));
+        mergeTracked();
+      },
+      () => {
+        scopedTracked = [];
+        mergeTracked();
+      }
+    );
+
+    return () => {
+      unsubRootTracking();
+      unsubScopedTracking();
+    };
   }, [readPaths, useProvidedTrackedProducts]);
 
   // Load efficiency/imported hours
@@ -268,7 +344,13 @@ const GanttChartView = (props = {}) => {
   };
 
   const getDeliveryDay = (order) => {
-    const delivery = parseDate(order?.deliveryDate || order?.plannedDeliveryDate || order?.dueDate || order?.rejectDate);
+    const delivery = resolveDeliveryDate(
+      order?.deliveryDate,
+      order?.plannedDeliveryDate,
+      order?.dueDate,
+      order?.deadline,
+      order?.rejectDate
+    );
     return delivery ? startOfDay(delivery) : null;
   };
 
@@ -296,7 +378,7 @@ const GanttChartView = (props = {}) => {
 
   const machineThroughputPerDay = useMemo(() => {
     const now = new Date();
-    const windowStart = subDays(now, 14);
+    const windowStart = subDays(now, 21);
     const machineStats = new Map();
 
     tracking.forEach((product) => {
@@ -328,7 +410,7 @@ const GanttChartView = (props = {}) => {
 
     const byMachine = new Map();
     machineStats.forEach((entry, machineKey) => {
-      const unitsPerDay = entry.count / 14;
+      const unitsPerDay = entry.count / 21;
       byMachine.set(machineKey, Math.max(0.5, unitsPerDay));
     });
 
@@ -409,8 +491,70 @@ const GanttChartView = (props = {}) => {
     return predictions;
   }, [orders, machineThroughputPerDay, trackedFinishedByOrder]);
 
+  // Bereken werkelijke doorlooptijd o.b.v. tracked producten
+  function getActualOrderDuration(order, trackedItems) {
+    const orderId = getOrderIdentity(order);
+    const orderTracked = trackedItems.filter(t => {
+      const tOrderId = String(t?.orderId || "").trim();
+      return tOrderId === orderId;
+    });
+
+    if (orderTracked.length === 0) return null;
+
+    // Groepeer per dag
+    const dayMap = new Map();
+    orderTracked.forEach(item => {
+      const eventDate =
+        parseDate(item?.timestamps?.finished) ||
+        parseDate(item?.createdAt) ||
+        parseDate(item?.timestamps?.started);
+      if (!eventDate) return;
+
+      const dayKey = format(startOfDay(eventDate), 'yyyy-MM-dd');
+      dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
+    });
+
+    if (dayMap.size === 0) return null;
+
+    const sortedDays = Array.from(dayMap.keys()).sort();
+    const firstDay = parseDate(sortedDays[0]);
+    const lastDay = parseDate(sortedDays[sortedDays.length - 1]);
+
+    if (!firstDay || !lastDay) return null;
+
+    const actualStartDay = startOfDay(firstDay);
+    const actualEndDay = startOfDay(lastDay);
+    const actualDays = Math.max(1, differenceInCalendarDays(actualEndDay, actualStartDay) + 1);
+
+    const totalProduced = orderTracked.length;
+    const avgPerDay = totalProduced / actualDays;
+
+    return {
+      actualStartDay,
+      actualEndDay,
+      actualDays,
+      totalProduced,
+      avgPerDay,
+    };
+  }
+
   function getOrderTimeBounds(order) {
-    const startDateRaw = order.plannedDate || ((order.status === 'in_progress' || order.status === 'in_production') ? order.actualStart : null);
+    const deliveryDate = resolveDeliveryDate(
+      order?.deliveryDate,
+      order?.plannedDeliveryDate,
+      order?.dueDate,
+      order?.deadline,
+      order?.rejectDate
+    );
+    const planningState = getDeliveryPlanningState(deliveryDate, {
+      productionLeadDays: 21,
+      finishBufferDays: 4,
+    });
+
+    const startDateRaw =
+      order.plannedDate ||
+      ((order.status === 'in_progress' || order.status === 'in_production') ? order.actualStart : null) ||
+      planningState.productionStartDate;
     const startDate = parseDate(startDateRaw);
     if (!startDate) return null;
 
@@ -428,7 +572,7 @@ const GanttChartView = (props = {}) => {
       }
     }
 
-    const explicitDeliveryDate = parseDate(order.deliveryDate || order.plannedDeliveryDate);
+    const explicitDeliveryDate = deliveryDate ? parseDate(deliveryDate) : null;
     const fallbackEndDate = addDays(startDate, Math.max(1, Math.ceil(totalHours / 8)) - 1);
     const endDate = explicitDeliveryDate || fallbackEndDate;
 
@@ -436,12 +580,16 @@ const GanttChartView = (props = {}) => {
     const endDay = startOfDay(endDate);
     const safeEndDay = endDay < startDay ? startDay : endDay;
 
+    // Voeg actuele duur toe (o.b.v. tracking)
+    const actualDuration = getActualOrderDuration(order, tracking);
+
     return {
       startDay,
       endDay: safeEndDay,
       totalHours,
       isEfficiencyBased,
       leadWeeks: Math.max(0, differenceInCalendarWeeks(safeEndDay, startDay, { weekStartsOn: 1 })),
+      actualDuration,
     };
   }
 
@@ -1134,7 +1282,15 @@ const GanttChartView = (props = {}) => {
                       )}
 
                       {/* Orders */}
-                      {!isCollapsed && laidOutBars.map(({ order, style, lane }) => {
+                      {!isCollapsed && (() => {
+                        // Maak index-map van datum naar pixel-positie
+                        const dayIndexMap = new Map();
+                        timelineDays.forEach((day, idx) => {
+                          const dayKey = format(day, 'yyyy-MM-dd');
+                          dayIndexMap.set(dayKey, idx);
+                        });
+
+                        return laidOutBars.map(({ order, style, lane }) => {
                         const { _totalHours, _isEfficiencyBased, _startDate, _endDate, _leadWeeks, leftPx, widthPx, ...restStyle } = style || {};
                         const stableOrderSelectionId = getOrderBarIdentity(order);
                         const isSelectedBar = selectedOrderBarId === stableOrderSelectionId;
@@ -1167,6 +1323,29 @@ const GanttChartView = (props = {}) => {
                               ? 120
                               : 10,
                         };
+                        const productLabel = String(
+                          order.itemDescription || order.item || order.itemCode || ""
+                        ).trim();
+                        const orderWithProductLabel = [
+                          order.orderId || "-",
+                          productLabel,
+                        ]
+                          .filter(Boolean)
+                          .join(" - ");
+
+                        // Bereken actuele balk-breedte als beschikbaar
+                        let actualWidthPx = widthPx;
+                        let actualBarColor = getOrderColor(order);
+                        const bounds = getOrderTimeBounds(order);
+                        
+                        if (bounds?.actualDuration && bounds.actualDuration.actualEndDay) {
+                          const actualEndPixels = (dayIndexMap.get(format(bounds.actualDuration.actualEndDay, 'yyyy-MM-dd')) || 0) * effectiveDayWidth;
+                          actualWidthPx = Math.max(effectiveDayWidth, actualEndPixels - leftPx);
+                          // Markeer orders die klaar zijn met groene overlay
+                          if (bounds.actualDuration.totalProduced >= order.plan) {
+                            actualBarColor = "bg-emerald-600";
+                          }
+                        }
 
                         return (
                           <div
@@ -1179,28 +1358,49 @@ const GanttChartView = (props = {}) => {
                                 prev === stableOrderSelectionId ? null : stableOrderSelectionId
                               )
                             }
-                            className={`gantt-order-bar absolute ${getOrderColor(order)} rounded-lg p-2 shadow-md hover:shadow-lg transition-shadow cursor-pointer group ${
-                              prediction?.scheduleStatus === "behind"
-                                ? "ring-2 ring-rose-300"
-                                : prediction?.scheduleStatus === "ahead"
-                                  ? "ring-2 ring-emerald-300"
-                                  : ""
-                            } ${isSelectedBar ? "ring-2 ring-blue-300" : ""}`}
-                            style={cssStyle}
+                            className={`gantt-order-bar-wrapper absolute group`}
+                            style={{ ...cssStyle, width: 'auto' }}
                           >
-                            <div className="text-white text-xs font-bold truncate">
-                              {order.orderId || "-"}
-                            </div>
-                            <div className="text-white text-xs opacity-90">
-                              {(order.itemCode || order.item || "-")} · {getProducedUnits(order, trackedFinishedByOrder)}/{order.plan} stuks
-                            </div>
-                            <div className="text-white/90 text-[10px] truncate">
-                              {order.itemDescription || order.item || ""}
-                            </div>
-                            {prediction && (
-                              <div className={`text-[10px] font-bold truncate ${scheduleClass}`}>
-                                {t("planning.gantt.predictedReady", "AI gereed")}: {predictedDateLabel}
+                            {/* Geplande balk */}
+                            <div
+                              className={`gantt-order-bar absolute ${getOrderColor(order)} rounded-lg p-2 shadow-md hover:shadow-lg transition-shadow cursor-pointer ${
+                                prediction?.scheduleStatus === "behind"
+                                  ? "ring-2 ring-rose-300"
+                                  : prediction?.scheduleStatus === "ahead"
+                                    ? "ring-2 ring-emerald-300"
+                                    : ""
+                              } ${isSelectedBar ? "ring-2 ring-blue-300" : ""}`}
+                              style={{ ...cssStyle, width: `${widthPx}px` }}
+                            >
+                              <div className="text-white text-xs font-bold truncate">
+                                {orderWithProductLabel}
                               </div>
+                              <div className="text-white text-xs opacity-90">
+                                {(order.itemCode || order.item || "-")} · {getProducedUnits(order, trackedFinishedByOrder)}/{order.plan} stuks
+                              </div>
+                              <div className="text-white/90 text-[10px] truncate">
+                                {order.itemDescription || order.item || ""}
+                              </div>
+                              {prediction && (
+                                <div className={`text-[10px] font-bold truncate ${scheduleClass}`}>
+                                  {t("planning.gantt.predictedReady", "AI gereed")}: {predictedDateLabel}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actuele duur overlay (groen streepje) */}
+                            {bounds?.actualDuration && (
+                              <div
+                                className="absolute bg-emerald-500 opacity-70 rounded-b-lg"
+                                style={{
+                                  left: 0,
+                                  top: '100%',
+                                  width: `${actualWidthPx}px`,
+                                  height: '3px',
+                                  marginTop: '-1px',
+                                }}
+                                title={`Werkelijk: ${bounds.actualDuration.actualDays} dagen, ${bounds.actualDuration.totalProduced} stuks`}
+                              />
                             )}
 
                             {/* Tooltip on hover */}
@@ -1218,6 +1418,13 @@ const GanttChartView = (props = {}) => {
                               {_startDate && <div>{t("planning.gantt.tooltipFrom")}: {format(_startDate, 'dd-MM-yyyy')}</div>}
                               {_endDate && <div>{t("planning.gantt.tooltipTo")}: {format(_endDate, 'dd-MM-yyyy')}</div>}
                               <div>{t("planning.gantt.tooltipLeadTime")}: {_leadWeeks} {t("planning.gantt.weeks")}</div>
+                              {bounds?.actualDuration && (
+                                <div className="border-t border-emerald-400 pt-2 mt-2">
+                                  <div className="font-bold text-emerald-400">Werkelijke duur:</div>
+                                  <div>{bounds.actualDuration.actualDays} dagen ({Math.round(bounds.actualDuration.actualDays / 7 * 10) / 10} wk)</div>
+                                  <div>{bounds.actualDuration.totalProduced} stuks, ~{Math.round(bounds.actualDuration.avgPerDay * 10) / 10}/dag</div>
+                                </div>
+                              )}
                               {prediction && (
                                 <div>
                                   {t("planning.gantt.tooltipPredictedReady", "Voorspelde gereeddatum")}: {prediction.predictedReadyDay ? format(prediction.predictedReadyDay, "dd-MM-yyyy") : "--"}
@@ -1239,7 +1446,8 @@ const GanttChartView = (props = {}) => {
                             </div>
                           </div>
                         );
-                      })}
+                        });
+                      })()}
                     </div>
                   </div>
                 );

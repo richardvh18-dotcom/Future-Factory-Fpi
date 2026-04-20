@@ -2060,6 +2060,7 @@ export const en = {
         cannotValidateLotRange: "Cannot validate lot number range.",
         lotAlreadyExistsRetry: "Lot number {{lot}} already exists (active or archived). Try again.",
         lotAlreadyExists: "Lot number {{lot}} already exists (active or archived).",
+        lotCannotEqualOrder: "Lot number cannot be equal to order number ({{order}}).",
         manualLotMustEndWith4Digits: "For a string run, manual lot number must end with 4 digits (e.g. ...0001).",
         lotAlreadyExistsChooseOther: "Lot number {{lot}} already exists (active or archived). Choose another start lot.",
         cannotBuildStringLots: "Cannot build string lot numbers: start lot must end with 4 digits.",

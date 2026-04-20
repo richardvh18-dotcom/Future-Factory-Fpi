@@ -87,7 +87,29 @@ const OrderDetail = React.memo(({
 
   const orderProducts = useMemo(() => {
     if (!order) return [];
-    return products.filter((p) => p.orderId === order.orderId);
+
+    const targetOrderId = String(order.orderId || "").trim().toUpperCase();
+    if (!targetOrderId) return [];
+
+    const readDocIdOrderPrefix = (product) => {
+      const path = String(product?.__docPath || product?.sourcePath || "").trim();
+      const rawDocId = path ? path.split("/").pop() : String(product?.id || "").trim();
+      const match = rawDocId.match(/^(N\d+)_/i);
+      return match ? String(match[1] || "").trim().toUpperCase() : "";
+    };
+
+    return products.filter((p) => {
+      const fieldOrderId = String(p?.orderId || "").trim().toUpperCase();
+      const docOrderPrefix = readDocIdOrderPrefix(p);
+
+      // Als het orderId veld bestaat, moet het exact matchen.
+      if (fieldOrderId && fieldOrderId !== targetOrderId) return false;
+
+      // Als docId een orderprefix bevat, moet die ook matchen.
+      if (docOrderPrefix && docOrderPrefix !== targetOrderId) return false;
+
+      return fieldOrderId === targetOrderId || docOrderPrefix === targetOrderId;
+    });
   }, [order, products]);
 
   const canEditOrderNotes = ['admin', 'teamleader', 'planner'].includes(role);
@@ -260,7 +282,19 @@ const OrderDetail = React.memo(({
       stepUpper === "REJECTED";
     return !isClosed;
   }).length;
-  const startedAmount = Math.max(stationStartedAmount, summedStartedAmount, liveStartedAmount);
+  const linkedStartedAmount = Array.from(
+    new Set(
+      orderProducts
+        .map((product) => String(product?.lotNumber || product?.id || "").trim())
+        .filter(Boolean)
+    )
+  ).length;
+  const startedAmount = Math.max(
+    stationStartedAmount,
+    summedStartedAmount,
+    liveStartedAmount,
+    linkedStartedAmount
+  );
   const effectivePlanForTodo = canEditOrderPlan && nextPlan !== null ? Number(nextPlan) : visibleOrderPlan;
   const todoAmount = Math.max(0, Number((Number(effectivePlanForTodo || 0) - startedAmount).toFixed(2)));
   const normalizedPriority =
@@ -575,6 +609,7 @@ const OrderDetail = React.memo(({
         
         <div className="space-y-3">
           {orderProducts.map((p) => {
+            const isArchived = !!(p.archivedAt || p.currentStation === 'GEREED' || (p.currentStep === 'Finished' && p.status === 'completed'));
             const inspectionDate = p.inspection?.timestamp ? (p.inspection.timestamp.toDate ? p.inspection.timestamp.toDate() : new Date(p.inspection.timestamp)) : null;
             const daysInReject = inspectionDate ? differenceInDays(new Date(), inspectionDate) : 0;
             const isLongReject = daysInReject > 2;
@@ -708,7 +743,7 @@ const OrderDetail = React.memo(({
                     <RotateCcw size={16} />
                   </button>
                 )}
-                {isManager && onMoveLot && (
+                {isManager && onMoveLot && !isArchived && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -720,7 +755,7 @@ const OrderDetail = React.memo(({
                     <ArrowRightLeft size={16} />
                   </button>
                 )}
-                {isManager && canEditLotNumber && (
+                {isManager && canEditLotNumber && !isArchived && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -732,7 +767,7 @@ const OrderDetail = React.memo(({
                     <Edit3 size={16} />
                   </button>
                 )}
-                {isManager && (
+                {isManager && !isArchived && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

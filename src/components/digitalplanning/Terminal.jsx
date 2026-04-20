@@ -19,18 +19,20 @@ import {
   arrayUnion,
 } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import { toDateSafe } from "../../utils/dateUtils";
 import {
   getISOWeek,
   getISOWeekYear,
   addWeeks,
   subWeeks,
+  subDays,
 } from "date-fns";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import ProductDetailModal from "../products/ProductDetailModal";
 import LossenView from "./LossenView";
+import Nabewerken from "./Nabewerken";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
 import { subscribeTrackedProducts } from "../../utils/trackedProducts";
@@ -54,7 +56,7 @@ const GEREED_TAB_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"]);
  * - Automatische selectie-reset bij navigatie.
  * - Alles-knop toegevoegd en zoekknop uit toolbar verwijderd.
  */
-const Terminal = ({ initialStation, onCancelProduction }) => {
+const Terminal = ({ initialStation, onCancelProduction, orders = [] }) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth();
 
@@ -81,6 +83,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
   const [lossenPlanningFilter, setLossenPlanningFilter] = useState(null);
   const [allOrders, setAllOrders] = useState([]);
   const [allTracked, setAllTracked] = useState([]);
+  const [archiveTrackedItems, setArchiveTrackedItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -103,7 +106,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
 
   // Planning filters (Week / Alles)
   const [referenceDate, setReferenceDate] = useState(new Date());
-  const [showAllWeeks, setShowAllWeeks] = useState(false); // STANDAARD UIT: Focus op huidige week + backlog
+  const [showAllWeeks, setShowAllWeeks] = useState(true); // STANDAARD AAN: Toon alle weken met weekdividers
   
   const targetWeekNum = getISOWeek(referenceDate);
   const targetYearNum = getISOWeekYear(referenceDate);
@@ -161,97 +164,39 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     return ["planned", "delegated", "pending", "waiting"].includes(normalized);
   };
 
-  // Real-time Data Sync
+  const isDefinitiveRejectedOrRemoved = (product) => {
+    const statusNorm = normalizeTrackedStatus(product?.status);
+    const stepNorm = String(product?.currentStep || "").trim().toLowerCase();
+    const inspectionNorm = String(product?.inspection?.status || "").trim().toLowerCase();
+    const isTemporaryReject = inspectionNorm.includes("tijdelijke afkeur");
+
+    const isRejected =
+      (["rejected", "afkeur", "archived_rejected", "definitieve_afkeur", "definitief_afkeur"].includes(statusNorm) ||
+        stepNorm === "rejected") &&
+      !isTemporaryReject;
+
+    const isRemoved = ["deleted", "cancelled", "canceled"].includes(statusNorm);
+    return isRejected || isRemoved;
+  };
+
+  // Real-time Data Sync - ONLY for tracked products (orders come from prop)
   useEffect(() => {
     if (!stationId) return;
     setLoading(true);
     
-    // PERFORMANCE: Haal alleen niet-afgeronde orders op (server-side filtering)
-    let rootOrders = [];
-    let scopedOrders = [];
-    const excludedStatuses = ["completed", "COMPLETED", "cancelled", "CANCELLED", "shipped", "SHIPPED", "rejected", "REJECTED", "finished", "FINISHED"];
+    // Set orders from prop (already filtered by WorkstationHub)
+    if (orders && orders.length > 0) {
+      setAllOrders(orders);
+    } else {
+      // Fallback if no orders provided
+      setAllOrders([]);
+    }
 
-    const processOrderDoc = (docSnap) => {
-      const data = docSnap.data();
-      let pYear = 0;
-      let pWeek = 0;
-      const weekStr = String(data.week || data.weekNumber || "").toUpperCase();
-      if (weekStr.includes("-W")) {
-        const parts = weekStr.split("-W");
-        pYear = parseInt(parts[0]) || 0;
-        pWeek = parseInt(parts[1]) || 0;
-      } else {
-        const dateCandidates = [
-          data.plannedDeliveryDate,
-          data.deliveryDate,
-          data.dueDate,
-          data.plannedDate,
-          data.date,
-        ];
-        for (const candidate of dateCandidates) {
-          if (!candidate) continue;
-          const d = parseDateSafe(candidate);
-          if (d && Number.isFinite(d.getTime())) {
-            pYear = getISOWeekYear(d);
-            pWeek = getISOWeek(d);
-            break;
-          }
-        }
-        if (!pWeek && (data.week || data.weekNumber)) {
-          pWeek = parseInt(data.week || data.weekNumber) || 0;
-          pYear = parseInt(data.year || data.weekYear) || new Date().getFullYear();
-        }
-      }
-      return { id: docSnap.id, ...data, parsedYear: pYear, parsedWeek: pWeek };
-    };
-
-    const mergeAndSet = () => {
-      const merged = new Map();
-      rootOrders.forEach((o) => {
-        const key = String(o.orderId || o.id || "").trim();
-        if (key) merged.set(key, o);
-      });
-      scopedOrders.forEach((o) => {
-        const key = String(o.orderId || o.id || "").trim();
-        if (key) merged.set(key, o);
-      });
-      setAllOrders(Array.from(merged.values()));
-    };
-
-    const q = query(
-      collection(db, ...PATHS.PLANNING),
-      where("status", "not-in", excludedStatuses)
-    );
-
-    const unsubOrders = onSnapshot(q, (snap) => {
-      rootOrders = snap.docs.map(processOrderDoc);
-      mergeAndSet();
-    }, (err) => {
-      console.error("Orders sync error:", err);
-      setLoading(false);
-    });
-
-    const unsubScopedOrders = onSnapshot(
-      collectionGroup(db, "orders"),
-      (snap) => {
-        scopedOrders = snap.docs
-          .filter((d) => {
-            const path = d.ref.path || "";
-            return (
-              path.includes("/production/digital_planning/") &&
-              path.includes("/machines/") &&
-              path.includes("/orders/")
-            );
-          })
-          .map(processOrderDoc)
-          .filter((o) => !excludedStatuses.map(s => s.toLowerCase()).includes(String(o.status || "").toLowerCase()));
-        mergeAndSet();
-      },
-      (err) => console.error("Terminal Scoped Orders Sync Error:", err)
-    );
-
+    // Voor robuuste lot-telling houden we actieve tracked lots breed beschikbaar.
     const unsubProducts = subscribeTrackedProducts({
       db,
+      statusExclusions: ["deleted", "archived_rejected"],
+      maxItems: 200,
       onData: (items) => {
         setAllTracked(items);
         setLoading(false);
@@ -263,11 +208,53 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     });
 
     return () => {
-      unsubOrders();
-      unsubScopedOrders();
       unsubProducts();
     };
-  }, [stationId]);
+  }, [stationId, orders]);  // Added orders as dependency
+
+  // Sync archief-items (meerdere jaren) voor lot-gedreven gemaakte teller.
+  useEffect(() => {
+    let isMounted = true;
+    const now = new Date();
+    const minArchiveDate = subDays(now, 365 * 6);
+    const years = [
+      now.getFullYear(),
+      now.getFullYear() - 1,
+      now.getFullYear() - 2,
+      now.getFullYear() - 3,
+      now.getFullYear() - 4,
+      now.getFullYear() - 5,
+    ];
+    const byYear = {};
+
+    const syncCombined = () => {
+      if (!isMounted) return;
+      const combined = Object.values(byYear).flatMap((items) => items || []);
+      setArchiveTrackedItems(combined);
+    };
+
+    const unsubs = years.map((year) =>
+      onSnapshot(
+        query(
+          collection(db, ...getArchiveItemsPath(year)),
+          where("timestamps.finished", ">=", minArchiveDate)
+        ),
+        (snap) => {
+          byYear[year] = snap.docs.map((d) => ({ id: d.id, __docPath: d.ref.path, ...d.data() }));
+          syncCombined();
+        },
+        () => {
+          byYear[year] = [];
+          syncCombined();
+        }
+      )
+    );
+
+    return () => {
+      isMounted = false;
+      unsubs.forEach((u) => u && u());
+    };
+  }, []);
 
   const stationOrderMeta = useMemo(() => {
     const map = new Map();
@@ -322,7 +309,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       const sourceMachines = new Set(["BH12", "BH15", "BH17", "BH18"]);
       return allOrders.filter(o => sourceMachines.has((normalizeMachine(o.machine) || "").toUpperCase().trim()));
     }
-    return allOrders.filter(o => {
+    const result = allOrders.filter(o => {
       const machineNorm = (normalizeMachine(o.machine) || "").toUpperCase().trim();
       const returnNorm = (normalizeMachine(o.returnStation) || "").toUpperCase().trim();
         const orderId = String(o.orderId || "").trim();
@@ -339,6 +326,8 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
           hasStationActivity
         );
     });
+    
+    return result;
   }, [allOrders, normalizedStationId, isBM01, isLossen1218Station, stationCounterField, stationOrderMeta]);
 
   const productionProgressMap = useMemo(() => {
@@ -364,30 +353,6 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     return map;
   }, [allTracked]);
 
-  // NIEUW: Map voor items die klaar zijn op de machine (voorbij Wikkelen)
-  const finishedOnMachineMap = useMemo(() => {
-    const map = {};
-    allTracked.forEach((p) => {
-      const oid = String(p.orderId || "").trim();
-      
-      // FIX: Afgekeurde items tellen NIET mee als gereed.
-      // Hierdoor daalt de 'produced' teller en komt de order terug in de planning (om bij te maken).
-      const isRejected = ['rejected', 'Rejected', 'AFKEUR', 'REJECTED'].includes(p.status) || p.currentStep === 'REJECTED';
-      if (isRejected) return;
-
-      // Items die niet meer op 'Wikkelen' of 'HOLD_AREA' staan, zijn klaar voor de machine
-      // FIX: HOLD_AREA (Tijdelijke afkeur) telt nu ook als 'klaar op BH18' (want gaat naar BH31), dus order verdwijnt.
-      const activeMachineSteps = ["Wikkelen"];
-      const isFinishedForMachine = !activeMachineSteps.includes(p.currentStep) || p.currentStep === "Finished" || p.status === "completed";
-      
-      if (isFinishedForMachine) {
-        if (!map[oid]) map[oid] = 0;
-        map[oid]++;
-      }
-    });
-    return map;
-  }, [allTracked]);
-
   const readyForReturnMap = useMemo(() => {
     const map = {};
     allTracked.forEach((p) => {
@@ -403,6 +368,35 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     });
     return map;
   }, [allTracked, normalizedStationId]);
+
+  // Centrale gemaakte teller: unieke lots per order uit tracked + archief.
+  const madeCountMap = useMemo(() => {
+    const perOrderLots = new Map();
+
+    const addLot = (orderIdRaw, lotRaw) => {
+      const orderId = String(orderIdRaw || "").trim();
+      const lot = String(lotRaw || "").trim();
+      if (!orderId || !lot) return;
+      if (!perOrderLots.has(orderId)) perOrderLots.set(orderId, new Set());
+      perOrderLots.get(orderId).add(lot);
+    };
+
+    allTracked.forEach((p) => {
+      if (isDefinitiveRejectedOrRemoved(p)) return;
+      addLot(p?.orderId, p?.lotNumber || p?.id);
+    });
+
+    archiveTrackedItems.forEach((p) => {
+      if (isDefinitiveRejectedOrRemoved(p)) return;
+      addLot(p?.orderId, p?.lotNumber || p?.id);
+    });
+
+    const result = {};
+    perOrderLots.forEach((lots, orderId) => {
+      result[orderId] = lots.size;
+    });
+    return result;
+  }, [allTracked, archiveTrackedItems]);
 
   const activeWikkelingen = useMemo(() => {
     const active = allTracked
@@ -476,8 +470,14 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     // Eerst verrijken met live data
     const enrichedOrders = myOrders.map(o => ({
         ...o,
-        // FIX: Combineer opgeslagen 'produced' (archived) met live 'finishedOnMachine' (active)
-        produced: (o.produced || 0) + (finishedOnMachineMap[o.orderId] || 0),
+        // Lot-first: unieke lots uit tracked+archief zijn de primaire bron.
+        // Legacy velden blijven als fallback om ondertelling te voorkomen.
+        produced: Math.max(
+          Number(madeCountMap[String(o.orderId || "").trim()]) || 0,
+          Number(o.produced) || 0,
+          Number(o.finishValue) || 0,
+          Number(o.wrapped) || 0
+        ),
         startedAtStation: Number(o[stationCounterField] || 0)
     }));
 
@@ -491,7 +491,8 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
       if (!isBM01 && quantity > 0 && startedAtStation >= quantity) return false;
 
       // Fallback: ook volledig geproduceerde orders uit actieve lijst houden.
-      if (quantity > 0 && o.produced >= quantity) return false;
+      // MAAR: Alleen als ze NIET meer in_progress zijn!
+      if (quantity > 0 && o.produced >= quantity && !["in_progress", "in production", "in productie"].includes(String(o.status || "").toLowerCase())) return false;
 
       if (isInactivePlanningStatus(o.status)) return false;
       
@@ -514,9 +515,9 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
 
       // Als we de HUIDIGE week bekijken, toon ook de backlog (alles uit verleden dat niet af is)
       if (absTarget === absCurrentReal) {
-            if (normalizePlanningStatus(o.status) === "in_progress" || normalizePlanningStatus(o.status) === "in production") return true; // ALTIJD tonen in huidige week als actief (ook als gepland in toekomst)
-          if (absOrder === absTarget) return true; // Deze week
-          if (absOrder < absTarget) return true;   // Backlog
+            if (normalizePlanningStatus(o.status) === "in_progress" || normalizePlanningStatus(o.status) === "in production") return true;
+          if (absOrder === absTarget) return true;
+          if (absOrder < absTarget) return true;
       } else {
           // Voor andere weken (toekomst/verleden) alleen die week tonen
           if (absOrder === absTarget) return true;
@@ -608,7 +609,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
         return combinedText.includes(token);
       });
     });
-  }, [myOrders, finishedOnMachineMap, stationCounterField, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01, normalizedStationId, productionProgressMap, absCurrentReal]);
+  }, [myOrders, madeCountMap, stationCounterField, targetWeekNum, targetYearNum, showAllWeeks, sidebarSearch, isBM01, normalizedStationId, productionProgressMap, absCurrentReal]);
 
   // LOSSEN 12/18: gefilterde planning per machine (filter via filterbar)
   const lossenFilteredOrders = useMemo(() => {
@@ -619,10 +620,18 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     });
   }, [filteredOrders, lossenPlanningFilter]);
 
-  const selectedOrder = useMemo(() => 
-    myOrders.find(o => o.id === selectedOrderId || o.orderId === selectedOrderId), 
-    [myOrders, selectedOrderId]
-  );
+  const selectedOrder = useMemo(() => {
+    const planningSource = isLossen1218Station ? lossenFilteredOrders : filteredOrders;
+    const fromPlanning = planningSource.find(
+      (o) => o.id === selectedOrderId || o.orderId === selectedOrderId
+    );
+    if (fromPlanning) return fromPlanning;
+
+    // Fallback voor gevallen waarin selectie nog bestaat maar tijdelijk niet in de zichtbare lijst zit.
+    return myOrders.find(
+      (o) => o.id === selectedOrderId || o.orderId === selectedOrderId
+    );
+  }, [isLossen1218Station, lossenFilteredOrders, filteredOrders, myOrders, selectedOrderId]);
 
   const selectedWikkeling = useMemo(() => activeWikkelingen.find(p => p.id === selectedTrackedId), [activeWikkelingen, selectedTrackedId]);
 
@@ -903,7 +912,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
     if (isNabewerking) {
       return (
         <div className="flex-1 overflow-hidden h-full text-left">
-          <LossenView stationId={effectiveStationId} appId={appId} products={allTracked} />
+          <Nabewerken products={allTracked} orders={orders} />
         </div>
       );
     }
@@ -1026,6 +1035,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                     rejectedCountMap={rejectedCountMap}
                     readyForReturnMap={readyForReturnMap}
                     isBM01={false}
+                    trackedProducts={allTracked}
                     onStartProduction={null}
                     selectedOrder={selectedOrder}
                     onViewDrawing={handleViewDrawing}
@@ -1060,6 +1070,7 @@ const Terminal = ({ initialStation, onCancelProduction }) => {
                 rejectedCountMap={rejectedCountMap}
                 readyForReturnMap={readyForReturnMap}
                 isBM01={isBM01}
+                trackedProducts={allTracked}
                 onStartProduction={() => setShowStartModal(true)}
                 selectedOrder={selectedOrder}
                 onViewDrawing={handleViewDrawing}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "../config/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -10,119 +10,172 @@ import { PATHS } from "../config/dbPaths";
  * /future-factory/Users/Accounts structuur.
  */
 export const useAdminAuth = () => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [error] = useState(null);
+  const [state, setState] = useState(authStore.state);
 
-  // Master UID voor directe God Mode toegang (configureer via .env)
-  const MASTER_ADMIN_UID = (import.meta.env.VITE_MASTER_ADMIN_UID || "").trim();
+  useEffect(() => authStore.subscribe(setState), []);
 
-  useEffect(() => {
-    let isMounted = true;
-    let unsubscribeRole = () => {};
+  return state;
+};
 
-    // Monitor de Firebase Auth status
-    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!isMounted) return;
+const DEBUG_AUTH = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH === "true";
+const MASTER_ADMIN_UID = (import.meta.env.VITE_MASTER_ADMIN_UID || "").trim();
 
-      console.log("🔐 Auth State Changed:", firebaseUser?.email || "logged out");
+const debugLog = (...args) => {
+  if (DEBUG_AUTH) {
+    console.log(...args);
+  }
+};
 
-      // Stop de vorige listener om permission errors te voorkomen bij logout
-      if (unsubscribeRole) {
-        unsubscribeRole();
-        unsubscribeRole = () => {};
+const initialState = {
+  user: null,
+  loading: true,
+  role: null,
+  isAdmin: false,
+  error: null,
+};
+
+const authStore = {
+  state: initialState,
+  subscribers: new Set(),
+  unsubscribeAuth: null,
+  unsubscribeRole: null,
+  active: false,
+
+  emit() {
+    this.subscribers.forEach((listener) => listener(this.state));
+  },
+
+  setState(patch) {
+    this.state = { ...this.state, ...patch };
+    this.emit();
+  },
+
+  stopRoleListener() {
+    if (this.unsubscribeRole) {
+      this.unsubscribeRole();
+      this.unsubscribeRole = null;
+    }
+  },
+
+  start() {
+    if (this.active) return;
+    this.active = true;
+
+    this.unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      this.stopRoleListener();
+
+      if (!firebaseUser) {
+        debugLog("🔐 No active session");
+        this.setState({
+          user: null,
+          role: null,
+          isAdmin: false,
+          loading: false,
+          error: null,
+        });
+        return;
       }
 
-      if (firebaseUser) {
-        const currentUid = firebaseUser.uid.trim();
-        console.log("🔐 Current UID:", currentUid);
-        console.log("🔐 Master Admin UID:", MASTER_ADMIN_UID || "(niet ingesteld)");
+      const currentUid = String(firebaseUser.uid || "").trim();
+      debugLog("🔐 Auth State Changed:", firebaseUser.email || "logged in");
 
-        // 1. MASTER BYPASS (Altijd volledige rechten voor Richard)
-        if (MASTER_ADMIN_UID && currentUid === MASTER_ADMIN_UID) {
-          console.log("✅ Master Admin detected!");
-          const adminProfile = {
+      if (MASTER_ADMIN_UID && currentUid === MASTER_ADMIN_UID) {
+        this.setState({
+          user: {
             uid: currentUid,
             email: firebaseUser.email,
             name: "Richard (Master Admin)",
             role: "admin",
             isGodMode: true,
-          };
-          setUser(adminProfile);
-          setRole("admin");
-          setIsAdmin(true);
-          setLoading(false);
-          return;
-        }
+          },
+          role: "admin",
+          isAdmin: true,
+          loading: false,
+          error: null,
+        });
+        return;
+      }
 
-        // 2. DATABASE SYNC VOOR ANDERE GEBRUIKERS
-        try {
-          console.log("🔐 Looking up user in database...");
-          // Gebruik het pad uit dbPaths.js: future-factory/Users/Accounts/[UID]
-          const userRef = doc(db, ...PATHS.USERS, currentUid);
+      this.setState({ loading: true, error: null });
 
-          unsubscribeRole = onSnapshot(
-            userRef,
-            (snap) => {
-              if (!isMounted) return;
-
-              if (snap.exists()) {
-                console.log("✅ User found in database:", snap.data());
-                const data = snap.data();
-                setUser({
+      try {
+        const userRef = doc(db, ...PATHS.USERS, currentUid);
+        this.unsubscribeRole = onSnapshot(
+          userRef,
+          (snap) => {
+            if (snap.exists()) {
+              const data = snap.data();
+              const userRole = String(data.role || "user").toLowerCase();
+              this.setState({
+                user: {
                   uid: currentUid,
                   email: firebaseUser.email,
                   ...data,
-                });
-                const userRole = (data.role || "user").toLowerCase();
-                setRole(userRole);
-                setIsAdmin(userRole === "admin");
-              } else {
-                console.log("⚠️ User not in database, setting as guest");
-                // Geen record gevonden: gebruiker is een gast met beperkte rechten
-                setUser({
-                  uid: currentUid,
-                  email: firebaseUser.email,
-                  role: "guest",
-                  name:
-                    firebaseUser.displayName ||
-                    firebaseUser.email.split("@")[0],
-                });
-                setRole("guest");
-                setIsAdmin(false);
-              }
-              setLoading(false);
-            },
-            (err) => {
-              console.error("🔐 Auth Guard Firestore Error:", err.code, err.message, err);
-              // Bij een permissie-fout (Rules) vallen we terug op guest status
-              setRole("guest");
-              setLoading(false);
+                },
+                role: userRole,
+                isAdmin: userRole === "admin",
+                loading: false,
+                error: null,
+              });
+              return;
             }
-          );
-        } catch (err) {
-          console.error("🔐 Auth Guard Process Error:", err);
-          setLoading(false);
-        }
-      } else {
-        // Geen actieve sessie
-        console.log("🔐 No active session");
-        setUser(null);
-        setRole(null);
-        setIsAdmin(false);
-        setLoading(false);
+
+            this.setState({
+              user: {
+                uid: currentUid,
+                email: firebaseUser.email,
+                role: "guest",
+                name:
+                  firebaseUser.displayName ||
+                  String(firebaseUser.email || "gebruiker").split("@")[0],
+              },
+              role: "guest",
+              isAdmin: false,
+              loading: false,
+              error: null,
+            });
+          },
+          (err) => {
+            console.error("Auth Guard Firestore Error:", err?.code || "unknown", err?.message || err);
+            this.setState({
+              role: "guest",
+              isAdmin: false,
+              loading: false,
+              error: err,
+            });
+          }
+        );
+      } catch (err) {
+        console.error("Auth Guard Process Error:", err);
+        this.setState({ loading: false, error: err });
       }
     });
+  },
 
-    // Cleanup functie bij het unmounten van de component
+  stop() {
+    if (!this.active) return;
+    this.active = false;
+
+    if (this.unsubscribeAuth) {
+      this.unsubscribeAuth();
+      this.unsubscribeAuth = null;
+    }
+    this.stopRoleListener();
+  },
+
+  subscribe(listener) {
+    this.subscribers.add(listener);
+    listener(this.state);
+
+    if (this.subscribers.size === 1) {
+      this.start();
+    }
+
     return () => {
-      isMounted = false;
-      unsubscribeAuth();
-      unsubscribeRole();
+      this.subscribers.delete(listener);
+      if (this.subscribers.size === 0) {
+        this.stop();
+      }
     };
-  }, []);
-
-  return { user, role, isAdmin, loading, error };
+  },
 };

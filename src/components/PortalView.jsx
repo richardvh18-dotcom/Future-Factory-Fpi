@@ -162,9 +162,6 @@ const PortalView = () => {
         {/* Welkomsttekst */}
         <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
           <div className="flex items-center justify-center gap-3 md:gap-4 mb-2">
-            <span className="inline-flex items-center px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm font-black uppercase tracking-widest bg-amber-500 text-black shadow-xl shadow-amber-500/50 animate-pulse">
-              TEST
-            </span>
             <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight uppercase italic">
               {t('common.welcome')},{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 block md:inline">

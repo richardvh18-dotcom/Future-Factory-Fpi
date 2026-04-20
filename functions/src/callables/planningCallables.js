@@ -213,6 +213,19 @@ const tempRejectTrackedProduct = functions.https.onCall(async (data, context) =>
     if (error?.message === 'NOT_FOUND_PRODUCT') {
       throw new functions.https.HttpsError('not-found', 'Product niet gevonden in tracking.');
     }
+    const rawMessage = String(error?.message || '').toLowerCase();
+    if (rawMessage.includes('document path') || rawMessage.includes('document id') || rawMessage.includes('invalid query')) {
+      throw new functions.https.HttpsError('invalid-argument', 'Ongeldig productId of documentpad voor annuleren.');
+    }
+
+    console.error('cancelTrackedProduction onverwachte fout:', {
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+      productId,
+      selectedStation,
+      source,
+      actorLabel,
+    });
     throw error;
   }
 });
@@ -422,7 +435,15 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
       error?.message === 'INVALID_WORKSTATION_START_PAYLOAD'
       || error?.message === 'INVALID_LOT_FORMAT'
       || error?.message === 'INVALID_LOT_SEQUENCE'
+      || error?.message === 'LOT_NUMBER_EXISTS'
+      || error?.message === 'LOT_MATCHES_ORDER_ID'
     ) {
+      if (error?.message === 'LOT_NUMBER_EXISTS') {
+        throw new functions.https.HttpsError('invalid-argument', 'Lotnummer bestaat al in actieve productie.');
+      }
+      if (error?.message === 'LOT_MATCHES_ORDER_ID') {
+        throw new functions.https.HttpsError('invalid-argument', 'Lotnummer mag niet gelijk zijn aan ordernummer.');
+      }
       throw new functions.https.HttpsError('invalid-argument', 'Ongeldige startpayload voor productie-run.');
     }
     throw error;
@@ -1499,22 +1520,51 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
 
   auditService.logCallable(context, 'START_PRODUCTION_LOTS', { orderDocId, orderId, stationId, lotStart, totalToProduce }, { category: 'PRODUCTION', severity: 'INFO' });
 
-  return startProductionLotsService({
-    orderDocId,
-    orderId,
-    itemCode,
-    item,
-    lotStart,
-    totalToProduce,
-    stationId,
-    stationLabel,
-    actorLabel,
-    labelZplData,
-    labelTemplateId,
-    seriesGroupId,
-    isFlangeSeries,
-    dbCtx: resolveDbContext(),
-  });
+  try {
+    return await startProductionLotsService({
+      orderDocId,
+      orderId,
+      itemCode,
+      item,
+      lotStart,
+      totalToProduce,
+      stationId,
+      stationLabel,
+      actorLabel,
+      labelZplData,
+      labelTemplateId,
+      seriesGroupId,
+      isFlangeSeries,
+      dbCtx: resolveDbContext(),
+    });
+  } catch (error) {
+    if (error?.message === 'NOT_FOUND_ORDER') {
+      throw new functions.https.HttpsError('not-found', 'Planning-order niet gevonden.');
+    }
+    if (error?.message === 'INVALID_START_PRODUCTION_LOTS_PAYLOAD') {
+      throw new functions.https.HttpsError('invalid-argument', 'Ongeldige startpayload voor productie-lots.');
+    }
+    if (error?.message === 'LOT_NUMBER_EXISTS') {
+      throw new functions.https.HttpsError('invalid-argument', 'Lotnummer bestaat al in actieve productie.');
+    }
+    if (error?.message === 'LOT_MATCHES_ORDER_ID') {
+      throw new functions.https.HttpsError('invalid-argument', 'Lotnummer mag niet gelijk zijn aan ordernummer.');
+    }
+
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+
+    console.error('startProductionLots onverwachte fout:', {
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+      orderDocId,
+      orderId,
+      stationId,
+      totalToProduce,
+    });
+    throw new functions.https.HttpsError('internal', 'Starten van productie is mislukt.');
+  }
 });
 
 const editTrackedProductLotNumber = functions.https.onCall(async (data, context) => {

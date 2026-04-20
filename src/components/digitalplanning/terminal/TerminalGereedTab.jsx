@@ -55,13 +55,21 @@ const TerminalGereedTab = ({ allTracked = [], stationId, effectiveStationId }) =
   const completedByStation = useMemo(() => {
     const cutoff = subtractWorkingDays(new Date(), DAYS_BACK);
 
-    const getTimestampMs = (item) => {
-      const best =
-        toDateSafe(item?.timestamps?.lossen_start) ||
+    const getMadeDate = (item) => {
+      return (
+        toDateSafe(item?.timestamps?.finished) ||
+        toDateSafe(item?.timestamps?.completed) ||
+        toDateSafe(item?.archivedAt) ||
         toDateSafe(item?.updatedAt) ||
+        toDateSafe(item?.timestamps?.lossen_start) ||
         toDateSafe(item?.timestamps?.wikkelen_end) ||
         toDateSafe(item?.timestamps?.station_end) ||
-        toDateSafe(item?.createdAt);
+        toDateSafe(item?.createdAt)
+      );
+    };
+
+    const getTimestampMs = (item) => {
+      const best = getMadeDate(item);
       return best ? best.getTime() : 0;
     };
 
@@ -76,11 +84,7 @@ const TerminalGereedTab = ({ allTracked = [], stationId, effectiveStationId }) =
       const isStillInWinding = step === "WIKKELEN" || step === "HOLD_AREA";
       if (isStillInWinding) return false;
 
-      const ts =
-        toDateSafe(item?.timestamps?.lossen_start) ||
-        toDateSafe(item?.updatedAt) ||
-        toDateSafe(item?.timestamps?.wikkelen_end) ||
-        toDateSafe(item?.createdAt);
+      const ts = getMadeDate(item);
       return ts ? ts >= cutoff : false;
     };
 
@@ -146,9 +150,14 @@ const TerminalGereedTab = ({ allTracked = [], stationId, effectiveStationId }) =
               const productName = [item.item, item.itemDescription, item.description]
                 .map(s => String(s || "").trim()).filter(Boolean)[0] || t("digitalplanning.terminal.unknown_product", "Onbekend product");
               const productCode = String(item.itemCode || "").trim();
-              const lossenTs = toDateSafe(item?.timestamps?.lossen_start) || toDateSafe(item?.updatedAt);
-              const tsLabel = lossenTs
-                ? lossenTs.toLocaleString("nl-NL", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
+              const madeTs =
+                toDateSafe(item?.timestamps?.finished) ||
+                toDateSafe(item?.timestamps?.completed) ||
+                toDateSafe(item?.archivedAt) ||
+                toDateSafe(item?.updatedAt) ||
+                toDateSafe(item?.timestamps?.lossen_start);
+              const tsLabel = madeTs
+                ? madeTs.toLocaleString("nl-NL", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
                 : null;
               const stationNow = item.currentStation || "-";
               const stepNow = item.currentStep || "-";

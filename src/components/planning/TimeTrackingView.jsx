@@ -9,7 +9,7 @@ import {
   Calendar,
   Building2
 } from "lucide-react";
-import { collection, onSnapshot, doc } from "firebase/firestore";
+import { collection, collectionGroup, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { getArchiveItemsPath, PATHS } from "../../config/dbPaths";
 import { format, getISOWeek, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfMonth, endOfMonth, isWithinInterval, isValid, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from "date-fns";
@@ -38,15 +38,50 @@ const TimeTrackingView = ({ initialDepartment = "ALLES" }) => {
   useEffect(() => {
     if (!readPaths) return;
 
-    const unsubOrders = onSnapshot(
+    let rootOrders = [];
+    let scopedOrders = [];
+
+    const mergeOrders = () => {
+      const merged = new Map();
+      [...rootOrders, ...scopedOrders].forEach((order, idx) => {
+        const key = String(order.orderId || order.id || `order-${idx}`).trim();
+        if (!key) return;
+        merged.set(key, order);
+      });
+      setOrders(Array.from(merged.values()));
+      setLoading(false);
+    };
+
+    const unsubRootOrders = onSnapshot(
       collection(db, ...readPaths.PLANNING),
       (snapshot) => {
-        const ordersData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setOrders(ordersData);
-        setLoading(false);
+        rootOrders = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        mergeOrders();
+      },
+      () => {
+        rootOrders = [];
+        mergeOrders();
+      }
+    );
+
+    const unsubScopedOrders = onSnapshot(
+      collectionGroup(db, "orders"),
+      (snapshot) => {
+        scopedOrders = snapshot.docs
+          .filter((d) => {
+            const path = d.ref.path || "";
+            return (
+              path.includes("/production/digital_planning/") &&
+              path.includes("/machines/") &&
+              path.includes("/orders/")
+            );
+          })
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        mergeOrders();
+      },
+      () => {
+        scopedOrders = [];
+        mergeOrders();
       }
     );
 
@@ -77,20 +112,46 @@ const TimeTrackingView = ({ initialDepartment = "ALLES" }) => {
     const mergeTrackingRows = (activeRows, archivedRows) => {
       const merged = new Map();
       [...activeRows, ...archivedRows].forEach((row) => {
-        const key = String(row.id || row.lotNumber || `${row.orderId || ""}-${row.itemCode || ""}`);
+        const key = String(row.__docPath || row.id || row.lotNumber || `${row.orderId || ""}-${row.itemCode || ""}`);
         if (!merged.has(key)) merged.set(key, row);
       });
       setTrackingLogs(Array.from(merged.values()));
     };
 
-    let activeTrackingRows = [];
+    let rootTrackingRows = [];
+    let scopedTrackingRows = [];
     let archivedTrackingRows = [];
 
-    const unsubTracking = onSnapshot(
+    const mergeAllTrackingRows = () => {
+      mergeTrackingRows([...rootTrackingRows, ...scopedTrackingRows], archivedTrackingRows);
+    };
+
+    const unsubRootTracking = onSnapshot(
       collection(db, ...readPaths.TRACKING),
       (snapshot) => {
-        activeTrackingRows = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        mergeTrackingRows(activeTrackingRows, archivedTrackingRows);
+        rootTrackingRows = snapshot.docs.map(doc => ({ id: doc.id, __docPath: doc.ref.path, ...doc.data() }));
+        mergeAllTrackingRows();
+      },
+      () => {
+        rootTrackingRows = [];
+        mergeAllTrackingRows();
+      }
+    );
+
+    const unsubScopedTracking = onSnapshot(
+      collectionGroup(db, "items"),
+      (snapshot) => {
+        scopedTrackingRows = snapshot.docs
+          .filter((d) => {
+            const path = d.ref.path || "";
+            return path.includes("/production/tracked_products/") && path.includes("/items/");
+          })
+          .map((docSnap) => ({ id: docSnap.id, __docPath: docSnap.ref.path, ...docSnap.data() }));
+        mergeAllTrackingRows();
+      },
+      () => {
+        scopedTrackingRows = [];
+        mergeAllTrackingRows();
       }
     );
 
@@ -99,7 +160,7 @@ const TimeTrackingView = ({ initialDepartment = "ALLES" }) => {
       collection(db, ...getArchiveItemsPath(archiveYear)),
       (snapshot) => {
         archivedTrackingRows = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), _archived: true, _archiveYear: archiveYear }));
-        mergeTrackingRows(activeTrackingRows, archivedTrackingRows);
+        mergeAllTrackingRows();
       }
     );
 
@@ -119,10 +180,12 @@ const TimeTrackingView = ({ initialDepartment = "ALLES" }) => {
     );
 
     return () => {
-      unsubOrders();
+      unsubRootOrders();
+      unsubScopedOrders();
       unsubOccupancy();
       unsubEfficiency();
-      unsubTracking();
+      unsubRootTracking();
+      unsubScopedTracking();
       unsubArchiveTracking();
       unsubConfig();
     };

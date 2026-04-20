@@ -54,25 +54,25 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   }, [selectedProduct]);
 
   // Auto-focus logic voor scanner
-  useEffect(() => {
-    // Alleen auto-focus gebruiken als Scanner Modus AAN staat
-    if (!scannerMode) return;
-
-    const handleClick = (e) => {
-        if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
-        
-        if (activeTab === "inspectie" && !showFinishModal && !viewingDossier && !selectedOrderId) {
-            scanInputRef.current?.focus();
-        }
-    };
-    
-    if (activeTab === "inspectie") {
+    useEffect(() => {
+        if (!scannerMode) return;
+        // Focus direct bij laden of als scannerMode aan gaat
         scanInputRef.current?.focus();
-    }
-
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
+        // Ook bij click buiten input, behalve op interactieve elementen
+        const handleClick = (e) => {
+            if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+            if (activeTab === "inspectie" && !showFinishModal && !viewingDossier && !selectedOrderId) {
+                scanInputRef.current?.focus();
+            }
+        };
+        document.addEventListener('click', handleClick);
+        return () => document.removeEventListener('click', handleClick);
     }, [activeTab, showFinishModal, viewingDossier, selectedOrderId, scannerMode]);
+
+    // Focus scanveld bij eerste render (ook als scannerMode uit staat)
+    useEffect(() => {
+        scanInputRef.current?.focus();
+    }, []);
 
     const handleScan = async (e) => {
         if (e.key === 'Enter') {
@@ -797,11 +797,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         ) : activeTab === "inspectie" ? (
             <div className="h-full w-full">
                 <div
-                    className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full overflow-y-auto custom-scrollbar space-y-3 pb-24"
+                    className="h-full flex flex-col p-3 w-full overflow-y-auto custom-scrollbar pb-24"
                     style={{ paddingBottom: "max(6rem, env(safe-area-inset-bottom))" }}
                 >
                     {/* Scan Indicator & Input */}
-                    <div className="shrink-0 space-y-2 mb-4">
+                    <div className="shrink-0 space-y-2 mb-3 sticky top-0 bg-white py-2 z-10">
                         <div className="flex justify-between items-end">
                             {/* Indicator Label */}
                             <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 rounded-lg border border-purple-100 w-fit">
@@ -843,49 +843,44 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                             <p className="font-black uppercase tracking-widest text-slate-400">{t('bm01.no_items_inspect')}</p>
                         </div>
                     ) : (
-                        bm01Products.map(item => (
-                            <div 
-                                key={item.id}
-                                onClick={() => handleItemClick(item)}
-                                className={`p-5 rounded-[25px] border-2 shadow-sm hover:shadow-md transition-all flex justify-between items-center group cursor-pointer
-                                    ${selectedProduct?.id === item.id ? 'bg-purple-50 border-purple-400' : 'bg-white border-slate-100'}`}
-                            >
-                                <div className="flex items-center gap-5 overflow-hidden">
-                                    <div className="p-4 rounded-2xl shrink-0 bg-purple-50 text-purple-600">
-                                        <ClipboardCheck size={24} />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <h4 className="font-black text-lg text-slate-800 tracking-tight">{item.lotNumber}</h4>
-                                            <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg font-black uppercase tracking-wider border border-slate-200">
+                        <div className="flex flex-col gap-2">
+                            {bm01Products.map(item => (
+                                <div 
+                                    key={item.id}
+                                    onClick={() => handleItemClick(item)}
+                                    className={`bg-white border rounded-[14px] p-3 shadow-sm hover:shadow-md transition-all group cursor-pointer w-full
+                                        ${selectedProduct?.id === item.id ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-200' : 'border-slate-100'}`}
+                                >
+                                    <div className="flex justify-between items-start gap-3">
+                                        <div className="min-w-0 flex-1">
+                                            <h4 className="font-black text-2xl text-slate-800 tracking-tight">{item.lotNumber}</h4>
+                                            <span className="text-[7px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-lg font-black uppercase tracking-wider border border-slate-200 inline-block mt-0.5">
                                                 {item.orderId}
                                             </span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 font-bold uppercase truncate">{item.item}</p>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <History size={10} className="text-slate-400" />
-                                            <span className="text-[10px] text-slate-400 font-bold uppercase">
-                                                {t('bm01.from')}: {item.lastStation || t('common.unknown')}
-                                            </span>
+                                            <p className="text-[9px] text-slate-500 font-bold uppercase truncate mt-0.5">{item.item}</p>
+                                            <div className="flex items-center gap-1 mt-1">
+                                                <History size={8} className="text-slate-400" />
+                                                <span className="text-[7px] text-slate-400 font-bold uppercase">
+                                                    {t('bm01.from')}: {item.lastStation || t('common.unknown')}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="text-right shrink-0 pl-4 border-l border-slate-100 ml-4">
                                     <button
                                         onClick={() => handleItemClick(item)}
-                                        className="px-6 py-3 bg-purple-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-purple-700 transition-all shadow-lg active:scale-95"
+                                        className="w-full mt-2 px-2 py-1.5 bg-purple-600 text-white rounded-lg font-black uppercase text-[8px] tracking-widest hover:bg-purple-700 transition-all shadow-md active:scale-95"
                                     >
                                         {t('bm01.report_ready')}
                                     </button>
                                 </div>
-                            </div>
-                        ))
+                            ))}
+                        </div>
                     )}
                 </div>
             </div>
         ) : (
             /* AANGEBODEN / GEREED TAB */
-            <div className="h-full flex flex-col p-4 max-w-6xl mx-auto w-full">
+            <div className="h-full flex flex-col p-3 w-full">
                 {/* Datum Navigatie */}
                 <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-4">
                     <div className="flex items-center bg-white p-2 rounded-2xl shadow-sm border border-slate-100">

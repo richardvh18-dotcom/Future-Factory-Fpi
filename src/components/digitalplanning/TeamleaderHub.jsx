@@ -66,6 +66,27 @@ const TeamleaderHub = React.memo(({
   const currentWeek = getISOWeek(new Date());
   const currentYear = new Date().getFullYear();
 
+  const getOrderIdFromTrackedRecord = (record) => {
+    const directOrderId = String(record?.orderId || "").trim();
+    if (directOrderId) return directOrderId;
+
+    const rawId = String(record?.id || "").trim();
+    if (!rawId) return "";
+
+    return rawId.replace(/_\d{6,}$/, "");
+  };
+
+  const getLotFromTrackedRecord = (record) => {
+    const directLot = String(record?.lotNumber || record?.activeLot || "").trim();
+    if (directLot) return directLot;
+
+    const rawId = String(record?.id || "").trim();
+    if (!rawId) return "";
+
+    const lotFromId = rawId.match(/_(\d{6,})$/);
+    return lotFromId ? lotFromId[1] : "";
+  };
+
   const [activeTab, setActiveTab] = useState("dashboard");
   const [rawOrders, setRawOrders] = useState([]);
   const [rawProducts, setRawProducts] = useState([]);
@@ -433,7 +454,7 @@ const TeamleaderHub = React.memo(({
     const perOrder = new Map();
 
     rawProducts.forEach((product) => {
-      const orderId = String(product?.orderId || "").trim();
+      const orderId = getOrderIdFromTrackedRecord(product);
       if (!orderId) return;
 
       const machineNorm = normalizeMachine(product?.machine || "");
@@ -455,7 +476,7 @@ const TeamleaderHub = React.memo(({
       };
 
       existing.trackedInScopeCount += 1;
-      const lotNumber = String(product?.lotNumber || product?.id || "").trim();
+      const lotNumber = getLotFromTrackedRecord(product) || String(product?.id || "").trim();
       if (lotNumber) existing.trackedLots.add(lotNumber);
       perOrder.set(orderId, existing);
     });
@@ -574,7 +595,7 @@ const TeamleaderHub = React.memo(({
       if (!normalizedOrderId) return false;
 
       return rawProducts.some((product) => {
-        if (String(product?.orderId || "").trim() !== normalizedOrderId) return false;
+        if (getOrderIdFromTrackedRecord(product) !== normalizedOrderId) return false;
 
         return !isInactiveTrackedProduct(product);
       });
@@ -676,7 +697,7 @@ const TeamleaderHub = React.memo(({
 
       const entry = grouped.get(key);
       entry.products.push(product);
-      entry.lotNumbers.push(String(product.lotNumber || product.id || "").trim());
+      entry.lotNumbers.push(getLotFromTrackedRecord(product) || String(product.id || "").trim());
       entry.count += 1;
 
       const createdAtMs = product.createdAt?.toMillis
@@ -816,6 +837,17 @@ const TeamleaderHub = React.memo(({
 
     // History-items uit de sidebar zijn samenvattingen; haal het echte archiefitem op voor volledige history.
     if (entry.isArchivedOrder) {
+      const activeMatch = dataStore.find((o) => {
+        const candidateOrderId = String(o?.orderId || o?.id || "").trim();
+        return candidateOrderId && candidateOrderId === entryOrderId;
+      });
+
+      // Als order inmiddels weer actief zichtbaar is, open altijd live detail i.p.v. archiefdetail.
+      if (activeMatch) {
+        setSelectedOrderId(String(activeMatch.orderId || activeMatch.id || "").trim());
+        return;
+      }
+
       setSelectedOrderId(null);
       try {
         const baseYear = new Date().getFullYear();
@@ -987,7 +1019,7 @@ const TeamleaderHub = React.memo(({
     if (!normalizedOrderId) return true;
 
     const relatedProducts = rawProducts.filter(
-      (product) => String(product?.orderId || "").trim() === normalizedOrderId
+      (product) => getOrderIdFromTrackedRecord(product) === normalizedOrderId
     );
 
     // Als er geen trackingregels zijn, val terug op orderstatus-only gedrag.
@@ -1047,7 +1079,7 @@ const TeamleaderHub = React.memo(({
         (p) => normalizeMachine(p.machine || "") === stationNorm
       );
 
-      const mArchived = archivedProducts.filter(
+      const mArchived = archivedHistoryProducts.filter(
         (p) => normalizeMachine(p.machine || p.originMachine || "") === stationNorm
       );
       
@@ -1107,7 +1139,7 @@ const TeamleaderHub = React.memo(({
              if (isLossen) return lastStation.includes("LOSSEN");
              return false;
           };
-          finished = rawProducts.filter(checkFinished).length + archivedProducts.filter(checkFinished).length;
+          finished = rawProducts.filter(checkFinished).length + archivedHistoryProducts.filter(checkFinished).length;
       } else if (!isAlgemeen) {
           planned = dataStore
             .filter((o) => normalizeMachine(o.machine || "") === stationNorm)
@@ -1135,7 +1167,7 @@ const TeamleaderHub = React.memo(({
         .reduce((acc, o) => acc + Number(o.plan ?? o.toDoQty ?? o.quantity ?? 0), 0),
       
         activeCount: rawProducts.filter((p) => {
-          const linkedToVisibleOrder = validOrderIds.has(p.orderId);
+          const linkedToVisibleOrder = validOrderIds.has(getOrderIdFromTrackedRecord(p));
           const inAllowedScope = isInAllowedScope(p);
           if (!linkedToVisibleOrder && !inAllowedScope) return false;
 
@@ -1144,8 +1176,27 @@ const TeamleaderHub = React.memo(({
       }).length,
 
       finishedCount: (() => {
+        const getFinishedEventDate = (p) => {
+          const candidates = [
+            p?.timestamps?.finished,
+            p?.timestamps?.completed,
+            p?.inspection?.timestamp,
+            p?.updatedAt,
+            p?.lastUpdated,
+            p?.createdAt,
+          ];
+
+          for (const value of candidates) {
+            if (!value) continue;
+            const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
+            if (Number.isFinite(date?.getTime?.())) return date;
+          }
+
+          return null;
+        };
+
         const activeFinished = rawProducts.filter((p) => {
-          if (!validOrderIds.has(p.orderId)) return false;
+          if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
           
           if (effectiveAllowedNorms.length > 0) {
             const m1 = normalizeMachine(p.machine || "");
@@ -1156,14 +1207,23 @@ const TeamleaderHub = React.memo(({
 
           const status = p.status || "";
           const step = p.currentStep || "";
-          return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
+          if (!['Finished', 'completed', 'GEREED'].includes(status) && step !== 'Finished') return false;
+
+          const finishedAt = getFinishedEventDate(p);
+          return isEventInCurrentWeek(finishedAt);
         });
-        const archivedFinished = archivedProducts.filter(p => validOrderIds.has(p.orderId));
+
+        const archivedFinished = archivedProducts.filter((p) => {
+          if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
+          const finishedAt = getFinishedEventDate(p);
+          return isEventInCurrentWeek(finishedAt);
+        });
+
         return activeFinished.length + archivedFinished.length;
       })(),
 
       rejectedCount: rawProducts.filter((p) => {
-        if (!validOrderIds.has(p.orderId)) return false;
+        if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
         
         if (effectiveAllowedNorms.length > 0) {
             const m1 = normalizeMachine(p.machine || "");
@@ -1188,17 +1248,8 @@ const TeamleaderHub = React.memo(({
       priorityCount: dataStore.filter((o) => isPriorityOrder(o)).length,
 
       tempRejectedCount: rawProducts.filter((p) => {
-        if (!validOrderIds.has(p.orderId)) return false;
-        if (p.inspection?.status !== "Tijdelijke afkeur") return false;
-
-        const tempRejectedAt =
-          p?.inspection?.timestamp ||
-          p?.updatedAt ||
-          p?.lastUpdated ||
-          p?.createdAt ||
-          null;
-
-        return isEventInCurrentWeek(tempRejectedAt);
+        if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
+        return p.inspection?.status === "Tijdelijke afkeur";
       }).length,
 
       ...(() => {
@@ -1297,8 +1348,8 @@ const TeamleaderHub = React.memo(({
     }
     
     else if (activeKpi === "in_proces") {
-      data = rawProducts.filter((p) => {
-           const linkedToVisibleOrder = validOrderIds.has(p.orderId);
+       data = rawProducts.filter((p) => {
+         const linkedToVisibleOrder = validOrderIds.has(getOrderIdFromTrackedRecord(p));
            const inAllowedScope = isInAllowedScope(p);
            if (!linkedToVisibleOrder && !inAllowedScope) return false;
         return !isInactiveTrackedProduct(p);
@@ -1307,18 +1358,18 @@ const TeamleaderHub = React.memo(({
     
     else if (activeKpi === "gereed") {
       const activeList = rawProducts.filter((p) => {
-         if (!validOrderIds.has(p.orderId)) return false;
+        if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
          const status = p.status || "";
          const step = p.currentStep || "";
          return ['Finished', 'completed', 'GEREED'].includes(status) || step === 'Finished';
       });
-      const archivedList = archivedHistoryProducts.filter(p => validOrderIds.has(p.orderId));
+      const archivedList = archivedHistoryProducts.filter((p) => validOrderIds.has(getOrderIdFromTrackedRecord(p)));
       data = [...activeList, ...archivedList];
     }
     
     else if (activeKpi === "afkeur") {
       data = rawProducts.filter((p) => {
-         if (!validOrderIds.has(p.orderId)) return false;
+        if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
          return isRejectedProduct(p);
       });
     }
@@ -1326,7 +1377,7 @@ const TeamleaderHub = React.memo(({
     else if (["tijdelijke_afkeur", "temp_rejected", "tijdelijke afkeur", "tijdelijk_afkeur"].includes(activeKpi)) {
       data = rawProducts
         .filter((p) => {
-            if (!validOrderIds.has(p.orderId)) return false;
+          if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
             return p.inspection?.status === "Tijdelijke afkeur";
         })
         .sort((a, b) => new Date(a.inspection?.timestamp || 0) - new Date(b.inspection?.timestamp || 0));
@@ -2049,7 +2100,7 @@ const TeamleaderHub = React.memo(({
                 {selectedOrder ? (
                   <OrderDetail 
                     order={selectedOrder} 
-                    products={rawProducts} 
+                    products={[...rawProducts, ...archivedHistoryProducts]} 
                     onClose={() => { setSelectedOrderId(null); setSelectedSidebarEntry(null); }} 
                     isManager={true} 
                     onMoveLot={handleMoveLot} 

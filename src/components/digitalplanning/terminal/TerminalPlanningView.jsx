@@ -18,6 +18,9 @@ import {
   History,
   Calendar,
 } from "lucide-react";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "../../../config/firebase";
+import { getArchiveItemsPath } from "../../../config/dbPaths";
 import { manualSyncDrawings } from "../../../utils/manualSyncDrawings";
 import { format, differenceInDays, startOfDay, getISOWeek } from "date-fns";
 import { nl } from "date-fns/locale";
@@ -40,6 +43,7 @@ const TerminalPlanningView = ({
   isBM01,
   onStartProduction,
   selectedOrder,
+  trackedProducts = [],
   onViewDrawing,
   optimizationPanel,
 }) => {
@@ -251,6 +255,187 @@ const TerminalPlanningView = ({
     }
   };
 
+  const getOrderTotalPlan = (order) => {
+    const quantity = Number(order?.quantity);
+    const plan = Number(order?.plan);
+    if (Number.isFinite(quantity) && quantity > 0) return quantity;
+    if (Number.isFinite(plan) && plan > 0) return plan;
+    return 1;
+  };
+
+  // Bouw de orderlijst op met weekdividers wanneer alles getoond wordt
+  const renderedOrderList = React.useMemo(() => {
+    const now = new Date();
+    const nowWeek = getISOWeek(now);
+    const nowYear = now.getFullYear();
+    const seenWeeks = new Set();
+    const items = [];
+
+    sortedOrders.forEach((order) => {
+      const produced = Math.max(
+        productionProgressMap[String(order.orderId || "").trim()] || 0,
+        Number(order.produced) || 0
+      );
+      const rejectedCount = rejectedCountMap[String(order.orderId || "").trim()] || 0;
+      const total = getOrderTotalPlan(order);
+      const deliveryDate = order.plannedDeliveryDate || order.deliveryDate;
+      const displayName = getOrderDisplayName(order);
+      const urgencyClass = getUrgencyColor(deliveryDate);
+      const drawingLinked = hasLinkedDrawing(order);
+      const priorityBadge = getPriorityBadgeStyles(order);
+      const priorityLevel = getPriorityLevel(order);
+      const typeTintClass = getOrderTileTintClass(order);
+      const typeBadge = getOrderTypeBadge(order);
+      const priorityCardClass =
+        order.status === 'on_hold'
+          ? "border-orange-300 bg-orange-50/60 opacity-70"
+          : priorityLevel === "immediate"
+            ? "border-rose-400 bg-rose-50/40 hover:border-rose-500"
+            : priorityLevel === "urgent"
+              ? "border-orange-400 bg-orange-50/40 hover:border-orange-500"
+              : priorityLevel === "high"
+                ? "border-amber-400 bg-amber-50/40 hover:border-amber-500"
+                : typeTintClass;
+
+      // Weekdivider injecteren (alleen in alles-modus)
+      if (showAllWeeks) {
+        const d = parseDateSafe(order.plannedDeliveryDate || order.deliveryDate || order.plannedDate);
+        if (d) {
+          const week = getISOWeek(d);
+          const year = d.getFullYear();
+          const weekKey = `${year}-${week}`;
+          if (!seenWeeks.has(weekKey)) {
+            seenWeeks.add(weekKey);
+            const weekNum = String(week).padStart(2, '0');
+            const isPast = d < now;
+            const isCurrentWeek = week === nowWeek && year === nowYear;
+            items.push(
+              <div key={`week-${weekKey}`} className={`flex items-center gap-3 px-1 pt-2 pb-1 ${isPast && !isCurrentWeek ? 'opacity-50' : ''}`}>
+                <div className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
+                  isCurrentWeek
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
+                    : isPast
+                      ? 'bg-slate-200 text-slate-500'
+                      : 'bg-slate-100 text-slate-500'
+                }`}>
+                  Week {weekNum}{isCurrentWeek && <span className="ml-1 opacity-70"> • Nu</span>}
+                </div>
+                <div className="flex-1 h-px bg-slate-100" />
+              </div>
+            );
+          }
+        }
+      }
+
+      items.push(
+        <div
+          key={order.id}
+          ref={(el) => (itemRefs.current[order.id] = el)}
+          onClick={() => onSelectOrder(order.id)}
+          className={`min-h-[152px] p-5 rounded-[2rem] border-2 transition-all flex items-center justify-between relative overflow-hidden cursor-pointer ${
+            selectedOrderId === order.id
+              ? "bg-emerald-50 border-emerald-500 shadow-md shadow-emerald-100 translate-x-1"
+              : priorityCardClass
+          }`}
+        >
+          <div className="flex items-center gap-4 flex-1 overflow-hidden">
+            {/* WIK/Drawing Button */}
+            <div
+              onClick={(e) => {
+                if (drawingLinked && onViewDrawing) {
+                  e.stopPropagation();
+                  onViewDrawing(order.drawing);
+                }
+              }}
+              className={`p-3 rounded-2xl shrink-0 transition-all ${
+                drawingLinked
+                  ? "bg-blue-100 text-blue-600 cursor-pointer hover:bg-blue-200 active:scale-95"
+                  : "bg-slate-50 text-slate-300"
+              }`}
+              title={drawingLinked ? t("digitalplanning.order_detail.view_drawing", "Bekijk tekening/productkaart") : ""}
+            >
+              <FileImage size={24} />
+            </div>
+
+            <div className="flex-1 overflow-hidden">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-black bg-slate-900 text-white px-2 py-0.5 rounded uppercase tracking-tighter">
+                  {order.machine}
+                </span>
+                <span className="text-sm font-black text-slate-900">
+                  {order.orderId}
+                </span>
+                {priorityBadge && (
+                  <span className={`text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wide ${priorityBadge.className}`}>
+                    {priorityBadge.label}
+                  </span>
+                )}
+              </div>
+              <h4 className="font-black text-base leading-tight truncate uppercase text-slate-800 mb-1">
+                {displayName}
+              </h4>
+              {(order.extraCode && order.extraCode !== "-") || typeBadge ? (
+                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                  {order.extraCode && order.extraCode !== "-" && (
+                    <span className="inline-block px-2 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded text-[9px] font-black uppercase tracking-wide">
+                      {order.extraCode}
+                    </span>
+                  )}
+                  {typeBadge && (
+                    <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${typeBadge.className}`}>
+                      {typeBadge.label}
+                    </span>
+                  )}
+                </div>
+              ) : null}
+              {order.projectDesc && (
+                <p className="text-[10px] font-bold text-blue-500 uppercase truncate flex items-center gap-1">
+                  <Briefcase size={10} /> {order.projectDesc}
+                </p>
+              )}
+              {(order.poText || order.notes) && (
+                <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1">
+                  <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">PO Text</p>
+                  <p className="truncate text-[10px] font-bold text-amber-900">
+                    {order.poText || order.notes}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Status & Timing Info */}
+          <div className="flex flex-col items-end gap-2 text-right shrink-0 ml-4">
+            <div className="flex items-center gap-2">
+              {order.plannedHoursBH > 0 && (
+                <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-1 rounded-lg text-[10px] font-black">
+                  <Clock size={10} /> {Number(order.plannedHoursBH).toFixed(1)}h
+                </span>
+              )}
+              <StatusBadge status={order.status} />
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-xs font-black text-slate-900">
+                {t("digitalplanning.terminal.made", "Gemaakt")}: {produced} / {total} ST
+              </span>
+              {rejectedCount > 0 && (
+                <span className="text-[10px] font-black text-rose-600 uppercase">
+                  {t("status.rejected", "Afkeur")}: {rejectedCount}
+                </span>
+              )}
+              <span className={`text-xs uppercase tracking-tighter ${urgencyClass}`}>
+                {formatDateWithWeek(deliveryDate)}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    });
+
+    return items;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedOrders, showAllWeeks, selectedOrderId, productionProgressMap, rejectedCountMap]);
+
   // Scroll selected item into view
   useEffect(() => {
     if (selectedOrderId && itemRefs.current[selectedOrderId]) {
@@ -262,10 +447,13 @@ const TerminalPlanningView = ({
   }, [selectedOrderId]);
 
   const selectedOrderTotal = selectedOrder
-    ? Number(selectedOrder.plan || selectedOrder.quantity) || 1
+    ? getOrderTotalPlan(selectedOrder)
     : 0;
   const selectedOrderProduced = selectedOrder
-    ? productionProgressMap[String(selectedOrder.orderId || "").trim()] || 0
+    ? Math.max(
+        productionProgressMap[String(selectedOrder.orderId || "").trim()] || 0,
+        Number(selectedOrder.produced) || 0
+      )
     : 0;
   const selectedOrderRejected = selectedOrder
     ? rejectedCountMap[String(selectedOrder.orderId || "").trim()] || 0
@@ -273,6 +461,82 @@ const TerminalPlanningView = ({
   const selectedOrderTypeBadge = selectedOrder
     ? getOrderTypeBadge(selectedOrder)
     : null;
+
+  const activeSelectedOrderLots = React.useMemo(() => {
+    const orderId = String(selectedOrder?.orderId || "").trim().toUpperCase();
+    if (!orderId) return [];
+
+    return Array.from(
+      new Set(
+        trackedProducts
+          .filter((p) => String(p?.orderId || "").trim().toUpperCase() === orderId)
+          .map((p) => String(p?.lotNumber || p?.id || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [trackedProducts, selectedOrder?.orderId]);
+
+  const [archivedSelectedOrderLots, setArchivedSelectedOrderLots] = React.useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadArchivedLots = async () => {
+      const orderId = String(selectedOrder?.orderId || "").trim();
+      if (!orderId) {
+        if (isMounted) setArchivedSelectedOrderLots([]);
+        return;
+      }
+
+      const currentYear = new Date().getFullYear();
+      const yearsToCheck = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4, currentYear - 5];
+      const lots = new Set();
+
+      await Promise.all(
+        yearsToCheck.map(async (year) => {
+          try {
+            const snap = await getDocs(
+              query(collection(db, ...getArchiveItemsPath(year)), where("orderId", "==", orderId))
+            );
+            snap.docs.forEach((docSnap) => {
+              const data = docSnap.data() || {};
+              const lot = String(data?.lotNumber || docSnap.id || "").trim();
+              if (lot) lots.add(lot);
+            });
+          } catch {
+            // Laat 1 mislukte jaarquery de rest niet blokkeren.
+          }
+        })
+      );
+
+      if (!isMounted) return;
+      setArchivedSelectedOrderLots(Array.from(lots).sort((a, b) => a.localeCompare(b)));
+    };
+
+    loadArchivedLots();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedOrder?.orderId]);
+
+  const selectedOrderLots = React.useMemo(() => {
+    const merged = new Set([...activeSelectedOrderLots, ...archivedSelectedOrderLots]);
+    return Array.from(merged).sort((a, b) => a.localeCompare(b));
+  }, [activeSelectedOrderLots, archivedSelectedOrderLots]);
+
+  const selectedOrderProducedDisplay = Math.max(
+    Number(selectedOrderProduced) || 0,
+    selectedOrderLots.length
+  );
+  const selectedOrderEffectiveGood = Math.max(
+    selectedOrderProducedDisplay - (Number(selectedOrderRejected) || 0),
+    0
+  );
+  const selectedOrderTodoDisplay = Math.max(
+    (Number(selectedOrderTotal) || 0) - selectedOrderEffectiveGood,
+    0
+  );
 
   return (
     <>
@@ -363,139 +627,7 @@ const TerminalPlanningView = ({
                 {t("digitalplanning.sidebar.no_results", "Geen resultaten")}
               </p>
             </div>
-          ) : (
-            sortedOrders.map((order) => {
-              const produced =
-                productionProgressMap[String(order.orderId || "").trim()] || 0;
-              const rejectedCount =
-                rejectedCountMap[String(order.orderId || "").trim()] || 0;
-              const total = Number(order.plan || order.quantity) || 1;
-              const deliveryDate = order.plannedDeliveryDate || order.deliveryDate;
-              const displayName = getOrderDisplayName(order);
-              const urgencyClass = getUrgencyColor(deliveryDate);
-              const drawingLinked = hasLinkedDrawing(order);
-              const priorityBadge = getPriorityBadgeStyles(order);
-              const priorityLevel = getPriorityLevel(order);
-              const typeTintClass = getOrderTileTintClass(order);
-              const typeBadge = getOrderTypeBadge(order);
-              const priorityCardClass =
-                order.status === 'on_hold'
-                  ? "border-orange-300 bg-orange-50/60 opacity-70"
-                  : priorityLevel === "immediate"
-                    ? "border-rose-400 bg-rose-50/40 hover:border-rose-500"
-                    : priorityLevel === "urgent"
-                      ? "border-orange-400 bg-orange-50/40 hover:border-orange-500"
-                      : priorityLevel === "high"
-                        ? "border-amber-400 bg-amber-50/40 hover:border-amber-500"
-                        : typeTintClass;
-
-              return (
-                <div
-                  key={order.id}
-                  ref={(el) => (itemRefs.current[order.id] = el)}
-                  onClick={() => onSelectOrder(order.id)}
-                  className={`min-h-[152px] p-5 rounded-[2rem] border-2 transition-all flex items-center justify-between relative overflow-hidden cursor-pointer ${
-                    selectedOrderId === order.id
-                      ? "bg-emerald-50 border-emerald-500 shadow-md shadow-emerald-100 translate-x-1"
-                      : priorityCardClass
-                  }`}
-                >
-                  <div className="flex items-center gap-4 flex-1 overflow-hidden">
-                    {/* WIK/Drawing Button */}
-                    <div
-                      onClick={(e) => {
-                        if (drawingLinked && onViewDrawing) {
-                          e.stopPropagation();
-                          onViewDrawing(order.drawing);
-                        }
-                      }}
-                      className={`p-3 rounded-2xl shrink-0 transition-all ${
-                        drawingLinked
-                          ? "bg-blue-100 text-blue-600 cursor-pointer hover:bg-blue-200 active:scale-95"
-                          : "bg-slate-50 text-slate-300"
-                      }`}
-                      title={drawingLinked ? t("digitalplanning.order_detail.view_drawing", "Bekijk tekening/productkaart") : ""}
-                    >
-                      <FileImage size={24} />
-                    </div>
-
-                    <div className="flex-1 overflow-hidden">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] font-black bg-slate-900 text-white px-2 py-0.5 rounded uppercase tracking-tighter">
-                          {order.machine}
-                        </span>
-                        <span className="text-sm font-black text-slate-900">
-                          {order.orderId}
-                        </span>
-                        {priorityBadge && (
-                          <span className={`text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wide ${priorityBadge.className}`}>
-                            {priorityBadge.label}
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="font-black text-base leading-tight truncate uppercase text-slate-800 mb-1">
-                        {displayName}
-                      </h4>
-                      {(order.extraCode && order.extraCode !== "-") || typeBadge ? (
-                        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                          {order.extraCode && order.extraCode !== "-" && (
-                            <span className="inline-block px-2 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded text-[9px] font-black uppercase tracking-wide">
-                              {order.extraCode}
-                            </span>
-                          )}
-                          {typeBadge && (
-                            <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${typeBadge.className}`}>
-                              {typeBadge.label}
-                            </span>
-                          )}
-                        </div>
-                      ) : null}
-                      {order.projectDesc && (
-                        <p className="text-[10px] font-bold text-blue-500 uppercase truncate flex items-center gap-1">
-                          <Briefcase size={10} /> {order.projectDesc}
-                        </p>
-                      )}
-                      {(order.poText || order.notes) && (
-                        <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1">
-                          <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">PO Text</p>
-                          <p className="truncate text-[10px] font-bold text-amber-900">
-                            {order.poText || order.notes}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Status & Timing Info */}
-                  <div className="flex flex-col items-end gap-2 text-right shrink-0 ml-4">
-                    <div className="flex items-center gap-2">
-                      {/* Toon BH uren (1715) indien aanwezig */}
-                      {order.plannedHoursBH > 0 && (
-                        <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-1 rounded-lg text-[10px] font-black">
-                          <Clock size={10} /> {Number(order.plannedHoursBH).toFixed(1)}h
-                        </span>
-                      )}
-                      <StatusBadge status={order.status} />
-                    </div>
-
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs font-black text-slate-900">
-                        {t("digitalplanning.terminal.made", "Gemaakt")}: {produced} / {total} ST
-                      </span>
-                      {rejectedCount > 0 && (
-                        <span className="text-[10px] font-black text-rose-600 uppercase">
-                          {t("status.rejected", "Afkeur")}: {rejectedCount}
-                        </span>
-                      )}
-                      <span className={`text-xs uppercase tracking-tighter ${urgencyClass}`}>
-                        {formatDateWithWeek(deliveryDate)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
+          ) : renderedOrderList}
         </div>
       </div>
 
@@ -557,7 +689,7 @@ const TerminalPlanningView = ({
                 <StatusBadge status={selectedOrder.status} />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 border-t border-white/10 pt-8 relative z-10">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6 border-t border-white/10 pt-8 relative z-10">
                 <div>
                   <p className="text-[10px] font-black text-white/40 uppercase mb-1">
                     {t("digitalplanning.order_detail.delivery_date_aq", "Leverdatum (AQ)")}
@@ -586,7 +718,7 @@ const TerminalPlanningView = ({
                     {t("digitalplanning.terminal.made", "Gemaakt")}
                   </p>
                   <p className="text-lg font-black text-blue-300">
-                    {selectedOrderProduced} {t("digitalplanning.terminal.pieces", "stuks")}
+                    {selectedOrderProducedDisplay} {t("digitalplanning.terminal.pieces", "stuks")}
                   </p>
                 </div>
                 <div>
@@ -597,8 +729,33 @@ const TerminalPlanningView = ({
                     {selectedOrderRejected} {t("digitalplanning.terminal.pieces", "stuks")}
                   </p>
                 </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">
+                    {t("digitalplanning.order_detail.todo_amount", "Te doen")}
+                  </p>
+                  <p className="text-lg font-black text-amber-300">
+                    {selectedOrderTodoDisplay} {t("digitalplanning.terminal.pieces", "stuks")}
+                  </p>
+                </div>
               </div>
             </div>
+
+            {/* PO Text - direct onder de zwarte header, alleen tonen als aanwezig */}
+            {(() => {
+              const poText = String(selectedOrder.notes || selectedOrder.poText || "").trim();
+              if (!poText || poText === "-") return null;
+              return (
+                <div className="bg-amber-400 rounded-[2rem] px-6 py-4 flex items-start gap-3 shadow-md shadow-amber-100">
+                  <span className="text-amber-900 mt-0.5 shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  </span>
+                  <div>
+                    <p className="text-[9px] font-black text-amber-900/60 uppercase tracking-widest mb-0.5">PO Text / Opmerking</p>
+                    <p className="text-sm font-black text-amber-900 leading-snug">{poText}</p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Action Area - direct onder de banner */}
             <div className="bg-white rounded-[2.5rem] p-6 border border-slate-100 shadow-sm">
@@ -689,6 +846,34 @@ const TerminalPlanningView = ({
               </div>
 
               {optimizationPanel}
+
+              <section className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Layers size={14} /> Lotnummers ({selectedOrderLots.length})
+                  </h4>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    actief {activeSelectedOrderLots.length} | archief {archivedSelectedOrderLots.length}
+                  </span>
+                </div>
+
+                {selectedOrderLots.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">Geen lotnummers gevonden voor deze order.</p>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 custom-scrollbar">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {selectedOrderLots.map((lot) => (
+                        <div
+                          key={lot}
+                          className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-black text-slate-700 tracking-wide"
+                        >
+                          {lot}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         ) : (

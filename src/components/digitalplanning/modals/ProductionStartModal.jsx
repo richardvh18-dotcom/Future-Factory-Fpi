@@ -660,6 +660,15 @@ const ProductionStartModal = ({
         }
       } else {
         // Manual mode moet ook altijd uniciteit afdwingen voor we starten.
+        const manualOrderNumber = String((manualOrderInput || order?.orderId || "")).trim().toUpperCase();
+        if (manualOrderNumber && String(effectiveLotNumber || "").trim().toUpperCase() === manualOrderNumber) {
+          const lotOrderError = t("productionStartModal.errors.lotCannotEqualOrder", {
+            order: manualOrderNumber,
+          });
+          setLotError(lotOrderError);
+          throw new Error(lotOrderError);
+        }
+
         const manualExists = await checkLotNumberExists(effectiveLotNumber);
         if (manualExists) {
           setLotError(t("productionStartModal.errors.lotAlreadyExists", { lot: effectiveLotNumber }));

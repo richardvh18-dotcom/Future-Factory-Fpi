@@ -2033,6 +2033,7 @@ export const nl = {
         cannotValidateLotRange: "Kan lotnummerreeks niet valideren.",
         lotAlreadyExistsRetry: "Lotnummer {{lot}} bestaat al (actief of archief). Probeer opnieuw.",
         lotAlreadyExists: "Lotnummer {{lot}} bestaat al (actief of archief).",
+        lotCannotEqualOrder: "Lotnummer mag niet gelijk zijn aan ordernummer ({{order}}).",
         manualLotMustEndWith4Digits: "Voor een string-run moet het handmatige lotnummer eindigen op 4 cijfers (bijv. ...0001).",
         lotAlreadyExistsChooseOther: "Lotnummer {{lot}} bestaat al (actief of archief). Kies een ander start-lot.",
         cannotBuildStringLots: "Kan string-lotnummers niet opbouwen: start-lot moet eindigen op 4 cijfers.",

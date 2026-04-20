@@ -1,3 +1,243 @@
+## Update sessie 102 (Nabewerken UX + sitebrede leverdatumregels 3 weken / 4 dagen)
+
+**Datum:** 18 april 2026 | **Branch:** `FF-2-4-26`
+
+**Gebruikersvraag:**
+- Nabewerken, Lossen en BM01 moesten pagina-breed en compacter worden.
+- In Nabewerken moest de juiste popup gebruikt worden (zelfde lijn als Eindinspectie, zonder meetvelden).
+- Productnaam moest prominenter zichtbaar zijn dan lotnummer.
+- Leverdatum moest zichtbaar zijn op de Nabewerken-kaarten.
+- Leverdatumregels moesten sitebreed consistent worden:
+    - start productie circa 3 weken voor levering;
+    - laatste producten gereed 3-4 dagen voor leverdatum.
+- Deze regels moesten ook doorwerken in Gantt, Efficiency en Capaciteit.
+
+**Oplossing uitgevoerd:**
+- `src/components/digitalplanning/Nabewerken.jsx`:
+    - Kaarten pagina-breed en compact gemaakt.
+    - Productnaam visueel vergroot en bovenaan geplaatst.
+    - Datumweergave onder de urgentiebadge geplaatst en vergroot.
+    - Leverdatum-resolutie uitgebreid met fallbacks via productvelden én gekoppelde order.
+    - Sortering en badges laten werken op centrale leverdatumstatus.
+    - Blijft direct `PostProcessingFinishModal` openen (geen tussenscherm).
+
+- `src/components/digitalplanning/Terminal.jsx` en `src/components/digitalplanning/WorkstationHub.jsx`:
+    - Nabewerking-routes laten nu expliciet `Nabewerken` renderen i.p.v. `LossenView`.
+    - Daardoor verschijnt in Nabewerken de juiste popupflow (zonder Lossen-meetvelden).
+
+- `src/components/digitalplanning/LossenView.jsx` en `src/components/digitalplanning/BM01Hub.jsx`:
+    - Layout compacter/pagina-breed gemaakt.
+    - Lotnummerweergave vergroot.
+    - Klikken op kaart opent direct modalflow.
+
+- `src/utils/dateUtils.js`:
+    - Centrale helpers toegevoegd:
+        - `resolveDeliveryDate(...)`
+        - `getDeliveryPlanningState(...)`
+    - Businessregels gecentraliseerd:
+        - productievenster: 21 dagen voor levering;
+        - afrondbuffer: 4 dagen voor levering;
+        - status: `planned`, `in_production_window`, `finish_due`, `overdue`.
+
+- `src/components/digitalplanning/views/PlanningListView.jsx`:
+    - Urgentiekleuren en startdatumaanduiding gekoppeld aan centrale leverdatumregels.
+    - Detailtekst aangepast naar start op `-3w`.
+
+- `src/components/digitalplanning/modals/PlanningImportModal.jsx`:
+    - Import default aangepast van `plannedDate = delivery - 2 weken` naar `delivery - 3 weken`.
+    - Consolidatie-fallback toegevoegd: bij ontbrekende `plannedDate` automatisch `delivery - 3 weken`.
+
+- `src/components/planning/GanttChartView.jsx`:
+    - Leverdatum en planningsstart uit centrale helpers gehaald.
+    - Tijdbalken en voorspellingen sluiten aan op 3-weken startregel en 4-dagen afrondbuffer.
+
+- `src/components/planning/CapacityPlanningView.jsx`:
+    - Demand/filtering op periodes gebruikt nu centrale planningsstart (met leverdatum fallback).
+    - Capaciteitsberekening volgt dezelfde leverdatumlogica als de rest van de app.
+
+- `src/components/digitalplanning/EfficiencyDashboard.jsx`:
+    - Periode-inclusie uitgebreid met delivery/start/finish-target datums uit centrale helper,
+        zodat efficiencyviews dezelfde leverdatumvensters respecteren.
+
+**Resultaat:**
+- Nabewerken sluit aan op de gewenste operatorflow: direct juiste popup, product-first kaartweergave.
+- Leverdatum is zichtbaar, prominenter en logisch gepositioneerd.
+- Sitebreed eenduidige planningregel actief: start rond 3 weken vooraf, gereeddoel 4 dagen vooraf.
+- Gantt, Efficiency en Capaciteit rekenen nu met dezelfde leverdatumlogica.
+
+**Validatie:**
+- Geen editorfouten na wijzigingen in o.a.:
+    - `src/components/digitalplanning/Nabewerken.jsx`
+    - `src/components/digitalplanning/Terminal.jsx`
+    - `src/components/digitalplanning/WorkstationHub.jsx`
+    - `src/components/digitalplanning/views/PlanningListView.jsx`
+    - `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+    - `src/components/planning/GanttChartView.jsx`
+    - `src/components/planning/CapacityPlanningView.jsx`
+    - `src/components/digitalplanning/EfficiencyDashboard.jsx`
+    - `src/utils/dateUtils.js`
+
+## Update sessie 101 (Scan-popup workflow Lossen, Lossen 12/18, Nabewerken, BM01)
+
+**Datum:** 18 april 2026 | **Branch:** `FF-2-4-26`
+
+**Gebruikersvraag:**
+- In alle modules (Lossen, Lossen 12/18, Nabewerken, BM01) moet het scanveld standaard actief zijn.
+- Na het scannen van een lotnummer moet direct de juiste popup voor gereedmelden/afkeur verschijnen, zonder extra klik.
+- In Nabewerken moet de bestaande modal worden hergebruikt.
+- In Lossen en Lossen 12/18 moet altijd de ProductReleaseModal worden gebruikt.
+
+**Oplossing uitgevoerd:**
+- `src/components/digitalplanning/LossenView.jsx`:
+    - Scanveld krijgt altijd automatisch focus bij laden en na sluiten popup.
+    - Na een geldige scan wordt direct de ProductReleaseModal geopend, zowel voor Lossen als Lossen 12/18.
+- `src/components/digitalplanning/BM01Hub.jsx`:
+    - Scanveld krijgt altijd automatisch focus bij laden en na sluiten popup.
+    - Na een geldige scan wordt direct de popup geopend.
+- `src/components/digitalplanning/Nabewerken.jsx`:
+    - Scanveld toegevoegd met automatische focus.
+    - Na een geldige scan wordt direct de bestaande PostProcessingFinishModal geopend.
+
+**Resultaat:**
+- In alle genoemde modules is de workflow nu gelijk: scanveld is altijd actief, popup opent direct na scan.
+- Minder handelingen voor de operator, snellere afhandeling.
+
+**Validatie:**
+- Geen editorfouten na wijzigingen in:
+    - `src/components/digitalplanning/LossenView.jsx`
+    - `src/components/digitalplanning/BM01Hub.jsx`
+    - `src/components/digitalplanning/Nabewerken.jsx`
+    - `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+    - `src/components/digitalplanning/modals/PostProcessingFinishModal.jsx`
+- Getest in dev-omgeving: popup opent direct na scan, focus blijft behouden.
+## Update sessie 100 (Globale voortgangsmelding voor Gereedmelden)
+
+**Datum:** 17 april 2026 | **Branch:** `FF-2-4-26`
+
+**Gebruikersvraag:**
+- Bij `Wikkelen > Product gereedmelden > Verwerken` mocht het modal direct sluiten.
+- De verwerking mocht op de achtergrond doorgaan, maar er moest wel een zichtbare voortgangsmelding rechtsonder meelopen.
+- Tijdens die achtergrondverwerking moest direct een tweede gereedmelding gestart kunnen worden.
+
+**Probleem:**
+- De eerste optimalisatie sloot het modal direct, maar de voortgangsmelding was nog gekoppeld aan lokale modal-state.
+- Daardoor verdween de melding zodra het modal sloot en was er voor de gebruiker geen zichtbare feedback meer tijdens de achtergrondverwerking.
+
+**Oplossing uitgevoerd:**
+- `src/contexts/ProgressOperationContext.jsx`
+    - Nieuwe globale context toegevoegd voor achtergrondoperaties.
+    - Houdt actieve operaties bij in een `Map` met `operationId`, `lotNumber`, `status` en timestamp.
+    - API toegevoegd: `addOperation`, `updateOperation`, `removeOperation`, `clearOperations`, `getOperations`.
+
+- `src/components/digitalplanning/ProgressToast.jsx`
+    - Nieuwe globale toastcomponent toegevoegd.
+    - Toont rechtsonder een vaste voortgangskaart met actieve lotnummers en status.
+    - Statusweergave:
+        - `◌` voor bezig
+        - `✓` voor gereed
+        - `✗` voor fout
+
+- `src/App.jsx`
+    - Applicatie wrapped met `ProgressOperationProvider`.
+    - `ProgressToast` globaal naast bestaande notificaties gerenderd, zodat de melding zichtbaar blijft nadat een modal sluit.
+
+- `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+    - Lokale pending-state verwijderd ten gunste van de globale progress-context.
+    - `executeRelease` registreert nu per geselecteerd lot een globale operatie voordat de async verwerking start.
+    - Per lot wordt de status bijgewerkt naar `Klaar ✓` of `Fout: ...`.
+    - Operaties worden na afronding met korte vertraging automatisch uit de toast verwijderd.
+    - Modal sluit direct, terwijl Firestore-updates en activity logging op de achtergrond doorgaan.
+    - Achtergebleven lokale verwijzing naar oude pending-state verwijderd.
+
+**Resultaat:**
+- De popup sluit direct na `Verwerken`.
+- De gebruiker ziet nu een globale voortgangsmelding rechtsonder tijdens de achtergrondverwerking.
+- Een tweede gereedmelding kan direct gestart worden terwijl een eerdere verwerking nog loopt.
+- De voortgangsmelding blijft zichtbaar buiten de lifecycle van het modal.
+
+**Validatie:**
+- Editorfouten gecontroleerd op:
+    - `src/components/digitalplanning/modals/ProductReleaseModal.jsx`
+    - `src/App.jsx`
+    - `src/components/digitalplanning/ProgressToast.jsx`
+    - `src/contexts/ProgressOperationContext.jsx`
+- Geen fouten gerapporteerd.
+- Vite devserver start succesvol op poort `3000`.
+
+## Update sessie 99 (Volledige Lijst: zoeken, archief-merge, Nabewerking zichtbaarheid)
+
+**Datum:** 17 april 2026 | **Branch:** `FF-2-4-26`
+
+**Problemen:**
+- Lotnummers uit `tracked_products` werden in TeamleaderHub > Volledige Lijst niet altijd gevonden.
+- Archiefitems met alleen een document-id zoals `ORDERID_LOTNUMMER` werden niet goed gekoppeld aan hun order.
+- Orders die zowel actief als in archief voorkwamen werden soms als puur archief geopend.
+- Lopende orders in Nabewerking verschenen niet altijd in Volledige Lijst.
+
+**Fixes uitgevoerd:**
+- `src/components/digitalplanning/PlanningSidebar.jsx`
+    - Default scope gewijzigd naar `Actief + History`.
+    - Archiefdata wordt nu ook geladen bij zoektermen.
+    - Zoeken zoekt nu ook in archiefmatches wanneer nodig.
+    - Fallback parsing toegevoegd:
+        - `orderId` uit document-id afleiden door trailing `_lotnummer` te verwijderen.
+        - `lotnummer` uit document-id afleiden wanneer `lotNumber`/`activeLot` ontbreekt.
+    - `orderStationMap` en `orderLotMap` gebruiken nu deze fallback parsing ook voor tracked/archive records zonder expliciete velden.
+    - `Actief + History` doet nu een echte merge per `orderId` in plaats van overschrijven.
+    - Lotnummers uit actief en archief worden gecombineerd in een enkele order-entry.
+    - Tracking-afgeleide order-entries toegevoegd voor actieve producten, zodat orders in Nabewerking zichtbaar blijven ook als de planning-order ontbreekt of achterloopt.
+
+- `src/components/digitalplanning/TeamleaderHub.jsx`
+    - Centrale helpers toegevoegd om `orderId` en `lotnummer` uit tracked/archive document-id’s af te leiden.
+    - KPI’s, filters, order-progress, related products en lotnummerlijsten gebruiken nu deze fallback parsing consequent.
+    - Bij selectie van een archiefkaart wordt eerst gecontroleerd of er een actieve order met dezelfde `orderId` bestaat; zo ja, dan opent live detail i.p.v. archiefdetail.
+
+**Gedrag na fix:**
+- Zoeken op lotnummers uit `tracked_products` vindt nu ook gekoppelde orders in Volledige Lijst.
+- Orders met zowel actieve als gearchiveerde historie worden als één samengevoegde order behandeld.
+- Een lopende order blijft leidend in de detailweergave, maar archief-lotnummers blijven zichtbaar in dezelfde order.
+- Orders die in Nabewerking liggen kunnen nu vanuit tracking zichtbaar worden in Volledige Lijst.
+
+**Validatie:**
+- Geen fouten gerapporteerd door de editor na wijzigingen in:
+    - `src/components/digitalplanning/PlanningSidebar.jsx`
+    - `src/components/digitalplanning/TeamleaderHub.jsx`
+
+## Update sessie 98 (Merge pilot-dev → FF-2-4-26 + Vercel productie-deploy)
+
+**Datum:** 17 april 2026 | **Branch:** `FF-2-4-26` (gemerged vanuit `pilot-dev`)
+
+**Actie uitgevoerd:**
+- Alle wijzigingen van `pilot-dev` (scoped tracked_products reader, Firestore rules, archived lotnummers) gemerged naar `FF-2-4-26`.
+- 19 bestanden gewijzigd; merge geslaagd via 'ort' strategy.
+- `FF-2-4-26` gepusht naar GitHub (commit `900ea03`).
+- Vercel productie-deploy uitgevoerd via `vercel --prod`:
+  - Productie URL: **https://future-factory.vercel.app**
+
+**Gemerged wijzigingen (pilot-dev → FF-2-4-26):**
+- `src/utils/trackedProducts.js` — nieuw bestand: expliciete scoped machine-pad listeners
+- `src/components/digitalplanning/TeamleaderHub.jsx` — `subscribeTrackedProducts()` + `archivedProducts` prop
+- `src/components/digitalplanning/PlanningSidebar.jsx` — active+archived producten gecombineerd voor lotnummers
+- `src/components/digitalplanning/WorkstationHub.jsx` — scoped reader via `subscribeTrackedProducts()`
+- `src/components/digitalplanning/Terminal.jsx` — scoped reader
+- `src/components/digitalplanning/LossenView.jsx` — scoped reader + BH18 Lossen 12/18 routing
+- `src/components/digitalplanning/MazakView.jsx` — scoped reader
+- `src/components/digitalplanning/OrderDetail.jsx` — `trackedLotExistsActive()` uit shared module
+- `src/components/digitalplanning/modals/ProductionStartModal.jsx` — `trackedLotExistsActive()` uit shared module
+- `firestore.rules` — expliciete rule voor scoped items pad
+- `functions/index.js` — scoped-only writes (geen root-duplicaten)
+
+**Git commits (pilot-dev, nu in FF-2-4-26):**
+- `9f9ffaf` Read tracked_products from explicit scoped machine paths
+- `038328f` Allow scoped tracked_products collectionGroup reads
+- `c899100` Fix scoped tracked_products reader to not require _scopeType
+- `07e19e3` Unify tracked_products reads across scoped and root paths
+- `d039925` Add archived products to PlanningSidebar lot numbers
+- `c90b5b5` Fix KPI 'Lopend' to read scoped tracked_products
+- `2ab3f9b` Remove root tracked_products/planning writes
+
+---
+
 ## Update sessie 97 (Lossen 12/18 fix + Vercel/Firebase production deployment)
 
 **Datum:** 17 april 2026 | **Branch:** `pilot-dev`
@@ -3766,8 +4006,7 @@ Made changes.
 
 2. **Planning-import UI hybride sturing toegevoegd**
 - In `PlanningImportModal` is hybride importselectie toegevoegd (bijv. BH12/BH18).
-- Selectie wordt opgeslagen in localStorage.
-- Selectie bepaalt ook echt welke orders worden geïmporteerd.
+- Selectie wordt opgeslagen in localStoratie bepaalt ook echt welke orders worden geïmporteerd.
 
 3. **Gantt planning sterk uitgebreid (klassieke Gantt-ervaring)**
 - Orders tonen nu van **startdatum t/m leverdatum**.

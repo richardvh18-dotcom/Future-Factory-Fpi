@@ -6,6 +6,7 @@ import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS, resolvePostLossenStation } from "../../../utils/workstationLogic";
 import { useNotifications } from '../../../contexts/NotificationContext';
+import { useProgressOperations } from '../../../contexts/ProgressOperationContext';
 import { rejectTrackedProductFinal, tempRejectTrackedProduct, advanceTrackedProduct } from "../../../services/planningSecurityService";
 
 const PILOT_ALLOW_INCOMPLETE_LOSSEN_MEASUREMENTS = true;
@@ -58,7 +59,7 @@ const getLossenRoute = (itemText, originStation = "") => {
 const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, autoApproveTrigger = 0, forceLossenMode = false }) => {
   const { t } = useTranslation();
   const { notify } = useNotifications();
-  const [loading, setLoading] = useState(false);
+  const { addOperation, updateOperation, removeOperation } = useProgressOperations();
   const lastAutoApproveRef = useRef(0);
   
   // Form state
@@ -195,150 +196,169 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
 
     if (!isFormValid && !mayProceedInPilot) return;
 
-    setLoading(true);
+    // Add all targets to pending operations
+    const operationIds = selectedTargets.map((t, idx) => `op_${Date.now()}_${idx}`);
+    selectedTargets.forEach((target, idx) => {
+      addOperation(operationIds[idx], target?.lotNumber || target?.id || "Onbekend");
+    });
     
-    try {
-      if (!product || !product.id) throw new Error("Geen geldig product ID");
-
-      // 1. Haal actieve operator op voor dit station (voor in de historie)
-      let activeOperator = "Operator"; // Default fallback
+    // Execute operations in background
+    (async () => {
       try {
-        const today = new Date().toISOString().split('T')[0];
-        // Gebruik currentStation of machine als fallback
-        const stationId = product.currentStation || product.machine;
-        
-        if (stationId) {
-            let q = query(
-                collection(db, ...PATHS.OCCUPANCY),
-                where("machineId", "==", stationId),
-                where("date", "==", today)
-            );
-            let snap = await getDocs(q);
+        if (!product || !product.id) throw new Error("Geen geldig product ID");
+
+        // 1. Haal actieve operator op voor dit station
+        let activeOperator = "Operator"; 
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const stationId = product.currentStation || product.machine;
+          
+          if (stationId) {
+              let q = query(
+                  collection(db, ...PATHS.OCCUPANCY),
+                  where("machineId", "==", stationId),
+                  where("date", "==", today)
+              );
+              let snap = await getDocs(q);
+              
+              if (snap.empty) {
+                  q = query(collection(db, ...PATHS.OCCUPANCY), where("machineId", "==", stationId.toUpperCase()), where("date", "==", today));
+                  snap = await getDocs(q);
+              }
+
+              if (!snap.empty) {
+                  const opData = snap.docs[0].data();
+                  activeOperator = opData.operatorNumber || opData.operatorName || "Operator";
+              }
+          }
+        } catch (err) {
+          console.warn("Kon operator niet ophalen voor historie:", err);
+        }
+
+        const normalizedMeasurements = { ...measurements };
+        if (String(normalizedMeasurements.TWco || "").trim() !== "" && String(normalizedMeasurements.TWc || "").trim() === "") {
+          normalizedMeasurements.TWc = normalizedMeasurements.TWco;
+        }
+
+        // Process each target
+        for (let idx = 0; idx < selectedTargets.length; idx++) {
+          const target = selectedTargets[idx];
+          const opId = operationIds[idx];
+          const targetId = target?.id || target?.lotNumber;
+          
+          if (!targetId) {
+            removeOperation(opId);
+            continue;
+          }
+
+          const targetCurrentStep = target?.currentStep || currentStep;
+
+          try {
+            if (status === "approved") {
+              let nextStep = nextStepDisplay;
+              let nextStatus = `Wacht op ${nextStep}`;
+              let updateStation = true;
+              let targetStation = nextStep;
+
+              if (isLossenStep) {
+                const routedStep = resolvePostLossenStation(
+                  `${target?.item || ""} ${target?.itemDescription || ""} ${target?.description || ""} ${target?.itemCode || ""}`,
+                  target?.originMachine || target?.machine || product?.originMachine || product?.machine
+                );
+                nextStep = routedStep;
+                nextStatus = `Wacht op ${routedStep}`;
+                targetStation = routedStep;
+              }
+
+              if (nextStepDisplay === "Gereed") {
+                nextStep = "Finished";
+                nextStatus = "Finished";
+                updateStation = false;
+              } else if (target?.isManualMove) {
+                nextStep = "Nabewerking";
+                targetStation = "Nabewerking";
+              } else if (nextStep === "Eindinspectie") {
+                targetStation = "BM01";
+              } else if (nextStep === "Lossen") {
+                const lossenRoute = getLossenRoute(
+                  `${target.item || ""} ${target.description || ""} ${target.itemCode || ""}`,
+                  target.currentStation || target.originMachine || target.machine || ""
+                );
+                const originStation = target.currentStation || target.machine || "Lossen";
+                nextStep = "Wacht op Lossen";
+                nextStatus = "Wacht op Lossen";
+                targetStation = lossenRoute.mode === "STATION" ? (lossenRoute.station || "LOSSEN") : originStation;
+              } else if (nextStep === "Mazak") {
+                targetStation = "Mazak";
+                nextStatus = "Te Nabewerken";
+              }
+
+              await advanceTrackedProduct({
+                productId: targetId,
+                nextStation: updateStation ? targetStation : "",
+                nextStep,
+                nextStatus,
+                lastStation: target.currentStation || target.machine || "Onbekend",
+                note: comment,
+                actorLabel: activeOperator,
+                previousStep: targetCurrentStep,
+                historyAction: "Stap Voltooid",
+                historyDetails: `Doorgestuurd van ${targetCurrentStep} naar ${nextStep}`,
+                clearManualMove: Boolean(target?.isManualMove),
+                measurements: normalizedMeasurements,
+                source: "ProductReleaseModal",
+              });
+            } else if (status === "temp_reject") {
+              await tempRejectTrackedProduct({
+                productId: targetId,
+                reasons: selectedReasons,
+                note: comment,
+                station: target.currentStation || target.machine || "Onbekend",
+                actorLabel: activeOperator,
+                previousStep: targetCurrentStep,
+                previousStatus: target?.status || currentStep,
+                source: "ProductReleaseModal",
+              });
+            } else if (status === "rejected") {
+              await rejectTrackedProductFinal({
+                productId: targetId,
+                reasons: selectedReasons,
+                note: comment,
+                source: "ProductReleaseModal",
+                actorLabel: activeOperator,
+              });
+            }
             
-            // Fallback: Probeer uppercase als exact niet gevonden is
-            if (snap.empty) {
-                q = query(collection(db, ...PATHS.OCCUPANCY), where("machineId", "==", stationId.toUpperCase()), where("date", "==", today));
-                snap = await getDocs(q);
-            }
-
-            if (!snap.empty) {
-                // Pak de eerste operator (of logica voor meerdere)
-                const opData = snap.docs[0].data();
-                // Voorkeur voor nummer, anders naam
-                activeOperator = opData.operatorNumber || opData.operatorName || "Operator";
-            }
-        }
-      } catch (err) {
-        console.warn("Kon operator niet ophalen voor historie:", err);
-      }
-
-      const normalizedMeasurements = { ...measurements };
-      // Backward compatibility: sommige rapportages gebruiken nog TWc.
-      if (String(normalizedMeasurements.TWco || "").trim() !== "" && String(normalizedMeasurements.TWc || "").trim() === "") {
-        normalizedMeasurements.TWc = normalizedMeasurements.TWco;
-      }
-
-      for (const target of selectedTargets) {
-        const targetId = target?.id || target?.lotNumber;
-        if (!targetId) continue;
-
-        const targetCurrentStep = target?.currentStep || currentStep;
-
-        if (status === "approved") {
-          let nextStep = nextStepDisplay;
-          let nextStatus = `Wacht op ${nextStep}`;
-          let updateStation = true;
-          let targetStation = nextStep;
-
-          if (isLossenStep) {
-            const routedStep = resolvePostLossenStation(
-              `${target?.item || ""} ${target?.itemDescription || ""} ${target?.description || ""} ${target?.itemCode || ""}`,
-              target?.originMachine || target?.machine || product?.originMachine || product?.machine
-            );
-            nextStep = routedStep;
-            nextStatus = `Wacht op ${routedStep}`;
-            targetStation = routedStep;
+            // Mark as completed
+            updateOperation(opId, "Klaar ✓");
+          } catch (err) {
+            // Mark as error
+            updateOperation(opId, `Fout: ${err.message}`);
+            console.error(`Error processing ${targetId}:`, err);
           }
-
-          if (nextStepDisplay === "Gereed") {
-            nextStep = "Finished";
-            nextStatus = "Finished";
-            updateStation = false;
-          } else if (target?.isManualMove) {
-            nextStep = "Nabewerking";
-            targetStation = "Nabewerking";
-          } else if (nextStep === "Eindinspectie") {
-            targetStation = "BM01";
-          } else if (nextStep === "Lossen") {
-            const lossenRoute = getLossenRoute(
-              `${target.item || ""} ${target.description || ""} ${target.itemCode || ""}`,
-              target.currentStation || target.originMachine || target.machine || ""
-            );
-            const originStation = target.currentStation || target.machine || "Lossen";
-            nextStep = "Wacht op Lossen";
-            nextStatus = "Wacht op Lossen";
-            targetStation = lossenRoute.mode === "STATION" ? (lossenRoute.station || "LOSSEN") : originStation;
-          } else if (nextStep === "Mazak") {
-            targetStation = "Mazak";
-            nextStatus = "Te Nabewerken";
-          }
-
-          await advanceTrackedProduct({
-            productId: targetId,
-            nextStation: updateStation ? targetStation : "",
-            nextStep,
-            nextStatus,
-            lastStation: target.currentStation || target.machine || "Onbekend",
-            note: comment,
-            actorLabel: activeOperator,
-            previousStep: targetCurrentStep,
-            historyAction: "Stap Voltooid",
-            historyDetails: `Doorgestuurd van ${targetCurrentStep} naar ${nextStep}`,
-            clearManualMove: Boolean(target?.isManualMove),
-            measurements: normalizedMeasurements,
-            source: "ProductReleaseModal",
-          });
-          continue;
-        } else if (status === "temp_reject") {
-          await tempRejectTrackedProduct({
-            productId: targetId,
-            reasons: selectedReasons,
-            note: comment,
-            station: target.currentStation || target.machine || "Onbekend",
-            actorLabel: activeOperator,
-            previousStep: targetCurrentStep,
-            previousStatus: target?.status || currentStep,
-            source: "ProductReleaseModal",
-          });
-          continue;
-        } else if (status === "rejected") {
-          await rejectTrackedProductFinal({
-            productId: targetId,
-            reasons: selectedReasons,
-            note: comment,
-            source: "ProductReleaseModal",
-            actorLabel: activeOperator,
-          });
-
-          // Skip updateDoc, direct naar next target
-          continue;
         }
+
+        // Log activity after all complete
+        await logActivity(
+          auth.currentUser?.uid || "system",
+          status === "approved" ? "PRODUCT_RELEASE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
+          `Release modal: ${selectedTargets.length} lot(s), station ${product?.currentStation || product?.machine || "onbekend"}, status ${status}`
+        );
+
+        // Clear pending after 2 seconds
+        setTimeout(() => {
+          operationIds.forEach(id => removeOperation(id));
+        }, 2000);
+      } catch (error) {
+        console.error("Fout:", error);
+        notify(error.message);
+        // Clear pending on error
+        operationIds.forEach(id => removeOperation(id));
       }
+    })();
 
-      await logActivity(
-        auth.currentUser?.uid || "system",
-        status === "approved" ? "PRODUCT_RELEASE" : status === "temp_reject" ? "QUALITY_TEMP_REJECT" : "QUALITY_REJECT_FINAL",
-        `Release modal: ${selectedTargets.length} lot(s), station ${product?.currentStation || product?.machine || "onbekend"}, status ${status}`
-      );
-
-      if (onComplete) onComplete();
-      onClose();
-    } catch (error) {
-      console.error("Fout:", error);
-      notify(error.message);
-    } finally {
-      setLoading(false);
-    }
+    // Close modal immediately (operations continue in background)
+    onClose();
   };
 
   const handleRelease = async (e) => {
@@ -538,14 +558,14 @@ const ProductReleaseModal = ({ product, bulkProducts = [], onClose, onComplete, 
 
           <button
             onClick={handleRelease}
-            disabled={loading || (status !== "approved" && selectedReasons.length === 0)}
+            disabled={(status !== "approved" && selectedReasons.length === 0)}
             className={`w-full py-4 rounded-xl font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95 ${
               status === 'approved' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' :
               status === 'temp_reject' ? 'bg-orange-500 hover:bg-orange-600 text-white' :
               'bg-rose-600 hover:bg-rose-700 text-white'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            {loading ? "Verwerken..." : "Bevestigen & Opslaan"}
+            Bevestigen & Opslaan
           </button>
         </div>
       </div>

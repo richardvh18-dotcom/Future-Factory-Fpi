@@ -176,6 +176,40 @@ const getSafeStartedField = (stationName = '') => {
   return safeKey ? `started_${safeKey}` : '';
 };
 
+const isOrderNumberAsLot = ({ lotNumber, orderId }) => {
+  const safeLot = clean(lotNumber).toUpperCase();
+  const safeOrder = clean(orderId).toUpperCase();
+  return Boolean(safeLot && safeOrder && safeLot === safeOrder);
+};
+
+const assertLotsAreUniqueInActiveTracking = async ({ ctx, lotNumbers }) => {
+  const trackingPath = String(ctx?.trackingPath || '').replace(/\/+$/, '');
+  const uniqueLots = Array.from(new Set((lotNumbers || []).map((entry) => clean(entry).toUpperCase()).filter(Boolean)));
+
+  for (const lot of uniqueLots) {
+    const rootSnap = await db
+      .collection(ctx.trackingPath)
+      .where('lotNumber', '==', lot)
+      .limit(1)
+      .get();
+
+    if (!rootSnap.empty) {
+      throw new Error('LOT_NUMBER_EXISTS');
+    }
+
+    const scopedSnap = await db
+      .collectionGroup('items')
+      .where('lotNumber', '==', lot)
+      .limit(20)
+      .get();
+
+    const scopedExists = scopedSnap.docs.some((docSnap) => String(docSnap.ref?.path || '').startsWith(`${trackingPath}/`));
+    if (scopedExists) {
+      throw new Error('LOT_NUMBER_EXISTS');
+    }
+  }
+};
+
 const getMachineCodeForLotServer = (stationName = '') => {
   if (!stationName) return '999';
   const normalized = String(stationName || '').toUpperCase().trim();
@@ -2134,6 +2168,18 @@ const startWorkstationProductionRunService = async ({
   const orderId = clean(orderData.orderId);
   const item = clean(orderData.item);
   const drawing = clean(orderData.drawing);
+
+  if (isOrderNumberAsLot({ lotNumber: safeLotStart, orderId })) {
+    throw new Error('LOT_MATCHES_ORDER_ID');
+  }
+
+  const requestedLots = Array.from({ length: qty }, (_, i) => {
+    const currentSeq = startSeq + i;
+    return `${prefix}${String(currentSeq).padStart(4, '0')}`;
+  });
+
+  await assertLotsAreUniqueInActiveTracking({ ctx, lotNumbers: requestedLots });
+
   const scopedDepartment = resolveScopedDepartment(orderData.department, orderData.departmentId);
   const scopedOrderMachine = resolveScopedMachine(orderData.machine, safeStationId);
   const userLabel = getActorLabel(auth, actorLabel);
@@ -2171,8 +2217,7 @@ const startWorkstationProductionRunService = async ({
   const flowState = getNextFlowStateServer('START_WINDING');
 
   for (let i = 0; i < qty; i += 1) {
-    const currentSeq = startSeq + i;
-    const currentLotNumber = `${prefix}${String(currentSeq).padStart(4, '0')}`;
+    const currentLotNumber = requestedLots[i];
     const isOverflow = currentStartedCount + i + 1 > plannedAmount;
     const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLotNumber);
     const labelAudit = lotSpecificLabelZpl
@@ -2655,7 +2700,19 @@ const startProductionLotsService = async ({
   const planningOrderDoc = safeOrderDocId
     ? await getPlanningOrderDocById(safeOrderDocId, ctx._rds)
     : null;
+
+  if (!safeOrderDocId || !safeOrderId || !safeItemCode || !safeLotStart || !safeStationId) {
+    throw new Error('INVALID_START_PRODUCTION_LOTS_PAYLOAD');
+  }
+  if (!planningOrderDoc) {
+    throw new Error('NOT_FOUND_ORDER');
+  }
+
   const planningOrderData = planningOrderDoc?.data() || {};
+
+  if (isOrderNumberAsLot({ lotNumber: safeLotStart, orderId: safeOrderId })) {
+    throw new Error('LOT_MATCHES_ORDER_ID');
+  }
 
   const lotMatch = safeLotStart.match(/^(.*?)(\d+)$/);
   const buildLotNumber = (offset) => {
@@ -2683,6 +2740,10 @@ const startProductionLotsService = async ({
   const createdLots = [];
   const nowIso = new Date().toISOString();
   const batch = db.batch();
+
+  const requestedLots = Array.from({ length: qty }, (_, i) => buildLotNumber(i));
+  await assertLotsAreUniqueInActiveTracking({ ctx, lotNumbers: requestedLots });
+
   const scopedDepartment = resolveScopedDepartment(
     planningOrderData.department,
     planningOrderData.departmentId,
@@ -2691,7 +2752,7 @@ const startProductionLotsService = async ({
   const scopedPlanningMachine = resolveScopedMachine(planningOrderData.machine, safeStationId);
 
   for (let i = 0; i < qty; i += 1) {
-    const currentLot = buildLotNumber(i);
+    const currentLot = requestedLots[i];
     const docId = `${safeOrderId}_${safeItemCode}_${currentLot}`.replace(/[^a-zA-Z0-9]/g, '_');
     const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLot);
 
@@ -3352,11 +3413,22 @@ const getPendingPrintQueueDocs = async () => {
     .limit(300)
     .get();
 
-  const scopedSnap = await db
-    .collectionGroup('items')
-    .where('_scopeType', '==', 'print_queue')
-    .limit(1000)
-    .get();
+  let scopedDocs = [];
+  try {
+    const scopedSnap = await db
+      .collectionGroup('items')
+      .where('_scopeType', '==', 'print_queue')
+      .limit(1000)
+      .get();
+
+    scopedDocs = scopedSnap.docs;
+  } catch (error) {
+    // Print queue cleanup is best-effort; canceling production must not fail on index/query limits.
+    console.warn('getPendingPrintQueueDocs scoped query skipped:', {
+      code: error?.code || null,
+      message: error?.message || String(error),
+    });
+  }
 
   const byPath = new Map();
 
@@ -3364,7 +3436,7 @@ const getPendingPrintQueueDocs = async () => {
     byPath.set(docSnap.ref.path, docSnap);
   });
 
-  scopedSnap.docs
+  scopedDocs
     .filter((docSnap) => String((docSnap.data() || {}).status || '').toLowerCase() === 'pending')
     .forEach((docSnap) => {
       byPath.set(docSnap.ref.path, docSnap);

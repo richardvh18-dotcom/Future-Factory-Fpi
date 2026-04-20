@@ -23,7 +23,7 @@ import {
   LayoutDashboard,
   BarChart2
 } from "lucide-react";
-import { collection, onSnapshot, doc, getDocs, query, limit } from "firebase/firestore";
+import { collection, collectionGroup, onSnapshot, doc, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import {
   getPlanningArchivePath,
@@ -37,6 +37,7 @@ import GanttChartView from "./GanttChartView";
 import TimeTrackingView from "./TimeTrackingView";
 import WorkloadHeatmapView from "./WorkloadHeatmapView";
 import { normalizeMachine } from "../../utils/hubHelpers";
+import { getDeliveryPlanningState, resolveDeliveryDate, toDateSafe } from "../../utils/dateUtils";
 
 /**
  * CapacityPlanningView
@@ -219,39 +220,59 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       }
     );
 
-    const planningPaths = [readPaths.PLANNING, ["future-factory", "production", "digital_planning"]];
-
     const mergePlanningBuckets = () => {
       const mergedMap = new Map();
       Object.values(planningBucketsRef.current).forEach((rows) => {
         (rows || []).forEach((row, idx) => {
-          const key = String(row.id || row.orderId || `${row.machine || ""}-${row.item || ""}-${idx}`);
-          if (!mergedMap.has(key)) mergedMap.set(key, row);
+          const key = String(row.orderId || row.id || `${row.machine || ""}-${row.item || ""}-${idx}`).trim();
+          if (!key) return;
+          mergedMap.set(key, row);
         });
       });
       setActivePlanningOrders(Array.from(mergedMap.values()));
     };
 
-    const planningUnsubs = planningPaths.map((pathArr) => {
-      const bucketKey = pathArr.join("/");
-      return onSnapshot(
-        collection(readDb, ...pathArr),
-        (snapshot) => {
-          planningBucketsRef.current[bucketKey] = snapshot.docs.map((docEntry) => ({
-            id: docEntry.id,
-            ...docEntry.data(),
-          }));
-          mergePlanningBuckets();
-          setLoading(false);
-        },
-        (error) => {
-          console.warn(`Planning listener failed for ${bucketKey}:`, error);
-          planningBucketsRef.current[bucketKey] = [];
-          mergePlanningBuckets();
-          setLoading(false);
-        }
-      );
-    });
+    const unsubRootPlanning = onSnapshot(
+      collection(readDb, ...readPaths.PLANNING),
+      (snapshot) => {
+        planningBucketsRef.current.root = snapshot.docs.map((docEntry) => ({
+          id: docEntry.id,
+          ...docEntry.data(),
+        }));
+        mergePlanningBuckets();
+        setLoading(false);
+      },
+      (error) => {
+        console.warn("Planning root listener failed:", error);
+        planningBucketsRef.current.root = [];
+        mergePlanningBuckets();
+        setLoading(false);
+      }
+    );
+
+    const unsubScopedPlanning = onSnapshot(
+      collectionGroup(readDb, "orders"),
+      (snapshot) => {
+        planningBucketsRef.current.scoped = snapshot.docs
+          .filter((d) => {
+            const path = d.ref.path || "";
+            return (
+              path.includes("/production/digital_planning/") &&
+              path.includes("/machines/") &&
+              path.includes("/orders/")
+            );
+          })
+          .map((docEntry) => ({ id: docEntry.id, ...docEntry.data() }));
+        mergePlanningBuckets();
+        setLoading(false);
+      },
+      (error) => {
+        console.warn("Planning scoped listener failed:", error);
+        planningBucketsRef.current.scoped = [];
+        mergePlanningBuckets();
+        setLoading(false);
+      }
+    );
 
     // Load time standards
     const unsubStandards = onSnapshot(
@@ -263,7 +284,8 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
     return () => {
       unsubOcc();
-      planningUnsubs.forEach((fn) => fn && fn());
+      unsubRootPlanning();
+      unsubScopedPlanning();
       unsubStandards();
     };
   }, [readDb, readPaths]);
@@ -417,6 +439,23 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
     };
   }, [occupancy, periodStart, periodEnd, selectedDepartment, factoryConfig, timePeriod]);
 
+  const getOrderPlanningStartDate = (order) => {
+    const planned = toDateSafe(order?.plannedDate);
+    if (planned) return planned;
+
+    const delivery = resolveDeliveryDate(
+      order?.deliveryDate,
+      order?.plannedDeliveryDate,
+      order?.dueDate,
+      order?.deadline
+    );
+    const planningState = getDeliveryPlanningState(delivery, {
+      productionLeadDays: 21,
+      finishBufferDays: 4,
+    });
+    return planningState.productionStartDate || null;
+  };
+
   // Bereken geplande uren op basis van orders en standaard tijden
   const demandMetrics = useMemo(() => {
     const getSplitHours = (order) => {
@@ -428,11 +467,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
     // Filter orders voor de geselecteerde periode
     let periodOrders = planningOrders.filter(order => {
-      let orderDate = new Date();
-      if (order.plannedDate) {
-        if (order.plannedDate.toDate) orderDate = order.plannedDate.toDate();
-        else orderDate = new Date(order.plannedDate);
-      }
+      const orderDate = getOrderPlanningStartDate(order) || new Date();
       
       const status = (order.status || '').toLowerCase();
       if (status === 'cancelled') return false;
@@ -581,11 +616,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
 
     // 2. Vraag per machine (Orders)
     planningOrders.forEach(order => {
-      let orderDate = new Date();
-      if (order.plannedDate) {
-        if (order.plannedDate.toDate) orderDate = order.plannedDate.toDate();
-        else orderDate = new Date(order.plannedDate);
-      }
+      const orderDate = getOrderPlanningStartDate(order) || new Date();
 
       const status = (order.status || '').toLowerCase();
       if (status === 'cancelled') return;

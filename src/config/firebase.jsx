@@ -69,6 +69,11 @@ export const logActivity = async (userId, action, details) => {
       timestamp: serverTimestamp(),
     });
   } catch (e) {
+    const code = String(e?.code || "").toLowerCase();
+    if (code.includes("permission-denied") || code.includes("insufficient-permission")) {
+      return;
+    }
+
     console.error("Logging failed:", e);
   }
 };

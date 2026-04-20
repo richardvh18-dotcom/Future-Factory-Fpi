@@ -1,4 +1,5 @@
-import React, { useState, Suspense, lazy, useEffect } from "react";
+import React, { useState, Suspense, lazy, useEffect, useRef } from "react";
+import { listenToAppVersion } from "./services/versionService";
 import { Loader2 } from "lucide-react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
@@ -19,8 +20,10 @@ import AutoLogoutWarning from "./components/AutoLogoutWarning";
 
 // Notification System
 import { NotificationProvider } from "./contexts/NotificationContext";
+import { ProgressOperationProvider } from "./contexts/ProgressOperationContext";
 import ToastContainer from "./components/notifications/ToastContainer";
 import ConfirmDialog from "./components/notifications/ConfirmDialog";
+import { ProgressToast } from "./components/digitalplanning/ProgressToast";
 
 // Hooks
 import { useAdminAuth } from "./hooks/useAdminAuth";
@@ -76,31 +79,36 @@ const App = () => {
     !!user // Alleen actief als gebruiker ingelogd is
   );
 
+  // Versie-check: forceer refresh bij nieuwe versie
+  const currentVersion = import.meta.env.VITE_APP_VERSION || "dev";
+  const versionRef = useRef(currentVersion);
+  useEffect(() => {
+    const unsubscribe = listenToAppVersion((remoteVersion) => {
+      if (remoteVersion && remoteVersion !== versionRef.current) {
+        window.location.reload();
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   // Check of gebruiker wachtwoord moet wijzigen
   useEffect(() => {
-    console.log("🔐 App mounted, user:", user?.email || "No user");
-    console.log("📊 Auth loading:", authLoading);
-    console.log("👤 Role:", role);
-    console.log("🔧 Is Admin:", isAdmin);
-    
-    if (user) {
-      const checkPasswordChange = async () => {
-        try {
-          console.log("🔍 Checking password change requirement for:", user.uid);
-          const userDoc = await getDoc(doc(db, "future-factory", "Users", "Accounts", user.uid));
-          if (userDoc.exists() && userDoc.data().requirePasswordChange) {
-            console.log("⚠️ Password change required");
-            setRequiresPasswordChange(true);
-          } else {
-            console.log("✅ No password change required");
-          }
-        } catch (err) {
-          console.error("❌ Error checking password change:", err);
-        }
-      };
-      checkPasswordChange();
+    if (!user?.uid) {
+      setRequiresPasswordChange(false);
+      return;
     }
-  }, [user, authLoading, role, isAdmin]);
+
+    const checkPasswordChange = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, "future-factory", "Users", "Accounts", user.uid));
+        setRequiresPasswordChange(Boolean(userDoc.exists() && userDoc.data().requirePasswordChange));
+      } catch (err) {
+        console.error("Error checking password change:", err);
+      }
+    };
+
+    checkPasswordChange();
+  }, [user?.uid]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !user?.email) return undefined;
@@ -170,16 +178,12 @@ const App = () => {
 
   const handleLogin = async (email, password) => {
     setLoginError(null);
-    console.log("🔐 Login poging voor:", email);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log("✅ Login succesvol! UID:", userCredential.user.uid);
       await logActivity(userCredential.user.uid, "LOGIN", `Succesvol ingelogd via email: ${email}`);
       navigate("/");
     } catch (err) {
-      console.error("❌ Login fout:", err);
-      console.error("Error code:", err.code);
-      console.error("Error message:", err.message);
+      console.error("Login fout:", err);
       await logActivity("system", "LOGIN_FAILED", `Mislukte inlogpoging voor: ${email}. Reden: ${err.code}`, "warning");
       
       let errorMessage = "E-mail of wachtwoord onjuist.";
@@ -204,7 +208,6 @@ const App = () => {
 
 
   if (authLoading) {
-    console.log("⏳ Auth loading...");
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-slate-950">
         <Loader2 className="animate-spin text-blue-400" size={48} />
@@ -220,22 +223,17 @@ const App = () => {
   let content;
 
   if (user?.uid === bootstrapAdminUid && role === "guest") {
-    console.log("🔧 Bootstrap admin mode");
     content = <GodModeBootstrap />;
   } else if (!user && !authLoading) {
-    console.log("🚫 No user, showing logged out view");
     const path = window.location.pathname;
     if (path === "/login") {
-      console.log("📝 Showing login view");
       content = <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
     } else {
       content = <LoggedOutView />;
     }
   } else if (role === "guest") {
-    console.log("👤 Guest role, showing login");
     content = <LoginView onLogin={handleLogin} error={loginError} logoUrl={generalConfig?.logoUrl} appName={generalConfig?.appName} />;
   } else if (requiresPasswordChange) {
-    console.log("🔑 Password change required");
     content = (
       <ForcePasswordChangeView 
         user={user} 
@@ -243,7 +241,6 @@ const App = () => {
       />
     );
   } else {
-    console.log("✅ Rendering main app");
     content = (
       <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
         <Header
@@ -311,9 +308,12 @@ const App = () => {
 
   return (
     <NotificationProvider>
-      <ToastContainer />
-      <ConfirmDialog />
-      {content}
+      <ProgressOperationProvider>
+        <ToastContainer />
+        <ConfirmDialog />
+        <ProgressToast />
+        {content}
+      </ProgressOperationProvider>
     </NotificationProvider>
   );
 };

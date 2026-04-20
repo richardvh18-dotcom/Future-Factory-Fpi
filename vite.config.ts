@@ -56,5 +56,6 @@ export default defineConfig({
   define: {
     // Injecteert de appId in de globale scope van de applicatie
     __app_id: JSON.stringify('fittings-app-v1'),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.VITE_APP_VERSION || new Date().toISOString()),
   },
 });

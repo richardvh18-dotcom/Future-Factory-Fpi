@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase.js";
-import { PATHS } from "../../../config/dbPaths";
+import { PATHS, getArchiveItemsPath } from "../../../config/dbPaths";
+import { FITTING_MACHINES, PIPE_MACHINES } from "../../../utils/hubHelpers";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import { formatDateTimeSafe } from "../../../utils/dateUtils";
 import { resolvePostLossenStation } from "../../../utils/workstationLogic";
@@ -98,32 +99,75 @@ const TeamleaderOrderDetailModal = ({ order, onClose }) => {
     return unitRejects || order.rejectedCount || 0;
   }, [units, order]);
 
-  // Haal gekoppelde productie-units op
+  // Haal gekoppelde productie-units op (actief + archief)
   useEffect(() => {
     const fetchUnits = async () => {
-      if (!order?.orderId || !appId) return;
-      
+      if (!order?.orderId) return;
+
+      const orderId = order.orderId;
+      const currentYear = new Date().getFullYear();
+      const years = [currentYear, currentYear - 1];
+      const collected = [];
+
+      // 1. Actieve root-items (future-factory/production/tracked_products)
       try {
-        const q = query(
-          collection(db, "artifacts", appId, "public", "data", "tracked_products"),
-          where("orderId", "==", order.orderId)
+        const snap = await getDocs(
+          query(collection(db, ...PATHS.TRACKING), where("orderId", "==", orderId))
         );
-        
-        const snapshot = await getDocs(q);
-        const loadedUnits = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        // Sorteer op lotnummer
-        loadedUnits.sort((a, b) => a.lotNumber.localeCompare(b.lotNumber));
-        setUnits(loadedUnits);
+        snap.docs.forEach(doc => collected.push({ id: doc.id, ...doc.data() }));
       } catch (err) {
-        console.error("Fout bij laden units:", err);
-      } finally {
-        setLoading(false);
+        console.warn("fetchUnits: root query mislukt:", err.code || err.message);
       }
+
+      // 2. Actieve scoped items via bekende machine-paden
+      const DEPT_MACHINE_MAP = [
+        { dept: "Fittings", machines: FITTING_MACHINES },
+        { dept: "Pipes",    machines: PIPE_MACHINES },
+      ];
+      const toScopedMachine = (m) => {
+        const n = String(m).trim().toUpperCase();
+        return /^(BH|BM|BA)\d+$/.test(n) ? `40${n}` : n;
+      };
+      const scopedQueries = DEPT_MACHINE_MAP.flatMap(({ dept, machines }) =>
+        machines.map(machine => {
+          const scopedMachine = toScopedMachine(machine);
+          return getDocs(
+            query(
+              collection(db, ...PATHS.TRACKING, dept, "machines", scopedMachine, "items"),
+              where("orderId", "==", orderId)
+            )
+          ).then(snap => snap.docs.forEach(doc => collected.push({ id: doc.id, ...doc.data() })))
+           .catch(() => {}); // stille fout per machine pad
+        })
+      );
+      await Promise.all(scopedQueries);
+
+      // 3. Gearchiveerde items (huidig + vorig jaar) — elk jaar onafhankelijk
+      for (const year of years) {
+        try {
+          const snap = await getDocs(
+            query(collection(db, ...getArchiveItemsPath(year)), where("orderId", "==", orderId))
+          );
+          snap.docs.forEach(doc => collected.push({ id: doc.id, ...doc.data(), _archived: true }));
+        } catch (err) {
+          console.warn(`fetchUnits: archief ${year} query mislukt:`, err.code || err.message);
+        }
+      }
+
+      // Dedupliceren op id, sorteren op lotnummer
+      const seen = new Set();
+      const allUnits = collected.filter(u => {
+        if (seen.has(u.id)) return false;
+        seen.add(u.id);
+        return true;
+      });
+      allUnits.sort((a, b) => String(a.lotNumber || "").localeCompare(String(b.lotNumber || "")));
+      setUnits(allUnits);
+      setLoading(false);
     };
 
     fetchUnits();
-  }, [order, appId]);
+  }, [order]);
 
   const handleSetPriority = async (level) => {
     if (!order.id) return;

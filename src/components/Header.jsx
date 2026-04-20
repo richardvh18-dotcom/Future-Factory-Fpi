@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Search, Factory, X, Bot, Sparkles, Menu } from "lucide-react";
-import { PATHS, getPathString } from "../config/dbPaths";
 
 /**
  * Header - Donker Thema v2.3 - Responsive voor mobiel en tablet
@@ -31,8 +30,6 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
-
-  const planningPathLabel = `/${getPathString(PATHS.PLANNING)}`;
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -96,13 +93,6 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
                   </>
                 )}
               </h1>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-500 text-black shadow-lg shadow-amber-500/40 animate-pulse">
-                TEST
-              </span>
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg ${isOnline ? "bg-emerald-500/20 text-emerald-300 shadow-emerald-900/20" : "bg-rose-500/20 text-rose-300 shadow-rose-900/20"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-400" : "bg-rose-400"}`}></span>
-                {isOnline ? "Online" : "Offline"}
-              </span>
             </div>
             <p className="hidden sm:block text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1.5">
               {t('header.branding_sub', 'Smart Manufacturing Platform')}
@@ -170,22 +160,10 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
       {/* Rechterkant: Systeem status (verborgen op kleine schermen) */}
       <div className="hidden lg:flex min-w-[280px] justify-end">
         <div
-          className="flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5"
-          title={`Databron: Huidige DB\nPLANNING: ${planningPathLabel}`}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border ${isOnline ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-rose-500/10 border-rose-500/30 text-rose-400"}`}
         >
-          <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`}></div>
-          <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic select-none">
-            {isOnline ? t('header.system_status', 'Systeem actief') : 'Offline cache actief'}
-          </span>
-          <span className={`text-[9px] font-black uppercase tracking-widest select-none ${isOnline ? "text-emerald-400" : "text-rose-400"}`}>
-            {isOnline ? 'Online' : 'Offline'}
-          </span>
-          <span className="text-[9px] font-black uppercase tracking-widest select-none text-slate-600">
-            Current
-          </span>
-          <span className="max-w-[210px] truncate text-[9px] font-semibold text-slate-400 normal-case tracking-normal">
-            {planningPathLabel}
-          </span>
+          <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-400"}`}></div>
+          {isOnline ? t('header.system_status', 'Systeem actief') : 'Offline'}
         </div>
       </div>
     </header>

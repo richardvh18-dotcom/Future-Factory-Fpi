@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { PATHS } from '../config/dbPaths';
 import { useAdminAuth } from '../hooks/useAdminAuth';
@@ -324,9 +324,7 @@ export const NotificationProvider = ({ children }) => {
     const messagesRef = collection(db, ...PATHS.MESSAGES);
     const q = query(
       messagesRef,
-      where('to', 'in', [user.email.toLowerCase(), 'admin']),
-      orderBy('timestamp', 'desc'),
-      limit(50)
+      where('to', 'in', [user.email.toLowerCase(), 'admin'])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

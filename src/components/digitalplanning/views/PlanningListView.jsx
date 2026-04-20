@@ -26,10 +26,9 @@ import {
   getISOWeekYear,
   addWeeks,
   subWeeks,
-  differenceInDays,
 } from "date-fns";
 import { nl } from "date-fns/locale";
-import { toDateSafe } from "../../../utils/dateUtils";
+import { getDeliveryPlanningState, resolveDeliveryDate, toDateSafe } from "../../../utils/dateUtils";
 
 // Importeer de centrale StatusBadge (vanuit ../common/)
 import StatusBadge from "../common/StatusBadge";
@@ -43,6 +42,15 @@ const formatDateLabel = (dateInput, pattern, options = {}, fallback = "-") => {
   const parsedDate = parseDateSafe(dateInput);
   return parsedDate ? format(parsedDate, pattern, options) : fallback;
 };
+
+const getOrderDeliveryDate = (order) =>
+  resolveDeliveryDate(
+    order?.deliveryDate,
+    order?.plannedDeliveryDate,
+    order?.plannedDate,
+    order?.date,
+    order?.deadline
+  );
 
 // --- SUB-COMPONENT: DETAIL VIEW ---
 const OrderDetailPane = ({ order, onClose }) => {
@@ -176,10 +184,19 @@ const OrderDetailPane = ({ order, onClose }) => {
                 </div>
                 <div className="text-right">
                   <span className="text-[9px] font-black text-blue-500 uppercase block mb-1">
-                    Geplande Start (-2w)
+                      Geplande Start (-3w)
                   </span>
                   <span className="text-sm font-black text-blue-600 underline underline-offset-4">
-                    {formatDateLabel(order.plannedDate, "dd-MM-yyyy")}
+                      {(() => {
+                        const deliveryDate = getOrderDeliveryDate(order);
+                        const planningState = getDeliveryPlanningState(deliveryDate, {
+                          productionLeadDays: 21,
+                          finishBufferDays: 4,
+                        });
+                        return planningState.productionStartDate
+                          ? formatDateLabel(planningState.productionStartDate, "dd-MM-yyyy")
+                          : formatDateLabel(order.plannedDate, "dd-MM-yyyy");
+                      })()}
                   </span>
                 </div>
               </div>
@@ -249,13 +266,15 @@ const PlanningListView = ({
   }, [activeTab]);
 
   const getUrgencyStyles = (deliveryDate) => {
-    const d = parseDateSafe(deliveryDate);
-    if (!d) return "text-slate-400";
-    const today = new Date();
-    const daysUntilDelivery = differenceInDays(d, today);
-    if (daysUntilDelivery <= 7) return "text-red-600 font-black";
-    if (daysUntilDelivery <= 14) return "text-blue-600 font-black";
-    return "text-slate-900 font-bold";
+    const planningState = getDeliveryPlanningState(deliveryDate, {
+      productionLeadDays: 21,
+      finishBufferDays: 4,
+    });
+    if (planningState.state === "overdue") return "text-rose-700 font-black";
+    if (planningState.state === "finish_due") return "text-red-600 font-black";
+    if (planningState.state === "in_production_window") return "text-blue-600 font-black";
+    if (planningState.state === "planned") return "text-slate-900 font-bold";
+    return "text-slate-400";
   };
 
   const handleSyncDrawings = async () => {
@@ -462,21 +481,24 @@ const PlanningListView = ({
                   <div className="flex items-center gap-3">
                     <span
                       className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${getUrgencyStyles(
-                        order.deliveryDate
+                        getOrderDeliveryDate(order)
                       )}`}
                     >
                       <Calendar size={12} className="opacity-50" />
                       {formatDateLabel(
-                        order.plannedDate,
+                        getDeliveryPlanningState(getOrderDeliveryDate(order), {
+                          productionLeadDays: 21,
+                          finishBufferDays: 4,
+                        }).productionStartDate || order.plannedDate,
                         "dd MMM",
                         { locale: nl },
                         "Geen datum"
                       )}
                     </span>
-                    {order.deliveryDate && (
+                    {getOrderDeliveryDate(order) && (
                       <span className="text-[9px] text-slate-300 font-bold uppercase flex items-center gap-1 border-l border-slate-100 pl-3">
                         <Clock size={10} />
-                        E: {formatDateLabel(order.deliveryDate, "dd-MM")}
+                        E: {formatDateLabel(getOrderDeliveryDate(order), "dd-MM")}
                       </span>
                     )}
                   </div>

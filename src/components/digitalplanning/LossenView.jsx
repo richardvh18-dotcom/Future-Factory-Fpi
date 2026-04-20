@@ -61,6 +61,51 @@ const shouldGoToCentralLossen = (item) => {
   return false;
 };
 
+const isTruthyRoutingFlag = (value) => {
+  if (value === true || value === 1) return true;
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["true", "1", "yes", "ja", "nabewerking", "te nabewerken", "post_processing", "post processing"].includes(normalized);
+};
+
+const hasNabewerkingFlag = (item) => {
+  if (!item || typeof item !== "object") return false;
+
+  const directFlagFields = [
+    "nabewerking",
+    "nabewerken",
+    "teNabewerken",
+    "te_nabewerken",
+    "needsNabewerking",
+    "requiresNabewerking",
+    "postProcessing",
+    "post_processing",
+    "needsPostProcessing",
+    "requiresPostProcessing",
+    "isPostProcessing",
+  ];
+
+  if (directFlagFields.some((field) => isTruthyRoutingFlag(item?.[field]))) {
+    return true;
+  }
+
+  const routingHints = [
+    item?.nextStation,
+    item?.routeStation,
+    item?.targetStation,
+    item?.returnStation,
+    item?.route?.nextStation,
+  ];
+  if (routingHints.some((value) => String(value || "").toUpperCase().replace(/\s/g, "").includes("NABEWERK"))) {
+    return true;
+  }
+
+  return Object.entries(item).some(([key, value]) => {
+    const keyLower = String(key || "").toLowerCase();
+    if (!/(nabewerk|post.?process)/.test(keyLower)) return false;
+    return isTruthyRoutingFlag(value);
+  });
+};
+
 /**
  * LossenView - Beheert de inkomende producten voor een specifiek werkstation.
  * Gefikst: BH31 naar Nabewerking flow hersteld door betere normalisatie.
@@ -87,45 +132,39 @@ const LossenView = ({ stationId, appId, products = [] }) => {
     selectedProductRef.current = selectedProduct;
   }, [selectedProduct]);
 
-  // Auto-focus logic voor scanner
+  // Auto-focus logic voor scanner: altijd focus bij laden en als scannerMode aan staat
   useEffect(() => {
-    // Alleen auto-focus gebruiken als Scanner Modus AAN staat
     if (!scannerMode) return;
-
+    // Focus direct bij laden of als scannerMode aan gaat
+    scanInputRef.current?.focus();
+    // Ook bij click buiten input, behalve op interactieve elementen
     const handleClick = (e) => {
-      // Focus niet stelen als er op een interactief element wordt geklikt
       const target = e?.target;
       if (!target) return;
       if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) return;
-        
-        if (!showActionModal) {
-            scanInputRef.current?.focus();
-        }
+      if (!showActionModal) scanInputRef.current?.focus();
     };
-    
-      scanInputRef.current?.focus();
-
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
-      }, [showActionModal, scannerMode]);
+  }, [showActionModal, scannerMode]);
+
+  // Focus scanveld bij eerste render (ook als scannerMode uit staat)
+  useEffect(() => {
+    scanInputRef.current?.focus();
+  }, []);
 
   const handleScan = async (e) => {
     if (e.key === 'Enter') {
       const code = scanInput.trim().toUpperCase();
       if (!code) return;
 
-      // --- NIEUW: Goedkeuren met QR-code ---
+      // --- Goedkeuren met QR-code ---
       if (code === QR_CODE_OK_CONFIRMATION && selectedProduct) {
-        // Direct input vrijmaken voor volgende scan
         setScanInput("");
-        // Huidig product vastleggen voor verwerking
         const productToProcess = selectedProduct;
-
         if (isAdvancedStation) {
-          // Geef product expliciet mee om race-conditions te voorkomen
           await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, productToProcess);
         } else {
-          // Voor Lossen: GEEN auto-release, want meting is verplicht.
           notify(
             t(
               "lossen.measurement_required_for_ok_qr",
@@ -135,21 +174,24 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         }
         return;
       }
-        
+
       const found = items.find(i => 
         (i.lotNumber || "").toLowerCase() === code.toLowerCase() || 
         (i.orderId || "").toLowerCase() === code.toLowerCase()
       );
-        
+
       if (found) {
         handleItemClick(found);
         setScanInput("");
+        // Direct popup openen na scan
+        setTimeout(() => {
+          setShowActionModal(true);
+        }, 0);
       } else {
         notify(t('lossen.item_not_found', 'Item {{code}} niet gevonden', { code }));
         setScanInput("");
         setSelectedProduct(null);
       }
-      // Na scan altijd weer focus op het scanveld
       setTimeout(() => {
         scanInputRef.current?.focus();
       }, 50);
@@ -261,14 +303,15 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         }
 
         // FIX: Flexibele matching voor Nabewerking (Nabewerking vs Nabewerken)
-          if (isNabewerkingStation) {
+        if (isNabewerkingStation) {
           const itemClean = (itemStationNorm || "").toUpperCase().replace(/\s/g, "");
           const stepClean = (item.currentStep || "").toUpperCase().replace(/\s/g, "");
           const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
 
           if (itemClean === "NABEWERKING" || itemClean === "NABEWERKEN" || itemClean === "NABW" || itemClean.includes("NABEWERK") ||
               stepClean === "NABEWERKING" || stepClean === "NABEWERKEN" || stepClean.includes("NABEWERK") || 
-              statusClean.includes("NABEWERK")) {
+              statusClean.includes("NABEWERK") ||
+              hasNabewerkingFlag(item)) {
             isOurStation = true;
           }
         }
@@ -402,6 +445,8 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       setBulkSeriesProducts([]);
     }
     setSelectedProduct(item);
+    // Direct het modal openen in plaats van het detail panel te tonen
+    setShowActionModal(true);
   };
 
   const handleOpenActionModal = () => {
@@ -592,32 +637,22 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       `}</style>
 
       {showActionModal && selectedProduct && (
-        isAdvancedStation ? (
-          <PostProcessingFinishModal
-            product={selectedProduct}
-            onClose={handleCloseModal}
-            onConfirm={handlePostProcessingFinish}
-            currentStation={stationId}
-            autoFocus={!scannerMode}
-          />
-        ) : (
-          <ProductReleaseModal
-            isOpen={true}
-            product={selectedProduct}
-            bulkProducts={bulkSeriesProducts}
-            forceLossenMode={true}
-            onClose={handleCloseModal}
-            appId={appId}
-            activeOperators={activeOperators}
-            autoFocus={false}
-          />
-        )
+        <ProductReleaseModal
+          isOpen={true}
+          product={selectedProduct}
+          bulkProducts={bulkSeriesProducts}
+          forceLossenMode={true}
+          onClose={handleCloseModal}
+          appId={appId}
+          activeOperators={activeOperators}
+          autoFocus={false}
+        />
       )}
 
         {/* INKOMEND VIEW */}
         <>
-          <div className={`w-full lg:w-2/3 p-4 pb-32 space-y-3 border-r border-slate-100 overflow-y-auto custom-scrollbar ${selectedProduct ? "hidden lg:block" : "block"}`} style={{ paddingBottom: "max(8rem, env(safe-area-inset-bottom))" }}>
-          <div className="mb-6 space-y-2">
+          <div className="w-full p-3 pb-32 space-y-2 overflow-y-auto custom-scrollbar" style={{ paddingBottom: "max(8rem, env(safe-area-inset-bottom))" }}>
+          <div className="mb-4 space-y-2">
             <div className="flex justify-between items-end">
                 {/* Scan Indicator Label */}
                 <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-lg border border-blue-100 w-fit">
@@ -661,10 +696,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 mb-4 ml-2">
-                <ArrowRight size={16} className="text-emerald-500" />
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 mb-2 ml-2">
+                <ArrowRight size={14} className="text-emerald-500" />
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 {viewTitle} ({items.length})
                 </h3>
               </div>
@@ -675,13 +710,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                     <div
                       key={item.id}
                       onClick={() => handleItemClick(item.seriesUnits[0])}
-                      className="bg-blue-50 border-2 border-blue-200 rounded-[24px] p-4 cursor-pointer"
+                      className="bg-blue-50 border border-blue-200 rounded-[14px] p-2.5 cursor-pointer w-full"
                     >
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center justify-between gap-2">
                         <div>
-                          <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">{t("digitalplanning.terminal.series", "Serie")}</p>
-                          <p className="text-base font-black text-blue-900">{t("productionStartModal.labels.order", "Order")} {item.orderId}</p>
-                          <p className="text-[10px] font-bold text-blue-700 uppercase">{t("digitalplanning.terminal.series_count", "Serie {{count}} stuks", { count: item.seriesCount })}</p>
+                          <p className="text-[7px] font-black text-blue-500 uppercase tracking-widest">{t("digitalplanning.terminal.series", "Serie")}</p>
+                          <p className="text-sm font-black text-blue-900">{t("productionStartModal.labels.order", "Order")} {item.orderId}</p>
+                          <p className="text-[8px] font-bold text-blue-700 uppercase">{t("digitalplanning.terminal.series_count", "Serie {{count}} stuks", { count: item.seriesCount })}</p>
                         </div>
                         <button
                           onClick={(e) => {
@@ -691,15 +726,11 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                               [item.seriesGroupId]: !prev[item.seriesGroupId],
                             }));
                           }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-blue-200 text-blue-700 text-[10px] font-black uppercase"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-blue-200 text-blue-700 text-[7px] font-black uppercase flex-shrink-0"
                         >
-                          {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                          {isCollapsed ? t("digitalplanning.terminal.expand", "Uitklappen") : t("digitalplanning.terminal.collapse", "Inklappen")}
+                          {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
                         </button>
                       </div>
-                      <p className="mt-2 text-[10px] font-bold text-blue-700/80 uppercase tracking-wide">
-                        {t("digitalplanning.terminal.select_for_complete_right_panel", "Selecteer voor gereedmelden in rechterpaneel")}
-                      </p>
                     </div>
                   );
                 }
@@ -708,36 +739,36 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                   <div
                     key={item.id}
                     onClick={() => handleItemClick(item)}
-                    className={`bg-white border-2 rounded-[35px] p-6 shadow-sm hover:border-emerald-300 transition-all group animate-in slide-in-from-bottom-2 cursor-pointer
-                      ${selectedProduct?.id === item.id ? 'border-purple-400 ring-4 ring-purple-200' : 'border-slate-100'}`}
+                    className={`bg-white border rounded-[14px] p-3 shadow-sm hover:border-emerald-300 hover:shadow-md transition-all group animate-in slide-in-from-bottom-2 cursor-pointer w-full
+                      ${selectedProduct?.id === item.id ? 'border-purple-400 ring-2 ring-purple-200' : 'border-slate-100'}`}
                   >
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="text-left">
-                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="text-left flex-1 min-w-0">
+                        <span className="text-[7px] font-black text-slate-400 uppercase block mb-0.5">
                           {t('lossen.lot_number')}
                         </span>
-                        <span className="font-black text-slate-900 text-lg tracking-tighter italic">
+                        <span className="font-black text-slate-900 text-2xl tracking-tighter italic">
                           {item.lotNumber}
                         </span>
-                        <p className="text-xs font-bold text-slate-600 mt-1">
+                        <p className="text-[10px] font-bold text-slate-600 mt-0.5">
                           {item.item}
                         </p>
                       </div>
-                      <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[9px] font-black uppercase">
+                      <div className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-lg text-[7px] font-black uppercase whitespace-nowrap">
                         {t('lossen.received')}
                       </div>
                     </div>
-                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                    <div className="bg-slate-50 rounded-lg p-1.5 border border-slate-100 mt-1.5">
+                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-0.5">
                         {t('lossen.manufactured_item')}
                       </p>
-                      <p className="text-xs font-mono font-bold text-slate-700 truncate">
+                      <p className="text-[9px] font-mono font-bold text-slate-700 truncate">
                         {item.itemCode}
                       </p>
                       {item.lastStation && (
-                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 opacity-80">
-                          <History size={10} className="text-blue-500" />
-                          <span className="text-[8px] font-black text-slate-500 uppercase italic">
+                        <div className="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-slate-200/60 opacity-80">
+                          <History size={8} className="text-blue-500" />
+                          <span className="text-[6.5px] font-black text-slate-500 uppercase italic">
                             {isBM01 ? t('lossen.from') + ": " : t('lossen.origin') + ": "}{item.lastStation}
                           </span>
                         </div>
@@ -750,37 +781,6 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           )}
           </div>
 
-          <div className={`w-full lg:w-1/3 bg-slate-50 p-6 md:p-8 overflow-y-auto custom-scrollbar ${!selectedProduct ? "hidden lg:flex" : "flex"} flex-col`}>
-            {selectedProduct ? (
-              <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left w-full">
-                <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
-                  <button onClick={() => setSelectedProduct(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
-                  <div className="text-left flex-1">
-                    <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("digitalplanning.terminal.dossier", "Dossier")}</span>
-                    <h2 className="text-3xl font-black italic leading-none text-left">{selectedProduct.lotNumber}</h2>
-                    <p className="text-xs font-bold text-white/70 mt-2">{selectedProduct.item}</p>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-5 text-left">
-                  {bulkSeriesProducts.length > 1 && (
-                    <button onClick={handleOpenActionModal} className="w-full py-4 bg-emerald-600 text-white rounded-[22px] font-black uppercase text-sm shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
-                      <ClipboardCheck size={20} /> {t("digitalplanning.terminal.series_report_ready", "Serie gereedmelden")} ({bulkSeriesProducts.length}x)
-                    </button>
-                  )}
-
-                  <button onClick={handleOpenActionModal} className="w-full py-6 bg-slate-900 text-white rounded-[30px] font-black uppercase text-base shadow-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-4 active:scale-95 group">
-                    <ClipboardCheck size={28} /> {t('lossen.process_release')}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center opacity-30 text-center text-left">
-                <Package size={80} className="mb-6 text-slate-200" />
-                <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">{t("digitalplanning.terminal.select_active_lot", "Selecteer actief lot")}</h4>
-              </div>
-            )}
-          </div>
       </>
     </div>
   );
