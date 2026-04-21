@@ -23,7 +23,8 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 
 const QR_CODE_OK_CONFIRMATION = 'FPI-ACTION-APPROVE-OK';
-const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18", "12", "15", "17", "18"]);
+const LOSSEN_1218_DIRECT_STATIONS = new Set(["BH12", "BH15", "BH17", "12", "15", "17"]);
+const LOSSEN_1218_BH18_STATIONS = new Set(["BH18", "18"]);
 const LOSSEN_1218_STATION_NORM = "LOSSEN12/18";
 
 // Helper voor diameter (simpel)
@@ -49,6 +50,15 @@ const shouldGoToCentralLossen = (item) => {
   // CB/ELB >= 350mm naar centraal, < 350mm lokaal
   if ((isCB || isELB) && d >= 350) return true;
 
+  return false;
+};
+
+const hasOriginInSet = (candidates, stationSet) =>
+  candidates.some((value) => stationSet.has(normalizeMachine(value || "")));
+
+const shouldBelongToLossen1218 = (item, candidates) => {
+  if (hasOriginInSet(candidates, LOSSEN_1218_DIRECT_STATIONS)) return true;
+  if (hasOriginInSet(candidates, LOSSEN_1218_BH18_STATIONS)) return !shouldGoToCentralLossen(item);
   return false;
 };
 
@@ -118,6 +128,23 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   const scanInputRef = useRef(null);
   const selectedProductRef = useRef(null); // Ref om huidige selectie bij te houden tijdens async acties
 
+  const focusScanInput = () => {
+    const input = scanInputRef.current;
+    if (!input) return;
+    input.focus({ preventScroll: true });
+  };
+
+  const scheduleScanFocus = () => {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        focusScanInput();
+        setTimeout(focusScanInput, 0);
+      });
+      return;
+    }
+    setTimeout(focusScanInput, 0);
+  };
+
   // Sync ref met state
   useEffect(() => {
     selectedProductRef.current = selectedProduct;
@@ -127,21 +154,28 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   useEffect(() => {
     if (!scannerMode) return;
     // Focus direct bij laden of als scannerMode aan gaat
-    scanInputRef.current?.focus();
+    scheduleScanFocus();
     // Ook bij click buiten input, behalve op interactieve elementen
     const handleClick = (e) => {
       const target = e?.target;
       if (!target) return;
       if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) return;
-      if (!showActionModal) scanInputRef.current?.focus();
+      if (!showActionModal) scheduleScanFocus();
+    };
+    const handleWindowFocus = () => {
+      if (!showActionModal) scheduleScanFocus();
     };
     document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      document.removeEventListener('click', handleClick);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
   }, [showActionModal, scannerMode]);
 
   // Focus scanveld bij eerste render (ook als scannerMode uit staat)
   useEffect(() => {
-    scanInputRef.current?.focus();
+    scheduleScanFocus();
   }, []);
 
   const handleScan = async (e) => {
@@ -184,7 +218,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         setSelectedProduct(null);
       }
       setTimeout(() => {
-        scanInputRef.current?.focus();
+        scheduleScanFocus();
       }, 50);
     }
   };
@@ -347,19 +381,18 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           const lossen1218OperatorTargets = [...lossen1218Origins, "BH18", "18"];
           const lossenOrigins = ["BH18", "18", "BH31", "BH16", "BH11", "31", "16", "11"];
           const isLossen1218Station = currentStationNorm === LOSSEN_1218_STATION_NORM;
+          const originCandidates = [origin, originLabel, current];
 
           let targetMachines = isLossen1218Station ? lossen1218OperatorTargets : [...lossenOrigins, ...lossen1218Origins];
           let useStrictFilter = false;
 
-          // Hard split: oorsprong 12/15/17 hoort altijd bij LOSSEN 12/18,
+          // BH12/BH15/BH17 horen altijd exclusief bij LOSSEN 12/18,
           // ook als legacy data currentStation op LOSSEN zet.
-          const isLossen1218Origin =
-            lossen1218Origins.includes(origin) ||
-            lossen1218Origins.includes(originLabel);
+          const isLossen1218DirectOrigin = hasOriginInSet([origin, originLabel], LOSSEN_1218_DIRECT_STATIONS);
 
-          // Hard split 2: BH18-items die NIET naar centraal moeten horen exclusief bij LOSSEN 12/18.
-          const isBh18Like = ["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current);
-          const isBh18For1218 = isBh18Like && !shouldGoToCentralLossen(item);
+          // BH18 blijft via diameter gesplitst tussen LOSSEN 12/18 en centraal LOSSEN.
+          const isBh18Like = hasOriginInSet(originCandidates, LOSSEN_1218_BH18_STATIONS);
+          const isLossen1218Owned = shouldBelongToLossen1218(item, originCandidates);
 
           // Downstream guard: items die Lossen al verlaten hebben nooit opnieuw tonen op centraal Lossen.
           const movedPastLossen =
@@ -381,9 +414,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           const isCentralHardBlocked =
             !isLossen1218Station &&
             (
-              // BH12/15/17 met kleine diameter → Lossen 12/18, grote diameter mag naar centraal
-              (isLossen1218Origin && !shouldGoToCentralLossen(item)) ||
-              isBh18For1218 ||
+              isLossen1218Owned ||
               movedPastLossen ||
               isDownstreamNow ||
               status.includes("WACHT OP NABEWERKING")
@@ -421,14 +452,9 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           }
 
            if (targetMachines.includes(origin) || targetMachines.includes(originLabel) || targetMachines.includes(current)) {
-             if (lossen1218Origins.includes(origin) || lossen1218Origins.includes(originLabel) || lossen1218Origins.includes(current)) {
-               // BH12/15/17: grote diameter → centraal Lossen, kleine diameter → Lossen 12/18
-               if (shouldGoToCentralLossen(item)) {
-                 isOurStation = !isLossen1218Station;
-               } else {
-                 isOurStation = isLossen1218Station;
-               }
-             } else if (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current)) {
+             if (isLossen1218DirectOrigin) {
+               isOurStation = isLossen1218Station;
+             } else if (isBh18Like) {
                // BH18: grote diameter → centraal Lossen, kleine diameter → Lossen 12/18
                if (shouldGoToCentralLossen(item)) {
                  isOurStation = !isLossen1218Station;
@@ -438,14 +464,9 @@ const LossenView = ({ stationId, appId, products = [] }) => {
              } else {
                  isOurStation = !isLossen1218Station;
              }
-           } else if (!useStrictFilter && (lossen1218Origins.includes(origin) || lossen1218Origins.includes(originLabel) || lossen1218Origins.includes(current))) {
-             // Fallback BH12/15/17: diameter bepaalt routing
-             if (shouldGoToCentralLossen(item)) {
-               isOurStation = !isLossen1218Station;
-             } else {
-               isOurStation = isLossen1218Station;
-             }
-           } else if (!useStrictFilter && isLossen1218Station && (["BH18", "18"].includes(origin) || ["BH18", "18"].includes(originLabel) || ["BH18", "18"].includes(current))) {
+           } else if (!useStrictFilter && isLossen1218DirectOrigin) {
+             isOurStation = isLossen1218Station;
+           } else if (!useStrictFilter && isLossen1218Station && isBh18Like) {
              // Fallback BH18: kleine diameter → Lossen 12/18
              if (!shouldGoToCentralLossen(item)) {
                isOurStation = true;
@@ -505,8 +526,8 @@ const LossenView = ({ stationId, appId, products = [] }) => {
               currentNorm === "LOSSEN" ||
               currentNorm === LOSSEN_1218_STATION_NORM;
 
-            // Grote diameters van BH18 horen in centraal Lossen, niet in Lossen 12/18
-            if (sourceMatches && lossenMatches && shouldGoToCentralLossen(item)) return false;
+            // Alleen BH18 splitst hier nog op diameter; BH12/BH15/BH17 horen altijd op Lossen 12/18.
+            if (hasOriginInSet([originNorm], LOSSEN_1218_BH18_STATIONS) && sourceMatches && lossenMatches && shouldGoToCentralLossen(item)) return false;
 
             return sourceMatches && lossenMatches;
           })
@@ -616,6 +637,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
     setBulkSeriesProducts([]);
     setSelectedProduct(null);
     setShowActionModal(false);
+    setTimeout(scheduleScanFocus, 50);
   };
 
   const currentStationNorm = useMemo(() => normalizeMachine(stationId), [stationId]);
@@ -836,6 +858,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
               <input
                   ref={scanInputRef}
                   type="text"
+                  autoFocus
                   value={scanInput}
                   onChange={(e) => setScanInput(e.target.value)}
                   inputMode={scannerMode ? "none" : "text"}

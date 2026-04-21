@@ -48,6 +48,23 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   const scanInputRef = useRef(null);
   const selectedProductRef = useRef(null); // Ref voor race-condition preventie
 
+    const focusScanInput = () => {
+        const input = scanInputRef.current;
+        if (!input) return;
+        input.focus({ preventScroll: true });
+    };
+
+    const scheduleScanFocus = () => {
+        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+            window.requestAnimationFrame(() => {
+                focusScanInput();
+                setTimeout(focusScanInput, 0);
+            });
+            return;
+        }
+        setTimeout(focusScanInput, 0);
+    };
+
   // Sync ref met state
   useEffect(() => {
     selectedProductRef.current = selectedProduct;
@@ -57,21 +74,32 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     useEffect(() => {
         if (!scannerMode) return;
         // Focus direct bij laden of als scannerMode aan gaat
-        scanInputRef.current?.focus();
+        scheduleScanFocus();
         // Ook bij click buiten input, behalve op interactieve elementen
         const handleClick = (e) => {
-            if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+            const target = e?.target;
+            if (!target) return;
+            if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) return;
             if (activeTab === "inspectie" && !showFinishModal && !viewingDossier && !selectedOrderId) {
-                scanInputRef.current?.focus();
+                scheduleScanFocus();
+            }
+        };
+        const handleWindowFocus = () => {
+            if (activeTab === "inspectie" && !showFinishModal && !viewingDossier && !selectedOrderId) {
+                scheduleScanFocus();
             }
         };
         document.addEventListener('click', handleClick);
-        return () => document.removeEventListener('click', handleClick);
+        window.addEventListener('focus', handleWindowFocus);
+        return () => {
+            document.removeEventListener('click', handleClick);
+            window.removeEventListener('focus', handleWindowFocus);
+        };
     }, [activeTab, showFinishModal, viewingDossier, selectedOrderId, scannerMode]);
 
     // Focus scanveld bij eerste render (ook als scannerMode uit staat)
     useEffect(() => {
-        scanInputRef.current?.focus();
+        scheduleScanFocus();
     }, []);
 
     const handleScan = async (e) => {
@@ -104,7 +132,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             }
             // Na scan altijd weer focus op het scanveld
             setTimeout(() => {
-                scanInputRef.current?.focus();
+                scheduleScanFocus();
             }, 50);
         }
     };
@@ -393,6 +421,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   const handleCloseModal = () => {
     setSelectedProduct(null);
     setShowFinishModal(false);
+        setTimeout(scheduleScanFocus, 50);
   };
 
   const handlePostProcessingFinish = async (status, data, productOverride = null) => {
@@ -827,6 +856,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                             <input
                                 ref={scanInputRef}
                                 type="text"
+                                autoFocus
                                 value={scanInput}
                                 onChange={(e) => setScanInput(e.target.value)}
                                 inputMode={scannerMode ? "none" : "text"}
