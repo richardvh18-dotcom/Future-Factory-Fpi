@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build && node scripts/update-firestore-version.js",
+  "buildCommand": "npm run build && node scripts/update-firestore-version.js || echo 'Version update skipped (FIREBASE_SERVICE_ACCOUNT_JSON not set)'",
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": "vite",
