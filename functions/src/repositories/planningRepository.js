@@ -44,14 +44,19 @@ const getPlanningOrderDocByOrderId = async (orderId) => {
 
   if (!primarySnap.empty) return primarySnap.docs[0];
 
-  const scopedSnap = await db
-    .collectionGroup('orders')
-    .where('orderId', '==', normalizedOrderId)
-    .limit(1)
-    .get();
+  try {
+    const scopedSnap = await db
+      .collectionGroup('orders')
+      .where('orderId', '==', normalizedOrderId)
+      .limit(1)
+      .get();
 
-  const scopedDoc = scopedSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
-  if (scopedDoc) return scopedDoc;
+    const scopedDoc = scopedSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
+    if (scopedDoc) return scopedDoc;
+  } catch (error) {
+    // Niet-fataal: root/legacy paden kunnen nog steeds een geldig document opleveren.
+    console.warn('[planningRepository] scoped order lookup overgeslagen:', error?.message || String(error));
+  }
 
   if (!planningLegacyCollection) return null;
 
@@ -87,13 +92,17 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource =
   if (directSnap.exists) return directSnap;
 
   // Zoek op 'id'-veld (aanwezig bij items aangemaakt via startProductionLots).
-  const scopedByIdFieldSnap = await db
-    .collectionGroup('items')
-    .where('id', '==', lookupId)
-    .limit(5)
-    .get();
-  const scopedByIdFieldDoc = scopedByIdFieldSnap.docs.find((doc) => isUnderPath(doc.ref, trackingCollection));
-  if (scopedByIdFieldDoc) return scopedByIdFieldDoc;
+  try {
+    const scopedByIdFieldSnap = await db
+      .collectionGroup('items')
+      .where('id', '==', lookupId)
+      .limit(5)
+      .get();
+    const scopedByIdFieldDoc = scopedByIdFieldSnap.docs.find((doc) => isUnderPath(doc.ref, trackingCollection));
+    if (scopedByIdFieldDoc) return scopedByIdFieldDoc;
+  } catch (error) {
+    console.warn('[planningRepository] scoped tracking id-lookup overgeslagen:', error?.message || String(error));
+  }
 
   // Zoek op lotNumber (aanwezig bij alle items; docId === lotNumber bij startWorkstationProductionRun).
   const lotSnap = await db
@@ -104,14 +113,18 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource =
 
   if (!lotSnap.empty) return lotSnap.docs[0];
 
-  const scopedLotSnap = await db
-    .collectionGroup('items')
-    .where('lotNumber', '==', lookupId)
-    .limit(5)
-    .get();
+  try {
+    const scopedLotSnap = await db
+      .collectionGroup('items')
+      .where('lotNumber', '==', lookupId)
+      .limit(5)
+      .get();
 
-  const scopedLotDoc = scopedLotSnap.docs.find((doc) => isUnderPath(doc.ref, trackingCollection));
-  if (scopedLotDoc) return scopedLotDoc;
+    const scopedLotDoc = scopedLotSnap.docs.find((doc) => isUnderPath(doc.ref, trackingCollection));
+    if (scopedLotDoc) return scopedLotDoc;
+  } catch (error) {
+    console.warn('[planningRepository] scoped tracking lot-lookup overgeslagen:', error?.message || String(error));
+  }
 
   return null;
 };
@@ -138,13 +151,17 @@ const getPlanningOrderDocById = async (orderDocId) => {
 
   // collectionGroup documentId() vereist volledig pad bij collection group queries;
   // gebruik orderId-veld lookup als fallback voor scoped planning-orders.
-  const scopedByOrderIdSnap = await db
-    .collectionGroup('orders')
-    .where('orderId', '==', lookupId)
-    .limit(5)
-    .get();
-  const scopedByOrderIdDoc = scopedByOrderIdSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
-  if (scopedByOrderIdDoc) return scopedByOrderIdDoc;
+  try {
+    const scopedByOrderIdSnap = await db
+      .collectionGroup('orders')
+      .where('orderId', '==', lookupId)
+      .limit(5)
+      .get();
+    const scopedByOrderIdDoc = scopedByOrderIdSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
+    if (scopedByOrderIdDoc) return scopedByOrderIdDoc;
+  } catch (error) {
+    console.warn('[planningRepository] scoped planning id-lookup overgeslagen:', error?.message || String(error));
+  }
 
   if (!planningLegacyCollection) return null;
 

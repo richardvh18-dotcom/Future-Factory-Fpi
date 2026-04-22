@@ -1,3 +1,131 @@
+## Taken & bugs – 21 april 2026
+
+**Datum:** 21 april 2026 | **Branch:** `FF-2-4-26`
+
+### Bug / takenlijst (prioriteit hoog → laag)
+
+| # | Omschrijving | Status |
+|---|---|---|
+| 1 | **Nabewerken – gereedmelden werkt niet** – Een product in de nabewerking-flow kan niet op gereed worden gezet. | ✅ Afgerond |
+| 2 | **Wikkelen – cancel werkt niet** – Een product kan niet worden gecanceld vanuit de wikkel-flow. | ✅ Afgerond |
+| 3 | **Afkeur – tijdelijke afkeur werkt niet** – Een product kan niet op (tijdelijke) afkeur worden gezet. | ✅ Afgerond |
+| 4 | **Lossen 12/18 – planningslijst scrolt niet** – De planningslijst op het Lossen 12/18 scherm scrolt niet goed. | ✅ Afgerond |
+| 5 | **Excel plak-import – terugzetten naar oude versie** – De Excel kopieer/plak-import moet terug naar de vorige implementatie. | ✅ Afgerond |
+| 6 | **AI werkt niet** – AI-functionaliteit is niet beschikbaar (minder urgent). | Open |
+
+---
+
+## Update sessie 104 (BH18 startProductionLots fix + Firebase/Vercel productie-deploy)
+
+**Datum:** 20 april 2026 | **Branch:** `FF-2-4-26`
+
+**Gebruikersvraag:**
+- Op Wikkel Machine 18 (`BH18`) faalde productie-start met:
+    - Firestore `permission-denied` in een snapshot listener
+    - callable `startProductionLots` met generieke 500 / `Starten van productie is mislukt.`
+- Daarna moest alles naar productie gedeployed worden op zowel Firebase als Vercel.
+
+**Analyse / vermoedelijke root cause:**
+- De frontend `Terminal`-flow gaf bij `startProductionLots` alleen `orderDocId` mee en niet het echte documentpad van de planning-order.
+- In `startProductionLotsService` werd de planningorder daardoor fragiel opgezocht wanneer de order uit een scoped planning-pad kwam.
+- De service schreef de statusupdate bovendien alleen naar een afgeleid `scopedPlanningRef`, niet eerst naar de werkelijk gevonden `planningRef`.
+- Dat maakte de startflow kwetsbaar voor scoped orders op BH18 en kon eindigen in een interne callable-fout.
+
+**Oplossing uitgevoerd:**
+- `src/components/digitalplanning/Terminal.jsx`
+    - Geeft nu ook `orderDocPath` en `orderSourcePath` mee aan `startProductionLots`.
+
+- `src/services/planningSecurityService.js`
+    - Wrapper uitgebreid zodat `orderDocPath` en `orderSourcePath` in de callable payload meegaan.
+
+- `functions/src/callables/planningCallables.js`
+    - `startProductionLots` callable leest nu ook `orderDocPath` en `orderSourcePath` uit de payload.
+    - Auditlogging uitgebreid zodat de echte planning lookup-input zichtbaar blijft in backend logging.
+
+- `functions/src/services/planningTransitionService.js`
+    - `startProductionLotsService` resolve’t planningorders nu eerst via:
+        - `orderDocPath`
+        - anders `orderSourcePath`
+        - anders fallback naar `orderDocId`
+    - Planningupdates schrijven nu naar de werkelijk gevonden `planningRef`.
+    - Indien nodig wordt daarnaast ook nog naar `scopedPlanningRef` geschreven, maar alleen als dat niet hetzelfde document is.
+
+**Validatie:**
+- Editorfouten gecontroleerd op:
+    - `src/components/digitalplanning/Terminal.jsx`
+    - `src/services/planningSecurityService.js`
+    - `functions/src/callables/planningCallables.js`
+    - `functions/src/services/planningTransitionService.js`
+- Geen fouten gerapporteerd.
+- Frontend build succesvol:
+    - `npm run build`
+
+**Deploy uitgevoerd:**
+- Firebase productie:
+    - Project: `future-factory-377ef`
+    - Command: `firebase deploy --project future-factory-377ef --only hosting,functions,firestore`
+    - Hosting, Firestore rules/indexes en Functions rollout gestart en succesvol afgerond vanuit dezelfde deploy-run.
+    - Productie URL: `https://future-factory-377ef.web.app`
+
+- Vercel productie:
+    - Bestaand project gekoppeld: `richard-van-heerdes-projects/futurefactoryapp`
+    - Workspace gelinkt via `vercel link --yes --project futurefactoryapp --scope richard-van-heerdes-projects`
+    - Production deploy uitgevoerd via `vercel deploy --prod --yes --scope richard-van-heerdes-projects`
+    - Alias live op: `https://future-factory.vercel.app`
+
+**Opmerking:**
+- De losse Firestore `permission-denied` consolemelding was tijdens deze sessie niet met zekerheid aan één exact listener-pad gekoppeld.
+- De kritieke server-side startflow voor BH18 is wel gehard en gedeployed.
+
+## Update sessie 103 (Definitieve afkeur handmatig hersteld + backend fix voor scoped tracked items)
+
+**Datum:** 20 april 2026 | **Branch:** `FF-2-4-26`
+
+**Gebruikersvraag:**
+- Twee definitief afgekeurde producten stonden nog in `tracked_products` en waren niet verplaatst naar archief:
+    - `/future-factory/production/tracked_products/Fittings/machines/40BH18/items/N20024687_EL4MCSS0ER02A0BCCBB0_402614418400005`
+    - `/future-factory/production/tracked_products/Fittings/machines/40BH18/items/N20024737_EL1MESS0JR00Q0BCCBB0_402614418400014`
+- Handmatig herstellen én verifiëren dat definitieve afkeur voortaan correct naar `/future-factory/production/archive` gaat.
+
+**Root cause:**
+- `rejectTrackedProductFinalService` gebruikte een directe flat lookup:
+    - `db.collection(ctx.trackingPath).doc(productId)`
+- Daardoor werden scoped tracked docs onder `.../tracked_products/<dept>/machines/<station>/items/<id>` niet gevonden.
+
+**Oplossing uitgevoerd:**
+- Bestand aangepast: `functions/src/services/planningTransitionService.js`
+    - `rejectTrackedProductFinalService` gebruikt nu `getTrackedProductDocByIdOrLot(productId, ctx._rds)`.
+    - Archiefdocument-id gebruikt nu `trackedDoc.id` i.p.v. ruwe input `productId`.
+    - Return payload geeft nu de echte `productId: trackedDoc.id` terug.
+
+- Handmatige datamigratie uitgevoerd voor de 2 vastgelopen afkeur-items:
+    - Vanuit:
+        - `future-factory/production/tracked_products/Fittings/machines/40BH18/items/...`
+    - Naar:
+        - `future-factory/production/archive/2026/rejected/...`
+    - Vervolgens origineel verwijderd uit tracked pad.
+
+- Hulpscript toegevoegd:
+    - `scripts/archive-stuck-rejected-via-cli-auth.cjs`
+
+**Verificatie na migratie:**
+- `N20024687_EL4MCSS0ER02A0BCCBB0_402614418400005`
+    - tracked: verwijderd
+    - archive/2026/rejected: aanwezig (`status: Rejected`)
+- `N20024737_EL1MESS0JR00Q0BCCBB0_402614418400014`
+    - tracked: verwijderd
+    - archive/2026/rejected: aanwezig (`status: Rejected`)
+
+**Deploy/Release:**
+- Git commit + push:
+    - Commit: `d2c7178`
+    - Branch: `FF-2-4-26`
+- Firebase Functions gedeployed (succesvol):
+    - `firebase deploy --only functions`
+
+**Security/cleanup:**
+- Tijdelijke service-account key gebruikt voor eenmalige migratie en daarna verwijderd (`/tmp/sa-key.json`).
+
 ## Update sessie 102 (Nabewerken UX + sitebrede leverdatumregels 3 weken / 4 dagen)
 
 **Datum:** 18 april 2026 | **Branch:** `FF-2-4-26`
@@ -4148,3 +4276,66 @@ Made changes.
 
 **Doel van deze fase:**
 - Grootste architectuurgat (import-bypass) sluiten zonder pilot-flow te breken.
+
+---
+
+## Update sessie 105 (Lossen 12/18 routingfix, scannerfocus Lossen/BM01, push + Vercel productie)
+
+**Datum:** 21 april 2026 | **Branch:** `FF-2-4-26`
+
+**Gebruikersmeldingen:**
+- Station `Lossen 12/18` bleef weer leeg.
+- In `Lossen` en `BM01` was de scan lotnummer-balk niet direct actief; er moest opnieuw in het veld worden geklikt.
+- Daarna verzoek om direct te pushen en naar Vercel productie te deployen.
+
+**Root cause / analyse:**
+- In `LossenView` was de centrale filtering weer inconsistent met de afgesproken routingregels.
+- De weergavelogica liet voor oorsprong `BH12/BH15/BH17` weer diameter-routing meespelen, terwijl deze origins exclusief bij `Lossen 12/18` horen.
+- Scannerfocus in `Lossen` en `BM01` vertrouwde op enkele losse focus-calls; bij modal/venster-state kon focus verloren gaan.
+
+**Fixes uitgevoerd:**
+- Bestand aangepast: `src/components/digitalplanning/LossenView.jsx`
+    - Routingfiltering gehard met expliciete sets:
+        - `LOSSEN_1218_DIRECT_STATIONS = {BH12,BH15,BH17,12,15,17}`
+        - `LOSSEN_1218_BH18_STATIONS = {BH18,18}`
+    - Nieuwe helperlogica toegevoegd:
+        - `hasOriginInSet(...)`
+        - `shouldBelongToLossen1218(...)`
+    - Gedrag nu:
+        - `BH12/BH15/BH17` altijd exclusief op `Lossen 12/18`
+        - alleen `BH18` splitst nog op diameter naar centraal `LOSSEN` of `Lossen 12/18`
+
+- Bestand aangepast: `src/components/digitalplanning/LossenView.jsx` en `src/components/digitalplanning/BM01Hub.jsx`
+    - Scannerfocus robuust gemaakt via `focusScanInput()` + `scheduleScanFocus()`.
+    - Focus wordt nu hersteld bij:
+        - eerste render
+        - klikken buiten interactieve controls
+        - window/tab focus terugkeer
+        - sluiten van actie/finish-modal
+    - Inputvelden kregen `autoFocus` voor directe activatie.
+
+**Validatie:**
+- Type/editor errors op beide gewijzigde bestanden: geen errors.
+- Gerichte lintcheck:
+    - `npx eslint src/components/digitalplanning/LossenView.jsx src/components/digitalplanning/BM01Hub.jsx`
+    - Resultaat: alleen bestaande warnings, geen errors.
+- Productiebuild succesvol:
+    - `npm run build`
+
+**Git / release:**
+- Commit gemaakt met alleen functionele codewijzigingen:
+    - `fd53a4d` — `Fix Lossen 12/18 routing and scanner autofocus in Lossen/BM01`
+- Push uitgevoerd naar origin:
+    - branch `FF-2-4-26`
+
+**Vercel productie deploy:**
+- Command uitgevoerd: `npx vercel deploy --prod --yes`
+- Production deployment geslaagd.
+- Deployment URL:
+    - `https://futurefactoryapp-906oudr74-richard-van-heerdes-projects.vercel.app`
+- Alias live:
+    - `https://future-factory.vercel.app`
+
+**Nog lokaal gewijzigd (niet in release-commit):**
+- `.firebase/hosting.ZGlzdA.cache`
+- `CONVERSATION_SUMMARY.md`

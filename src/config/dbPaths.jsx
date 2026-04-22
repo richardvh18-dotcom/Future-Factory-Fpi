@@ -32,6 +32,7 @@ export const PATHS = {
   USERS: [BASE, "Users", "Accounts"],
   PERSONNEL: [BASE, "Users", "Personnel"],
   ACCOUNT_REQUESTS: [BASE, "Users", "AccountRequests"],
+  NFC_TAG_MAPPINGS: [BASE, "Users", "NFCTagMappings"], // UID of NFC-tag → personeelsnummer
 
   // --- INSTELLINGEN & CONFIG (Documents: even segmenten) ---
   FACTORY_CONFIG: [BASE, "settings", "factory_configs", "main"],

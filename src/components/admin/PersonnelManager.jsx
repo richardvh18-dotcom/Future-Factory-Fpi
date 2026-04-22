@@ -17,6 +17,7 @@ import {
   Copy,
   Save,
   AlertCircle,
+  Nfc,
 } from "lucide-react";
 import { db, auth, logActivity } from "../../config/firebase";
 import {
@@ -46,6 +47,7 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import { PATHS, isValidPath } from "../../config/dbPaths";
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView.jsx";
 import PersonnelListView from "../personnel/PersonnelListView.jsx";
+import NFCTagRegistrationModal from "./NFCTagRegistrationModal.jsx";
 import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
 import { useNotifications } from "../../contexts/NotificationContext";
 
@@ -69,6 +71,7 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
   const [timeMode, setTimeMode] = useState("DAY");
 
   const [isPersonModalOpen, setIsPersonModalOpen] = useState(false);
+  const [showNFCModal, setShowNFCModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
@@ -602,6 +605,15 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
               className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-2"
             >
               <Plus size={16} /> {t('common.new', "Nieuw")}
+            </button>
+
+            {/* NFC tag registratie knop */}
+            <button
+              onClick={() => setShowNFCModal(true)}
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:from-emerald-600 hover:to-teal-600 transition-all active:scale-95 flex items-center gap-2"
+              title="Druppels koppelen aan personeelsleden"
+            >
+              <Nfc size={16} /> NFC-tags
             </button>
           </div>
         </div>
@@ -1160,6 +1172,13 @@ const PersonnelManager = ({ initialViewDate, initialTab }) => {
           </div>
         </div>
       )}
+
+      {/* NFC Tag Registration Modal */}
+      <NFCTagRegistrationModal 
+        isOpen={showNFCModal} 
+        onClose={() => setShowNFCModal(false)}
+        personnel={personnel}
+      />
 
       {/* FOOTER INFO */}
       <div className="p-4 bg-slate-950 border-t border-white/5 flex justify-between items-center text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] px-10 shrink-0">

@@ -2,7 +2,8 @@ import { collection, collectionGroup, query, onSnapshot, doc, serverTimestamp, w
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Loader2, Menu, X, Clock, Calendar, ScanBarcode, UserCheck } from "lucide-react";
+import { LogOut, Loader2, Menu, X, Clock, Calendar, ScanBarcode, UserCheck, Nfc, Pencil } from "lucide-react";
+import { useNFCReader, NFC_STATUS } from "../../hooks/useNFCReader";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import {
@@ -27,6 +28,7 @@ import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getAuth } from "firebase/auth";
 import { useNotifications } from "../../contexts/NotificationContext";
 
+import { getISOWeek } from "date-fns";
 import {
   WORKSTATIONS,
   getISOWeekInfo,
@@ -128,10 +130,31 @@ const isInactivePlanningStatus = (status) => {
  * breakMinutes   = te verrekenen pauzetijd voor efficiency/uren (alleen voor DAGDIENST).
  */
 const SHIFT_CONFIG = {
-  VROEG: { label: "VROEGE DIENST", checkoutMinute: 14 * 60, breakMinutes: 0 },
-  DAG:   { label: "DAGDIENST",     checkoutMinute: 16 * 60, breakMinutes: 45 },
-  LAAT:  { label: "LATE DIENST",   checkoutMinute: 22 * 60, breakMinutes: 0 },
-  NACHT: { label: "NACHTDIENST",   checkoutMinute: 6 * 60,  breakMinutes: 0 },
+  VROEG: { label: "VROEGE DIENST", checkinMinute: 6 * 60,       checkoutMinute: 14 * 60, breakMinutes: 0 },
+  DAG:   { label: "DAGDIENST",     checkinMinute: 7 * 60 + 15,  checkoutMinute: 16 * 60, breakMinutes: 45 },
+  LAAT:  { label: "LATE DIENST",   checkinMinute: 14 * 60,      checkoutMinute: 22 * 60, breakMinutes: 0 },
+  NACHT: { label: "NACHTDIENST",   checkinMinute: 22 * 60,      checkoutMinute: 6 * 60,  breakMinutes: 0 },
+};
+
+/**
+ * Bereken de effectieve starttijd voor een ploeg.
+ * De timer begint altijd op het officiële starttijdstip van de ploeg,
+ * ongeacht of de operator eerder of later inlogt.
+ */
+const getShiftEffectiveStart = (shiftKey, referenceDate = new Date()) => {
+  const config = SHIFT_CONFIG[shiftKey];
+  if (!config) return referenceDate;
+  const startMinute = config.checkinMinute;
+  const result = new Date(referenceDate);
+  result.setHours(Math.floor(startMinute / 60), startMinute % 60, 0, 0);
+  // NACHT-dienst start om 22:00 vorige dag als het nu na middernacht is (bijv. 01:00)
+  if (shiftKey === "NACHT") {
+    const nowMinutes = referenceDate.getHours() * 60 + referenceDate.getMinutes();
+    if (nowMinutes < 12 * 60) {
+      result.setDate(result.getDate() - 1);
+    }
+  }
+  return result;
 };
 
 /**
@@ -177,7 +200,19 @@ const resolveShiftKeyFromPerson = (person) => {
       ? String(override?.shiftId || "")
       : "";
 
-  const raw = String(overrideShiftId || person?.shiftId || "").toUpperCase().trim();
+  // Ploegenrotatie: bepaal welke ploeg actief is op basis van het weeknummer
+  let shiftIdFromRotation = "";
+  if (!overrideShiftId && person?.rotationSchedule?.enabled && person.rotationSchedule.shifts?.length > 0) {
+    const today = new Date();
+    const currentWeekNum = getISOWeek(today);
+    const startWeekNum = person.rotationSchedule.startWeek || 1;
+    const rotationShifts = person.rotationSchedule.shifts;
+    const weeksSinceStart = currentWeekNum - startWeekNum;
+    const shiftIndex = ((weeksSinceStart % rotationShifts.length) + rotationShifts.length) % rotationShifts.length;
+    shiftIdFromRotation = String(rotationShifts[shiftIndex] || "");
+  }
+
+  const raw = String(overrideShiftId || shiftIdFromRotation || person?.shiftId || "").toUpperCase().trim();
   if (!raw) return getCurrentShiftKey();
   // Directe match op sleutel (bijv. "DAG", "VROEG", "LAAT", "NACHT")
   if (raw in SHIFT_CONFIG) return raw;
@@ -233,6 +268,30 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   const [dismissedPromptShift, setDismissedPromptShift] = useState(null);
   const [timeHeartbeat, setTimeHeartbeat] = useState(Date.now());
   const lastShiftRef = useRef(getCurrentShiftKey(new Date()));
+
+  // NFC scanner (Web NFC API — Android Chrome 89+)
+  // handleOperatorShiftCheckinRef wordt hieronder ingesteld na de functiedefinitie
+  const nfcPendingBadgeRef = useRef(null);
+  const handleOperatorShiftCheckinRef = useRef(null);
+  const nfc = useNFCReader((employeeNumber) => {
+    setOperatorBadgeInput(employeeNumber);
+    nfcPendingBadgeRef.current = employeeNumber;
+    // Aanmelden via ref zodat we geen forward-reference nodig hebben
+    setTimeout(() => {
+      const badge = nfcPendingBadgeRef.current;
+      if (badge && handleOperatorShiftCheckinRef.current) {
+        nfcPendingBadgeRef.current = null;
+        handleOperatorShiftCheckinRef.current(badge);
+      }
+    }, 150);
+  });
+
+  // Uren-correctie modal (teamleader)
+  const [showHourCorrectionModal, setShowHourCorrectionModal] = useState(false);
+  const [hourCorrectionEntry, setHourCorrectionEntry] = useState(null); // occupancy doc
+  const [correctedHours, setCorrectedHours] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [isSavingCorrection, setIsSavingCorrection] = useState(false);
   const lastAutoCheckoutMinuteRef = useRef("");
   const lastAppliedInitialStationRef = useRef(null);
 
@@ -494,7 +553,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       
       // LISTENER 4: Personnel (lazy load after main data is ready)
       const unsubPersonnel = onSnapshot(
-        query(collection(db, ...PATHS.PERSONNEL), limit(50)),
+        query(collection(db, ...PATHS.PERSONNEL), limit(300)),
         (snap) => {
           if (isMounted) setPersonnel(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         },
@@ -751,7 +810,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         await saveOccupancyAssignments({
           records: toCheckout.map((entry) => {
             const previousHours = Number(entry.hoursWorked || 0);
-            const checkedInDate = toDateSafe(entry.checkedInAt);
+            const checkedInDate = toDateSafe(entry.shiftEffectiveStart) || toDateSafe(entry.checkedInAt);
             const elapsedHours = checkedInDate
               ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000)
               : 0;
@@ -794,12 +853,14 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     runAutoCheckout();
   }, [selectedStation, timeHeartbeat, showInfo]);
 
-  const handleOperatorShiftCheckin = async () => {
-    const rawBadge = String(operatorBadgeInput || "").trim();
+  const handleOperatorShiftCheckin = async (badgeOverride) => {
+    const rawBadge = String(badgeOverride || operatorBadgeInput || "").trim();
     if (!rawBadge) {
       showWarning("Scan of vul eerst een personeelsnummer in.", "Personeel");
       return;
     }
+    // Registreer deze functie zodat de NFC hook hem kan aanroepen
+    handleOperatorShiftCheckinRef.current = handleOperatorShiftCheckin;
 
     setIsCheckingInOperator(true);
     try {
@@ -818,6 +879,21 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         if (!byEmployeeSnap.empty) {
           const d = byEmployeeSnap.docs[0];
           person = { id: d.id, ...d.data() };
+        }
+      }
+
+      // Probeer als NFC tag UID (gekoppeld via admin registratie)
+      if (!person) {
+        const tagMapSnap = await getDoc(doc(db, ...PATHS.NFC_TAG_MAPPINGS, rawBadge));
+        if (tagMapSnap.exists()) {
+          const mapping = tagMapSnap.data();
+          const empNum = mapping.employeeNumber;
+          const personSnap = await getDocs(
+            query(collection(db, ...PATHS.PERSONNEL), where("employeeNumber", "==", empNum), limit(1))
+          );
+          if (!personSnap.empty) {
+            person = { id: personSnap.docs[0].id, ...personSnap.docs[0].data() };
+          }
         }
       }
 
@@ -853,7 +929,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         await saveOccupancyAssignments({
           records: activeEntries.map((entry) => {
             const previousHours = Number(entry.hoursWorked || 0);
-            const checkedInDate = toDateSafe(entry.checkedInAt);
+            const checkedInDate = toDateSafe(entry.shiftEffectiveStart) || toDateSafe(entry.checkedInAt);
             const elapsedHours = checkedInDate ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000) : 0;
             const finalHours = entry.isSecondary ? 0 : Number((previousHours + elapsedHours).toFixed(2));
             return {
@@ -875,6 +951,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       // Bepaal dienst o.b.v. personeelsbestand (person.shiftId), kloktijd als fallback.
       const personShiftKey = resolveShiftKeyFromPerson(person);
       const personShiftLabel = SHIFT_CONFIG[personShiftKey]?.label ?? getCurrentShiftLabel();
+      // Timer begint altijd op het officiële starttijdstip van de ploeg (geen vroeg/laat afronden)
+      const shiftEffectiveStartDate = getShiftEffectiveStart(personShiftKey, now);
+      const shiftEffectiveStartISO = shiftEffectiveStartDate.toISOString();
 
       const machineNorm = (normalizeMachine(selectedStation) || selectedStation || "").replace(/[^a-zA-Z0-9]/g, "_");
       const occId = `${todayStr}_${machineNorm}_${operatorNumber}_${Date.now()}`;
@@ -891,12 +970,23 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
         isPloeg: false,
         shift: personShiftLabel,
         shiftKey: personShiftKey,
+        shiftEffectiveStart: shiftEffectiveStartISO,
         isLoan: false,
         checkedOutAt: null,
         isActive: true,
         source: "workstation_checkin",
         checkedInAt: "__SERVER_TIMESTAMP__",
         updatedAt: "__SERVER_TIMESTAMP__",
+        // ATPS-koppeling voorbereiding:
+        // atpsExported: false — wordt true zodra ATPS-export gerund wordt
+        // hoursAdjusted: false — wordt true na teamleider uren-correctie
+        // hoursAdjustedAt / hoursAdjustedBy worden ingevuld bij correctie
+        atpsExported: false,
+        hoursAdjusted: false,
+        hoursAdjustedAt: null,
+        hoursAdjustedBy: null,
+        hoursCorrectionReason: null,
+
       },
         source: "WorkstationHub.operatorCheckin.primary",
         actorLabel: currentUser?.email || "Operator",
@@ -991,6 +1081,48 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       showError(`Aanmelden op station mislukt: ${err.message}`);
     } finally {
       setIsCheckingInOperator(false);
+    }
+  };
+
+  // Uren-correctie opslaan (teamleider)
+  const handleSaveHourCorrection = async () => {
+    if (!hourCorrectionEntry) return;
+    const newHours = parseFloat(String(correctedHours).replace(",", "."));
+    if (isNaN(newHours) || newHours < 0) {
+      showWarning("Vul een geldig aantal uren in (bijv. 6 of 6.5).");
+      return;
+    }
+    setIsSavingCorrection(true);
+    try {
+      await saveOccupancyAssignment({
+        assignmentId: hourCorrectionEntry.id,
+        data: {
+          hoursWorked: newHours,
+          hoursAdjusted: true,
+          hoursAdjustedAt: "__SERVER_TIMESTAMP__",
+          hoursAdjustedBy: currentUser?.email || currentUser?.uid || "teamleader",
+          hoursCorrectionReason: correctionReason.trim() || null,
+          atpsExported: false, // markeer als nog niet geëxporteerd naar ATPS
+          updatedAt: "__SERVER_TIMESTAMP__",
+        },
+        source: "WorkstationHub.hourCorrection",
+        actorLabel: currentUser?.email || "Teamleider",
+      });
+      await logActivity(
+        currentUser?.uid || "system",
+        "HOURS_CORRECTED",
+        `Uren gecorrigeerd: ${hourCorrectionEntry.operatorName} op ${hourCorrectionEntry.machineId} → ${newHours}u (was ${hourCorrectionEntry.hoursWorked}u). Reden: ${correctionReason || "–"}`
+      );
+      showSuccess(`Uren bijgewerkt: ${hourCorrectionEntry.operatorName} → ${newHours} uur`);
+      setShowHourCorrectionModal(false);
+      setHourCorrectionEntry(null);
+      setCorrectedHours("");
+      setCorrectionReason("");
+    } catch (err) {
+      console.error("Uren correctie fout:", err);
+      showError(`Opslaan mislukt: ${err.message}`);
+    } finally {
+      setIsSavingCorrection(false);
     }
   };
 
@@ -2345,18 +2477,149 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
               {isCheckingInOperator ? t("digitalplanning.workstation.checking_in", "Aanmelden...") : t("digitalplanning.workstation.checkin_on_machine", "Aanmelden op machine")}
             </button>
 
+            {/* NFC scan knop — alleen zichtbaar als browser het ondersteunt */}
+            {nfc.isSupported && (
+              <button
+                type="button"
+                onClick={nfc.status === NFC_STATUS.SCANNING ? nfc.stopScan : nfc.startScan}
+                disabled={isCheckingInOperator}
+                className={`w-full mt-2 py-3 rounded-xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-60 ${
+                  nfc.status === NFC_STATUS.SCANNING
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse"
+                    : nfc.status === NFC_STATUS.SUCCESS
+                    ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                    : nfc.status === NFC_STATUS.ERROR
+                    ? "bg-red-50 text-red-600 border border-red-200"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                }`}
+              >
+                <Nfc size={16} />
+                {nfc.status === NFC_STATUS.SCANNING
+                  ? "NFC actief — houd tag voor lezer..."
+                  : nfc.status === NFC_STATUS.SUCCESS
+                  ? "Tag gelezen ✓"
+                  : nfc.status === NFC_STATUS.ERROR
+                  ? nfc.errorMessage || "NFC fout"
+                  : "Aanmelden via NFC-tag"}
+              </button>
+            )}
+
+            {/* Huidige ingelogde operators + uren-correctie knop (teamleider) */}
             {stationOccupancy.length > 0 && (
               <div className="mt-4 p-3 rounded-xl border border-slate-200 bg-slate-50">
                 <p className="text-[11px] font-black uppercase text-slate-500 mb-2">{t("digitalplanning.workstation.currently_logged_in_here", "Nu ingelogd op dit station")}</p>
                 <div className="flex flex-wrap gap-2">
                   {stationOccupancy.map((occ, idx) => (
-                    <span key={`${occ.operatorNumber || occ.id || idx}_${idx}`} className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-200 bg-white text-slate-700">
-                      {occ.operatorName}
-                    </span>
+                    <div key={`${occ.operatorNumber || occ.id || idx}_${idx}`} className="flex items-center gap-1">
+                      <span className="px-2 py-1 rounded-md text-[10px] font-bold uppercase border border-slate-200 bg-white text-slate-700">
+                        {occ.operatorName}
+                        {occ.hoursWorked > 0 && (
+                          <span className="ml-1 text-slate-400">({occ.hoursWorked.toFixed(1)}u)</span>
+                        )}
+                        {occ.hoursAdjusted && (
+                          <span className="ml-1 text-amber-500 font-black" title="Uren gecorrigeerd">✎</span>
+                        )}
+                      </span>
+                      {/* Uren-correctie knop — alleen voor teamleider/admin */}
+                      {["teamleader", "admin", "planner"].includes(String(currentUser?.role || "").toLowerCase()) && (
+                        <button
+                          type="button"
+                          title="Uren corrigeren"
+                          onClick={() => {
+                            setHourCorrectionEntry(occ);
+                            setCorrectedHours(String(occ.hoursWorked || ""));
+                            setCorrectionReason("");
+                            setShowHourCorrectionModal(true);
+                          }}
+                          className="p-1 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Uren-correctie modal (teamleider) */}
+      {showHourCorrectionModal && hourCorrectionEntry && (
+        <div className="fixed inset-0 z-[130] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-amber-50 text-amber-600"><Pencil size={18} /></div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Uren corrigeren</h3>
+                  <p className="text-xs text-slate-500 font-bold">{hourCorrectionEntry.operatorName} · {hourCorrectionEntry.machineId}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowHourCorrectionModal(false); setHourCorrectionEntry(null); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-xs text-amber-800 font-bold">
+              Gebruik dit als iemand eerder naar huis is gegaan. De gecorrigeerde uren worden ook gemarkeerd voor ATPS-export.
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">
+                  Gewerkte uren (gecorrigeerd)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="12"
+                  value={correctedHours}
+                  onChange={(e) => setCorrectedHours(e.target.value)}
+                  placeholder="bijv. 6 of 7.5"
+                  className="w-full p-3 rounded-xl border-2 border-slate-200 font-black text-lg text-slate-900 outline-none focus:border-amber-400 text-center"
+                />
+                <p className="text-[10px] text-slate-400 mt-1 text-center">
+                  Origineel automatisch berekend: {Number(hourCorrectionEntry.hoursWorked || 0).toFixed(1)} uur
+                </p>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">
+                  Reden (optioneel)
+                </label>
+                <input
+                  type="text"
+                  value={correctionReason}
+                  onChange={(e) => setCorrectionReason(e.target.value)}
+                  placeholder="bijv. eerder naar huis, doktersbezoek..."
+                  className="w-full p-3 rounded-xl border-2 border-slate-200 font-bold text-sm text-slate-800 outline-none focus:border-amber-400"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => { setShowHourCorrectionModal(false); setHourCorrectionEntry(null); }}
+                className="flex-1 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-black text-xs uppercase hover:bg-slate-50"
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveHourCorrection}
+                disabled={isSavingCorrection}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs uppercase disabled:opacity-60"
+              >
+                {isSavingCorrection ? "Opslaan..." : "Opslaan"}
+              </button>
+            </div>
           </div>
         </div>
       )}

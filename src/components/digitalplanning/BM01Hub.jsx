@@ -27,6 +27,9 @@ const escapeHtml = (value) =>
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 
+const resolveProductIdentifier = (product) =>
+    String(product?.sourcePath || product?.__docPath || product?.id || product?.lotNumber || "").trim();
+
 const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     const { t } = useTranslation();
     const { user } = useAdminAuth();
@@ -106,14 +109,15 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         if (e.key === 'Enter') {
             const code = scanInput.trim().toUpperCase();
             if (!code) return;
+            const selectedForAction = selectedProductRef.current || selectedProduct;
 
             // Debug: log scan
-            console.debug('[BM01] Scan ontvangen:', code, 'selectedProduct:', selectedProduct);
+            console.debug('[BM01] Scan ontvangen:', code, 'selectedProduct:', selectedForAction);
 
             // Goedkeuren met QR-code (OK QR)
-            if (code === QR_CODE_OK_CONFIRMATION && selectedProduct) {
+            if (code === QR_CODE_OK_CONFIRMATION && selectedForAction) {
                 setScanInput("");
-                await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, selectedProduct);
+                await handlePostProcessingFinish('completed', { note: 'Goedgekeurd via QR Scan' }, selectedForAction);
                 return;
             }
 
@@ -428,7 +432,12 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     const product = productOverride || selectedProduct;
     if (!product) return;
 
-    const productId = product.id || product.lotNumber;
+        const productId = resolveProductIdentifier(product);
+        if (!productId) {
+            notify("Kon dit product niet afronden: ontbrekende product-id.");
+            return;
+        }
+
     try {
       if (status === "completed") {
         await completeTrackedProduct({
@@ -444,7 +453,8 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
           "POST_PROCESS_COMPLETE",
           `BM01 afgerond en gearchiveerd: lot ${product.lotNumber || productId}`
         );
-        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+                notify(`Lot ${product.lotNumber || productId} is gereedgemeld.`);
+                if (resolveProductIdentifier(selectedProductRef.current) === productId) handleCloseModal();
         return;
       }
 
@@ -461,7 +471,8 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
           "QUALITY_REJECT_FINAL",
           `BM01 Definitieve afkeur en gearchiveerd: lot ${product.lotNumber || productId}`
         );
-        if (selectedProductRef.current?.id === product.id) handleCloseModal();
+                notify(`Lot ${product.lotNumber || productId} is definitief afgekeurd.`);
+                if (resolveProductIdentifier(selectedProductRef.current) === productId) handleCloseModal();
         return;
       }
 
@@ -478,9 +489,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         "QUALITY_TEMP_REJECT",
         `BM01 Tijdelijke afkeur: lot ${product.lotNumber || productId}`
       );
-      if (selectedProductRef.current?.id === product.id) handleCloseModal();
+            notify(`Lot ${product.lotNumber || productId} is tijdelijk afgekeurd.`);
+    if (resolveProductIdentifier(selectedProductRef.current) === productId) handleCloseModal();
     } catch (error) {
       console.error("Fout bij afronden:", error);
+            notify(`Afronden mislukt: ${error?.message || "onbekende fout"}`);
     }
   };
 
