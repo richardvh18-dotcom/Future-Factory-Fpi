@@ -251,6 +251,11 @@ service cloud.firestore {
       allow create, update, delete: if canOperateProduction();
     }
 
+    match /future-factory/Users/NFCTagMappings/{tagId} {
+      allow read: if hasUserRecord();
+      allow create, update, delete: if canManageMasters();
+    }
+
     match /future-factory/Users/AccountRequests/{requestId} {
       allow create: if validAccountRequest();
       allow read, update, delete: if isAdmin();
