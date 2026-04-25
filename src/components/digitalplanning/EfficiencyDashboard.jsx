@@ -440,7 +440,7 @@ const EfficiencyDashboard = () => {
           );
           const planningState = getDeliveryPlanningState(delivery, {
             productionLeadDays: 21,
-            finishBufferDays: 4,
+            finishBufferDays: 3,
           });
           return planningState.productionStartDate;
         })(),
@@ -453,7 +453,7 @@ const EfficiencyDashboard = () => {
           );
           const planningState = getDeliveryPlanningState(delivery, {
             productionLeadDays: 21,
-            finishBufferDays: 4,
+            finishBufferDays: 3,
           });
           return planningState.finishTargetDate;
         })(),
@@ -547,7 +547,7 @@ const EfficiencyDashboard = () => {
           );
           const planningState = getDeliveryPlanningState(delivery, {
             productionLeadDays: 21,
-            finishBufferDays: 4,
+            finishBufferDays: 3,
           });
           return planningState.productionStartDate;
         })(),
@@ -560,7 +560,7 @@ const EfficiencyDashboard = () => {
           );
           const planningState = getDeliveryPlanningState(delivery, {
             productionLeadDays: 21,
-            finishBufferDays: 4,
+            finishBufferDays: 3,
           });
           return planningState.finishTargetDate;
         })(),

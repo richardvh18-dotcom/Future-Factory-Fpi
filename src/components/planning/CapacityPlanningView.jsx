@@ -452,7 +452,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
     );
     const planningState = getDeliveryPlanningState(delivery, {
       productionLeadDays: 21,
-      finishBufferDays: 4,
+      finishBufferDays: 3,
     });
     return planningState.productionStartDate || null;
   };

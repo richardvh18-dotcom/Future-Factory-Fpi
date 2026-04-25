@@ -1149,7 +1149,7 @@ export const resolveShopFloorIssue = async ({ type, issueId }) => {
   return result?.data || { ok: false };
 };
 
-export const importPlanningOrders = async ({ orders, importMode = "new_only" }) => {
+export const importPlanningOrders = async ({ orders, importMode = "new_only", hoursOnlyMode = false }) => {
   const safeMode = String(importMode || "new_only").trim().toLowerCase();
   if (!["new_only", "overwrite", "smart_update"].includes(safeMode)) {
     throw new Error("Ongeldige importMode.");
@@ -1163,6 +1163,7 @@ export const importPlanningOrders = async ({ orders, importMode = "new_only" }) 
   const result = await importPlanningOrdersCallable({
     orders: safeOrders,
     importMode: safeMode,
+    hoursOnlyMode: Boolean(hoursOnlyMode),
   });
 
   return result?.data || { ok: false };

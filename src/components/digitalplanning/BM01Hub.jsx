@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Download, ScanBarcode, Keyboard } from "lucide-react";
+import { FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, CheckCircle2, Printer, X, Download, ScanBarcode, Keyboard, AlertTriangle } from "lucide-react";
 import { format, isValid, isSameDay, subDays, addDays, startOfISOWeek, endOfISOWeek, isWithinInterval } from "date-fns";
 import { nl } from "date-fns/locale";
 import QRCode from "qrcode";
@@ -45,6 +45,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [archivedProducts, setArchivedProducts] = useState([]);
   const [viewMode, setViewMode] = useState("day"); // 'day' or 'week'
+    const [deliveryMismatchFilter, setDeliveryMismatchFilter] = useState("all"); // all | over | under
   
   const [scanInput, setScanInput] = useState("");
   const [scannerMode, setScannerMode] = useState(true);
@@ -144,6 +145,56 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     const planningOrders = useMemo(() => {
         return (orders || []).filter(o => o.status !== "completed" && o.status !== "cancelled");
     }, [orders]);
+
+    const deliveryInspectionMismatches = useMemo(() => {
+        const toFinite = (value) => {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : null;
+        };
+
+        return planningOrders
+            .map((order) => {
+                const deliveredQty =
+                    toFinite(order?.lnDeliveredQty) ??
+                    toFinite(order?.deliveredQty) ??
+                    toFinite(order?.quantityDelivered) ??
+                    null;
+
+                if (!Number.isFinite(deliveredQty)) return null;
+
+                const inspectionApprovedQty = toFinite(order?.inspectionApprovedQty) ?? toFinite(order?.produced) ?? 0;
+                const delta = deliveredQty - inspectionApprovedQty;
+                if (delta === 0) return null;
+
+                return {
+                    orderId: order?.orderId || order?.id || "-",
+                    item: order?.item || order?.itemDescription || "-",
+                    deliveredQty,
+                    inspectionApprovedQty,
+                    delta,
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+    }, [planningOrders]);
+
+    const deliveryInspectionOverMismatches = useMemo(() => {
+        return deliveryInspectionMismatches
+            .filter((entry) => Number(entry?.delta) > 0)
+            .sort((a, b) => b.delta - a.delta);
+    }, [deliveryInspectionMismatches]);
+
+    const deliveryInspectionUnderMismatches = useMemo(() => {
+        return deliveryInspectionMismatches
+            .filter((entry) => Number(entry?.delta) < 0)
+            .sort((a, b) => a.delta - b.delta);
+    }, [deliveryInspectionMismatches]);
+
+    const visibleDeliveryInspectionMismatches = useMemo(() => {
+        if (deliveryMismatchFilter === "over") return deliveryInspectionOverMismatches;
+        if (deliveryMismatchFilter === "under") return deliveryInspectionUnderMismatches;
+        return deliveryInspectionMismatches;
+    }, [deliveryMismatchFilter, deliveryInspectionMismatches, deliveryInspectionOverMismatches, deliveryInspectionUnderMismatches]);
 
     const selectedOrder = useMemo(() => {
         if (!selectedOrderId) return null;
@@ -739,6 +790,59 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             </div>
         </div>
       </div>
+
+            <div className="mx-3 mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-rose-700">
+                        <AlertTriangle size={16} />
+                        <p className="text-[11px] font-black uppercase tracking-widest">LN geleverd vs FF mismatch</p>
+                    </div>
+                    <span className="px-2 py-1 rounded-lg bg-white border border-rose-200 text-rose-700 text-[10px] font-black uppercase tracking-wider">
+                        {deliveryInspectionMismatches.length} orders
+                    </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setDeliveryMismatchFilter("all")}
+                        className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "all" ? "bg-white border-rose-300 text-rose-700" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
+                    >
+                        Alles ({deliveryInspectionMismatches.length})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setDeliveryMismatchFilter("over")}
+                        className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "over" ? "bg-white border-orange-300 text-orange-700" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
+                    >
+                        LN {'>'} FF ({deliveryInspectionOverMismatches.length})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setDeliveryMismatchFilter("under")}
+                        className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "under" ? "bg-white border-amber-300 text-amber-700" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
+                    >
+                        LN {'<'} FF ({deliveryInspectionUnderMismatches.length})
+                    </button>
+                </div>
+                <div className="mt-2 space-y-1.5">
+                    {visibleDeliveryInspectionMismatches.length === 0 && (
+                        <div className="rounded-xl bg-white/80 border border-rose-100 px-3 py-2 text-[11px] font-bold text-slate-500">
+                            Geen mismatch-orders voor dit filter.
+                        </div>
+                    )}
+                    {visibleDeliveryInspectionMismatches.slice(0, 5).map((entry) => (
+                        <div key={`${entry.orderId}_${entry.item}`} className="flex items-center justify-between gap-3 rounded-xl bg-white/80 border border-rose-100 px-3 py-2">
+                            <div className="min-w-0">
+                                <p className="text-xs font-black text-slate-800 truncate">{entry.orderId}</p>
+                                <p className="text-[10px] font-bold text-slate-500 truncate">{entry.item}</p>
+                            </div>
+                            <div className="text-right text-[10px] font-black uppercase tracking-wider text-rose-700 shrink-0">
+                                LN {entry.deliveredQty} / FF {entry.inspectionApprovedQty}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
 
       <style>{`
         @keyframes scan-pulse {

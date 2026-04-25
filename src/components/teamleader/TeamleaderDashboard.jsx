@@ -71,6 +71,27 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
               icon: Star,
               color: "text-amber-500",
             },
+            {
+              id: "geleverd_mismatch",
+              label: "LN vs FF",
+              val: metrics.deliveryInspectionMismatchCount || 0,
+              icon: AlertTriangle,
+              color: "text-rose-600",
+            },
+            {
+              id: "geleverd_mismatch_plus",
+              label: "LN > FF",
+              val: metrics.deliveryInspectionOverCount || 0,
+              icon: AlertTriangle,
+              color: "text-orange-600",
+            },
+            {
+              id: "geleverd_mismatch_min",
+              label: "LN < FF",
+              val: metrics.deliveryInspectionUnderCount || 0,
+              icon: AlertTriangle,
+              color: "text-amber-700",
+            },
           ].map((item) => (
             <div
               key={item.id}

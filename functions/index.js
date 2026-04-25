@@ -104,6 +104,7 @@ const {
   verifyAiKnowledgeEntry,
   deleteAiKnowledgeEntry,
   migrateAiKnowledgeFields,
+  migrateLegacyActivityLogs,
 } = require('./src/callables/planningCallables');
 const auditService = require('./src/services/auditService');
 
@@ -1575,6 +1576,7 @@ exports.deleteAiDocumentRecord = deleteAiDocumentRecord;
 exports.verifyAiKnowledgeEntry = verifyAiKnowledgeEntry;
 exports.deleteAiKnowledgeEntry = deleteAiKnowledgeEntry;
 exports.migrateAiKnowledgeFields = migrateAiKnowledgeFields;
+exports.migrateLegacyActivityLogs = migrateLegacyActivityLogs;
 
 /**
  * Backend AI proxy: voorkomt dat API keys in de frontend staan.

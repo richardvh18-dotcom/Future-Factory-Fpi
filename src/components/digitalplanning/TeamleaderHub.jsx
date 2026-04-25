@@ -7,8 +7,6 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   ClipboardList,
-  Download,
-  Table,
   Plus,
   BrainCircuit,
   Menu,
@@ -37,7 +35,6 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { runBatchDrawingSync } from "../../utils/drawingLinker";
 import { archiveOrder } from "../../utils/archiveService";
 import TeamleaderDashboard from "../teamleader/TeamleaderDashboard";
-import TeamleaderGanttView from "../teamleader/TeamleaderGanttView";
 import TeamleaderEfficiencyView from "../teamleader/TeamleaderEfficiencyView";
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView";
 import PlanningSidebar from "./PlanningSidebar";
@@ -45,6 +42,7 @@ import OrderDetail from "./OrderDetail";
 import ProductDossierModal from "./modals/ProductDossierModal.jsx";
 import AiPredictionView from "./AiPredictionView";
 import { moveTrackedProductManual, archiveRejectedTrackedProduct, assignOverproduction, createPlanningOrderManual, saveOccupancyAssignments, deleteOccupancyAssignments } from "../../services/planningSecurityService";
+import ImportExportDashboard from "./ImportExportDashboard";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -116,7 +114,6 @@ const TeamleaderHub = React.memo(({
   const [lastKpi, setLastKpi] = useState(null);
   const [modalTitle, setModalTitle] = useState("");
   const [kpiWeekOffset, setKpiWeekOffset] = useState(0);
-  const [showImportModal, setShowImportModal] = useState(false);
   const [viewingDossier, setViewingDossier] = useState(null);
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
   const [selectedOverproductionGroup, setSelectedOverproductionGroup] = useState(null);
@@ -507,10 +504,19 @@ const TeamleaderHub = React.memo(({
 
       const existing = perOrder.get(orderId) || {
         trackedInScopeCount: 0,
+        activeTrackedInScopeCount: 0,
         trackedLots: new Set(),
       };
 
       existing.trackedInScopeCount += 1;
+      const status = String(product?.status || "").trim().toLowerCase();
+      const step = String(product?.currentStep || "").trim().toLowerCase();
+      const isInactive =
+        status === "archived_rejected" ||
+        ["finished", "completed", "gereed", "rejected", "afkeur"].includes(status) ||
+        step === "finished" ||
+        step === "rejected";
+      if (!isInactive) existing.activeTrackedInScopeCount += 1;
       const lotNumber = getLotFromTrackedRecord(product) || String(product?.id || "").trim();
       if (lotNumber) existing.trackedLots.add(lotNumber);
       perOrder.set(orderId, existing);
@@ -694,6 +700,54 @@ const TeamleaderHub = React.memo(({
       "running",
       "lopend",
     ].includes(normalized);
+  };
+
+  const getOrderProgressMeta = (order) => {
+    const orderId = String(order?.orderId || order?.id || "").trim();
+    if (!orderId) return null;
+    return orderProgressMeta.get(orderId) || null;
+  };
+
+  const getOrderRemainingQueueQty = (order) => {
+    const explicitTodo = Number(order?.toDoQty);
+    if (Number.isFinite(explicitTodo)) return Math.max(explicitTodo, 0);
+
+    const planQty = Number(order?.plan ?? order?.quantity ?? 0);
+    const stationNorm = normalizeMachine(order?.machine || order?.station || "");
+    const startedField = getStartedCounterField(stationNorm);
+    const startedQty = startedField ? Number(order?.[startedField] || 0) : 0;
+
+    if (!Number.isFinite(planQty)) return 0;
+    if (!Number.isFinite(startedQty)) return Math.max(planQty, 0);
+    return Math.max(planQty - startedQty, 0);
+  };
+
+  const getDeliveredQtyForOrder = (order) => {
+    const candidates = [
+      order?.lnDeliveredQty,
+      order?.deliveredQty,
+      order?.quantityDelivered,
+      order?.delivered,
+    ];
+    for (const value of candidates) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  };
+
+  const getInspectionApprovedQtyForOrder = (order) => {
+    const explicitApproved = Number(order?.inspectionApprovedQty);
+    if (Number.isFinite(explicitApproved)) return explicitApproved;
+    const produced = Number(order?.produced);
+    if (Number.isFinite(produced)) return produced;
+    return 0;
+  };
+
+  const getDeliveryInspectionDeltaForOrder = (order) => {
+    const deliveredQty = getDeliveredQtyForOrder(order);
+    if (!Number.isFinite(deliveredQty)) return null;
+    return deliveredQty - getInspectionApprovedQtyForOrder(order);
   };
 
   const isEventInCurrentWeek = (value) => {
@@ -1087,6 +1141,12 @@ const TeamleaderHub = React.memo(({
         finishedCount: 0,
         rejectedCount: 0,
         priorityCount: 0,
+        deliveryInspectionMismatchCount: 0,
+        deliveryInspectionOverCount: 0,
+        deliveryInspectionUnderCount: 0,
+        deliveryInspectionMismatches: [],
+        deliveryInspectionOverMismatches: [],
+        deliveryInspectionUnderMismatches: [],
         bezettingAantal: 0,
         machineGridData: [],
       };
@@ -1202,11 +1262,55 @@ const TeamleaderHub = React.memo(({
       };
     });
 
+    const activeFlowOrders = dataStore.filter((o) => {
+      const progressMeta = getOrderProgressMeta(o);
+      return Number(progressMeta?.activeTrackedInScopeCount || 0) > 0;
+    });
+
+    const pendingPlanningOrders = dataStore.filter((o) => {
+      const hasRemainingQueue = getOrderRemainingQueueQty(o) > 0;
+      const progressMeta = getOrderProgressMeta(o);
+      const hasActiveFlow = Number(progressMeta?.activeTrackedInScopeCount || 0) > 0;
+      return hasRemainingQueue || hasActiveFlow;
+    });
+
+    const deliveryInspectionMismatches = dataStore
+      .map((order) => {
+        const deliveredQty = getDeliveredQtyForOrder(order);
+        if (!Number.isFinite(deliveredQty)) return null;
+
+        const inspectionApprovedQty = getInspectionApprovedQtyForOrder(order);
+        const delta = deliveredQty - inspectionApprovedQty;
+        if (delta === 0) return null;
+
+        return {
+          ...order,
+          deliveredQty,
+          inspectionApprovedQty,
+          deliveryInspectionDelta: delta,
+          status: `LN geleverd ${deliveredQty} / FF ${inspectionApprovedQty}`,
+          updatedAt: order?.deliveryInspectionLastCheckedAt || order?.lastSync || order?.updatedAt || order?.lastUpdated || order?.createdAt || null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => Math.abs(b.deliveryInspectionDelta) - Math.abs(a.deliveryInspectionDelta));
+
+    const deliveryInspectionOverMismatches = deliveryInspectionMismatches
+      .filter((order) => Number(order?.deliveryInspectionDelta) > 0)
+      .sort((a, b) => b.deliveryInspectionDelta - a.deliveryInspectionDelta);
+
+    const deliveryInspectionUnderMismatches = deliveryInspectionMismatches
+      .filter((order) => Number(order?.deliveryInspectionDelta) < 0)
+      .sort((a, b) => a.deliveryInspectionDelta - b.deliveryInspectionDelta);
+
     return {
-      plannedOrdersCount: dataStore.filter((o) => isOpenOrRunningOrder(o)).length,
-      totalPlanned: dataStore
-        .filter((o) => isOpenOrRunningOrder(o))
-        .reduce((acc, o) => acc + Number(o.plan ?? o.toDoQty ?? o.quantity ?? 0), 0),
+      plannedOrdersCount: pendingPlanningOrders.length,
+      totalPlanned: pendingPlanningOrders
+        .reduce((acc, o) => {
+          const progressMeta = getOrderProgressMeta(o);
+          const activeFlowQty = Number(progressMeta?.activeTrackedInScopeCount || 0);
+          return acc + getOrderRemainingQueueQty(o) + activeFlowQty;
+        }, 0),
       
         activeCount: rawProducts.filter((p) => {
           const linkedToVisibleOrder = validOrderIds.has(getOrderIdFromTrackedRecord(p));
@@ -1308,6 +1412,13 @@ const TeamleaderHub = React.memo(({
 
       priorityCount: dataStore.filter((o) => isPriorityOrder(o)).length,
 
+      deliveryInspectionMismatchCount: deliveryInspectionMismatches.length,
+      deliveryInspectionOverCount: deliveryInspectionOverMismatches.length,
+      deliveryInspectionUnderCount: deliveryInspectionUnderMismatches.length,
+      deliveryInspectionMismatches,
+      deliveryInspectionOverMismatches,
+      deliveryInspectionUnderMismatches,
+
       tempRejectedCount: rawProducts.filter((p) => {
         if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
         return p.inspection?.status === "Tijdelijke afkeur";
@@ -1405,7 +1516,11 @@ const TeamleaderHub = React.memo(({
     let data = [];
 
     if (activeKpi === "gepland") {
-      data = dataStore.filter((o) => isOpenOrRunningOrder(o));
+      data = dataStore.filter((o) => {
+        const progressMeta = getOrderProgressMeta(o);
+        const hasActiveFlow = Number(progressMeta?.activeTrackedInScopeCount || 0) > 0;
+        return getOrderRemainingQueueQty(o) > 0 || hasActiveFlow;
+      });
     }
     
     else if (activeKpi === "in_proces") {
@@ -1477,6 +1592,75 @@ const TeamleaderHub = React.memo(({
 
           return String(a.orderId || "").localeCompare(String(b.orderId || ""));
         });
+    }
+
+    else if (activeKpi === "geleverd_mismatch") {
+      data = dataStore
+        .map((order) => {
+          const deliveredQty = getDeliveredQtyForOrder(order);
+          if (!Number.isFinite(deliveredQty)) return null;
+
+          const inspectionApprovedQty = getInspectionApprovedQtyForOrder(order);
+          const delta = getDeliveryInspectionDeltaForOrder(order);
+          if (!Number.isFinite(delta) || delta === 0) return null;
+
+          return {
+            ...order,
+            deliveredQty,
+            inspectionApprovedQty,
+            deliveryInspectionDelta: delta,
+            status: `LN geleverd ${deliveredQty} / FF ${inspectionApprovedQty}`,
+            updatedAt: order?.deliveryInspectionLastCheckedAt || order?.lastSync || order?.updatedAt || order?.lastUpdated || order?.createdAt || null,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => Math.abs(b.deliveryInspectionDelta) - Math.abs(a.deliveryInspectionDelta));
+    }
+
+    else if (activeKpi === "geleverd_mismatch_plus") {
+      data = dataStore
+        .map((order) => {
+          const deliveredQty = getDeliveredQtyForOrder(order);
+          if (!Number.isFinite(deliveredQty)) return null;
+
+          const inspectionApprovedQty = getInspectionApprovedQtyForOrder(order);
+          const delta = getDeliveryInspectionDeltaForOrder(order);
+          if (!Number.isFinite(delta) || delta <= 0) return null;
+
+          return {
+            ...order,
+            deliveredQty,
+            inspectionApprovedQty,
+            deliveryInspectionDelta: delta,
+            status: `LN geleverd ${deliveredQty} / FF ${inspectionApprovedQty}`,
+            updatedAt: order?.deliveryInspectionLastCheckedAt || order?.lastSync || order?.updatedAt || order?.lastUpdated || order?.createdAt || null,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.deliveryInspectionDelta - a.deliveryInspectionDelta);
+    }
+
+    else if (activeKpi === "geleverd_mismatch_min") {
+      data = dataStore
+        .map((order) => {
+          const deliveredQty = getDeliveredQtyForOrder(order);
+          if (!Number.isFinite(deliveredQty)) return null;
+
+          const inspectionApprovedQty = getInspectionApprovedQtyForOrder(order);
+          const delta = getDeliveryInspectionDeltaForOrder(order);
+          if (!Number.isFinite(delta) || delta >= 0) return null;
+
+          return {
+            ...order,
+            deliveredQty,
+            inspectionApprovedQty,
+            deliveryInspectionDelta: delta,
+            status: `LN geleverd ${deliveredQty} / FF ${inspectionApprovedQty}`,
+            updatedAt: order?.deliveryInspectionLastCheckedAt || order?.lastSync || order?.updatedAt || order?.lastUpdated || order?.createdAt || null,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.deliveryInspectionDelta - b.deliveryInspectionDelta);
     }
 
     const isWeekNavigatedKpi = activeKpi === "gereed" || activeKpi === "afkeur";
@@ -1995,7 +2179,11 @@ const TeamleaderHub = React.memo(({
             </button>
             <button onClick={() => setActiveTab("bezetting")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "bezetting" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_personnel', 'Personeel')}</button>
             <button onClick={() => setActiveTab("efficiency")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "efficiency" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_efficiency', 'Efficiëntie')}</button>
-            <button onClick={() => setActiveTab("gantt")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === "gantt" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
+            <button onClick={() => setActiveTab("import_export")} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap flex items-center gap-2 ${activeTab === "import_export" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+              <FileSpreadsheet size={14} /> 
+              <span className="hidden sm:inline">Import / Export</span>
+              <span className="sm:hidden">Data</span>
+            </button>
           </div>
 
           {/* Desktop Actions */}
@@ -2008,19 +2196,6 @@ const TeamleaderHub = React.memo(({
                 <BrainCircuit size={16} /> <span className="hidden sm:inline">{t('teamleader.ai_analysis', 'AI Analyse')}</span>
               </button>
             )}
-            <button onClick={handlePlannerExcelExport} className="p-2 bg-white border border-slate-200 text-emerald-700 rounded-xl shadow-sm hover:bg-emerald-50 transition-all" title={t('teamleader.export_planner_excel', 'Exporteer Planner Excel')}><Table size={20} /></button>
-            <button onClick={handleExport} className="p-2 bg-white border border-slate-200 text-slate-600 rounded-xl shadow-sm hover:bg-slate-50 transition-all" title={t('teamleader.export_csv', 'Exporteer CSV')}><Download size={20} /></button>
-            <button
-              onClick={handleArchiveLegacyRejectedOrders}
-              disabled={isArchivingLegacyRejected}
-              className={`px-4 py-2 rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap disabled:opacity-50 ${legacyRejectedOrders.length > 0 ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-600"}`}
-              title="Verplaats oude definitieve afkeur-orders naar archief"
-            >
-              {isArchivingLegacyRejected ? <Loader2 size={16} className="animate-spin" /> : <AlertTriangle size={16} />}
-              <span className="hidden sm:inline">Oude Afkeur Archiveren ({legacyRejectedOrders.length})</span>
-            </button>
-            <button onClick={() => setShowAddOrderModal(true)} className="px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><Plus size={16} /> <span className="hidden sm:inline">{t('teamleader.new_order', 'Nieuwe Order')}</span></button>
-            <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-all whitespace-nowrap"><FileSpreadsheet size={16} /> <span className="hidden sm:inline">{t('teamleader.import', 'Import')}</span></button>
             <button onClick={handleDrawingSync} disabled={isSyncingDrawings} className="p-2 bg-white border border-slate-200 text-purple-600 rounded-xl shadow-sm hover:bg-purple-50 transition-all disabled:opacity-50" title={t('teamleader.sync_drawings', 'Sync tekeningen')}><RefreshCw size={20} className={isSyncingDrawings ? 'animate-spin' : ''} /></button>
           </div>
 
@@ -2047,7 +2222,7 @@ const TeamleaderHub = React.memo(({
                 </button>
                 <button onClick={() => { setActiveTab("bezetting"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "bezetting" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_personnel', 'Personeel')}</button>
                 <button onClick={() => { setActiveTab("efficiency"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "efficiency" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_efficiency', 'Efficiëntie')}</button>
-                <button onClick={() => { setActiveTab("gantt"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full ${activeTab === "gantt" ? "bg-blue-50 text-blue-600" : "text-gray-500"}`}>{t('teamleader.tab_gantt', 'Gantt-planning')}</button>
+                <button onClick={() => { setActiveTab("import_export"); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full flex items-center gap-2 ${activeTab === "import_export" ? "bg-emerald-50 text-emerald-600" : "text-gray-500"}`}><FileSpreadsheet size={16} /> Import / Export</button>
                 
                 <div className="h-px bg-slate-100 my-1"></div>
                 <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 py-1">{t('teamleader.actions', 'Acties')}</div>
@@ -2057,13 +2232,6 @@ const TeamleaderHub = React.memo(({
                     <BrainCircuit size={16} /> {t('teamleader.ai_analysis', 'AI Analyse')}
                   </button>
                 )}
-                <button onClick={() => { setShowAddOrderModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-emerald-600 hover:bg-emerald-50 flex items-center gap-2"><Plus size={16} /> {t('teamleader.new_order', 'Nieuwe Order')}</button>
-                <button onClick={() => { setShowImportModal(true); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-blue-600 hover:bg-blue-50 flex items-center gap-2"><FileSpreadsheet size={16} /> {t('teamleader.import', 'Import')}</button>
-                <button onClick={() => { handlePlannerExcelExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"><Table size={16} /> {t('teamleader.export_planner_excel', 'Exporteer Planner Excel')}</button>
-                <button onClick={() => { handleExport(); setIsMobileMenuOpen(false); }} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-slate-600 hover:bg-slate-50 flex items-center gap-2"><Download size={16} /> {t('teamleader.export_csv', 'Exporteer CSV')}</button>
-                <button onClick={() => { handleArchiveLegacyRejectedOrders(); setIsMobileMenuOpen(false); }} disabled={isArchivingLegacyRejected} className={`px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full flex items-center gap-2 disabled:opacity-50 ${legacyRejectedOrders.length > 0 ? "text-rose-600 hover:bg-rose-50" : "text-slate-500 hover:bg-slate-50"}`}>
-                  {isArchivingLegacyRejected ? <Loader2 size={16} className="animate-spin" /> : <AlertTriangle size={16} />} Oude Afkeur Archiveren ({legacyRejectedOrders.length})
-                </button>
                 <button onClick={() => { handleDrawingSync(); setIsMobileMenuOpen(false); }} disabled={isSyncingDrawings} className="px-4 py-3 rounded-lg text-xs font-black uppercase text-left w-full text-purple-600 hover:bg-purple-50 flex items-center gap-2 disabled:opacity-50"><RefreshCw size={16} className={isSyncingDrawings ? 'animate-spin' : ''} /> {t('teamleader.sync_drawings', 'Sync tekeningen')}</button>
               </div>
             )}
@@ -2100,8 +2268,11 @@ const TeamleaderHub = React.memo(({
             ) : (
               <TeamleaderEfficiencyView departmentName={departmentFilter !== "ALL" ? departmentFilter : departmentName} lockDepartment={fixedScope !== "all"} />
             )
-          ) : activeTab === "gantt" ? (
-            <TeamleaderGanttView metrics={metrics} />
+          ) : activeTab === "import_export" ? (
+            <ImportExportDashboard
+              currentDepartment={departmentFilter !== "ALL" ? departmentFilter.toLowerCase() : targetSlug}
+              onCreateOrder={() => setShowAddOrderModal(true)}
+            />
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
               <div className={`shrink-0 flex flex-col min-h-0 transition-all duration-300 ${selectedDetailEntry ? 'hidden lg:flex w-[38rem]' : 'w-full lg:w-[38rem]'}`}>
@@ -2247,68 +2418,6 @@ const TeamleaderHub = React.memo(({
         </div>
       </div>
 
-      {showImportModal && (
-        <PlanningImportModal
-          isOpen={true}
-          onClose={() => setShowImportModal(false)}
-          currentDepartment={departmentFilter !== "ALL" ? departmentFilter.toLowerCase() : targetSlug}
-        />
-      )}
-      
-      {showAddOrderModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white w-full max-w-md rounded-[30px] shadow-2xl p-8">
-            <h3 className="text-xl font-black text-slate-800 uppercase italic mb-6">{t('teamleader.new_order', 'Nieuwe Order')}</h3>
-            <form onSubmit={handleCreateOrder} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('teamleader.order_number', 'Order Nummer')}</label>
-                <input 
-                  type="text" 
-                  value={newOrderData.orderId} 
-                  onChange={e => setNewOrderData({...newOrderData, orderId: e.target.value})}
-                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
-                  placeholder={t('teamleader.order_example_placeholder', 'Bijv. TEST-PILOT-001')}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('common.product', 'Product')}</label>
-                <input 
-                  type="text" 
-                  value={newOrderData.item} 
-                  onChange={e => setNewOrderData({...newOrderData, item: e.target.value})}
-                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
-                  placeholder={t('teamleader.product_example_placeholder', 'Bijv. GRE-160-PN16')}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('digitalplanning.machine', 'Machine')}</label>
-                <select 
-                  value={newOrderData.machine} 
-                  onChange={e => setNewOrderData({...newOrderData, machine: e.target.value})}
-                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
-                >
-                  <option value="">{t('teamleader.select_machine', 'Selecteer Machine...')}</option>
-                  {effectiveStations.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t('digitalplanning.order_detail.amount', 'Aantal')}</label>
-                <input 
-                  type="number" 
-                  value={newOrderData.plan} 
-                  onChange={e => setNewOrderData({...newOrderData, plan: e.target.value})}
-                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setShowAddOrderModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs">{t('common.cancel', 'Annuleren')}</button>
-                
-                <button type="submit" disabled={creatingOrder} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-emerald-700">{creatingOrder ? "..." : t('teamleader.create', 'Aanmaken')}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {selectedStationDetail && <StationDetailModal stationId={selectedStationDetail} allOrders={dataStore} allProducts={rawProducts} allArchivedProducts={archivedProducts} onClose={() => setSelectedStationDetail(null)} />}
       

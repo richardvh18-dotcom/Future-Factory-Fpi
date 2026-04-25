@@ -156,7 +156,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
               const deliveryDate = getDeliveryDate(p);
               const planningState = getDeliveryPlanningState(deliveryDate, {
                 productionLeadDays: 21,
-                finishBufferDays: 4,
+                finishBufferDays: 3,
               });
               const isUrgent = planningState.state === "finish_due" || planningState.state === "overdue";
               const badgeText =

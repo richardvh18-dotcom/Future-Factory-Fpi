@@ -298,39 +298,33 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Pilot override: allow production users to update tracked products without
-    // client-side transition blockers that caused Lossen/Nabewerken/Gereedmeld fails.
+    // ISO hardening: all tracked product writes must go via backend callables.
     match /future-factory/production/tracked_products/{document=**} {
       allow read: if hasUserRecord() || isSignedIn();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction();
+      allow write: if false;
     }
 
-    // Pilot override: allow full planning writes for production flow continuity.
+    // ISO hardening: all planning writes must go via backend callables.
     match /future-factory/production/digital_planning/{document=**} {
       allow read: if hasUserRecord() || isSignedIn();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction() && planningUpdateAllowedPilot();
+      allow write: if false;
     }
 
     // collectionGroup("orders") query voor scoped per-machine planning orders
     match /{path=**}/orders/{orderId} {
       allow read: if hasUserRecord() || isSignedIn();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction() && planningUpdateAllowedPilot();
+      allow write: if false;
     }
 
     // collectionGroup("items") query voor scoped tracked_products docs
     match /future-factory/production/tracked_products/{department}/machines/{machine}/items/{itemId} {
       allow read: if hasUserRecord() || isSignedIn();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction();
+      allow write: if false;
     }
 
     match /future-factory/production/data/digital_planning/orders/{orderId} {
       allow read: if hasUserRecord() || isSignedIn();
-      allow create, delete: if canOperateProduction();
-      allow update: if canOperateProduction() && planningUpdateAllowedPilot();
+      allow write: if false;
     }
 
     match /future-factory/production/{collectionId}/{document=**} {

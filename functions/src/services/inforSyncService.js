@@ -96,19 +96,6 @@ const getScopedEfficiencyArchiveRef = ({ year, departmentId, machineId, orderId 
     .doc(String(orderId));
 };
 
-const patchPlanningOrderByOrderId = async (orderId, patch = {}) => {
-  const snap = await getPlanningRef().where('orderId', '==', String(orderId)).limit(1).get();
-  if (snap.empty) return null;
-  await snap.docs[0].ref.set(
-    {
-      ...patch,
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-  return snap.docs[0].id;
-};
-
 async function processInforUpdateService(csvData = []) {
   if (!Array.isArray(csvData) || csvData.length < 1) {
     return { countCreated: 0, countUpdated: 0, countDeleted: 0, countMatched: 0, unmatchedOrders: [] };
@@ -259,10 +246,24 @@ async function processInforUpdateService(csvData = []) {
         await scopedEffRef.delete();
       }
     } else {
-      await patchPlanningOrderByOrderId(orderId, {
-        quantity,
-        lastSync: new Date().toISOString(),
-      });
+      const syncTimestamp = new Date().toISOString();
+      for (const planningDoc of planningSnap.docs) {
+        const planningData = planningDoc.data() || {};
+        const inspectionApprovedQty = Number(planningData.produced || 0);
+        const deliveryInspectionDelta = Number(quantity) - inspectionApprovedQty;
+
+        await planningDoc.ref.set({
+          quantity,
+          lnDeliveredQty: Number(quantity),
+          deliveredQty: Number(quantity),
+          inspectionApprovedQty,
+          deliveryInspectionDelta,
+          deliveryInspectionMismatch: deliveryInspectionDelta !== 0,
+          deliveryInspectionLastCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastSync: syncTimestamp,
+          lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
       countUpdated += 1;
     }
   }

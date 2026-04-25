@@ -709,7 +709,7 @@ const TerminalPlanningView = ({
                 </div>
                 <div>
                   <p className="text-[10px] font-black text-white/40 uppercase mb-1">
-                    {t("digitalplanning.order_detail.total_plan", "Totaal Plan")}
+                    {t("digitalplanning.order_detail.total_plan", "Orderhoeveelheid")}
                   </p>
                   <p className="text-lg font-black">
                     {selectedOrderTotal} {t("digitalplanning.terminal.pieces", "stuks")}

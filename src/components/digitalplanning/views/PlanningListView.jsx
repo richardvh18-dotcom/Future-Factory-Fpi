@@ -191,7 +191,7 @@ const OrderDetailPane = ({ order, onClose }) => {
                         const deliveryDate = getOrderDeliveryDate(order);
                         const planningState = getDeliveryPlanningState(deliveryDate, {
                           productionLeadDays: 21,
-                          finishBufferDays: 4,
+                          finishBufferDays: 3,
                         });
                         return planningState.productionStartDate
                           ? formatDateLabel(planningState.productionStartDate, "dd-MM-yyyy")
@@ -268,7 +268,7 @@ const PlanningListView = ({
   const getUrgencyStyles = (deliveryDate) => {
     const planningState = getDeliveryPlanningState(deliveryDate, {
       productionLeadDays: 21,
-      finishBufferDays: 4,
+      finishBufferDays: 3,
     });
     if (planningState.state === "overdue") return "text-rose-700 font-black";
     if (planningState.state === "finish_due") return "text-red-600 font-black";
@@ -488,7 +488,7 @@ const PlanningListView = ({
                       {formatDateLabel(
                         getDeliveryPlanningState(getOrderDeliveryDate(order), {
                           productionLeadDays: 21,
-                          finishBufferDays: 4,
+                          finishBufferDays: 3,
                         }).productionStartDate || order.plannedDate,
                         "dd MMM",
                         { locale: nl },

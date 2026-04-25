@@ -59,7 +59,7 @@ export const getDeliveryPlanningState = (
   {
     now = new Date(),
     productionLeadDays = 21,
-    finishBufferDays = 4,
+    finishBufferDays = 3,
   } = {}
 ) => {
   const delivery = toDateSafe(deliveryDate);
