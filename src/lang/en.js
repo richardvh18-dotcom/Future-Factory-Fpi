@@ -1254,7 +1254,7 @@ export const en = {
         products: "Products ({{count}})",
         na: "N/A",
         delivery_date_aq: "Delivery Date (AQ)",
-        total_plan: "Total Plan",
+        total_plan: "Order Quantity",
         start_production: "Start Production",
         project_details: "Project Details",
         administration: "Administration",

@@ -20,8 +20,31 @@ const LN_UPDATABLE_FIELDS_SERVER = [
   'weekNumber', 'orderStatus', 'totalPlannedHours', 'totalActualHours',
   'itemDescription', 'item', 'itemCode', 'extraCode', 'drawing',
   'project', 'projectDesc', 'orderCreationDate', 'machine', 'sourceType',
-  'operations',
+  'operations', 'deliveredQty', 'lnDeliveredQty',
 ];
+
+const toFiniteNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const buildDeliveryInspectionSyncFields = (item = {}) => {
+  const deliveredQty =
+    toFiniteNumber(item?.lnDeliveredQty) ??
+    toFiniteNumber(item?.deliveredQty) ??
+    toFiniteNumber(item?.quantityDelivered) ??
+    null;
+
+  if (!Number.isFinite(deliveredQty)) {
+    return {};
+  }
+
+  return {
+    lnDeliveredQty: deliveredQty,
+    deliveredQty,
+    deliveryInspectionLastCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+};
 
 const normalizeMachineForCounter = (stationName = '') => {
   const normalized = String(stationName || '').trim().replace(/\s+/g, '').toUpperCase();
@@ -538,11 +561,13 @@ const buildReferenceOperationSummaryServer = (operations = {}) => {
 const bulkImportPlanningOrdersService = async ({
   orders,
   importMode,
+  hoursOnlyMode = false,
   dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const safeOrders = Array.isArray(orders) ? orders : [];
   const safeImportMode = String(importMode || 'new_only').trim().toLowerCase();
+  const safeHoursOnly = Boolean(hoursOnlyMode);
 
   let createdCount = 0;
   let updatedCount = 0;
@@ -559,6 +584,11 @@ const bulkImportPlanningOrdersService = async ({
       if (!item || !docId) return;
 
       const dbData = { ...item };
+      // LN 'Hoeveelheid gereed' is informatief en mag Gemaakt/produced in FF niet overschrijven.
+      delete dbData.produced;
+      delete dbData.inspectionApprovedQty;
+      delete dbData.deliveryInspectionDelta;
+      delete dbData.deliveryInspectionMismatch;
       delete dbData.isValidForImport;
       delete dbData.isExistingOrder;
       delete dbData.planningVisible;
@@ -567,6 +597,7 @@ const bulkImportPlanningOrdersService = async ({
       const normalizedItemDescription = clean(dbData.itemDescription || dbData.item || '');
       const { productionHours, postHours, qcHours } = getSplitPlannedHoursServer(item.operations, item.totalPlannedHours || 0);
       const operationByCode = buildReferenceOperationSummaryServer(item.operations);
+      const deliveryInspectionSync = buildDeliveryInspectionSyncFields(dbData);
 
       const isExistingOrder = Boolean(item.isExistingOrder);
       const isSmartUpdate = safeImportMode === 'smart_update' && isExistingOrder;
@@ -579,12 +610,19 @@ const bulkImportPlanningOrdersService = async ({
 
       if (isSmartUpdate) {
         const lnPayload = {};
-        LN_UPDATABLE_FIELDS_SERVER.forEach((field) => {
+        
+        // In hoursOnlyMode: ALLEEN uurvelden updaten, geen hoeveelheden/status/notes
+        const fieldsToUpdate = safeHoursOnly
+          ? ['totalPlannedHours', 'totalActualHours', 'operations']
+          : LN_UPDATABLE_FIELDS_SERVER;
+        
+        fieldsToUpdate.forEach((field) => {
           if (dbData[field] !== undefined) lnPayload[field] = dbData[field];
         });
 
         const planningPayload = {
           ...lnPayload,
+          ...deliveryInspectionSync,
           item: normalizedItem,
           itemDescription: normalizedItemDescription,
           plannedHoursBH: productionHours,
@@ -602,6 +640,7 @@ const bulkImportPlanningOrdersService = async ({
       } else {
         const planningPayload = {
           ...dbData,
+          ...deliveryInspectionSync,
           item: normalizedItem,
           itemDescription: normalizedItemDescription,
           plannedHoursBH: productionHours,
@@ -641,7 +680,7 @@ const bulkImportPlanningOrdersService = async ({
           quantity: qty,
           minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
           status: 'active',
-          source: isSmartUpdate ? 'ln_smart_sync' : 'ln_import',
+          source: isSmartUpdate ? (safeHoursOnly ? 'ln_hours_sync' : 'ln_smart_sync') : 'ln_import',
           lastSync: new Date().toISOString(),
         },
         { merge: true }
@@ -669,7 +708,7 @@ const bulkImportPlanningOrdersService = async ({
             quantity: qty,
             minutesPerUnit: qty > 0 ? standardMinutes / qty : 0,
             status: 'active',
-            source: isSmartUpdate ? 'ln_smart_sync' : 'ln_import',
+            source: isSmartUpdate ? (safeHoursOnly ? 'ln_hours_sync' : 'ln_smart_sync') : 'ln_import',
             lastSync: new Date().toISOString(),
             departmentId: resolveScopedDepartment(item.department || item.departmentId || DEFAULT_SCOPED_DEPARTMENT),
             machineId: resolveScopedMachine(item.machine),
@@ -690,6 +729,7 @@ const bulkImportPlanningOrdersService = async ({
   return {
     ok: true,
     importMode: safeImportMode,
+    hoursOnlyMode: safeHoursOnly,
     processedCount,
     createdCount,
     updatedCount,
@@ -2971,6 +3011,12 @@ const editTrackedProductLotNumberService = async ({
     productId: trackedDoc.id,
     oldLotNumber,
     lotNumber: safeNewLotNumber,
+    before: {
+      lotNumber: oldLotNumber,
+    },
+    after: {
+      lotNumber: safeNewLotNumber,
+    },
   };
 };
 
@@ -3361,12 +3407,23 @@ const updateOrderPlannedDateService = async ({ orderId, plannedDate, dbCtx = nul
     throw new Error('NOT_FOUND_ORDER');
   }
 
+  const orderData = orderSnap.data() || {};
+  const previousPlannedDate = orderData.plannedDate || null;
+
   await orderRef.set({
     plannedDate,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  return { ok: true };
+  return {
+    ok: true,
+    before: {
+      plannedDate: previousPlannedDate,
+    },
+    after: {
+      plannedDate,
+    },
+  };
 };
 
 const updateOrderKanbanStatusService = async ({ orderId, status, auth, dbCtx = null,
@@ -3378,6 +3435,9 @@ const updateOrderKanbanStatusService = async ({ orderId, status, auth, dbCtx = n
     throw new Error('NOT_FOUND_ORDER');
   }
 
+  const orderData = orderSnap.data() || {};
+  const previousStatus = clean(orderData.status) || null;
+
   await orderRef.set({
     status,
     statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -3385,7 +3445,15 @@ const updateOrderKanbanStatusService = async ({ orderId, status, auth, dbCtx = n
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  return { ok: true };
+  return {
+    ok: true,
+    before: {
+      status: previousStatus,
+    },
+    after: {
+      status,
+    },
+  };
 };
 
 const createProductionMessagesService = async ({ messages, auth, source, actorLabel, dbCtx = null,

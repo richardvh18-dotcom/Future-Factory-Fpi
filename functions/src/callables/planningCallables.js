@@ -1,4 +1,5 @@
 const functions = require('firebase-functions/v1');
+const admin = require('firebase-admin');
 const {
   REJECT_ALLOWED_ROLES,
   TEMP_REJECT_ALLOWED_ROLES,
@@ -124,6 +125,18 @@ const sanitizeRejectReasons = (rawReasons) => {
   }
 
   return Array.from(new Set(reasons));
+};
+
+const throwUnauthenticated = (context, action) => {
+  auditService.logCallableSecurityDenied(context, action, 'UNAUTHENTICATED');
+  throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+};
+
+const throwPermissionDenied = (context, action, userRole, message) => {
+  auditService.logCallableSecurityDenied(context, action, 'PERMISSION_DENIED', {
+    role: userRole || 'unknown',
+  });
+  throw new functions.https.HttpsError('permission-denied', message);
 };
 
 const rejectTrackedProductFinal = functions.https.onCall(async (data, context) => {
@@ -1584,12 +1597,12 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
 
 const editTrackedProductLotNumber = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+    throwUnauthenticated(context, 'EDIT_LOT_NUMBER');
   }
 
   const userRole = await resolveUserRoleForContext(context);
   if (!ORDER_EDIT_ALLOWED_ROLES.has(userRole)) {
-    throw new functions.https.HttpsError('permission-denied', 'Geen rechten om lotnummer te wijzigen.');
+    throwPermissionDenied(context, 'EDIT_LOT_NUMBER', userRole, 'Geen rechten om lotnummer te wijzigen.');
   }
 
   const productId = clean(data?.productId);
@@ -1602,10 +1615,8 @@ const editTrackedProductLotNumber = functions.https.onCall(async (data, context)
     throw new functions.https.HttpsError('invalid-argument', 'productId, newLotNumber en reason zijn verplicht.');
   }
 
-  auditService.logCallable(context, 'EDIT_LOT_NUMBER', { productId, newLotNumber }, { category: 'QUALITY', severity: 'WARNING' });
-
   try {
-    return await editTrackedProductLotNumberService({
+    const result = await editTrackedProductLotNumberService({
       productId,
       newLotNumber,
       reason,
@@ -1614,6 +1625,20 @@ const editTrackedProductLotNumber = functions.https.onCall(async (data, context)
       auth: context.auth,
       dbCtx: resolveDbContext(extractRds(data)),
     });
+
+    auditService.logCallable(
+      context,
+      'EDIT_LOT_NUMBER',
+      {
+        productId,
+        before: result.before || null,
+        after: result.after || null,
+        reason,
+      },
+      { category: 'QUALITY', severity: 'WARNING' },
+    );
+
+    return result;
   } catch (error) {
     if (error?.message === 'NOT_FOUND_PRODUCT') {
       throw new functions.https.HttpsError('not-found', 'Product niet gevonden in tracking.');
@@ -1896,12 +1921,12 @@ const removeOrderDependency = functions.https.onCall(async (data, context) => {
 
 const updateOrderPlannedDate = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+    throwUnauthenticated(context, 'UPDATE_PLANNED_DATE');
   }
 
   const userRole = await resolveUserRoleForContext(context);
   if (!ORDER_EDIT_ALLOWED_ROLES.has(userRole)) {
-    throw new functions.https.HttpsError('permission-denied', 'Geen rechten om geplande datum te wijzigen.');
+    throwPermissionDenied(context, 'UPDATE_PLANNED_DATE', userRole, 'Geen rechten om geplande datum te wijzigen.');
   }
 
   const orderId = clean(data?.orderId);
@@ -1912,14 +1937,25 @@ const updateOrderPlannedDate = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'orderId en geldige plannedDate zijn verplicht.');
   }
 
-  auditService.logCallable(context, 'UPDATE_PLANNED_DATE', { orderId }, { category: 'PLANNING', severity: 'INFO' });
-
   try {
-    return await updateOrderPlannedDateService({
+    const result = await updateOrderPlannedDateService({
         orderId,
         plannedDate,
         dbCtx: resolveDbContext(extractRds(data)),
     });
+
+    auditService.logCallable(
+      context,
+      'UPDATE_PLANNED_DATE',
+      {
+        orderId,
+        before: result.before || null,
+        after: result.after || null,
+      },
+      { category: 'PLANNING', severity: 'INFO' },
+    );
+
+    return result;
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
       throw new functions.https.HttpsError('not-found', 'Order niet gevonden.');
@@ -1930,12 +1966,12 @@ const updateOrderPlannedDate = functions.https.onCall(async (data, context) => {
 
 const updateOrderKanbanStatus = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+    throwUnauthenticated(context, 'UPDATE_KANBAN_STATUS');
   }
 
   const userRole = await resolveUserRoleForContext(context);
   if (!ORDER_EDIT_ALLOWED_ROLES.has(userRole)) {
-    throw new functions.https.HttpsError('permission-denied', 'Geen rechten om orderstatus te wijzigen.');
+    throwPermissionDenied(context, 'UPDATE_KANBAN_STATUS', userRole, 'Geen rechten om orderstatus te wijzigen.');
   }
 
   const orderId = clean(data?.orderId);
@@ -1945,15 +1981,26 @@ const updateOrderKanbanStatus = functions.https.onCall(async (data, context) => 
     throw new functions.https.HttpsError('invalid-argument', 'orderId en geldige status zijn verplicht.');
   }
 
-  auditService.logCallable(context, 'UPDATE_KANBAN_STATUS', { orderId, status }, { category: 'PLANNING', severity: 'INFO' });
-
   try {
-    return await updateOrderKanbanStatusService({
+    const result = await updateOrderKanbanStatusService({
         orderId,
         status,
         auth: context.auth,
         dbCtx: resolveDbContext(extractRds(data)),
     });
+
+    auditService.logCallable(
+      context,
+      'UPDATE_KANBAN_STATUS',
+      {
+        orderId,
+        before: result.before || null,
+        after: result.after || null,
+      },
+      { category: 'PLANNING', severity: 'INFO' },
+    );
+
+    return result;
   } catch (error) {
     if (error?.message === 'NOT_FOUND_ORDER') {
       throw new functions.https.HttpsError('not-found', 'Order niet gevonden.');
@@ -2111,16 +2158,19 @@ const importPlanningOrders = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'Ongeldige importMode.');
   }
 
+  const hoursOnlyMode = Boolean(data?.hoursOnlyMode);
+
   const orders = Array.isArray(data?.orders) ? data.orders.slice(0, 1500) : [];
   if (orders.length === 0) {
     throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 order is verplicht.');
   }
 
-  auditService.logCallable(context, 'IMPORT_PLANNING_ORDERS', { orderCount: orders.length, importMode }, { category: 'PLANNING', severity: 'INFO' });
+  auditService.logCallable(context, 'IMPORT_PLANNING_ORDERS', { orderCount: orders.length, importMode, hoursOnlyMode }, { category: 'PLANNING', severity: 'INFO' });
 
   return bulkImportPlanningOrdersService({
     orders,
     importMode,
+    hoursOnlyMode,
     dbCtx: resolveDbContext(),
   });
 });
@@ -2543,6 +2593,149 @@ const migrateAiKnowledgeFields = functions.https.onCall(async (data, context) =>
   return migrateAiKnowledgeFieldsService();
 });
 
+const migrateLegacyActivityLogs = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+  }
+
+  const userRole = await resolveUserRoleForContext(context);
+  if (userRole !== 'admin') {
+    throw new functions.https.HttpsError('permission-denied', 'Alleen admins mogen legacy logs migreren.');
+  }
+
+  const dryRun = Boolean(data?.dryRun);
+  const deleteSource = Boolean(data?.deleteSource);
+  const markSourceMigrated = data?.markSourceMigrated !== false;
+  const limit = Math.min(Math.max(Number(data?.limit) || 500, 1), 2000);
+  const maxScan = Math.min(Math.max(Number(data?.maxScan) || 5000, 100), 20000);
+  const pageSize = Math.min(Math.max(Number(data?.pageSize) || 250, 50), 500);
+
+  const sourceRef = admin.firestore()
+    .collection('future-factory')
+    .doc('logs')
+    .collection('activity_logs');
+  const targetRef = admin.firestore()
+    .collection('future-factory')
+    .doc('audit')
+    .collection('logs');
+
+  let scanned = 0;
+  let migrated = 0;
+  let skipped = 0;
+  let deleted = 0;
+  let cursor = null;
+  let reachedEnd = false;
+
+  while (scanned < maxScan && migrated < limit) {
+    let q = sourceRef
+      .orderBy(admin.firestore.FieldPath.documentId())
+      .limit(pageSize);
+
+    if (cursor) {
+      q = q.startAfter(cursor);
+    }
+
+    const snapshot = await q.get();
+    if (snapshot.empty) {
+      reachedEnd = true;
+      break;
+    }
+
+    for (const docSnap of snapshot.docs) {
+      scanned += 1;
+
+      const oldData = docSnap.data() || {};
+      const targetId = `legacy_${docSnap.id}`;
+      const existingTarget = await targetRef.doc(targetId).get();
+
+      const detailsMessage = typeof oldData.details === 'string'
+        ? oldData.details
+        : clampText(JSON.stringify(oldData.details || {}), 4000);
+
+      const mappedEntry = {
+        timestamp: oldData.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+        userId: clean(oldData.userId) || 'legacy',
+        userEmail: clean(oldData.userEmail) || null,
+        action: clean(oldData.action) || 'LEGACY_ACTIVITY_LOG',
+        category: 'SYSTEM',
+        severity: String(oldData.status || '').toUpperCase() === 'FAILED' ? 'WARNING' : 'INFO',
+        details: {
+          legacy: true,
+          legacyPath: 'future-factory/logs/activity_logs',
+          legacyLogId: docSnap.id,
+          message: detailsMessage || null,
+          source: clean(oldData.source) || null,
+          ipAddress: clean(oldData.ipAddress) || null,
+          status: clean(oldData.status) || null,
+          changes: oldData.changes || null,
+        },
+        migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+        migratedBy: context.auth.uid,
+      };
+
+      if (!existingTarget.exists) {
+        migrated += 1;
+        if (!dryRun) {
+          await targetRef.doc(targetId).set(mappedEntry, { merge: true });
+        }
+      } else {
+        skipped += 1;
+      }
+
+      if (!dryRun && deleteSource) {
+        await docSnap.ref.delete();
+        deleted += 1;
+      }
+
+      if (!dryRun && !deleteSource && markSourceMigrated) {
+        await docSnap.ref.set(
+          {
+            migratedToAudit: true,
+            migratedToAuditAt: admin.firestore.FieldValue.serverTimestamp(),
+            migratedAuditId: targetId,
+          },
+          { merge: true },
+        );
+      }
+
+      if (scanned >= maxScan || migrated >= limit) {
+        break;
+      }
+    }
+
+    cursor = snapshot.docs[snapshot.docs.length - 1];
+  }
+
+  auditService.logCallable(
+    context,
+    'MIGRATE_LEGACY_ACTIVITY_LOGS',
+    {
+      dryRun,
+      deleteSource,
+      markSourceMigrated,
+      limit,
+      maxScan,
+      scanned,
+      migrated,
+      skipped,
+      deleted,
+      reachedEnd,
+    },
+    { category: 'ADMIN', severity: dryRun ? 'INFO' : 'WARNING' },
+  );
+
+  return {
+    ok: true,
+    dryRun,
+    scanned,
+    migrated,
+    skipped,
+    deleted,
+    reachedEnd,
+    hasMore: !reachedEnd,
+  };
+});
+
 module.exports = {
   rejectTrackedProductFinal,
   tempRejectTrackedProduct,
@@ -2612,4 +2805,5 @@ module.exports = {
   verifyAiKnowledgeEntry,
   deleteAiKnowledgeEntry,
   migrateAiKnowledgeFields,
+  migrateLegacyActivityLogs,
 };

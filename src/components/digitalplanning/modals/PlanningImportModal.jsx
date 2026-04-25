@@ -31,9 +31,11 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   const [existingIds, setExistingIds] = useState(new Set());
   const [existingOrderMap, setExistingOrderMap] = useState(new Map());
   const [importMode, setImportMode] = useState("smart_update");
+  const [hoursOnlyMode, setHoursOnlyMode] = useState(false);
   const [selectedMachines, setSelectedMachines] = useState([]);
   const [machineGroupFilter, setMachineGroupFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [readySyncFilter, setReadySyncFilter] = useState("all");
   const [selectedOrderIds, setSelectedOrderIds] = useState(new Set());
   const [pasteMode, setPasteMode] = useState(false);
   const [importProgressPct, setImportProgressPct] = useState(0);
@@ -44,31 +46,103 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   const fileInputRef = useRef(null);
   const pasteTextAreaRef = useRef(null);
 
+  // Tijdelijke businessguard: deze orders staan bevestigd in DB en mogen niet via slimme sync worden bijgewerkt.
+  const SMART_SYNC_EXCLUDED_ORDER_IDS = useMemo(
+    () =>
+      new Set([
+        "N20024490",
+        "N20024491",
+        "N20024566",
+        "N20024604",
+        "N20024607",
+        "N20024738",
+        "N20024739",
+        "N20024740",
+        "N20024769",
+        "N20024772",
+        "N20024774",
+        "N20024828",
+      ]),
+    []
+  );
+
   useEffect(() => {
     const fetchExisting = async () => {
       if (!isOpen) return;
       try {
+        // Fetch planning orders first (critical for existing-order detection)
         const [rootSnap, scopedSnap] = await Promise.all([
           getDocs(collection(db, ...PATHS.PLANNING)),
           getDocs(collectionGroup(db, "orders")),
         ]);
 
-        const mergedDocs = [...rootSnap.docs, ...scopedSnap.docs];
-        const keySet = new Set();
         const byKey = new Map();
 
-        mergedDocs.forEach((docEntry) => {
-          const data = docEntry.data() || {};
-          const key = getOrderKey({ ...data, id: docEntry.id });
-          if (!key) return;
-          keySet.add(key);
-          if (!byKey.has(key)) {
-            byKey.set(key, data);
-          }
+        const scopedPlanningDocs = scopedSnap.docs.filter((docEntry) => {
+          const path = String(docEntry?.ref?.path || "");
+          return (
+            path.includes("/production/digital_planning/") &&
+            path.includes("/machines/") &&
+            path.includes("/orders/")
+          );
         });
 
-        setExistingIds(keySet);
-        setExistingOrderMap(byKey);
+        const indexDoc = (docEntry, { priority = 1 } = {}) => {
+          const data = docEntry.data() || {};
+          const indexedData = { ...data, id: docEntry.id, __docPath: docEntry?.ref?.path || "" };
+          const keys = getOrderKeys(indexedData);
+          if (!keys.length) return;
+
+          keys.forEach((key) => {
+            const existing = byKey.get(key);
+            if (!existing || priority >= existing.priority) {
+              byKey.set(key, { data: indexedData, priority });
+            }
+          });
+        };
+
+        // Legacy/root laag eerst, scoped planning daarna als bron van waarheid.
+        rootSnap.docs.forEach((docEntry) => indexDoc(docEntry, { priority: 1 }));
+        scopedPlanningDocs.forEach((docEntry) => indexDoc(docEntry, { priority: 2 }));
+
+        setExistingIds(new Set(byKey.keys()));
+        setExistingOrderMap(new Map(Array.from(byKey.entries()).map(([key, value]) => [key, value.data])));
+
+        // Fetch Eindinspectie counts separately (non-blocking, best-effort)
+        try {
+          const trackedSnap = await getDocs(collectionGroup(db, "items"));
+          const atEindinspectieCountMap = new Map();
+          trackedSnap.docs.forEach((docEntry) => {
+            const path = String(docEntry?.ref?.path || "");
+            if (!path.includes("/tracked_products/")) return;
+
+            const data = docEntry.data() || {};
+            const orderId = String(data?.orderId || "").trim().toUpperCase();
+            const currentStep = String(data?.currentStep || "").trim().toUpperCase();
+
+            if (orderId && (currentStep === "EINDINSPECTIE" || currentStep.includes("INSPECTIE"))) {
+              const current = atEindinspectieCountMap.get(orderId) || 0;
+              atEindinspectieCountMap.set(orderId, current + 1);
+            }
+          });
+
+          // Merge Eindinspectie counts into already-built map
+          if (atEindinspectieCountMap.size > 0) {
+            setExistingOrderMap((prev) => {
+              const updated = new Map(prev);
+              updated.forEach((orderData, key) => {
+                const orderIdForLookup = String(orderData?.orderId || orderData?.id || "").trim().toUpperCase();
+                const count = atEindinspectieCountMap.get(orderIdForLookup) || 0;
+                if (count > 0) {
+                  updated.set(key, { ...orderData, atEindinspectieCount: count });
+                }
+              });
+              return updated;
+            });
+          }
+        } catch {
+          // Eindinspectie count niet beschikbaar, geen probleem – vergelijking werkt zonder
+        }
       } catch {
         addLog(t("digitalplanning.planning_import.logs.db_connect_failed", "Database connectie mislukt."), "error");
       }
@@ -81,8 +155,53 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   };
 
   const clean = (val) => String(val || "").trim();
-  const getOrderKey = (entry) => clean(entry?.orderId || entry?.id).toUpperCase();
-  const isExistingOrder = (order) => existingIds.has(getOrderKey(order));
+  const buildImportDocId = (orderId, ...suffixCandidates) => {
+    const safeOrderId = clean(orderId);
+    const suffix = suffixCandidates
+      .map((value) => clean(value))
+      .find((value) => value.length > 0);
+    const raw = suffix ? `${safeOrderId}_${suffix}` : safeOrderId;
+    return raw.replace(/[^a-zA-Z0-9]/g, "_");
+  };
+  const toKeyVariants = (value) => {
+    const base = clean(value).toUpperCase();
+    if (!base) return [];
+
+    const variants = [base, base.replace(/\s+/g, "")].filter(Boolean);
+    const idPrefix = base.includes("_") ? clean(base.split("_")[0]).toUpperCase() : "";
+    if (idPrefix) {
+      variants.push(idPrefix, idPrefix.replace(/\s+/g, ""));
+    }
+
+    return Array.from(new Set(variants.filter(Boolean)));
+  };
+
+  const getOrderKeys = (entry) => {
+    const rawValues = [entry?.orderId, entry?.orderNumber, entry?.sourceDataId, entry?.id];
+    const keys = rawValues.flatMap((value) => toKeyVariants(value));
+    return Array.from(new Set(keys));
+  };
+  const getPreferredLookupKeys = (entry) => {
+    // Eerst zo specifiek mogelijk matchen (doc-id/sourceDataId), daarna pas op ordernummer.
+    const exactValues = [entry?.id, entry?.sourceDataId];
+    const broadValues = [entry?.orderId, entry?.orderNumber];
+    const keys = [...exactValues, ...broadValues].flatMap((value) => toKeyVariants(value));
+    return Array.from(new Set(keys));
+  };
+  const getOrderKey = (entry) => getOrderKeys(entry)[0] || "";
+  const isExistingOrder = (order) => getOrderKeys(order).some((key) => existingIds.has(key));
+  const isSmartSyncExcludedOrder = (order) => {
+    const orderId = clean(order?.orderId || order?.orderNumber || order?.id).toUpperCase();
+    return SMART_SYNC_EXCLUDED_ORDER_IDS.has(orderId);
+  };
+  const getExistingOrder = (order) => {
+    const keys = getPreferredLookupKeys(order);
+    for (const key of keys) {
+      const hit = existingOrderMap.get(key);
+      if (hit) return hit;
+    }
+    return null;
+  };
   const normalizeDepartment = (value) => String(value || "").trim().toLowerCase();
   const departmentScope = normalizeDepartment(currentDepartment);
   const isFittingsScoped = departmentScope === "fittings";
@@ -90,8 +209,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   useEffect(() => {
     if (!isOpen) return;
     setImportMode("smart_update");
-    setPasteMode(true);
-    setSelectedMachines([]);
+    setPasteMode(false);
+    setSelectedMachines(["BH18"]);
     setMachineGroupFilter(isFittingsScoped ? "fittings" : "all");
     setImportProgressPct(0);
     setImportProgressLabel("");
@@ -109,6 +228,18 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
     const s = String(val).replace(/\s/g, "").replace(",", ".");
     const n = parseFloat(s);
     return isNaN(n) ? 0 : n;
+  };
+
+  const getComparableReadyQty = (order) => {
+    const produced =
+      order?.inspectionApprovedQty ??
+      order?.produced ??
+      0;
+    // Voeg producten toe die al bij Eindinspectie klaarstaan (wikkelstap in FF historisch meegenomen)
+    const atEindinspectie = order?.atEindinspectieCount ?? 0;
+    const total = produced + atEindinspectie;
+    const n = Number(total);
+    return Number.isFinite(n) ? n : 0;
   };
 
   const parsePastedTabularData = (text) => {
@@ -221,8 +352,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
     const idxDatum = firstIndex(headers, ["datum", "date", "delivery date", "leverdatum", "planned delivery date"]);
     const idxWeek = firstIndex(headers, ["week", "week number", "weeknumber"]);
     const idxPlan = firstIndex(headers, ["plan", "qty", "quantity", "aantal"]);
+    const idxDelivered = firstIndex(headers, ["hoeveelheid geleverd", "geleverd", "delivered quantity", "delivered qty"]);
     const idxToDo = firstIndex(headers, ["to do", "to do qty", "todo", "to_do"]);
-    const idxProduced = firstIndex(headers, ["gewikkeld", "produced", "gemaakt"]);
+    const idxProduced = firstIndex(headers, ["gewikkeld", "produced", "gemaakt", "hoeveelheid gereed"]);
+    const idxEstimatedHours = firstIndex(headers, ["total production estimated time [hrs]", "total production estimated time hrs", "estimated time [hrs]", "estimated time hrs"]);
     const idxStatus = firstIndex(headers, ["status", "order status"]);
     const idxCode = firstIndex(headers, ["code", "extra code", "special instructions"]);
     const idxPoText = firstIndex(headers, ["po text", "po-text", "po note", "opmerking"]);
@@ -252,11 +385,13 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           : (idxPlan !== -1 ? parseNum(row[idxPlan]) : 0);
 
         const produced = idxProduced !== -1 ? parseNum(row[idxProduced]) : 0;
+        const estimatedHours = idxEstimatedHours !== -1 ? parseNum(row[idxEstimatedHours]) : 0;
         const quantity = idxPlan !== -1 ? parseNum(row[idxPlan]) : plan;
-        const idBase = `${orderId}_${itemCode || itemDescription || machine}`;
+        const deliveredQty = idxDelivered !== -1 ? parseNum(row[idxDelivered]) : null;
+        const docId = buildImportDocId(orderId, itemCode, itemDescription, machine);
 
         return {
-          id: idBase.replace(/[^a-zA-Z0-9]/g, "_") || orderId,
+          id: docId || orderId,
           orderId,
           machine,
           itemCode,
@@ -267,6 +402,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           notes: idxPoText !== -1 ? clean(row[idxPoText]) : "",
           extraCode: idxCode !== -1 ? clean(row[idxCode]) : "",
           quantity,
+          deliveredQty,
           toDoQty: plan || quantity,
           plan: plan || quantity,
           produced,
@@ -278,7 +414,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           drawing: idxDrawing !== -1 ? clean(row[idxDrawing]) : "",
           isValidForImport: isStatusAllowed(rawStatus),
           status: "waiting",
-          totalPlannedHours: 0,
+          totalPlannedHours: estimatedHours,
           totalActualHours: 0,
           operations: {},
           sourceType: "Pasted Table",
@@ -397,32 +533,46 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
   // LOGICA: Aggregatie van Operations per unieke Productie Order inclusief Creation Date
   const processRawLNDump = (rawRows) => {
-    const headerIdx = rawRows.findIndex(r => r.some(c => clean(c).toLowerCase() === "production order"));
+    const headerIdx = rawRows.findIndex((r) =>
+      r.some((c) => {
+        const h = normalizeHeader(c);
+        return (
+          h === "production order" ||
+          h === "productieorder" ||
+          h === "ordernummer" ||
+          h === "order number"
+        );
+      })
+    );
     if (headerIdx === -1) {
       addLog(t("digitalplanning.planning_import.logs.invalid_format", "Fout formaat: 'Production Order' niet gevonden."), "error");
       return [];
     }
 
-    const headers = rawRows[headerIdx].map(h => clean(h).toLowerCase());
+    const headers = rawRows[headerIdx].map((h) => normalizeHeader(h));
     const dataRows = rawRows.slice(headerIdx + 1);
-    const findCol = (names) => headers.findIndex(h => names.some(n => h.includes(n)));
+    const findCol = (names) =>
+      headers.findIndex((h) => names.some((n) => h.includes(normalizeHeader(n))));
 
     const idx = {
-      order: findCol(["production order"]),
-      delivery: findCol(["planned delivery date"]),
-      machine: findCol(["work center"]),
-      status: findCol(["order status"]),
+      order: findCol(["production order", "productieorder", "ordernummer", "order number"]),
+      delivery: findCol(["planned delivery date", "geplande leverdatum", "leverdatum", "datum"]),
+      machine: findCol(["work center", "work centre", "afdeling", "machine", "station"]),
+      status: findCol(["order status", "ord.status", "ord status", "status"]),
       item: findCol(["item", "artikel"]),
-      desc: findCol(["item description", "omschrijving"]),
+      desc: findCol(["item description", "omschrijving", "artikelomschrijving"]),
       project: findCol(["project"]),
-      projectDesc: findCol(["project description", "project desc"]),
-      qty: findCol(["quantity ordered", "aantal"]),
-      operation: findCol(["operation"]),
-      plannedHours: findCol(["production time", "labor hours"]),
-      actualHours: findCol(["spent production time"]),
-      refOp: findCol(["reference operation"]),
+      projectDesc: findCol(["project description", "project desc", "projectomschrijving"]),
+      qty: findCol(["quantity ordered", "orderhoeveelheid", "aantal"]),
+      delivered: findCol(["quantity delivered", "hoeveelheid geleverd", "geleverd", "delivered qty"]),
+      ready: findCol(["quantity ready", "hoeveelheid gereed", "gewikkeld", "produced", "gemaakt"]),
+      operation: findCol(["operation", "bewerking"]),
+      plannedHours: findCol(["production time", "labor hours", "productietijd", "manuren"]),
+      totalEstimatedHours: findCol(["total production estimated time [hrs]", "total production estimated time hrs", "estimated production time [hrs]", "estimated production time hrs"]),
+      actualHours: findCol(["spent production time", "bestede tijd"]),
+      refOp: findCol(["reference operation", "ref.bew", "ref bew"]),
       drawing: findCol(["drawing number", "tekening"]),
-      notes: findCol(["production order text", "po text", "po-text", "po note", "opmerking"]),
+      notes: findCol(["production order text", "productieorder tekst", "po text", "po-text", "po note", "opmerking"]),
       // Alleen Special Instructions mag naar extraCode (Lot Code mag niet worden geïmporteerd als code).
       special: findCol(["special instructions", "special instruction", "extra code", "extra-code"]),
       todo: findCol(["to do qty"]),
@@ -437,6 +587,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
       const refOp = clean(row[idx.refOp]) || clean(row[idx.operation]);
       const pTime = parseNum(row[idx.plannedHours]);
+      const estimatedTotalTime = parseNum(row[idx.totalEstimatedHours]);
       const aTime = parseNum(row[idx.actualHours]);
       const rawStatus = clean(row[idx.status]);
       const rowMachine = normalizeMachine(row[idx.machine]);
@@ -444,7 +595,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
       if (!orderMap.has(orderId)) {
         orderMap.set(orderId, {
-          id: orderId,
+          id: buildImportDocId(orderId, clean(row[idx.item]), clean(row[idx.desc]), rowMachine),
           orderId: orderId,
           machine: rowMachine,
           itemCode: clean(row[idx.item]),
@@ -455,6 +606,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           notes: clean(row[idx.notes]),
           extraCode: clean(row[idx.special]),
           quantity: parseNum(row[idx.qty]),
+          deliveredQty: idx.delivered !== -1 ? parseNum(row[idx.delivered]) : null,
+          produced: idx.ready !== -1 ? parseNum(row[idx.ready]) : 0,
           toDoQty: parseNum(row[idx.todo]),
           plannedDeliveryDate: row[idx.delivery],
           orderCreationDate: clean(row[idx.creation]), // Alleen voor dossier
@@ -464,6 +617,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           status: "waiting",
           plan: parseNum(row[idx.todo]) || parseNum(row[idx.qty]) || 0,
           totalPlannedHours: 0,
+          totalEstimatedHoursFromLn: estimatedTotalTime,
           totalActualHours: 0,
           operations: {},
           machineTotals: {},
@@ -486,6 +640,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         order.orderCreationDate = clean(row[idx.creation]);
       }
 
+      if (estimatedTotalTime > 0) {
+        order.totalEstimatedHoursFromLn = Math.max(Number(order.totalEstimatedHoursFromLn) || 0, estimatedTotalTime);
+      }
+
       if ((!order.extraCode || order.extraCode === "-") && clean(row[idx.special])) {
         order.extraCode = clean(row[idx.special]);
       }
@@ -504,6 +662,13 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
       if (!order.drawing) {
         order.drawing = clean(row[idx.drawing]);
+      }
+
+      if (idx.delivered !== -1) {
+        order.deliveredQty = Math.max(Number(order.deliveredQty) || 0, parseNum(row[idx.delivered]));
+      }
+      if (idx.ready !== -1) {
+        order.produced = Math.max(Number(order.produced) || 0, parseNum(row[idx.ready]));
       }
 
       if (rowMachine !== "-") {
@@ -536,6 +701,11 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
       const rest = { ...order };
       delete rest.machineTotals;
 
+      if ((Number(rest.totalPlannedHours) || 0) <= 0 && (Number(rest.totalEstimatedHoursFromLn) || 0) > 0) {
+        rest.totalPlannedHours = Number(rest.totalEstimatedHoursFromLn) || 0;
+      }
+      delete rest.totalEstimatedHoursFromLn;
+
       // Planned Delivery Date → deliveryDate (canonical field used throughout the app)
       let deliveryDate = rest.plannedDeliveryDate || null;
       let weekNumber = rest.weekNumber || null;
@@ -555,6 +725,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
       return {
         ...rest,
+        id: buildImportDocId(rest.orderId, rest.itemCode, rest.itemDescription, primaryMachine),
         machine: primaryMachine,
         deliveryDate,
         weekNumber,
@@ -588,7 +759,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         return;
       }
       const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-      const data = processRawLNDump(rawRows);
+      let data = processRawLNDump(rawRows);
+      if (!data.length) {
+        data = processTabularPlanningRows(rawRows);
+      }
       setFileData(data);
     } catch {
       addLog(t("digitalplanning.planning_import.logs.sheet_read_failed", "Fout bij inlezen tabblad."), "error");
@@ -765,7 +939,12 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
   useEffect(() => {
     setSelectedMachines((prev) => {
-      return prev.filter((machine) => availableMachines.includes(machine));
+      const filtered = prev.filter((machine) => availableMachines.includes(machine));
+      // Auto-select BH18 if nothing is selected yet and it's available
+      if (filtered.length === 0 && availableMachines.includes("BH18")) {
+        return ["BH18"];
+      }
+      return filtered;
     });
   }, [availableMachines]);
 
@@ -801,12 +980,43 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
   const getComparableQty = (order) => {
     const raw =
-      order?.quantity ??
       order?.plan ??
       order?.toDoQty ??
+      order?.quantity ??
       0;
     const n = Number(raw);
     return Number.isFinite(n) ? n : 0;
+  };
+
+  const getComparablePlannedHours = (order) => {
+    if (!order || typeof order !== "object") return null;
+
+    const fromReferenceOps = order?.referenceOperationTimes;
+    if (fromReferenceOps && typeof fromReferenceOps === "object" && Object.keys(fromReferenceOps).length > 0) {
+      const total = Object.values(fromReferenceOps).reduce((sum, op) => {
+        const value = Number(op?.plannedHours ?? op?.planned ?? 0);
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0);
+      return Number.isFinite(total) ? total : null;
+    }
+
+    const splitCandidates = [order?.plannedHoursBH, order?.plannedHoursNabewerken, order?.plannedHoursBM01]
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+    if (splitCandidates.length > 0) {
+      return splitCandidates.reduce((sum, value) => sum + value, 0);
+    }
+
+    const fromOperations = order?.operations;
+    if (fromOperations && typeof fromOperations === "object" && Object.keys(fromOperations).length > 0) {
+      const total = Object.values(fromOperations).reduce((sum, op) => {
+        const value = Number(op?.planned ?? op?.plannedHours ?? 0);
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0);
+      return Number.isFinite(total) ? total : null;
+    }
+
+    return null;
   };
 
   const normalizePoText = (value) =>
@@ -817,37 +1027,65 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   const orderChangeMeta = useMemo(() => {
     const byId = new Map();
     validOrders.forEach((order) => {
-      const existing = existingOrderMap.get(getOrderKey(order));
+      const existing = getExistingOrder(order);
       if (!existing) {
         byId.set(order.id, {
           isExisting: false,
           quantityChanged: false,
+          readyChanged: false,
           notesChanged: false,
+          hoursChanged: false,
           oldQuantity: null,
           newQuantity: getComparableQty(order),
+          oldReadyQty: null,
+          newReadyQty: getComparableReadyQty(order),
           oldNotes: "",
           newNotes: clean(order.notes),
+          oldPlannedHours: null,
+          newPlannedHours: getComparablePlannedHours(order),
           hasSmartChange: false,
         });
         return;
       }
 
-      const oldQuantity = getComparableQty(existing);
+      const existingPlanRaw = Number(existing?.plan);
+      const existingQuantityRaw = Number(existing?.quantity);
+      const hasManualPlanOverride =
+        Number.isFinite(existingPlanRaw) &&
+        Number.isFinite(existingQuantityRaw) &&
+        existingPlanRaw !== existingQuantityRaw;
+
+      const oldQuantity = hasManualPlanOverride ? existingPlanRaw : getComparableQty(existing);
       const newQuantity = getComparableQty(order);
+      const oldReadyQty = getComparableReadyQty(existing);
+      const newReadyQty = getComparableReadyQty(order);
       const oldNotes = normalizePoText(existing?.notes);
       const newNotes = normalizePoText(order?.notes);
-      const quantityChanged = oldQuantity !== newQuantity;
+      const quantityChanged = hasManualPlanOverride ? false : oldQuantity !== newQuantity;
+      const readyChanged = oldReadyQty !== newReadyQty;
       const notesChanged = oldNotes !== newNotes;
+      const oldPlannedHours = getComparablePlannedHours(existing);
+      const newPlannedHours = getComparablePlannedHours(order);
+      const hoursChanged =
+        newPlannedHours !== null &&
+        (oldPlannedHours === null || Math.abs(oldPlannedHours - newPlannedHours) > 0.0001);
 
       byId.set(order.id, {
         isExisting: true,
         quantityChanged,
+        readyChanged,
         notesChanged,
+        hoursChanged,
         oldQuantity,
         newQuantity,
+        oldReadyQty,
+        newReadyQty,
         oldNotes,
         newNotes,
-        hasSmartChange: quantityChanged || notesChanged,
+        oldPlannedHours,
+        newPlannedHours,
+        hasManualPlanOverride,
+        hasSmartChange: quantityChanged || readyChanged || notesChanged || hoursChanged,
       });
     });
     return byId;
@@ -874,12 +1112,26 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
       rows = rows.filter((d) => isExistingOrder(d));
     }
 
+    if (readySyncFilter !== "all") {
+      rows = rows.filter((d) => {
+        const meta = orderChangeMeta.get(d.id);
+        if (!meta?.isExisting) return false;
+        const delta = Number(meta.newReadyQty || 0) - Number(meta.oldReadyQty || 0);
+        if (readySyncFilter === "match") return delta === 0;
+        if (readySyncFilter === "higher") return delta > 0;
+        if (readySyncFilter === "lower") return delta < 0;
+        if (readySyncFilter === "mismatch") return delta !== 0;
+        return true;
+      });
+    }
+
     // In paste mode: alleen nieuwe orders tonen (geen bestaande updaten)
     if (pasteMode) {
       rows = rows.filter((d) => !isExistingOrder(d));
       rows.sort((a, b) => String(a.orderId || a.id).localeCompare(String(b.orderId || b.id)));
     } else if (importMode === "smart_update") {
       rows = rows.filter((d) => {
+        if (isSmartSyncExcludedOrder(d)) return false;
         const meta = orderChangeMeta.get(d.id);
         return meta ? (!meta.isExisting || meta.hasSmartChange) : false;
       });
@@ -895,7 +1147,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
     }
 
     return rows;
-  }, [validOrders, machineGroupFilter, statusFilter, existingIds, selectedMachines, importMode, orderChangeMeta, isFittingsScoped, pasteMode]);
+  }, [validOrders, machineGroupFilter, statusFilter, readySyncFilter, existingIds, selectedMachines, importMode, orderChangeMeta, isFittingsScoped, pasteMode]);
 
   const importCandidates = useMemo(() => {
     let rows;
@@ -903,7 +1155,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
     if (pasteMode) {
       rows = validOrders.filter((d) => !isExistingOrder(d));
     } else if (importMode === "smart_update") {
-      rows = validOrders.filter((d) => !isExistingOrder(d) || orderChangeMeta.get(d.id)?.hasSmartChange);
+      rows = validOrders.filter((d) => {
+        if (isSmartSyncExcludedOrder(d)) return false;
+        return !isExistingOrder(d) || orderChangeMeta.get(d.id)?.hasSmartChange;
+      });
     } else {
       rows = validOrders.filter((d) =>
         importMode === "overwrite" ||
@@ -915,7 +1170,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
       rows = rows.filter((d) => isFittingsMachine(d.machine));
     }
     return rows;
-  }, [validOrders, importMode, existingIds, selectedMachines, orderChangeMeta, isFittingsScoped, pasteMode]);
+  }, [validOrders, importMode, existingIds, selectedMachines, orderChangeMeta, isFittingsScoped, pasteMode, SMART_SYNC_EXCLUDED_ORDER_IDS]);
 
   useEffect(() => {
     if (pasteMode || importMode === "smart_update") {
@@ -986,6 +1241,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         await importPlanningOrders({
           orders: payloadOrders,
           importMode,
+          hoursOnlyMode,
         });
 
         const chunkNumber = Math.floor(i / CHUNK) + 1;
@@ -1120,6 +1376,16 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                             <option value="existing" className="text-slate-800">{t("digitalplanning.planning_import.status_existing", "BESTAAND")}</option>
                           </select>
                         </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black text-blue-400 uppercase ml-1 mb-1 tracking-widest">{t("digitalplanning.planning_import.ready_sync_label", "Wikkel LN vs FF")}</span>
+                          <select value={readySyncFilter} onChange={(e) => setReadySyncFilter(e.target.value)} className="bg-white/10 border border-white/20 rounded-xl px-3 py-2 font-bold text-xs text-white outline-none focus:border-blue-500">
+                            <option value="all" className="text-slate-800">{t("digitalplanning.planning_import.ready_sync_all", "ALLES")}</option>
+                            <option value="match" className="text-slate-800">{t("digitalplanning.planning_import.ready_sync_match", "GELIJK")}</option>
+                            <option value="higher" className="text-slate-800">{t("digitalplanning.planning_import.ready_sync_higher", "LN > FF")}</option>
+                            <option value="lower" className="text-slate-800">{t("digitalplanning.planning_import.ready_sync_lower", "LN < FF")}</option>
+                            <option value="mismatch" className="text-slate-800">{t("digitalplanning.planning_import.ready_sync_mismatch", "VERSCHIL")}</option>
+                          </select>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => selectMachines(availableMachines)}
@@ -1145,6 +1411,18 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                           >
                             {t("digitalplanning.planning_import.all_hidden", "Alles verborgen")}
                           </button>
+                          <div className="border-l border-white/30 pl-2" />
+                          <label className="flex items-center gap-2 px-2.5 py-1.5 bg-yellow-500/20 border border-yellow-500/40 rounded-lg cursor-pointer hover:bg-yellow-500/30 transition-all">
+                            <input
+                              type="checkbox"
+                              checked={hoursOnlyMode}
+                              onChange={(e) => setHoursOnlyMode(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded accent-yellow-500"
+                            />
+                            <span className="text-yellow-200 font-black uppercase text-[10px] tracking-widest">
+                              📋 {t("digitalplanning.planning_import.hours_only_mode", "Alleen Uren")}
+                            </span>
+                          </label>
                         </div>
                       </div>
 
@@ -1185,7 +1463,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                         <th className="px-3 py-3 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_product", "Product")}</th>
                         <th className="px-3 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_delivery_date", "Leverdatum")}</th>
                         <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_status", "Status")}</th>
-                        <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_quantity", "Aantal")}</th>
+                        <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_quantity", "Orderhoeveelheid")}</th>
+                        <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_ready_qty", "Hoeveelheid gereed (LN/FF)")}</th>
                         <th className="px-2 py-3 sticky top-0 bg-slate-50 text-center w-[100px]">{t("digitalplanning.planning_import.table_extra_code", "ExtraCode")}</th>
                         <th className="px-2 py-3 sticky top-0 bg-slate-50">{t("digitalplanning.planning_import.table_po_text", "PO Text")}</th>
                         <th className="px-3 py-3 sticky top-0 bg-slate-50 text-center">{t("digitalplanning.planning_import.table_plan_hours", "Plan Uren")}</th>
@@ -1198,6 +1477,10 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                         const changeMeta = orderChangeMeta.get(order.id);
                         const isQtyIncrease = changeMeta?.quantityChanged && Number(changeMeta.newQuantity) > Number(changeMeta.oldQuantity);
                         const isQtyDecrease = changeMeta?.quantityChanged && Number(changeMeta.newQuantity) < Number(changeMeta.oldQuantity);
+                        const readyDelta = Number(changeMeta?.newReadyQty || 0) - Number(changeMeta?.oldReadyQty || 0);
+                        const readyUp = changeMeta?.isExisting && readyDelta > 0;
+                        const readyDown = changeMeta?.isExisting && readyDelta < 0;
+                        const readyEqual = changeMeta?.isExisting && readyDelta === 0;
                         const isSmartUnchangedExisting =
                           importMode === "smart_update" &&
                           isExisting &&
@@ -1239,6 +1522,31 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                                 </div>
                               ) : (
                                 <span className="text-[11px] font-black text-slate-700">{Number(order.quantity || 0)}</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 text-center whitespace-nowrap">
+                              {changeMeta?.isExisting ? (
+                                <div className="inline-flex items-center gap-1 flex-col">
+                                  <span 
+                                    className="text-[10px] font-black text-slate-400 cursor-help"
+                                    title={`Gemaakt: ${Number(getExistingOrder(order)?.produced || 0)}, Bij Eindinspectie: ${Number(getExistingOrder(order)?.atEindinspectieCount || 0)}`}
+                                  >
+                                    FF {Number(changeMeta.oldReadyQty || 0)}
+                                  </span>
+                                  <span className={`text-[10px] font-black px-1.5 py-[1px] rounded border ${
+                                    readyUp
+                                      ? "text-emerald-700 bg-emerald-100 border-emerald-200"
+                                      : readyDown
+                                      ? "text-red-700 bg-red-100 border-red-200"
+                                      : readyEqual
+                                      ? "text-slate-700 bg-slate-100 border-slate-200"
+                                      : "text-blue-700 bg-blue-100 border-blue-200"
+                                  }`}>
+                                    LN {Number(changeMeta.newReadyQty || 0)}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] font-black text-blue-700">LN {Number(order.produced || 0)}</span>
                               )}
                             </td>
                             <td className="px-2 py-1.5 text-center w-[100px]">

@@ -533,7 +533,7 @@ const GanttChartView = (props = {}) => {
     );
     const planningState = getDeliveryPlanningState(deliveryDate, {
       productionLeadDays: 21,
-      finishBufferDays: 4,
+      finishBufferDays: 3,
     });
 
     const startDateRaw =

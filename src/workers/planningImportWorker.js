@@ -11,6 +11,15 @@ const normalizeMachine = (val) => {
   return str.startsWith("40") ? str.substring(2) : str;
 };
 
+const buildImportDocId = (orderId, ...suffixCandidates) => {
+  const safeOrderId = String(orderId || "").trim();
+  const suffix = suffixCandidates
+    .map((value) => String(value || "").trim())
+    .find((value) => value.length > 0);
+  const raw = suffix ? `${safeOrderId}_${suffix}` : safeOrderId;
+  return raw.replace(/[^a-zA-Z0-9]/g, "_");
+};
+
 const pickBestDateCandidate = (candidates, expectedWeekNumber = null) => {
   const parsedExpectedWeek = Number(expectedWeekNumber);
   const hasExpectedWeek = Number.isFinite(parsedExpectedWeek) && parsedExpectedWeek > 0;
@@ -103,7 +112,7 @@ const processDates = (rawDate, expectedWeekNumber = null) => {
 
   if (!isValid(dateObj)) return { delivery: null, planned: null };
 
-  const plannedDate = subWeeks(dateObj, 2);
+  const plannedDate = subWeeks(dateObj, 3);
 
   return {
     delivery: dateObj,
@@ -206,7 +215,9 @@ const parseWorkbook = (arrayBuffer) => {
     const idxItemCode = firstIndex(headers, ["manufactured item", "item code", "item"]);
     const idxDatum = firstIndex(headers, ["datum", "date", "delivery date", "leverdatum"]);
     const idxPlan = firstIndex(headers, ["plan", "qty", "quantity", "aantal"]);
-    const idxGewikkeld = firstIndex(headers, ["gewikkeld", "geproduceerd", "gemaakt", "produced"]);
+    const idxEstimatedHours = firstIndex(headers, ["total production estimated time [hrs]", "total production estimated time hrs", "estimated time [hrs]", "estimated time hrs"]);
+    const idxDelivered = firstIndex(headers, ["hoeveelheid geleverd", "geleverd", "delivered quantity", "delivered qty"]);
+    const idxGewikkeld = firstIndex(headers, ["gewikkeld", "geproduceerd", "gemaakt", "produced", "hoeveelheid gereed"]);
     const idxWeek = firstIndex(headers, ["week", "weeknumber", "week number"]);
     const idxItemDesc = firstIndex(headers, ["item desc", "description", "omschrijving"]);
     const idxCode = firstIndex(headers, ["code", "extra code"]);
@@ -220,7 +231,9 @@ const parseWorkbook = (arrayBuffer) => {
       .map((row) => {
         const orderId = String(row[idxOrder]).trim();
         const manufacturedItem = String(row[idxItemCode] || "").trim();
-        const docId = `${orderId}_${manufacturedItem}`.replace(/[^a-zA-Z0-9]/g, "_");
+        const machine = normalizeMachine(row[idxMachine]);
+        const itemDescription = idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "";
+        const docId = buildImportDocId(orderId, manufacturedItem, itemDescription, machine);
 
         const rawDateVal = idxDatum !== -1 ? row[idxDatum] : null;
         const expectedWeekNumber = idxWeek !== -1 ? parseInt(row[idxWeek], 10) || null : null;
@@ -233,7 +246,20 @@ const parseWorkbook = (arrayBuffer) => {
             : parseFloat(rawPlan);
         if (Number.isNaN(quantity)) quantity = 1;
 
-        const machine = normalizeMachine(row[idxMachine]);
+        const rawEstimatedHours = idxEstimatedHours !== -1 ? row[idxEstimatedHours] : null;
+        let totalPlannedHours =
+          typeof rawEstimatedHours === "string"
+            ? parseFloat(rawEstimatedHours.replace(",", "."))
+            : parseFloat(rawEstimatedHours);
+        if (Number.isNaN(totalPlannedHours)) totalPlannedHours = 0;
+
+        const rawDelivered = idxDelivered !== -1 ? row[idxDelivered] : null;
+        let deliveredQty =
+          typeof rawDelivered === "string"
+            ? parseFloat(rawDelivered.replace(",", "."))
+            : parseFloat(rawDelivered);
+        if (Number.isNaN(deliveredQty)) deliveredQty = null;
+
         const machineKey = `started_${machine.replace(/[^a-zA-Z0-9]/g, "_")}`;
         const PIPE_MACHINES = ["BA05", "BA07", "BA08", "BA09"];
 
@@ -247,6 +273,7 @@ const parseWorkbook = (arrayBuffer) => {
         if (PIPE_MACHINES.includes(machine)) {
           quantity = quantity / 10;
           gewikkeldCount = gewikkeldCount / 10;
+          if (Number.isFinite(deliveredQty)) deliveredQty = deliveredQty / 10;
         }
 
         return {
@@ -257,10 +284,12 @@ const parseWorkbook = (arrayBuffer) => {
           plannedDate: planned ? planned.toISOString() : null,
           weekNumber: expectedWeekNumber,
           itemCode: idxItemCode !== -1 ? String(row[idxItemCode] || "") : "",
-          item: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
-          itemDescription: idxItemDesc !== -1 ? String(row[idxItemDesc] || "") : "",
+          item: itemDescription,
+          itemDescription,
           extraCode: idxCode !== -1 ? String(row[idxCode] || "") : "",
           plan: quantity,
+          totalPlannedHours,
+          deliveredQty,
           produced: gewikkeldCount,
           [machineKey]: gewikkeldCount,
           notes: idxPoText !== -1 ? String(row[idxPoText] || "") : "",

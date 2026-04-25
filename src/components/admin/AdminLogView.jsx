@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import {
   History,
   Search,
@@ -31,13 +32,68 @@ import {
   updateDoc,
   startAfter,
 } from "firebase/firestore";
-import { db, auth, logActivity } from "../../config/firebase";
+import app, { db, auth, logActivity } from "../../config/firebase";
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, parse, isValid } from "date-fns";
 import { nl } from "date-fns/locale";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useNotifications } from "../../contexts/NotificationContext";
 
 const WEEK_INPUT_FORMAT = "RRRR-'W'II";
+const functions = getFunctions(app);
+const migrateLegacyActivityLogsCallable = httpsCallable(functions, "migrateLegacyActivityLogs");
+
+const toDateValue = (value) => {
+  if (!value) return new Date();
+  if (typeof value?.toDate === "function") return value.toDate();
+  if (value instanceof Date) return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
+const stringifyValue = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch (_err) {
+    return String(value);
+  }
+};
+
+const getLogDetailsText = (log) => {
+  const details = log?.details;
+  if (typeof details === "string") return details;
+  if (details && typeof details === "object") {
+    if (typeof details.message === "string" && details.message.trim()) {
+      return details.message;
+    }
+    return stringifyValue(details);
+  }
+  return "";
+};
+
+const getLogMeta = (log) => {
+  const details = log?.details && typeof log.details === "object" ? log.details : {};
+  return {
+    source: log?.source || details?.source || "",
+    ipAddress: log?.ipAddress || details?.ipAddress || "",
+    status: log?.status || details?.status || "",
+  };
+};
+
+const getDiffPayload = (log) => {
+  if (log?.changes && typeof log.changes === "object") return log.changes;
+  const details = log?.details && typeof log.details === "object" ? log.details : {};
+  if (details?.changes && typeof details.changes === "object") return details.changes;
+  if (details?.before !== undefined || details?.after !== undefined) {
+    return {
+      oldValue: details.before,
+      newValue: details.after,
+    };
+  }
+  return null;
+};
 
 /**
  * AdminLogView V4.2 - Path Integrity Fix & Diff View
@@ -58,6 +114,8 @@ const AdminLogView = () => {
   const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [isMigratingLegacy, setIsMigratingLegacy] = useState(false);
+  const [migrationSummary, setMigrationSummary] = useState(null);
   const [isClearing, setIsClearing] = useState(false);
   const [error, setError] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -67,10 +125,10 @@ const AdminLogView = () => {
 
   // ISO COMPLIANCE SWITCH
   // Zet op true voor live-gang om te voldoen aan ISO 9001/27001 (Audit Trail Integriteit)
-  const READ_ONLY_MODE = false;
+  const READ_ONLY_MODE = true;
 
   // Correcte paden voor logs (hardcoded om mismatch met dbPaths te voorkomen)
-  const LOG_PATH = ["future-factory", "logs", "activity_logs"];
+  const LOG_PATH = ["future-factory", "audit", "logs"];
   const ARCHIVE_PATH = ["future-factory", "logs", "activity_logs_archive"];
 
   const actionTypes = [
@@ -159,7 +217,7 @@ const AdminLogView = () => {
       const logData = snapshot.docs.map((logDoc) => ({
         id: logDoc.id,
         ...logDoc.data(),
-        timestamp: logDoc.data().timestamp?.toDate() || new Date(),
+        timestamp: toDateValue(logDoc.data().timestamp),
       }));
       setLogs(logData);
       setLastVisibleDoc(snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : null);
@@ -185,7 +243,7 @@ const AdminLogView = () => {
       const moreLogs = snapshot.docs.map((logDoc) => ({
         id: logDoc.id,
         ...logDoc.data(),
-        timestamp: logDoc.data().timestamp?.toDate() || new Date(),
+        timestamp: toDateValue(logDoc.data().timestamp),
       }));
       setLogs((prev) => [...prev, ...moreLogs]);
       setLastVisibleDoc(snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : lastVisibleDoc);
@@ -205,12 +263,54 @@ const AdminLogView = () => {
   const filteredLogs = logs.filter((log) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
+    const detailsText = getLogDetailsText(log).toLowerCase();
+    const detailsRaw = stringifyValue(log.details).toLowerCase();
     return (
-      log.userEmail?.toLowerCase().includes(q) ||
-      log.details?.toLowerCase().includes(q) ||
-      log.action?.toLowerCase().includes(q)
+      String(log.userEmail || "").toLowerCase().includes(q) ||
+      String(log.action || "").toLowerCase().includes(q) ||
+      detailsText.includes(q) ||
+      detailsRaw.includes(q)
     );
   });
+
+  const handleMigrateLegacyLogs = async () => {
+    const confirmed = await showConfirm({
+      title: t("adminLogView.migrateLegacyTitle", "Legacy logs migreren"),
+      message: t(
+        "adminLogView.migrateLegacyConfirm",
+        "Deze actie kopieert oude activity_logs naar de nieuwe audit-log collectie. Doorgaan?"
+      ),
+      confirmText: t("common.continue", "Doorgaan"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "warning",
+    });
+    if (!confirmed) return;
+
+    setIsMigratingLegacy(true);
+    try {
+      const response = await migrateLegacyActivityLogsCallable({
+        dryRun: false,
+        limit: 1000,
+        maxScan: 10000,
+        pageSize: 250,
+        deleteSource: false,
+        markSourceMigrated: true,
+      });
+      setMigrationSummary(response?.data || null);
+      notify(
+        t(
+          "adminLogView.migrateLegacyDone",
+          `Migratie klaar. Gemigreerd: ${response?.data?.migrated || 0}, gescand: ${response?.data?.scanned || 0}`
+        )
+      );
+      await fetchInitialLogs();
+    } catch (err) {
+      console.error("Legacy migratie mislukt:", err);
+      notify(t("adminLogView.migrateLegacyError", "Migratie van legacy logs is mislukt."));
+    } finally {
+      setIsMigratingLegacy(false);
+    }
+  };
 
   const handleExportCSV = () => {
     if (filteredLogs.length === 0) return;
@@ -226,7 +326,7 @@ const AdminLogView = () => {
       format(log.timestamp, "HH:mm:ss"),
       log.action,
       log.userEmail || t('common.system'),
-      `"${log.details?.replace(/"/g, '""')}"`,
+      `"${getLogDetailsText(log).replace(/"/g, '""')}"`,
     ]);
     const csvContent =
       "data:text/csv;charset=utf-8," +
@@ -248,8 +348,13 @@ const AdminLogView = () => {
     try {
       const { jsPDF } = await import("jspdf");
       const autoTable = (await import("jspdf-autotable")).default;
+      const compact = (value, max = 160) => {
+        const txt = String(value || "").replace(/\s+/g, " ").trim();
+        if (!txt) return "-";
+        return txt.length > max ? `${txt.slice(0, max - 1)}…` : txt;
+      };
 
-      const doc = new jsPDF();
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
       doc.setFontSize(18);
       doc.text(t('adminLogView.pdfTitle'), 14, 22);
@@ -260,29 +365,40 @@ const AdminLogView = () => {
       doc.text(`${t('adminLogView.totalRecords')}${filteredLogs.length}`, 14, 35);
 
       const tableColumn = [
-        t('adminLogView.csvHeaders.date'),
-        t('adminLogView.csvHeaders.time'),
+        t('adminLogView.generatedOn', 'Tijdstip'),
         t('adminLogView.csvHeaders.action'),
         t('adminLogView.csvHeaders.user'),
-        t('adminLogView.pdfHeaders.source'),
-        t('adminLogView.pdfHeaders.ip'),
-        t('adminLogView.csvHeaders.details')
+        `${t('adminLogView.pdfHeaders.source')} / ${t('adminLogView.pdfHeaders.ip')}`,
+        t('adminLogView.csvHeaders.details'),
       ];
+
       const tableRows = filteredLogs.map((log) => [
-        format(log.timestamp, "dd-MM-yyyy"),
-        format(log.timestamp, "HH:mm:ss"),
-        log.action,
-        log.userEmail || t('common.system'),
-        log.source || "-",
-        log.ipAddress || "-",
-        log.details || "",
+        format(log.timestamp, "dd-MM-yyyy HH:mm:ss"),
+        compact(log.action, 40),
+        compact(log.userEmail || t('common.system'), 44),
+        compact(`${getLogMeta(log).source || '-'} | ${getLogMeta(log).ipAddress || '-'}`, 64),
+        compact(getLogDetailsText(log) || "", 220),
       ]);
 
       autoTable(doc, {
         head: [tableColumn],
         body: tableRows,
         startY: 45,
-        styles: { fontSize: 8, cellPadding: 2 },
+        margin: { left: 10, right: 10 },
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+          overflow: 'linebreak',
+          valign: 'top',
+        },
+        columnStyles: {
+          0: { cellWidth: 34 },
+          1: { cellWidth: 42 },
+          2: { cellWidth: 52 },
+          3: { cellWidth: 56 },
+          4: { cellWidth: 93 },
+        },
+        rowPageBreak: 'avoid',
         headStyles: { fillColor: [15, 23, 42] },
       });
 
@@ -413,11 +529,12 @@ const AdminLogView = () => {
   };
 
   const getActionColor = (action) => {
-    if (action.includes("DELETE") || action.includes("FAILED"))
+    const normalized = String(action || "").toUpperCase();
+    if (normalized.includes("DELETE") || normalized.includes("FAILED"))
       return "bg-rose-50 text-rose-600 border-rose-100";
-    if (action.includes("CREATE") || action.includes("ADD") || action.includes("IMPORT") || action === "LOGIN")
+    if (normalized.includes("CREATE") || normalized.includes("ADD") || normalized.includes("IMPORT") || normalized === "LOGIN")
       return "bg-emerald-50 text-emerald-600 border-emerald-100";
-    if (action.includes("UPDATE") || action.includes("CHANGE"))
+    if (normalized.includes("UPDATE") || normalized.includes("CHANGE"))
       return "bg-blue-50 text-blue-600 border-blue-100";
     return "bg-slate-50 text-slate-500 border-slate-100";
   };
@@ -450,6 +567,18 @@ const AdminLogView = () => {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleMigrateLegacyLogs}
+            disabled={isMigratingLegacy}
+            className="px-4 py-3 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-amber-100 transition-all disabled:opacity-50"
+            title={t("adminLogView.migrateLegacyTitle", "Legacy logs migreren")}
+          >
+            {isMigratingLegacy ? (
+              <span className="inline-flex items-center gap-2"><Loader2 size={12} className="animate-spin" />MIGRATIE...</span>
+            ) : (
+              t("adminLogView.migrateLegacyCta", "Migreer legacy logs")
+            )}
+          </button>
           {!READ_ONLY_MODE && (
             <>
               <button
@@ -519,6 +648,12 @@ const AdminLogView = () => {
               );
             })()}
           </div>
+        </div>
+      )}
+
+      {migrationSummary && (
+        <div className="mx-8 mt-4 bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs font-bold text-emerald-800">
+          {t("adminLogView.migrationSummary", "Migratie samenvatting")}: {t("adminLogView.scanned", "gescand")}: {migrationSummary.scanned || 0}, {t("adminLogView.migrated", "gemigreerd")}: {migrationSummary.migrated || 0}, {t("adminLogView.skipped", "overgeslagen")}: {migrationSummary.skipped || 0}.
         </div>
       )}
 
@@ -612,7 +747,7 @@ const AdminLogView = () => {
 
       {/* LOG FEED */}
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-        <div className="max-w-6xl mx-auto space-y-2 pb-40">
+        <div className="w-full mx-auto space-y-2 pb-40">
           {loading ? (
             <div className="py-20 text-center flex flex-col items-center gap-4 opacity-50">
               <Loader2 className="animate-spin text-blue-500" size={40} />
@@ -628,37 +763,41 @@ const AdminLogView = () => {
               </p>
             </div>
           ) : (
-            filteredLogs.map((log) => (
+            filteredLogs.map((log) => {
+              const diffPayload = getDiffPayload(log);
+              const meta = getLogMeta(log);
+
+              return (
               <div
                 key={log.id}
-                onClick={() => log.changes && setExpandedId(expandedId === log.id ? null : log.id)}
-                className={`bg-white p-5 rounded-2xl border border-slate-100 hover:border-blue-200 hover:shadow-md transition-all group flex flex-col gap-4 ${log.changes ? "cursor-pointer" : ""}`}
+                onClick={() => diffPayload && setExpandedId(expandedId === log.id ? null : log.id)}
+                className={`bg-white p-5 rounded-2xl border border-slate-100 hover:border-blue-200 hover:shadow-md transition-all group flex flex-col gap-4 ${diffPayload ? "cursor-pointer" : ""}`}
               >
-                <div className="flex flex-col md:flex-row items-start md:items-center gap-6 w-full">
-                <div className="w-32 shrink-0 flex flex-col border-r border-slate-50">
-                  <span className="text-xs font-black text-slate-900 tracking-tighter italic">
+                <div className="grid grid-cols-1 md:grid-cols-[130px_minmax(180px,240px)_minmax(120px,180px)_minmax(0,1fr)_auto] gap-4 md:gap-5 w-full items-start md:items-center">
+                <div className="min-w-0 flex flex-col md:pr-3 md:border-r border-slate-50">
+                  <span className="text-xs font-black text-slate-900 tracking-tighter italic break-words">
                     {format(log.timestamp, "dd MMM yyyy", { locale: nl })}
                   </span>
-                  <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">
+                  <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase break-words">
                     {format(log.timestamp, "HH:mm:ss")}
                   </span>
                 </div>
-                <div className="w-64 shrink-0 flex items-center gap-3 overflow-hidden border-r border-slate-50 px-2 text-left">
+                <div className="min-w-0 flex items-center gap-3 overflow-hidden md:pr-3 md:border-r border-slate-50 text-left">
                   <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-[11px] shadow-lg shrink-0">
                     {log.userEmail?.charAt(0).toUpperCase() || "S"}
                   </div>
-                  <div className="flex flex-col overflow-hidden">
-                    <span className="text-xs font-black text-slate-700 truncate uppercase tracking-tight">
+                  <div className="flex flex-col overflow-hidden min-w-0">
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-tight truncate">
                       {log.userEmail || t('common.system')}
                     </span>
-                    <span className="text-[8px] font-mono text-slate-300 uppercase">
+                    <span className="text-[8px] font-mono text-slate-300 uppercase truncate">
                       UID: {log.userId?.substring(0, 8)}
                     </span>
                   </div>
                 </div>
-                <div className="w-48 shrink-0 flex justify-center border-r border-slate-50 px-2">
+                <div className="min-w-0 flex md:justify-center md:pr-3 md:border-r border-slate-50">
                   <span
-                    className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${getActionColor(
+                    className={`max-w-full px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm break-words ${getActionColor(
                       log.action
                     )}`}
                   >
@@ -668,7 +807,7 @@ const AdminLogView = () => {
                       .replace("TOOL_", "")}
                   </span>
                 </div>
-                <div className="flex-1 text-left">
+                <div className="min-w-0 text-left">
                   {editingId === log.id ? (
                     <div className="flex items-center gap-2">
                       <input 
@@ -686,17 +825,17 @@ const AdminLogView = () => {
                       </button>
                     </div>
                   ) : (
-                    <div>
-                      <p className="text-sm font-bold text-slate-600 leading-none group-hover:text-blue-600 transition-colors">
-                        {log.details || t('adminLogView.detailsPlaceholder')}
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-600 leading-snug group-hover:text-blue-600 transition-colors break-words whitespace-pre-wrap overflow-hidden">
+                        {getLogDetailsText(log) || t('adminLogView.detailsPlaceholder')}
                       </p>
-                      {(log.source || log.ipAddress || log.status) && (
-                        <div className="flex flex-wrap items-center gap-2 mt-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                          {log.source && <span className="text-[9px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200">{t('adminLogView.sourcePrefix')} {log.source}</span>}
-                            {log.ipAddress && <span className="text-[9px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200">{t('adminLogView.ipPrefix')} {log.ipAddress}</span>}
-                            {log.status && (
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${log.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
-                                    {log.status}
+                      {(meta.source || meta.ipAddress || meta.status) && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2 opacity-60 group-hover:opacity-100 transition-opacity min-w-0">
+                          {meta.source && <span className="max-w-full text-[9px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200 break-all">{t('adminLogView.sourcePrefix')} {meta.source}</span>}
+                            {meta.ipAddress && <span className="max-w-full text-[9px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200 break-all">{t('adminLogView.ipPrefix')} {meta.ipAddress}</span>}
+                            {meta.status && (
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${String(meta.status).toUpperCase() === 'SUCCESS' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
+                                    {meta.status}
                                 </span>
                             )}
                         </div>
@@ -704,11 +843,11 @@ const AdminLogView = () => {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center justify-end gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                   {!editingId && !READ_ONLY_MODE && (
                     <>
                       <button 
-                        onClick={(e) => { e.stopPropagation(); setEditingId(log.id); setEditValue(log.details || ""); }}
+                        onClick={(e) => { e.stopPropagation(); setEditingId(log.id); setEditValue(getLogDetailsText(log) || ""); }}
                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                       >
                         <Edit2 size={16} />
@@ -721,14 +860,14 @@ const AdminLogView = () => {
                       </button>
                     </>
                   )}
-                  {log.changes && (
+                  {diffPayload && (
                     <ChevronRight size={16} className={`text-slate-300 transition-transform ${expandedId === log.id ? 'rotate-90' : ''}`} />
                   )}
                 </div>
                 </div>
 
                 {/* DIFF VIEW */}
-                {expandedId === log.id && log.changes && (
+                {expandedId === log.id && diffPayload && (
                   <div className="pt-4 border-t border-slate-100 animate-in slide-in-from-top-2 cursor-default" onClick={(e) => e.stopPropagation()}>
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                       <History size={12} /> {t('adminLogView.changeHistory')}
@@ -738,21 +877,22 @@ const AdminLogView = () => {
                        <div className="space-y-1">
                           <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">{t('adminLogView.oldValue')}</span>
                           <div className="bg-white p-3 rounded-xl border border-rose-100 text-xs font-mono text-rose-700 break-all shadow-sm min-h-[3rem]">
-                            {typeof log.changes.oldValue === 'object' ? JSON.stringify(log.changes.oldValue, null, 2) : (log.changes.oldValue || <span className="opacity-30 italic">{t('adminLogView.nullValue')}</span>)}
+                            {typeof diffPayload?.oldValue === 'object' ? JSON.stringify(diffPayload?.oldValue, null, 2) : (diffPayload?.oldValue || <span className="opacity-30 italic">{t('adminLogView.nullValue')}</span>)}
                           </div>
                        </div>
                        {/* New Value */}
                        <div className="space-y-1">
                           <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">{t('adminLogView.newValue')}</span>
                           <div className="bg-white p-3 rounded-xl border border-emerald-100 text-xs font-mono text-emerald-700 break-all shadow-sm min-h-[3rem]">
-                            {typeof log.changes.newValue === 'object' ? JSON.stringify(log.changes.newValue, null, 2) : (log.changes.newValue || <span className="opacity-30 italic">{t('adminLogView.nullValue')}</span>)}
+                            {typeof diffPayload?.newValue === 'object' ? JSON.stringify(diffPayload?.newValue, null, 2) : (diffPayload?.newValue || <span className="opacity-30 italic">{t('adminLogView.nullValue')}</span>)}
                           </div>
                        </div>
                     </div>
                   </div>
                 )}
               </div>
-            ))
+            );
+            })
           )}
 
           {!loading && filteredLogs.length > 0 && hasMore && (

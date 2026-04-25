@@ -86,4 +86,28 @@ function logCallable(context, action, details = {}, options = {}) {
     });
 }
 
-module.exports = { logAction, logCallable };
+/**
+ * Logs a failed authentication or authorization attempt for callable handlers.
+ * This produces explicit SECURITY trail entries without breaking request flow.
+ *
+ * @param {object} context
+ * @param {string} action
+ * @param {'UNAUTHENTICATED'|'PERMISSION_DENIED'} reason
+ * @param {object} [details={}]
+ */
+function logCallableSecurityDenied(context, action, reason, details = {}) {
+  logCallable(
+    context,
+    `SECURITY_${reason}`,
+    {
+      action,
+      ...details,
+    },
+    {
+      category: 'SECURITY',
+      severity: reason === 'PERMISSION_DENIED' ? 'WARNING' : 'INFO',
+    },
+  );
+}
+
+module.exports = { logAction, logCallable, logCallableSecurityDenied };

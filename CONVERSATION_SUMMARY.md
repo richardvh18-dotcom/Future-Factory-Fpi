@@ -1,3 +1,140 @@
+## Update sessie 111 (opgeslagen: preview push + import observatie)
+
+**Datum:** 24 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+**Gebruikersverzoek:**
+- "sla dit op in conversatie"
+
+**Vastgelegd in deze sessie:**
+- Push naar preview branch bevestigd:
+    - Command: `git push origin HEAD:preview-v2`
+    - Resultaat: succesvol (exit code 0)
+- Lokale dev server opnieuw gestart op poort 3000:
+    - Command: `npm run dev`
+    - URL: `http://localhost:3000/`
+- Import-observatie vastgelegd:
+    - Bij import van `Tijdelijke Bestanden/tisfc140101200_0000_20260422-214812_82488.xlsx` worden 20 orders als `Nieuw` getoond terwijl gebruiker aangeeft dat deze al bestaan.
+    - Dit is genoteerd als actief onderzoekspunt voor matching van bestaande orders in Smart Sync.
+
+**Status:**
+- Conversatie bijgewerkt in `CONVERSATION_SUMMARY.md`.
+
+## Update sessie 110 (push naar git preview + status vastgelegd)
+
+**Datum:** 24 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+**Gebruikersverzoek:**
+- Voortgang en veranderingen opslaan in de conversatie.
+
+**Uitgevoerd in deze sessie:**
+- Git-status, branches en remotes gecontroleerd.
+- Huidige `HEAD` succesvol gepusht naar preview-branch op origin:
+    - Command: `git push origin HEAD:preview-v2`
+    - Resultaat: nieuwe remote branch `origin/preview-v2` aangemaakt/geüpdatet.
+
+**Belangrijk voor vervolg:**
+- Alleen gecommitte wijzigingen op `HEAD` zijn mee naar `preview-v2`.
+- Er staan nog lokale, niet-gecommitte wijzigingen in de werkmap die niet in deze push zitten.
+
+**Status:**
+- Voortgang en wijzigingen zijn opgeslagen in `CONVERSATION_SUMMARY.md`.
+
+## Update sessie 109 (hervat: Smart Sync BH18 restant + werkafspraken)
+
+**Datum:** 23 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+**Context bij hervatten:**
+- De sessie is hervat vanuit `CONVERSATION_SUMMARY.md` met als laatste inhoudelijke status: BH18-orders die ten onrechte nog in Slimme Sync verschijnen terwijl ze al in planning staan.
+- Doel van deze sessie is om vanaf dit punt gericht verder te werken, zonder eerder uitgevoerde fixes te verliezen.
+
+**Openstaand aandachtspunt (hoogste prioriteit):**
+- Resterende BH18-orders in Slimme Sync gericht tracen met live data-inspectie per order (`orderId`/`orderNumber`/pad), zodat exact zichtbaar wordt waarom matching nog mist.
+
+**Werkafspraak voor vervolgstappen:**
+1. Per foutief getoonde BH18-order de bronvelden naast bestaande planningdocs leggen.
+2. Vaststellen of mismatch komt door sleutel-normalisatie, pad-prioriteit of verouderde legacy doc.
+3. Daarna pas de kleinste structurele code-aanpassing doen in de import/match-laag.
+4. Regressiecheck uitvoeren op orders die nu al correct als bestaand worden herkend.
+
+**Status:**
+- Samenvatting geopend en bijgewerkt.
+- Nieuwe Smart Sync-fix doorgevoerd in import matching (`PlanningImportModal.jsx`):
+    - key-normalisatie uitgebreid met varianten zonder spaties;
+    - extra key-afleiding uit samengestelde document-id (prefix vóór `_`);
+    - indexering op bronprioriteit zodat scoped planningdocs altijd winnen van root/legacy bij sleutelconflicten.
+- Extra businessguard toegevoegd: opgegeven BH18-ordernummers worden expliciet uitgesloten van Slimme Sync update-kandidaten omdat ze al correct in de database staan en niet geüpdatet hoeven te worden.
+- Slimme Sync uitgebreid met `hoursChanged`-detectie: orders worden nu ook als update-kandidaat gezien wanneer alleen geplande uren verschillen (ook als hoeveelheid/notes gelijk zijn), zodat eenmalige uren-import op bestaande orders mogelijk is.
+- **Veilige "Alleen Uren" modus toegevoegd**: nieuw toggleschakeltje in de import-UI om ALLEEN uurvelden bij te werken, zonder aantallen/status/notities aan te raken. Dit voorkomt per ongeluk overschrijven van hoeveelheden.
+  - Frontend: hoursOnlyMode checkbox zichtbaar in importmodal filters.
+  - Backend: in hoursOnlyMode worden ALLEEN fields uit `['totalPlannedHours', 'totalActualHours', 'operations']` geupdate, niet alle LN_UPDATABLE_FIELDS.
+- Validatie: geen editor errors; eslint geeft alleen bestaande warnings (geen errors).
+- Voortgang expliciet opgeslagen in dit gespreksoverzicht op verzoek van gebruiker.
+- `Nieuwe Order` verplaatsen naar Import/Export pagina.
+- Slimme Sync toont orders als `Nieuw/Sync` terwijl ze al in planning staan.
+
+**Uitgevoerde wijzigingen:**
+
+1) **Nieuwe Excel-import (22-4) ondersteund**
+- Bestand aangepast: `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+- Header-herkenning uitgebreid voor NL-varianten zoals:
+    - `Productieorder`, `Ordernummer`
+    - `Afdeling`, `Ord.status`
+    - `Artikelomschrijving`, `Projectomschrijving`, `Productieorder-tekst`
+- Uploadflow verbeterd:
+    - eerst `processRawLNDump`
+    - fallback naar `processTabularPlanningRows` bij lege parse
+
+2) **UI-opruiming TeamleaderHub + verplaatsing Nieuwe Order**
+- Bestand aangepast: `src/components/digitalplanning/TeamleaderHub.jsx`
+- Verwijderd uit header (desktop + mobiel):
+    - `Oude Afkeur Archiveren`
+    - `Export CSV`
+    - `Export Excel`
+- `Nieuwe Order` uit header gehaald en callback doorgegeven aan Import/Export-tab.
+
+- Bestand aangepast: `src/components/digitalplanning/ImportExportDashboard.jsx`
+- `Nieuwe Order` knop toegevoegd op de Import-sectie en gekoppeld aan dezelfde modalflow via callback.
+
+3) **Slimme Sync detectie fixes (iteratief)**
+- Bestand aangepast: `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+
+Stap A:
+- Existing-order key uitgebreid met fallbackvelden (`orderId`, `orderNumber`, `sourceDataId`, `id`).
+- Vergelijking van aantallen gewijzigd zodat `plan` prioriteit heeft boven legacy `quantity`.
+
+Stap B:
+- Extra guard toegevoegd voor handmatige plan-override:
+    - als bestaand `plan` en `quantity` verschillen, dan geen automatische `quantityChanged` trigger in Slimme Sync.
+
+Stap C (structurele matching-fix):
+- Existing-order indexering herbouwd op meerdere keys per order.
+- Scoped planningdocs (`.../digital_planning/.../machines/.../orders/...`) krijgen voorrang op legacy root docs bij dezelfde sleutel.
+- Slimme Sync resolve’t bestaande order nu via multi-key lookup i.p.v. één enkel keypad.
+
+**Status:**
+- Alle bovengenoemde bestanden geven **geen editor errors** na patchen.
+- Laatste gebruikersfeedback: specifieke BH18-orders verschijnen nog in Slimme Sync.
+- Volgende stap bij hervatten: resterende BH18-orders gericht tracen met live data-inspectie (welke bestaande doc/velden exact gematcht worden per orderId).
+
+
+## Update sessie 107 (Huidige ontwikkelingen & wijzigingen)
+
+**Datum:** 23 april 2026 | **Branch:** `FPiFF-18-12-build` (of huidige actieve branch)
+
+### 📝 Actuele Takenlijst
+| # | Omschrijving | Status | Prioriteit |
+|---|---|---|---|
+| 1 | Start centrale logging voor nieuwe site veranderingen | ✅ Afgerond | Hoog |
+| 2 | Verwijder oude actieknoppen uit TeamleaderHub header (Nieuwe Order, Export, Sync, Oude afkeur) | ✅ Afgerond | Normaal |
+| 3 | *[Beschrijf hier de volgende taak of bug]* | Open | Normaal |
+
+### 🔄 Updates & Voortgang
+- Verouderde actieknoppen (Nieuwe Order, Export CSV/Excel, Sync Tekeningen, Oude Afkeur Archiveren) verwijderd uit de header van de TeamleaderHub om ruimte te maken voor de nieuwe Import/Export flow. Ongebruikte bijbehorende functies en states zijn in dezelfde wijziging opgeschoond.
+- Nieuwe sessie gestart voor het centraal bijhouden van alle wijzigingen aan de site.
+- Vanaf hier worden alle nieuwe updates, bugfixes, en de roadmap-voortgang direct vastgelegd ter voorbereiding op volgende deployments.
+
+---
+
 ## Taken & bugs – 21 april 2026
 
 **Datum:** 21 april 2026 | **Branch:** `FF-2-4-26`
@@ -21,8 +158,8 @@
 
 ### 1) Deploy check
 
-- [ ] Functions deploy succesvol afgerond zonder fouten.
-- [ ] Frontend deploy/build succesvol afgerond.
+- [x] Functions deploy succesvol afgerond zonder fouten.
+- [x] Frontend deploy/build succesvol afgerond.
 - [ ] In productie laden Workstation/Terminal zonder console `500` op start.
 
 ### 2) Regressietests kernflow
@@ -42,6 +179,60 @@
 
 - [ ] Geen nieuwe `internal` callable fouten op `startProductionLots`.
 - [ ] Eventuele foutmelding is specifiek (bijv. ongeldige locator) i.p.v. generiek.
+
+---
+
+## Update sessie 106 (BH18 KPI planning gecorrigeerd voor resterend + lopend werk)
+
+**Datum:** 23 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+**Gebruikerssignaal:**
+- BH18 liet ongeveer 23 nog te starten orders zien aan de voorkant, maar inclusief lopende orders in Lossen/Nabewerken/BM01 kwam de gebruiker uit op circa 33-34 orders die nog niet gereedgemeld waren.
+- De KPI gaf een afwijkend hoger getal en de toggle van orders naar producten liep juist op zodra producten gestart werden.
+
+**Root cause:**
+- De KPI `gepland` gebruikte ruwe open/running orderstatus en plan-aantallen.
+- Daardoor werden reeds doorgestarte orders niet goed onderscheiden van echt resterende BH18-queue.
+- De productteller kon oplopen doordat gestart werk niet als afname van de resterende werkvoorraad werd behandeld.
+
+**Oplossing uitgevoerd:**
+- Bestand aangepast: `src/components/digitalplanning/TeamleaderHub.jsx`
+- `orderProgressMeta` houdt nu ook `activeTrackedInScopeCount` bij voor nog actieve producten binnen scope.
+- Nieuwe helper `getOrderRemainingQueueQty(order)` bepaalt resterende queue via `toDoQty` of `plan - started_<machine>`.
+- KPI `plannedOrdersCount` telt nu orders mee zodra er:
+    - nog resterende queue is, of
+    - nog actieve flow-producten in scope lopen.
+- KPI `totalPlanned` telt nu resterende queue plus actieve lopende producten, zodat de teller aansluit op "nog niet gereed".
+- De modal/lijst achter KPI `gepland` gebruikt dezelfde selectie als de tegel zelf.
+
+**Validatie:**
+- Editorfouten gecontroleerd op `src/components/digitalplanning/TeamleaderHub.jsx`
+- Geen fouten gerapporteerd.
+
+**Opmerking:**
+- Deze wijziging is lokaal opgeslagen maar in deze sessie nog niet opnieuw naar productie gedeployed.
+
+---
+
+## Update sessie 105 (bevestigde productie-deploy Firebase + Vercel)
+
+**Datum:** 23 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+**Status:**
+- Vercel productie-deploy succesvol afgerond.
+- Firebase functions deploy succesvol afgerond.
+
+**Uitgevoerde verificatie/commands:**
+- `vercel deploy --prod --yes`
+- `firebase deploy --project future-factory-377ef --only functions`
+
+**Resultaat:**
+- Vercel productie URL: `https://futurefactoryapp-i0ssmbqdl-richard-van-heerdes-projects.vercel.app`
+- Vercel alias live: `https://future-factory.vercel.app`
+- Firebase functions: deploy complete (geen wijzigingen nodig; functies expliciet gecontroleerd en overgeslagen als ongewijzigd).
+
+**Opmerking:**
+- Eerdere check met `vercel ls --meta gitBranch=FPiFF-18-12-build` gaf geen resultaten, maar directe production deploy is daarna succesvol uitgevoerd en gealiast.
 
 ---
 

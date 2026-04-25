@@ -1284,6 +1284,38 @@ const PlanningSidebar = ({
             </p>
           </div>
 
+          {/* Totaal Gereed */}
+          <div className="mb-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1">
+            <p className="text-[9px] font-black uppercase tracking-wide text-blue-600">Totaal Gereed</p>
+            <p className="text-[11px] font-black text-blue-900">
+              {getOrderFinishedUnits(order, { trackedFinishedCountByOrder: trackedFinishedByOrder })} / {Math.max(0, getNumeric(order?.plan || order?.plannedQuantity || order?.quantity || order?.qty))}
+            </p>
+          </div>
+
+          {/* Wikkelstappen (Planned Hours per step) */}
+          {(order?.plannedHoursBH || order?.plannedHoursNabewerken || order?.plannedHoursBM01) && (
+            <div className="mb-2 rounded-lg border border-purple-100 bg-purple-50 px-2 py-1">
+              <p className="text-[9px] font-black uppercase tracking-wide text-purple-600">Wikkelstappen (LN)</p>
+              <div className="flex gap-1.5 mt-1">
+                {order?.plannedHoursBH > 0 && (
+                  <span className="text-[9px] font-bold bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded">
+                    BH: {order.plannedHoursBH.toFixed(1)}h
+                  </span>
+                )}
+                {order?.plannedHoursNabewerken > 0 && (
+                  <span className="text-[9px] font-bold bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded">
+                    Nab: {order.plannedHoursNabewerken.toFixed(1)}h
+                  </span>
+                )}
+                {order?.plannedHoursBM01 > 0 && (
+                  <span className="text-[9px] font-bold bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded">
+                    BM01: {order.plannedHoursBM01.toFixed(1)}h
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {(order.poText || order.notes) && (
             <div className="mb-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1">
               <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">PO Text</p>
