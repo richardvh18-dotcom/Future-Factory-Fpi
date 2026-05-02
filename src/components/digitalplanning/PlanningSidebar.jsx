@@ -18,7 +18,7 @@ import { collection, query, getDocs, limit } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { getArchiveItemsPath } from "../../config/dbPaths";
 import { endOfISOWeek, format, getISOWeek, isSameDay, isWithinInterval, startOfISOWeek } from "date-fns";
-import { getOrderFinishedUnits, getOrderIdentity, getTrackedRecordOrderId } from "../../utils/planningProgress";
+import { getEffectivePlanQty, getOrderFinishedUnits, getOrderIdentity, getTrackedRecordOrderId } from "../../utils/planningProgress";
 
 const FixedSizeList = List;
 
@@ -644,17 +644,20 @@ const PlanningSidebar = ({
     const allTrackedRecords = [...trackedProducts, ...archivedProducts, ...archivedHistoryProducts];
 
     allTrackedRecords.forEach((product) => {
+      if (product?.isVirtualLot) return;
+
       const orderId = normalizeOrderKey(getOrderIdFromRecord(product));
       if (!orderId) return;
 
+      // Definitief afgekeurde of verwijderde lots tellen niet mee.
       const status = String(product?.status || "").toLowerCase();
       const step = String(product?.currentStep || "").toLowerCase();
-      const isFinished =
-        status.includes("finish") ||
-        status.includes("gereed") ||
-        status.includes("completed") ||
-        step.includes("finish");
-      if (!isFinished) return;
+      const isDefinitivelyRemoved =
+        status === "deleted" ||
+        status === "archived_rejected" ||
+        step === "rejected" ||
+        status === "rejected";
+      if (isDefinitivelyRemoved) return;
 
       const lotNumber = String(getLotFromRecord(product) || product?.id || "").trim();
       if (!lotNumber) return;
@@ -670,6 +673,27 @@ const PlanningSidebar = ({
     });
 
     return countMap;
+  }, [trackedProducts, archivedProducts, archivedHistoryProducts]);
+
+  const virtualLotsByOrder = useMemo(() => {
+    const map = new Map();
+    const allTrackedRecords = [...trackedProducts, ...archivedProducts, ...archivedHistoryProducts];
+
+    allTrackedRecords.forEach((product) => {
+      if (!product?.isVirtualLot) return;
+
+      const orderId = normalizeOrderKey(getOrderIdFromRecord(product));
+      if (!orderId) return;
+
+      const lotNumber = String(getLotFromRecord(product) || product?.id || "").trim();
+      if (!lotNumber) return;
+
+      const set = map.get(orderId) || new Set();
+      set.add(lotNumber);
+      map.set(orderId, set);
+    });
+
+    return map;
   }, [trackedProducts, archivedProducts, archivedHistoryProducts]);
 
   const activeTrackedByOrder = useMemo(() => {
@@ -782,12 +806,16 @@ const PlanningSidebar = ({
     // ook uitgefilterd, ook al staat de DB-status nog op 'planned'/'in_progress'.
     if (dataScope === "active") {
       result = result.filter((o) => {
-        if (!isOpenOrRunningStatus(o?.status)) return false;
-        // Extra check: als produced >= plan én geen actieve tracking meer → effectief Gereed → weggooien
-        const plannedAmt = Math.max(0, getNumeric(o?.plan || o?.plannedQuantity || o?.quantity || o?.qty));
+        const plannedAmt = Math.max(0, getEffectivePlanQty(o));
+        const finishedAmt = getFinishedUnitsForOrder(o);
+        const activeAmt = getNumeric(activeTrackedByOrder.get(normalizeOrderKey(getOrderIdentity(o))));
+
+          if (!isOpenOrRunningStatus(o?.status)) {
+              // Een gesloten order hoort niet in de actieve lijst, tenzij er nog producten fysiek in behandeling zijn
+              return activeAmt > 0;
+          }
+
         if (plannedAmt > 0) {
-          const finishedAmt = getFinishedUnitsForOrder(o);
-          const activeAmt = getNumeric(activeTrackedByOrder.get(normalizeOrderKey(getOrderIdentity(o))));
           if (finishedAmt >= plannedAmt && activeAmt === 0) return false;
         }
         return true;
@@ -1380,7 +1408,7 @@ const PlanningSidebar = ({
 
       sorted.forEach((order) => {
         const orderId = getOrderIdentity(order);
-        const planned = Math.max(0, getNumeric(order?.plan || order?.plannedQuantity || order?.quantity || order?.qty));
+        const planned = Math.max(0, getEffectivePlanQty(order));
         const produced = getFinishedUnitsForOrder(order);
         const remaining = Math.max(0, planned - produced);
 
@@ -1417,6 +1445,11 @@ const PlanningSidebar = ({
   }, [sourceData, machineThroughputPerDay, trackedFinishedByOrder]);
 
   const getOrderTileTintClass = (order) => {
+    const orderKey = normalizeOrderKey(getOrderIdentity(order));
+    if (virtualLotsByOrder.has(orderKey)) {
+      return "border-orange-200 bg-orange-50 hover:border-orange-300";
+    }
+
     const matchText = [order?.itemCode, order?.item, order?.itemDescription, order?.extraCode]
       .filter(Boolean)
       .join(" ")
@@ -1462,7 +1495,7 @@ const PlanningSidebar = ({
       selectedOrderId === order.id || selectedOrderId === order.orderId;
     const isNew = isOrderNew(order);
     const isDelegated = !!order.delegatedTo;
-    const plannedAmount = Math.max(0, getNumeric(order?.plan || order?.plannedQuantity || order?.quantity || order?.qty));
+    const plannedAmount = Math.max(0, getEffectivePlanQty(order));
     const finishedAmount = getFinishedUnitsForOrder(order);
     const activeTrackedCount = getNumeric(activeTrackedByOrder.get(normalizeOrderKey(getOrderIdentity(order))));
     const shouldForceCompletedStatus = plannedAmount > 0 && finishedAmount >= plannedAmount && activeTrackedCount === 0;
@@ -1605,7 +1638,7 @@ const PlanningSidebar = ({
           <div className="mb-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1">
             <p className="text-[9px] font-black uppercase tracking-wide text-blue-600">Totaal Gereed</p>
             <p className="text-[11px] font-black text-blue-900">
-              {getFinishedUnitsForOrder(order)} / {Math.max(0, getNumeric(order?.plan || order?.plannedQuantity || order?.quantity || order?.qty))}
+              {getFinishedUnitsForOrder(order)} / {Math.max(0, getEffectivePlanQty(order))}
             </p>
           </div>
 

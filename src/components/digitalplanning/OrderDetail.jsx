@@ -131,7 +131,14 @@ const OrderDetail = React.memo(({
     normalizedRole === "teamleader" ||
     (normalizedRole.includes("teamleader") && normalizedRole.includes("admin"));
   const visibleOrderNote = String(order?.notes || order?.poText || "").trim();
-  const visibleOrderPlan = Number(order?.plan) || 0;
+  // visibleOrderPlan: als plan expliciet kleiner is dan quantity, is dat een bewuste
+  // correctie door de teamleider (bijv. "nog 6 te maken van order van 10").
+  // Dan is plan leidend; anders quantity (de originele orderhoeveelheid).
+  const rawQuantity = Number(order?.quantity) || 0;
+  const rawPlanVal = Number(order?.plan) || 0;
+  const visibleOrderPlan = rawPlanVal > 0 && rawPlanVal < rawQuantity
+    ? rawPlanVal
+    : rawQuantity || rawPlanVal || 0;
 
   useEffect(() => {
     setNoteDraft(visibleOrderNote);
@@ -450,26 +457,48 @@ const OrderDetail = React.memo(({
       stepUpper === "REJECTED";
     return !isClosed;
   }).length;
+  // linkedStartedAmount = alle ooit gestarte lots, exclusief definitief afgekeurde/verwijderde.
+  // Basis voor "Te doen": plan - gestart (gestart = goed + wip + temp-afkeur, NIET definitieve afkeur).
   const linkedStartedAmount = Array.from(
     new Set(
       orderProducts
+        .filter((product) => {
+          const statusUpper = String(product?.status || "").toUpperCase();
+          const stepUpper = String(product?.currentStep || "").toUpperCase();
+          // Definitief afgekeurd of verwijderd: telt NIET als gestart (must re-make).
+          const isDefinitivelyOut =
+            statusUpper === "ARCHIVED_REJECTED" ||
+            statusUpper === "DELETED" ||
+            (statusUpper === "REJECTED" && stepUpper === "REJECTED");
+          return !isDefinitivelyOut;
+        })
         .map((product) => String(product?.lotNumber || product?.id || "").trim())
         .filter(Boolean)
     )
   ).length;
-  const startedAmount = Math.max(
-    stationStartedAmount,
-    summedStartedAmount,
-    liveStartedAmount,
-    linkedStartedAmount
-  );
+  // startedAmount: als er live tracking data is, is die altijd betrouwbaarder dan
+  // de stale started_<machine> Firestore-teller (die niet automatisch wordt bijgehouden).
+  const startedAmount = linkedStartedAmount > 0
+    ? Math.max(linkedStartedAmount, liveStartedAmount)
+    : Math.max(
+        stationStartedAmount,
+        summedStartedAmount,
+        liveStartedAmount
+      );
   const trackedProducedAmount = countFinishedTrackedLots(orderProducts);
-  const producedAmount = getOrderFinishedUnits(order, { trackedFinishedCount: trackedProducedAmount });
+  // producedAmount: als we live tracking hebben, is dat de bron van waarheid.
+  // order.produced is een LN-import waarde die snel verouderd raakt en mag
+  // de live telling niet overschrijven.
+  const producedAmount = linkedStartedAmount > 0
+    ? trackedProducedAmount
+    : getOrderFinishedUnits(order, { trackedFinishedCount: trackedProducedAmount });
   const rawInProcessFromCounters = Number((startedAmount - producedAmount).toFixed(2));
   const inProcessFromCounters = Number.isFinite(rawInProcessFromCounters) ? rawInProcessFromCounters : 0;
   const inProcessAmount = Math.max(0, Math.max(Number(liveStartedAmount) || 0, inProcessFromCounters));
   const effectivePlanForTodo = canEditOrderPlan && nextPlan !== null ? Number(nextPlan) : visibleOrderPlan;
-  const todoAmount = Math.max(0, Number((Number(effectivePlanForTodo || 0) - producedAmount).toFixed(2)));
+  // To do = stuks die nog niet gestart zijn: quantity - startedAmount (niet - producedAmount,
+  // want "in behandeling" zijn al gestart en tellen niet meer als to do).
+  const todoAmount = Math.max(0, Number((Number(effectivePlanForTodo || 0) - startedAmount).toFixed(2)));
   const planAmount = Math.max(0, Number(visibleOrderPlan || 0));
   const shouldShowCompletedStatus = planAmount > 0 && producedAmount >= planAmount && inProcessAmount === 0;
   const displayStatus = shouldShowCompletedStatus ? "Gereed" : order.status;
@@ -763,12 +792,16 @@ const OrderDetail = React.memo(({
       </div>
 
       {/* Details Grid */}
-      <div className="p-6 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4 border-b border-slate-100 shrink-0">
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+      <div className="p-4 md:p-5 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 border-b border-slate-100 shrink-0">
+        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.planning")}</span>
           <span className="font-bold text-slate-700">{formatExcelDate(order.deliveryDate)}</span>
         </div>
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.machine")}</span>
+          <span className="font-bold text-slate-700">{order.machine?.replace("_INBOX", "") || t("digitalplanning.order_detail.na")}</span>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.amount")}</span>
           {canEditOrderPlan ? (
             <div className="flex items-center gap-2">
@@ -785,11 +818,7 @@ const OrderDetail = React.memo(({
             <span className="font-bold text-slate-700">{order.plan}</span>
           )}
         </div>
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.machine")}</span>
-          <span className="font-bold text-slate-700">{order.machine?.replace("_INBOX", "") || t("digitalplanning.order_detail.na")}</span>
-        </div>
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.started_amount", "Start Aantal")}</span>
           {canEditOrderPlan ? (
             <div className="flex items-center gap-2">
@@ -806,27 +835,27 @@ const OrderDetail = React.memo(({
             <span className="font-bold text-slate-700">{startedAmount}</span>
           )}
         </div>
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.produced_amount", "Gereed")}</span>
-          <span className="font-bold text-emerald-700">{producedAmount}</span>
-        </div>
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.todo_amount", "To do")}</span>
-          <span className="font-black text-blue-700">{todoAmount}</span>
-        </div>
-        <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200">
+        <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200">
           <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-1">In behandeling</span>
           <span className="font-black text-amber-900">{inProcessAmount}</span>
         </div>
-        <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.todo_amount", "To do")}</span>
+          <span className="font-black text-blue-700">{todoAmount}</span>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.produced_amount", "Gereed")}</span>
+          <span className="font-bold text-emerald-700">{producedAmount}</span>
+        </div>
+        <div className="p-3 bg-blue-50 rounded-2xl border border-blue-100">
           <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Excel import</span>
           <span className="font-bold text-blue-900 text-xs">{formatExcelDate(order.createdAt || order.importedAt || order.date)}</span>
         </div>
-        <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+        <div className="p-3 bg-purple-50 rounded-2xl border border-purple-100">
           <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest block mb-1">Gewijzigd</span>
           <span className="font-bold text-purple-900 text-xs">{formatExcelDate(order.updatedAt || order.syncedAt || order.createdAt || order.date)}</span>
         </div>
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.status")}</span>
           <StatusBadge status={displayStatus} />
         </div>
@@ -875,7 +904,7 @@ const OrderDetail = React.memo(({
             }
           }}
           disabled={drawingLoading}
-          className={`p-4 rounded-2xl border transition-all text-left ${
+          className={`p-3 rounded-2xl border transition-all text-left ${
             order.drawing && order.drawing !== "-" && order.drawing !== ""
               ? "bg-blue-50 border-blue-200 hover:bg-blue-100"
               : "bg-slate-50 border-slate-100 hover:bg-slate-100"
@@ -899,8 +928,8 @@ const OrderDetail = React.memo(({
         </button>
       </div>
 
-      <div className="p-6 border-b border-slate-100 bg-amber-50/40">
-        <div className="flex items-center justify-between gap-4 mb-2">
+      <div className="p-4 md:p-5 border-b border-slate-100 bg-amber-50/40">
+        <div className="flex items-center justify-between gap-4 mb-1.5">
           <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
             PO Text / Opmerking
           </h3>
@@ -911,10 +940,10 @@ const OrderDetail = React.memo(({
             value={noteDraft}
             onChange={(e) => setNoteDraft(e.target.value)}
             placeholder="Voeg opmerking toe voor operator/teamleader..."
-            className="w-full min-h-[90px] p-3 bg-white border border-amber-200 rounded-xl text-sm text-slate-700 font-medium outline-none focus:border-amber-500"
+            className="w-full min-h-[64px] p-2.5 bg-white border border-amber-200 rounded-xl text-sm text-slate-700 font-medium outline-none focus:border-amber-500"
           />
         ) : (
-          <div className="w-full min-h-[52px] p-3 bg-white border border-amber-200 rounded-xl text-sm text-slate-700 font-medium whitespace-pre-wrap">
+          <div className="w-full min-h-[40px] p-2.5 bg-white border border-amber-200 rounded-xl text-sm text-slate-700 font-medium whitespace-pre-wrap">
             {visibleOrderNote || "Geen opmerking"}
           </div>
         )}
@@ -932,9 +961,23 @@ const OrderDetail = React.memo(({
             const inspectionDate = p.inspection?.timestamp ? (p.inspection.timestamp.toDate ? p.inspection.timestamp.toDate() : new Date(p.inspection.timestamp)) : null;
             const daysInReject = inspectionDate ? differenceInDays(new Date(), inspectionDate) : 0;
             const isLongReject = daysInReject > 2;
+            const statusUpper = String(p?.status || '').toUpperCase();
+            const stepUpper = String(p?.currentStep || '').toUpperCase();
+            const isReady =
+              statusUpper === 'COMPLETED' ||
+              statusUpper === 'FINISHED' ||
+              statusUpper === 'GEREED' ||
+              stepUpper === 'FINISHED' ||
+              isArchived;
+            const isInBehandeling = !isReady;
+            const lotTileClass = isReady
+              ? 'bg-emerald-50 border-emerald-200'
+              : isInBehandeling
+                ? 'bg-blue-50 border-blue-200'
+                : 'bg-white border-slate-100';
 
             return (
-              <div key={p.id || p.lotNumber} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center group hover:border-blue-200 transition-all">
+              <div key={p.id || p.lotNumber} className={`${lotTileClass} p-4 rounded-2xl border shadow-sm flex justify-between items-center group hover:border-blue-200 transition-all`}>
               <div className="flex items-center gap-4">
                 <div className={`p-3 rounded-xl ${p.status === 'completed' ? 'bg-emerald-50 text-emerald-600' : p.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
                   {p.status === 'completed' ? <CheckCircle2 size={20} /> : p.status === 'rejected' ? <AlertTriangle size={20} /> : <Clock size={20} />}

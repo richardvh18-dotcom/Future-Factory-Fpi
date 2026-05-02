@@ -103,6 +103,15 @@ const resolveScopedMachine = (...values) => {
   return DEFAULT_SCOPED_MACHINE;
 };
 
+const inferDepartmentFromMachine = (machineValue = '') => {
+  const normalizedMachine = normalizeMachineForPlanningServer(machineValue);
+  if (!normalizedMachine || normalizedMachine === '-') return DEFAULT_SCOPED_DEPARTMENT;
+
+  if (normalizedMachine.includes('SPOOL')) return 'Spools';
+  if (/^(40)?BA\d+$/.test(normalizedMachine)) return 'Pipes';
+  return 'Fittings';
+};
+
 const getScopedPlanningDocRef = ({ ctx, department, machine, docId }) => {
   const safeDocId = clean(docId);
   if (!safeDocId) return null;
@@ -1459,6 +1468,44 @@ const archivePlanningOrderService = async ({ orderDocId, requestedReason, source
   const batch = db.batch();
   batch.set(targetArchiveRef, archiveData, { merge: true });
   batch.delete(orderDoc.ref);
+
+  // Verwijder ook alle sibling-documenten met hetzelfde orderId of docId in de planning collection.
+  // Orders kunnen zowel in het root-pad als in scoped machine-paden bestaan; beide moeten opgeruimd worden.
+  const resolvedOrderId = clean(orderData.orderId || orderData.orderNumber || '');
+  const lookupId = orderDoc.id;
+  if (resolvedOrderId) {
+    try {
+      const siblingsByOrderId = await db
+        .collectionGroup('orders')
+        .where('orderId', '==', resolvedOrderId)
+        .limit(20)
+        .get();
+      siblingsByOrderId.docs.forEach((sibDoc) => {
+        const sibPath = String(sibDoc.ref.path || '');
+        if (sibDoc.ref.path !== orderDoc.ref.path && sibPath.startsWith(ctx.planningPath + '/')) {
+          batch.delete(sibDoc.ref);
+        }
+      });
+    } catch (err) {
+      console.warn('[archivePlanningOrderService] sibling cleanup overgeslagen:', err?.message || String(err));
+    }
+    try {
+      const siblingsByDocId = await db
+        .collectionGroup('orders')
+        .where(admin.firestore.FieldPath.documentId(), '==', lookupId)
+        .limit(10)
+        .get();
+      siblingsByDocId.docs.forEach((sibDoc) => {
+        const sibPath = String(sibDoc.ref.path || '');
+        if (sibDoc.ref.path !== orderDoc.ref.path && sibPath.startsWith(ctx.planningPath + '/')) {
+          batch.delete(sibDoc.ref);
+        }
+      });
+    } catch (err) {
+      console.warn('[archivePlanningOrderService] sibling docId cleanup overgeslagen:', err?.message || String(err));
+    }
+  }
+
   await batch.commit();
 
   return {
@@ -3526,6 +3573,8 @@ const startProductionLotsService = async ({
   labelTemplateId,
   seriesGroupId,
   isFlangeSeries,
+  isVirtualLot = false,
+  virtualReason = '',
   dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
@@ -3537,6 +3586,8 @@ const startProductionLotsService = async ({
   const safeLotStart = clean(lotStart).toUpperCase();
   const safeStationId = clean(stationId);
   const safeStationLabel = clean(stationLabel);
+  const safeVirtualReason = clampText(virtualReason, 300);
+  const virtualMode = Boolean(isVirtualLot);
   const qty = Math.max(1, parseInt(String(totalToProduce || 1), 10) || 1);
   const {
     orderDoc: planningOrderDoc,
@@ -3615,16 +3666,20 @@ const startProductionLotsService = async ({
       itemCode: safeItemCode,
       machine: safeStationId,
       stationLabel: safeStationLabel,
-      status: 'In Production',
+      status: virtualMode ? 'QC Virtual Issued' : 'In Production',
       currentStation: safeStationId,
-      currentStep: 'Wikkelen',
+      currentStep: virtualMode ? 'QC_VIRTUAL' : 'Wikkelen',
+      isVirtualLot: virtualMode,
+      virtualReason: virtualMode ? safeVirtualReason : null,
+      virtualIssuedAt: virtualMode ? admin.firestore.FieldValue.serverTimestamp() : null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       history: [{
-        action: 'Start Wikkelen',
+        action: virtualMode ? 'QC Virtueel lot uitgegeven' : 'Start Wikkelen',
         station: safeStationLabel,
         timestamp: nowIso,
         user: actorLabel || 'Operator',
+        details: virtualMode && safeVirtualReason ? safeVirtualReason : null,
       }],
       item: clean(item),
       labelZPL: lotSpecificLabelZpl,
@@ -3677,13 +3732,19 @@ const startProductionLotsService = async ({
     })
     : null;
   if (planningRef) {
-    const planningUpdates = {
-      status: 'in_progress',
-      activeLot: createdLots[0] || safeLotStart,
-      actualStart: admin.firestore.FieldValue.serverTimestamp(),
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    if (startedCounterField) {
+    const planningUpdates = virtualMode
+      ? {
+        activeLot: createdLots[0] || safeLotStart,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        lastVirtualLotAt: admin.firestore.FieldValue.serverTimestamp(),
+      }
+      : {
+        status: 'in_progress',
+        activeLot: createdLots[0] || safeLotStart,
+        actualStart: admin.firestore.FieldValue.serverTimestamp(),
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      };
+    if (!virtualMode && startedCounterField) {
       planningUpdates[startedCounterField] = admin.firestore.FieldValue.increment(qty);
     }
     batch.set(planningRef, planningUpdates, { merge: true });
@@ -3972,7 +4033,7 @@ const createPlanningOrderManualService = async ({
   const now = new Date();
   const { week, year } = getISOWeekInfoServer(now);
   const scopedMachine = resolveScopedMachine(safeMachine);
-  const scopedDepartment = resolveScopedDepartment(DEFAULT_SCOPED_DEPARTMENT);
+  const scopedDepartment = resolveScopedDepartment(inferDepartmentFromMachine(safeMachine));
   const safeDocId = toFirestoreSegment(`${safeOrderId}_${safeItem}`, safeOrderId);
   const newDocRef = getScopedPlanningDocRef({
     ctx,

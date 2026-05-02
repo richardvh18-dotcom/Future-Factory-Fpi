@@ -76,6 +76,7 @@ const ShopFloorMobileApp = React.lazy(() => import("../planning/ShopFloorMobileA
 const ScenarioPlanningView = React.lazy(() => import("../planning/ScenarioPlanningView"));
 // Reports & Analytics
 const AdminReportsView = React.lazy(() => import("./AdminReportsView"));
+const QsheVirtualLotsView = React.lazy(() => import("./QsheVirtualLotsView"));
 // LN Stamdata import
 const ReferenceOpsImportModal = React.lazy(() => import("../digitalplanning/modals/ReferenceOpsImportModal"));
 
@@ -194,6 +195,23 @@ const AdminDashboard = () => {
           color: "bg-cyan-50 border-cyan-100",
           roles: ["admin", "engineer", "teamleader"],
           component: AdminReportsView,
+        },
+      ]
+    },
+    {
+      id: "qshe",
+      title: "QSHE",
+      icon: <ShieldCheck size={20} className="text-orange-600" />,
+      color: "bg-orange-50 border-orange-200",
+      items: [
+        {
+          id: "qshe_virtual_lots",
+          title: "Virtuele Lotuitgifte",
+          desc: "Geef een virtueel lotnummer uit op machine + order zonder fysiek product.",
+          icon: <ShieldCheck size={24} className="text-orange-600" />,
+          color: "bg-orange-50 border-orange-100",
+          roles: ["admin", "qc", "teamleader"],
+          component: QsheVirtualLotsView,
         },
       ]
     },

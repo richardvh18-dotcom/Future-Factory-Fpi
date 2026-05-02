@@ -83,10 +83,32 @@ const App = () => {
   const currentVersion = import.meta.env.VITE_APP_VERSION || "dev";
   const versionRef = useRef(currentVersion);
   useEffect(() => {
+    const host = typeof window !== "undefined" ? window.location.hostname : "";
+    const isLocalDevHost =
+      import.meta.env.DEV ||
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".github.dev");
+
+    // In lokale/dev omgevingen geen auto-reload op remote version checks.
+    // Dit voorkomt reload-loops bij verschil tussen lokale buildversie en remote config.
+    if (isLocalDevHost) return () => {};
+
+    const requestVersionReload = (remoteVersionRaw) => {
+      const remoteVersion = String(remoteVersionRaw || "").trim();
+      if (!remoteVersion || remoteVersion === versionRef.current) return;
+
+      // Guard tegen reload-loops: per tab maximaal 1 reload per remote versie.
+      const reloadKey = "ff_last_version_reload";
+      const alreadyReloadedFor = window.sessionStorage.getItem(reloadKey);
+      if (alreadyReloadedFor === remoteVersion) return;
+
+      window.sessionStorage.setItem(reloadKey, remoteVersion);
+      window.location.reload();
+    };
+
     const unsubscribe = listenToAppVersion((remoteVersion) => {
-      if (remoteVersion && remoteVersion !== versionRef.current) {
-        window.location.reload();
-      }
+      requestVersionReload(remoteVersion);
     });
 
     // Fallback voor omgevingen waar de Firestore versie-write niet draait.
@@ -100,9 +122,7 @@ const App = () => {
         if (!response.ok) return;
         const payload = await response.json();
         const hostedVersion = String(payload?.version || "").trim();
-        if (!cancelled && hostedVersion && hostedVersion !== versionRef.current) {
-          window.location.reload();
-        }
+        if (!cancelled) requestVersionReload(hostedVersion);
       } catch {
         // Niet kritisch: app blijft werken zonder endpoint.
       }

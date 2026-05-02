@@ -1,5 +1,5 @@
 import { collection, collectionGroup, query, onSnapshot, doc, serverTimestamp, where, limit, getDocs, getDoc, arrayUnion, increment } from "firebase/firestore";
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Loader2, Menu, X, Clock, Calendar, ScanBarcode, UserCheck, Nfc, Pencil } from "lucide-react";
@@ -725,7 +725,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
   };
 
   // Helper om te checken of een shift momenteel actief is
-  const isShiftActive = (shiftLabel) => {
+  const isShiftActive = useCallback((shiftLabel) => {
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
@@ -763,7 +763,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     
     // Standaard: altijd tonen als shift niet herkend wordt
     return true;
-  };
+  }, []);
   // Alle operators voor dit station vandaag - ALLEEN DIE NU AAN HET WERK ZIJN
   const stationOccupancy = useMemo(() => {
     if (!selectedStation || occupancy.length === 0 || personnel.length === 0) return [];
@@ -796,7 +796,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           shift: occ.shift || "DAGDIENST"
         };
       });
-  }, [selectedStation, occupancy, personnel]);
+  }, [selectedStation, occupancy, personnel, isShiftActive]);
 
   useEffect(() => {
     if (!requiresShiftCheckin || !selectedStation) return;
@@ -1346,6 +1346,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     const stationNorm = normalizeMachine(selectedStation);
     const stationClean = String(stationNorm || "").toUpperCase().replace(/\s/g, "");
     const isNabewerkingStation = stationClean === "NABEWERKING" || stationClean === "NABEWERKEN" || stationClean.includes("NABEWERK");
+    const isBH18Station = stationClean === "BH18";
     const isBm01Station = stationClean === "BM01" || stationClean.includes("BM01");
     const isWikkelToLossenSourceStation = ["BH12", "BH15", "BH17", "BH18"].includes(stationClean);
 
@@ -1376,12 +1377,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
       const statusUpper = String(product?.status || "").toUpperCase();
       const stepUpper = String(product?.currentStep || "").toUpperCase();
-      const isWaitingForLossen = stepUpper.includes("WACHT OP LOSSEN");
+      const isWaitingForLossen = stepUpper.includes("WACHT OP LOSSEN") || statusUpper.includes("WACHT OP LOSSEN") || statusUpper.includes("TE LOSSEN") || stepUpper === "LOSSEN";
       const isClosed =
         ["COMPLETED", "FINISHED", "GEREED", "REJECTED", "AFKEUR"].includes(statusUpper) ||
         stepUpper === "FINISHED" ||
         stepUpper === "REJECTED" ||
-        (isWikkelToLossenSourceStation && isWaitingForLossen);
+        (isWikkelToLossenSourceStation && !isBH18Station && isWaitingForLossen);
 
       const entry = map.get(orderId) || { active: 0, total: 0 };
       entry.total += 1;
@@ -1401,6 +1402,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     const currentStationNorm = normalizeMachine(selectedStation);
     const currentStationClean = String(currentStationNorm || "").toUpperCase().replace(/\s/g, "");
     const isLossen1218Station = currentStationClean === "LOSSEN12/18";
+    const isBH18 = currentStationClean === "BH18";
     const isWikkelToLossenSourceStation = ["BH12", "BH15", "BH17", "BH18"].includes(currentStationClean);
     const lossen1218OrderMachines = new Set(["BH12", "BH15", "BH17", "BH18", "12", "15", "17", "18"]);
 
@@ -1496,7 +1498,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       const orderId = String(p?.orderId || "").trim();
       if (!orderId) return;
 
-      const stationNorm = normalizeMachine(p?.currentStation || "");
+      const stationNorm = normalizeMachine(p?.originMachine || p?.machine || p?.currentStation || "");
       if (stationNorm !== currentStationNorm) return;
 
       const statusUpper = String(p?.status || "").toUpperCase();
@@ -1509,13 +1511,34 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
 
       const entry = waitingForLossenOnlyByOrder.get(orderId) || { totalActive: 0, waitingForLossen: 0 };
       entry.totalActive += 1;
-      if (stepUpper.includes("WACHT OP LOSSEN")) entry.waitingForLossen += 1;
+      if (stepUpper.includes("WACHT OP LOSSEN") || statusUpper.includes("WACHT OP LOSSEN") || statusUpper.includes("TE LOSSEN") || stepUpper === "LOSSEN") {
+          entry.waitingForLossen += 1;
+      }
       waitingForLossenOnlyByOrder.set(orderId, entry);
     });
 
     const baseStationOrders = rawOrders
       .filter((o) => {
-        if (isInactivePlanningStatus(o.status)) return false;
+        const orderIdForActivity = String(o.orderId || "").trim();
+        const activityMeta = stationActivityByOrder.get(orderIdForActivity);
+        const hasStationActivityCheck = (activityMeta?.active || 0) > 0;
+        
+        // Bereken effectieve plan: respecteer handmatige verlagingen (plan < quantity)
+        const rawQuantity = toFiniteNumber(o.quantity);
+        const rawPlanVal = toFiniteNumber(o.plan);
+        const plannedAmt = rawPlanVal > 0 && rawPlanVal < rawQuantity ? rawPlanVal : Math.max(rawQuantity, rawPlanVal);
+        const actualStartedCount = orderStats[orderIdForActivity]?.started || 0;
+        const isActiveStatus = !isInactivePlanningStatus(o.status);
+        // Detecteer echt tekort (actuele lots > 0 maar < plan) om spookorders te vermijden
+        const hasShortage = plannedAmt > 0 && actualStartedCount > 0 && actualStartedCount < plannedAmt;
+        const isManuallyIncreased = rawPlanVal > rawQuantity;
+
+        // Verberg gesloten orders tenzij er nog stationactiviteit is of het plan handmatig is verhoogd
+        if (isInactivePlanningStatus(o.status) && !hasStationActivityCheck) {
+            if (!(isManuallyIncreased && actualStartedCount < rawPlanVal)) {
+                return false;
+            }
+        }
 
         // Cross-station N2100: toon order in Fittingen pas als Spoolbouw
         // voldoende output heeft opgeleverd (x van y gating).
@@ -1546,42 +1569,51 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
           if (isLossen1218Station && lossenCandidates.some((candidate) => lossen1218OrderMachines.has(candidate))) {
             return true;
           }
-          const orderIdForActivity = String(o.orderId || "").trim();
           const startedAtStation = toFiniteNumber(stationField ? o?.[stationField] || 0 : 0);
-          const planAtStation = Math.max(toFiniteNumber(o.plan), toFiniteNumber(o.quantity));
-          const hasRemainingPlan = startedAtStation > 0 && planAtStation > startedAtStation;
-          const activityMeta = stationActivityByOrder.get(orderIdForActivity);
-          const hasStationActivity = (activityMeta?.active || 0) > 0;
+          const planAtStation = plannedAmt;
+          const effectiveStarted = (hasShortage && isActiveStatus) ? actualStartedCount : startedAtStation;
+          const hasRemainingPlan = (effectiveStarted > 0 && planAtStation > effectiveStarted) || (hasShortage && isActiveStatus);
+          const activityMetaForOrder = stationActivityByOrder.get(orderIdForActivity);
+          const hasStationActivity = (activityMetaForOrder?.active || 0) > 0;
 
           // Wikkelstations BH12/15/17/18: orders die alleen nog op
           // "Wacht op Lossen" staan en geen resterende queue meer hebben,
           // horen niet meer in de werkplanning van het bronstation.
-          if (isWikkelToLossenSourceStation) {
+          if (isWikkelToLossenSourceStation && !isBH18) {
             const waitingOnlyMeta = waitingForLossenOnlyByOrder.get(orderIdForActivity);
-            if (
-              waitingOnlyMeta &&
-              waitingOnlyMeta.totalActive > 0 &&
-              waitingOnlyMeta.waitingForLossen === waitingOnlyMeta.totalActive
-            ) {
-              return false;
-            }
-
-            const waitingForLossenCount = rawProducts.filter((p) => {
-              if (String(p?.orderId || "").trim() !== orderIdForActivity) return false;
-              const stationNorm = normalizeMachine(p?.currentStation || "");
-              if (stationNorm !== currentStationNorm) return false;
-              const stepUpper = String(p?.currentStep || "").toUpperCase();
-              return stepUpper.includes("WACHT OP LOSSEN");
-            }).length;
 
             const rawToDo = o.toDoQty;
             const hasExplicitToDo = !(rawToDo === null || rawToDo === undefined || String(rawToDo).trim() === "");
             const explicitTodo = hasExplicitToDo ? toFiniteNumber(rawToDo) : null;
             const remainingQueue = hasExplicitToDo
               ? Math.max(0, explicitTodo)
-              : Math.max(0, planAtStation - startedAtStation);
+              : Math.max(0, planAtStation - effectiveStarted);
+
+            if (
+              waitingOnlyMeta &&
+              waitingOnlyMeta.totalActive > 0 &&
+              waitingOnlyMeta.waitingForLossen === waitingOnlyMeta.totalActive &&
+              remainingQueue <= 0  // Verberg alleen als er ook geen resterende startvolgorde meer is
+            ) {
+              return false;
+            }
+
+            const waitingForLossenCount = rawProducts.filter((p) => {
+              if (String(p?.orderId || "").trim() !== orderIdForActivity) return false;
+              const stationNorm = normalizeMachine(p?.originMachine || p?.machine || p?.currentStation || "");
+              if (stationNorm !== currentStationNorm) return false;
+              const stepUpper = String(p?.currentStep || "").toUpperCase();
+              const statusUpper = String(p?.status || "").toUpperCase();
+              return stepUpper.includes("WACHT OP LOSSEN") || statusUpper.includes("WACHT OP LOSSEN") || statusUpper.includes("TE LOSSEN") || stepUpper === "LOSSEN";
+            }).length;
 
             if (waitingForLossenCount > 0 && !hasStationActivity && remainingQueue <= 0) {
+              return false;
+            }
+
+            // Verberg ook orders die voor dit wikkelstation functioneel klaar zijn,
+            // zelfs als de order downstream (bijv. Nabewerking) nog actief is.
+            if (!hasStationActivity && remainingQueue <= 0) {
               return false;
             }
           }
@@ -1596,7 +1628,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
       .map((o) => {
         const stats = orderStats[o.orderId] || { started: 0, finished: 0 };
         const startedAtStation = o[stationField] || 0;
-        const remainingAtStation = Math.max(0, Number(o.plan || 0) - startedAtStation);
+        const remainingAtStation = Math.max(0, Number(o.quantity || o.plan || 0) - startedAtStation);
         
         return {
           ...o,
@@ -1616,11 +1648,16 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     // Toon in dat geval minimaal alle actieve orders i.p.v. een leeg scherm.
     if (isLossen1218Station && baseStationOrders.length === 0) {
       return rawOrders
-        .filter((o) => !isInactivePlanningStatus(o.status))
+        .filter((o) => {
+          const orderIdForActivity = String(o.orderId || "").trim();
+          const activityMeta = stationActivityByOrder.get(orderIdForActivity);
+          const hasStationActivityCheck = (activityMeta?.active || 0) > 0;
+          return !isInactivePlanningStatus(o.status) || hasStationActivityCheck;
+        })
         .map((o) => {
           const stats = orderStats[o.orderId] || { started: 0, finished: 0 };
           const startedAtStation = o[stationField] || 0;
-          const remainingAtStation = Math.max(0, Number(o.plan || 0) - startedAtStation);
+          const remainingAtStation = Math.max(0, Number(o.quantity || o.plan || 0) - startedAtStation);
           return {
             ...o,
             liveToDo: remainingAtStation,

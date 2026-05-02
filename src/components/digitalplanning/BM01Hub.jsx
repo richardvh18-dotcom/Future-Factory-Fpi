@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { FileText, Layers, Calendar, ClipboardCheck, History, Package, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Printer, X, Download, ScanBarcode, Keyboard, AlertTriangle } from "lucide-react";
+import { FileText, Layers, Calendar, History, Package, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Printer, X, Download, ScanBarcode, Keyboard, AlertTriangle } from "lucide-react";
 import { format, isValid, isSameDay, subDays, addDays, startOfISOWeek, endOfISOWeek, isWithinInterval } from "date-fns";
 import { nl } from "date-fns/locale";
 import QRCode from "qrcode";
@@ -53,13 +53,13 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   const scanInputRef = useRef(null);
   const selectedProductRef = useRef(null); // Ref voor race-condition preventie
 
-    const focusScanInput = () => {
+    const focusScanInput = useCallback(() => {
         const input = scanInputRef.current;
         if (!input) return;
         input.focus({ preventScroll: true });
-    };
+    }, []);
 
-    const scheduleScanFocus = () => {
+    const scheduleScanFocus = useCallback(() => {
         if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
             window.requestAnimationFrame(() => {
                 focusScanInput();
@@ -68,7 +68,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             return;
         }
         setTimeout(focusScanInput, 0);
-    };
+    }, [focusScanInput]);
 
   // Sync ref met state
   useEffect(() => {
@@ -100,12 +100,12 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             document.removeEventListener('click', handleClick);
             window.removeEventListener('focus', handleWindowFocus);
         };
-    }, [activeTab, showFinishModal, viewingDossier, selectedOrderId, scannerMode]);
+    }, [activeTab, showFinishModal, viewingDossier, selectedOrderId, scannerMode, scheduleScanFocus]);
 
     // Focus scanveld bij eerste render (ook als scannerMode uit staat)
     useEffect(() => {
         scheduleScanFocus();
-    }, []);
+    }, [scheduleScanFocus]);
 
     const handleScan = async (e) => {
         if (e.key === 'Enter') {

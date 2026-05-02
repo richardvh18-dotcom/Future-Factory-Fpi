@@ -3,6 +3,25 @@ const getNumeric = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/**
+ * Geeft de effectieve planningshoeveelheid voor een order.
+ *
+ * Regels:
+ * - quantity is de originele orderhoeveelheid (LN import, nooit handmatig verlaagd).
+ * - plan wordt door de teamleider handmatig bijgesteld (bijv. "nog 6 van 10 te maken").
+ * - Als plan expliciet kleiner is dan quantity → handmatige correctie, gebruik plan.
+ * - Anders → gebruik quantity als bron van waarheid.
+ *
+ * Gebruik dit voor "Te doen" berekeningen en de sidebar "Totaal Gereed / X" weergave.
+ * Gebruik quantity direct voor de "Orderhoeveelheid" label.
+ */
+export const getEffectivePlanQty = (order) => {
+  const qty = getNumeric(order?.quantity || order?.qty || order?.plannedQuantity);
+  const plan = getNumeric(order?.plan);
+  if (plan > 0 && plan < qty) return plan;
+  return qty || plan || 0;
+};
+
 export const getOrderIdentity = (order) => String(order?.orderId || order?.id || "").trim();
 
 export const getTrackedRecordOrderId = (record) => {
@@ -49,6 +68,7 @@ export const countFinishedTrackedLots = (
     new Set(
       (Array.isArray(records) ? records : [])
         .filter((record) => {
+          if (record?.isVirtualLot) return false;
           if (normalizedOrderId && getOrderIdFromRecord(record) !== normalizedOrderId) return false;
           return isTrackedRecordFinished(record);
         })

@@ -256,12 +256,12 @@ const TerminalPlanningView = ({
   };
 
   const getOrderTotalPlan = (order) => {
+    const quantity = Number(order?.quantity);
     const plan = Number(order?.plan);
     const toDoQty = Number(order?.toDoQty);
-    const quantity = Number(order?.quantity);
+    if (Number.isFinite(quantity) && quantity > 0) return quantity;
     if (Number.isFinite(plan) && plan > 0) return plan;
     if (Number.isFinite(toDoQty) && toDoQty > 0) return toDoQty;
-    if (Number.isFinite(quantity) && quantity > 0) return quantity;
     return 1;
   };
 
@@ -276,6 +276,7 @@ const TerminalPlanningView = ({
     sortedOrders.forEach((order) => {
       const produced = Math.max(
         productionProgressMap[String(order.orderId || "").trim()] || 0,
+        Number(order.trackedFinishedCount) || 0,
         Number(order.produced) || 0
       );
       const rejectedCount = rejectedCountMap[String(order.orderId || "").trim()] || 0;
@@ -459,6 +460,7 @@ const TerminalPlanningView = ({
   const selectedOrderProduced = selectedOrder
     ? Math.max(
         productionProgressMap[String(selectedOrder.orderId || "").trim()] || 0,
+        Number(selectedOrder.trackedFinishedCount) || 0,
         Number(selectedOrder.produced) || 0
       )
     : 0;
@@ -531,6 +533,14 @@ const TerminalPlanningView = ({
     const merged = new Set([...activeSelectedOrderLots, ...archivedSelectedOrderLots]);
     return Array.from(merged).sort((a, b) => a.localeCompare(b));
   }, [activeSelectedOrderLots, archivedSelectedOrderLots]);
+  const activeLotSet = React.useMemo(
+    () => new Set(activeSelectedOrderLots.map((lot) => String(lot || "").trim())),
+    [activeSelectedOrderLots]
+  );
+  const archivedLotSet = React.useMemo(
+    () => new Set(archivedSelectedOrderLots.map((lot) => String(lot || "").trim())),
+    [archivedSelectedOrderLots]
+  );
 
   const selectedOrderProducedDisplay = Math.max(
     Number(selectedOrderProduced) || 0,
@@ -777,14 +787,25 @@ const TerminalPlanningView = ({
                 ) : (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {selectedOrderLots.map((lot) => (
-                        <div
-                          key={lot}
-                          className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700 tracking-wide"
-                        >
-                          {lot}
-                        </div>
-                      ))}
+                      {selectedOrderLots.map((lot) => {
+                        const lotKey = String(lot || "").trim();
+                        const isArchivedLot = archivedLotSet.has(lotKey);
+                        const isActiveLot = activeLotSet.has(lotKey);
+                        const lotClass = isArchivedLot
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                          : isActiveLot
+                            ? "border-blue-200 bg-blue-50 text-blue-900"
+                            : "border-slate-200 bg-white text-slate-700";
+
+                        return (
+                          <div
+                            key={lot}
+                            className={`px-3 py-2 rounded-xl border text-xs font-black tracking-wide ${lotClass}`}
+                          >
+                            {lot}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -898,16 +919,27 @@ const TerminalPlanningView = ({
                 {selectedOrderLots.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">Geen lotnummers gevonden voor deze order.</p>
                 ) : (
-                  <div className="max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 custom-scrollbar">
+                  <div className="max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3 custom-scrollbar">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {selectedOrderLots.map((lot) => (
-                        <div
-                          key={lot}
-                          className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-black text-slate-700 tracking-wide"
-                        >
-                          {lot}
-                        </div>
-                      ))}
+                      {selectedOrderLots.map((lot) => {
+                        const lotKey = String(lot || "").trim();
+                        const isArchivedLot = archivedLotSet.has(lotKey);
+                        const isActiveLot = activeLotSet.has(lotKey);
+                        const lotClass = isArchivedLot
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                          : isActiveLot
+                            ? "border-blue-200 bg-blue-50 text-blue-900"
+                            : "border-slate-200 bg-white text-slate-700";
+
+                        return (
+                          <div
+                            key={lot}
+                            className={`px-3 py-2 rounded-xl border text-xs font-black tracking-wide ${lotClass}`}
+                          >
+                            {lot}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

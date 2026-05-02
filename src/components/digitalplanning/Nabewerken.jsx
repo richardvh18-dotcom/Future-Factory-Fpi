@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import { useTranslation } from "react-i18next";
 import { Package } from "lucide-react";
@@ -78,13 +78,13 @@ const Nabewerken = ({ products = [], orders = [] }) => {
   const [showModal, setShowModal] = useState(false);
   const scanInputRef = useRef(null);
 
-  const focusScanInput = () => {
+  const focusScanInput = useCallback(() => {
     const input = scanInputRef.current;
     if (!input) return;
     input.focus({ preventScroll: true });
-  };
+  }, []);
 
-  const scheduleScanFocus = () => {
+  const scheduleScanFocus = useCallback(() => {
     if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
       window.requestAnimationFrame(() => {
         focusScanInput();
@@ -93,12 +93,12 @@ const Nabewerken = ({ products = [], orders = [] }) => {
       return;
     }
     setTimeout(focusScanInput, 0);
-  };
+  }, [focusScanInput]);
 
   // Focus scanveld bij laden
   useEffect(() => {
     scheduleScanFocus();
-  }, []);
+  }, [scheduleScanFocus]);
 
   // Focus scanveld bij click buiten input
   useEffect(() => {
@@ -117,7 +117,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
       document.removeEventListener('click', handleClick);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [showModal]);
+  }, [showModal, scheduleScanFocus]);
 
   const handlePostProcessingFinish = async (product, status, data = {}) => {
     const productId = product.id || product.lotNumber;

@@ -41,3 +41,14 @@ test("legacy mismatch: quantity can be larger, but station plan decides", () => 
 
   assert.equal(hidden, true);
 });
+
+test("keeps BH18 order visible when station still has active lots", () => {
+  const hidden = shouldHideBH18PlanningOrder({
+    remainingAtOrder: 0,
+    startedAtStation: 5,
+    stationPlan: 5,
+    hasStationActivity: true,
+  });
+
+  assert.equal(hidden, false);
+});

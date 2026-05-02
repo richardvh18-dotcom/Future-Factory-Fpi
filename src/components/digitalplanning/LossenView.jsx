@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db, logActivity } from "../../config/firebase";
@@ -6,10 +6,8 @@ import { PATHS } from "../../config/dbPaths";
 import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, advanceTrackedProduct } from "../../services/planningSecurityService";
 import { Package,
     Loader2,
-    ClipboardCheck,
     History,
     ArrowRight,
-  ArrowLeft,
   ChevronDown,
   ChevronRight,
     ScanBarcode,
@@ -142,13 +140,13 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   const scanInputRef = useRef(null);
   const selectedProductRef = useRef(null); // Ref om huidige selectie bij te houden tijdens async acties
 
-  const focusScanInput = () => {
+  const focusScanInput = useCallback(() => {
     const input = scanInputRef.current;
     if (!input) return;
     input.focus({ preventScroll: true });
-  };
+  }, []);
 
-  const scheduleScanFocus = () => {
+  const scheduleScanFocus = useCallback(() => {
     if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
       window.requestAnimationFrame(() => {
         focusScanInput();
@@ -157,7 +155,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       return;
     }
     setTimeout(focusScanInput, 0);
-  };
+  }, [focusScanInput]);
 
   // Sync ref met state
   useEffect(() => {
@@ -185,12 +183,12 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       document.removeEventListener('click', handleClick);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [showActionModal, scannerMode]);
+  }, [showActionModal, scannerMode, scheduleScanFocus]);
 
   // Focus scanveld bij eerste render (ook als scannerMode uit staat)
   useEffect(() => {
     scheduleScanFocus();
-  }, []);
+  }, [scheduleScanFocus]);
 
   const handleScan = async (e) => {
     if (e.key === 'Enter') {
@@ -246,7 +244,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   }, []);
 
   // Helper om te checken of een shift momenteel actief is
-  const isShiftActive = (shiftLabel) => {
+  const isShiftActive = useCallback((shiftLabel) => {
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
@@ -266,7 +264,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       return currentTime >= 7 * 60 + 15 && currentTime < 16 * 60;
     }
     return true;
-  };
+  }, []);
 
   // Bereken actieve operators voor dit station
   const activeOperators = useMemo(() => {
@@ -282,7 +280,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
       occDate.setHours(0, 0, 0, 0);
       return occDate.getTime() === today.getTime() && isShiftActive(occ.shift);
     }).map(o => o.operatorNumber).filter(Boolean);
-  }, [occupancy, stationId]);
+  }, [occupancy, stationId, isShiftActive]);
 
   useEffect(() => {
     if (!stationId) return;

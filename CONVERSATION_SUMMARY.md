@@ -1,3 +1,220 @@
+## Update sessie 133 (Fix: Afdeling bij handmatig aangemaakte orders)
+
+**Datum:** 30 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+### Opgeloste bug
+**Handmatig aangemaakte orders onzichtbaar in Teamleader (verkeerde afdeling)**
+- **Probleem:** Nieuw handmatig aangemaakte orders verschenen niet in de Teamleader orderlijst wanneer men buiten de 'Fittings' scope werkte (bijv. in de afdeling Pipes).
+- **Oorzaak:** In de backend werden handmatig aangemaakte orders altijd hardcoded onder de afdeling 'Fittings' opgeslagen, ongeacht de geselecteerde machine.
+- **Oplossing:** Backend logica in `planningTransitionService.js` is aangepast. De afdeling wordt nu automatisch en correct afgeleid op basis van de gekozen machine bij het aanmaken van de order.
+- **Aangepast bestand:** `functions/src/services/planningTransitionService.js`
+
+### Status & Vervolg
+- ⚠️ **Deploy vereist:** De fix is lokaal doorgevoerd in de backend. Dit werkt pas live na een deploy van de Firebase Cloud Functions.
+- ⚠️ **Historische data:** Eerder handmatig aangemaakte orders staan nog steeds geregistreerd onder 'Fittings' en lijken daardoor mogelijk nog steeds verdwenen. Indien gewenst kan er een eenmalig backfill-script geschreven worden om deze orders naar de juiste afdeling te verplaatsen.
+- **Verificatie:** Na deploy van de functions zijn nieuwe handmatige orders direct zichtbaar in *Teamleader > Planning > Orderlijst* (mits ingesteld op het juiste afdelings- en machinefilter).
+
+---
+
+## Update sessie 131 (BH18 terminal bugs & wees-documenten opgeruimd)
+
+**Datum:** 30 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+### Opgeloste bugs
+
+**1. Verkeerde "Aantal" display (17 i.p.v. 20)**
+- `getOrderTotalPlan()` in `TerminalPlanningView.jsx` keek eerst naar `plan`, dan pas `quantity`
+- Fix: prioriteit omgedraaid → `quantity → plan → toDoQty`
+
+**2. Verkeerde "To do" berekening (13 i.p.v. 8)**
+- `todoAmount` in `OrderDetail.jsx` gebruikte `producedAmount` (alleen gereed), niet gestarte lots
+- Fix: gebruik `startedAmount` → `To do = quantity - startedAmount`
+
+**3. Order N20024978 niet zichtbaar in BH18 planning**
+- `waitingOnlyMeta`-check in `WorkstationHub.jsx` én `Terminal.jsx` verborg orders waarbij alle actieve lots "Wacht op Lossen" waren, zonder te controleren of er nog te starten lots waren
+- Algemeen filter in `Terminal.jsx` verborg `in_progress` orders waarbij `started >= plan`
+- Fix 1: guard toegevoegd `remainingQueue <= 0` bij `waitingOnlyMeta`-check (beide bestanden)
+- Fix 2: guard gewijzigd van `isOrderActiveStatus` naar `!hasActiveTracked` in algemeen filter
+
+**4. Afgeronde orders (N20024910, N20024974) nog zichtbaar**
+- `isOrderActiveStatus` te brede bewaker — order kon `in_progress` zijn maar wel volledig geproduceerd
+- Fix: gebruik `hasActiveTracked` als bewaker (enkel verbergen als er geen actieve lots meer zijn)
+
+**5. Wees-documenten in Firestore (orders herschijnen na archiveren)**
+- `archivePlanningOrderService` verwijderde slechts 1 document; orders bestaan in zowel root- als scoped machine-pad
+- Het overlevende document verscheen bij elke herlaad opnieuw
+- Fix in `functions/src/services/planningTransitionService.js`: bij archiveren worden via `collectionGroup('orders')` alle sibling-documenten met hetzelfde `orderId` of docId gevonden en mee-verwijderd in de batch
+
+### Database cleanup uitgevoerd (eenmalig)
+- Script aangemaakt: `scripts/cleanup-archived-orphans-40bh18-via-cli-auth.cjs`
+- **11 wees planning-docs** verwijderd uit `digital_planning/Fittings/machines/40BH18/orders` (status=completed)
+- **22 tracked items** behouden — allemaal actief (Wacht op Nabewerking / In Production / Wacht op Lossen)
+
+### Nog open / niet afgerond
+- ⚠️ **Cloud Functions nog niet gedeployed** — fix in `planningTransitionService.js` is lokaal only. Deployen met: `firebase deploy --only functions`
+- ⚠️ **Regressietest nog niet gedraaid** — `npm run test:regression:bh18` na de `shouldHideBH18PlanningOrder` call site wijziging
+- ⚠️ **N20024974 kan nog steeds herschijnen** als root-document nog bestaat — handmatige check of root-doc al in archief staat
+- ⚠️ **`visibleOrderPlan` fix in `OrderDetail.jsx`** — gebruikt nu `order?.quantity || order?.plan` (was `order?.plan`)
+
+### Vervolg op sessie 131 (later op 30 april 2026)
+
+**Validatie uitgevoerd:**
+- Regressietest gedraaid: `npm run test:regression:bh18`
+- Resultaat: **4/4 tests geslaagd**
+
+**Open punten geactualiseerd:**
+- ⚠️ Cloud Functions deploy voor `planningTransitionService.js` staat nog open.
+- ⚠️ Handmatige datastore-check voor order `N20024974` (root/scoped dubbelpad) staat nog open.
+
+### Vervolg op sessie 131 (BH18 frontfilter aangescherpt voor downstream werk)
+
+**Gemeld praktijkgeval:**
+- Order `N20024828` bleef zichtbaar op BH18-front terwijl BH18 zelf klaar was (`Orderhoeveelheid 5`, `Gemaakt 5`, `Te doen 0`) en de resterende activiteit alleen nog in Nabewerking zat.
+
+**Uitgevoerd in deze vervolgstap:**
+- In `Terminal.jsx` BH18-filter aangescherpt: zichtbaarheid wordt nu bepaald op basis van **activiteit op BH18 zelf** i.p.v. generieke activiteit op orderniveau.
+- In `WorkstationHub.jsx` voor wikkelstations (BH12/15/17/18) extra guard toegevoegd:
+    - verberg order zodra `remainingQueue <= 0` én er geen station-activiteit meer is.
+    - downstream activiteit (zoals Nabewerking) houdt BH18-order dan niet langer onterecht zichtbaar.
+- In `terminalOrderFilters.js` helper uitgebreid met `hasStationActivity` zodat station-actieve orders zichtbaar blijven, maar station-klaar orders correct verdwijnen.
+- Regressietest uitgebreid met extra testcase voor station-activiteit op BH18.
+
+**Validatie:**
+- `npm run test:regression:bh18` opnieuw gedraaid: **5/5 tests geslaagd**.
+- Foutcontrole op aangepaste bestanden: geen errors.
+
+### Gewijzigde bestanden
+- `src/components/digitalplanning/terminal/TerminalPlanningView.jsx`
+- `src/components/digitalplanning/WorkstationHub.jsx`
+- `src/components/digitalplanning/Terminal.jsx`
+- `src/components/digitalplanning/OrderDetail.jsx`
+- `functions/src/services/planningTransitionService.js`
+- `scripts/cleanup-archived-orphans-40bh18-via-cli-auth.cjs` *(nieuw)*
+
+---
+
+## Update sessie 132 (N20024978 zichtbaarheid & counter fix + functions deploy)
+
+**Datum:** 30 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+### Opgeloste bugs
+
+**1. Order N20024978 niet zichtbaar op BH18 terminal**
+- **Root cause**: In `Terminal.jsx` (`myOrders` useMemo) werden twee hiding-checks uitgevoerd voor wikkelstations:
+    1. `waitingOnlyMeta`-check: als alle actieve lots van een order "Wacht op Lossen" zijn → verberg
+    2. `waitingForLossenCount`-check: als er Lossen-wachtende lots zijn + geen station-activiteit + remainingQueue=0 → verberg
+- Beide checks grepen ten onrechte ook BH18 aan. Order N20024978 had lot `402618418400027` met status "Wacht op Lossen" op station BH18 — dit is fysiek nog op de machine, maar werd door de checks als "klaar" beschouwd.
+- Het lot haalde `remainingQueue = plan - started_BH18 = 20 - 20 = 0` omdat de planning-teller vol was.
+- **Fix**: beide checks in `Terminal.jsx` voorzien van `!isBH18 &&` guard — BH18 gebruikt alleen de `filteredOrders`/`shouldHideBH18PlanningOrder` route (via `readyForReturnMap`), niet de `myOrders` wikkel-checks.
+
+**2. Gemaakt-teller toonde te lage waarde**
+- `TerminalPlanningView.jsx` berekende `produced` als `max(productionProgressMap, order.produced)` — zonder `trackedFinishedCount`
+- `trackedFinishedCount` wordt in Terminal.jsx ingevuld via `madeCountMap` (unieke lots uit allTracked + archief) bij het enrichen van orders
+- N20024978 had 7 gearchiveerde + 4 actieve lots = 11, maar de teller kon bij `produced=4` (alleen actieve) blijven steken
+- **Fix**: `produced = max(productionProgressMap, trackedFinishedCount, order.produced)` in zowel de lijstweergave als het detailpaneel van `TerminalPlanningView.jsx`
+
+**3. Bug in planningCallables.js — functions deploy blokkering**
+- `reconcileOrderControl` callable gebruikte `onCall(...)` in plaats van `functions.https.onCall(...)`
+- Veroorzaakte `ReferenceError: onCall is not defined` bij deploy analyse
+- **Fix**: gecorrigeerd naar `functions.https.onCall(async (data, context) => {...})`
+
+### Gewijzigde bestanden
+- `src/components/digitalplanning/Terminal.jsx` — `!isBH18 &&` guards in myOrders wikkel-checks
+- `src/components/digitalplanning/terminal/TerminalPlanningView.jsx` — trackedFinishedCount in produced berekening
+- `functions/src/callables/planningCallables.js` — `onCall` → `functions.https.onCall` fix
+
+### Validatie
+- Regressietest: **5/5 geslaagd** (geen regressie)
+- Lint: geen errors in gewijzigde bestanden
+- Functions deploy: uitgevoerd na `onCall` bugfix
+
+### Vervolg sessie 132 — OrderDetail & TerminalPlanningView verdieping + Vercel deploy
+
+**Datum:** 30 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+#### Opgeloste bugs (vervolg)
+
+**4. In behandeling = 13, Te doen = 0 (moest 4 en 9 zijn)**
+- `startedAmount` in `OrderDetail.jsx` nam `max(linkedStartedAmount, liveStartedAmount, order.started_BH18)` — stale `started_BH18=20` won van live lotcount (13)
+- `producedAmount` kon ook stale `order.produced` overnemen
+- **Fix**: wanneer `linkedStartedAmount > 0`, gebruik alleen `max(linkedStartedAmount, liveStartedAmount)` — bypass de stale DB-teller
+- **Fix**: wanneer linked lots bestaan, gebruik `trackedProducedAmount` direct voor `producedAmount`
+- **Fix**: `visibleOrderPlan` nu: `plan < quantity ? plan : quantity` — teamleader-handcorrectie (plan verlagen) wint wanneer plan lager is dan originele LN-waarde
+
+**5. PlanningSidebar "Totaal Gereed" teller te laag**
+- `trackedFinishedByOrder` telde alleen lots met status `completed/gereed/finished`
+- Lots in "Wacht op Lossen" of "Wacht op Nabewerking" (al gewikkeld, wachten op volgende stap) werden niet meegeteld
+- **Fix**: tel alle non-rejected lots mee (alle lots behalve `ARCHIVED_REJECTED`, `DELETED`, `REJECTED`+`REJECTED`)
+
+#### Nieuwe helper
+
+**`getEffectivePlanQty(order)`** toegevoegd aan `src/utils/planningProgress.js`:
+- Geeft `plan` terug als `plan < quantity` (teamleader correctie), anders `quantity`
+- Gebruikt door `PlanningSidebar.jsx` voor consistente "Te doen" berekeningen over de hele app
+
+#### UI verbeteringen
+
+**OrderDetail.jsx:**
+- Tegel volgorde: Planning → Machine → Aantal → Start Aantal → In behandeling → To do → Gereed → Excel import → Gewijzigd → Status → Tekening
+- Compactere weergave: container `p-4 md:p-5`, gap `gap-3`, tegels `p-3`
+- PO-tekst sectie: `min-h-[64px]` (was 90px), read-only variant `min-h-[40px]`
+- Lot kleur-codering: gearchiveerde lots `bg-emerald-50` (lichtgroen), actieve lots `bg-blue-50` (lichtblauw)
+
+**TerminalPlanningView.jsx:**
+- Lot kleur-codering toegevoegd in beide renderpaden (Lossen-pad én BH18-pad)
+- Gearchiveerde lots: `bg-emerald-50 border-emerald-200 text-emerald-900`
+- Actieve lots: `bg-blue-50 border-blue-200 text-blue-900`
+- Gebruikt `archivedLotSet` en `activeLotSet` voor classificatie
+
+#### Versie & deploy
+
+- `package.json` en `public/version.json`: `0.1.2` → `0.1.3`
+- Vercel productie deploy uitgevoerd: `https://future-factory.vercel.app`
+
+#### App.jsx — version reload loop fix
+
+- In codespace/local dev werd de versie-check loop elke 60s getriggerd
+- **Fix**: Reload volledig overgeslagen bij `DEV`, `localhost`, `127.0.0.1`, `*.github.dev`
+- **Fix**: In productie: `sessionStorage` key `ff_last_version_reload` — per tab slechts 1x reloaden per versie
+
+#### TeamleaderHub — "+ Nieuwe order" knop hersteld
+
+- Na refactoring was het modal-rendering verwijderd uit `TeamleaderModals.jsx`
+- **Fix**: Modal opnieuw toegevoegd in `TeamleaderModals.jsx` met props: `showAddOrderModal`, `setShowAddOrderModal`, `creatingOrder`, `newOrderData`, `setNewOrderData`, `handleCreateOrder`
+- **Fix**: `TeamleaderHub.jsx` geeft de 6 nieuwe props door aan `<TeamleaderModals>`
+
+### Gewijzigde bestanden (vervolg sessie 132)
+- `src/components/digitalplanning/OrderDetail.jsx` — live lot-driven counters, visibleOrderPlan fix, tile volgorde, compact, kleur-codering
+- `src/components/digitalplanning/PlanningSidebar.jsx` — trackedFinishedByOrder telt non-rejected lots, gebruikt getEffectivePlanQty
+- `src/utils/planningProgress.js` — nieuwe export `getEffectivePlanQty`
+- `src/components/digitalplanning/terminal/TerminalPlanningView.jsx` — lot kleur-codering beide renderpaden
+- `src/App.jsx` — version reload loop fix (dev guard + sessionStorage)
+- `src/components/digitalplanning/TeamleaderModals.jsx` — "+ Nieuwe order" modal toegevoegd
+- `src/components/digitalplanning/TeamleaderHub.jsx` — 6 nieuwe props doorgegeven aan TeamleaderModals
+- `package.json` — versie 0.1.3
+- `public/version.json` — versie 0.1.3
+
+### Nog open
+- ⚠️ **Git commit** nog niet gedaan op branch `FPiFF-18-12-build`
+- ⚠️ **Live validatie** N20024978 op BH18-terminal (zichtbaarheid + counters Gemaakt=11, In behandeling=4, Te doen=9)
+
+---
+
+## Update sessie 130 (Vertical ZPL text & BH18 slimme labels)
+
+**Datum:** 30 april 2026 | **Branch:** `FPiFF-18-12-build`
+
+**Uitgevoerd in deze sessie:**
+- **Zebra ZPL Verticale tekst fix**: De overlap bij verticale tekst op orderlabels is opgelost in `src/utils/zplHelper.js`. Vreemde correcties van X/Y coördinaten zijn verwijderd. De tekst volgt nu feilloos de preview uit de Label Architect-tool qua regelafbreking en tekst-terugloop bij 90 en 270 graden rotatie.
+- **Specifieke label-logica voor BH18**: De label template én aantallen selectie in de `ProductionStartModal.jsx` is aangepast aan de hand van het productformaat en elleboog-variant:
+    - **< 125mm**: er wordt 1 klein label afgedrukt.
+    - **>= 125mm (Elbows/Bochten)**: er worden 2 grote labels afgedrukt (tenzij het een AB/AB of SB/SB bocht betreft, deze krijgt 1 groot label).
+    - **>= 125mm (Overig)**: standaard 1 groot label.
+    - *Fix (Dossier N20024916)*: Logica voor de herkenning van bochten is uitgebreid met de afkorting `ELB`. Ook is de detectie van de diameter robuuster gemaakt, zodat aanduidingen als `300R...` nu correct de diameter (300) teruggeven in plaats van te breken op sub-notaties, waardoor grote producten niet meer onterecht als < 125mm werden gezien.
+- Logica van materiaaltypen bij flens labels (`CST`, `EST`, `EWT`/`ETW`, `EMT`) is behouden en functioneert naar behoren.
+
+---
+
 ## Update sessie 129 (Voorbereiding: Robuustere lotnummering en To Do telling)
 
 **Datum:** 30 april 2026 | **Branch:** `FPiFF-18-12-build`

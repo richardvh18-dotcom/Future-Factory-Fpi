@@ -237,11 +237,13 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
         // Correctie voor verticale objecten zodat print overeenkomt met preview
         // Preview gebruikt altijd linksboven vóór rotatie als referentie
         // ZPL gebruikt linksboven na rotatie, dus bij 90° X -= hoogte, bij 270° Y -= breedte
-        if (rawRotation === 90) {
-            baseX -= mmToDots(el.height || 0);
-        } else if (rawRotation === 270) {
-            baseY -= mmToDots(el.width || 0);
-        }
+        // BUGFIX: ZPL ^FO uses the exact origin of the first character. HTML preview with transform-origin: top-left
+        // places the top-left of the first character exactly at el.x, el.y. So NO adjustment is needed!
+        // if (rawRotation === 90) {
+        //     baseX -= mmToDots(el.height || 0);
+        // } else if (rawRotation === 270) {
+        //     baseY -= mmToDots(el.width || 0);
+        // }
 
         // TYPE: TEXT
         if (el.type === 'text') {
@@ -281,12 +283,10 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             if (isVerticalRotation && widthDots) {
                 const wrappedLines = wrapTextContent(content, charsPerLine, maxLines);
                 const lineAdvanceDots = Math.max(1, Math.round(fontHeight * 1.05));
-                const startX = rot === 'B'
-                    ? x + Math.max(0, (wrappedLines.length - 1) * lineAdvanceDots)
-                    : x;
+                const startX = x;
 
                 wrappedLines.forEach((line, lineIndex) => {
-                    const lineX = rot === 'B'
+                    const lineX = rot === 'R'
                         ? startX - (lineIndex * lineAdvanceDots)
                         : startX + (lineIndex * lineAdvanceDots);
                     zpl += `^FO${lineX},${y}`;
@@ -296,6 +296,14 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
                     }
                     zpl += `^FD${line}^FS`;
                 });
+            } else if (isVerticalRotation) {
+                // Vertical without wrapping
+                zpl += `^FO${x},${y}`;
+                zpl += `^A0${rot},${fontHeight},${fontWidth}`;
+                if (el.inverted) {
+                    zpl += `^FR`;
+                }
+                zpl += `^FD${content}^FS`;
             } else {
                 zpl += `^FD${content}^FS`;
             }

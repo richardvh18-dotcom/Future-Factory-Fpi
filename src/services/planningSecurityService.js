@@ -925,6 +925,8 @@ export const startProductionLots = async ({
   labelTemplateId = "",
   seriesGroupId = "",
   isFlangeSeries = false,
+  isVirtualLot = false,
+  virtualReason = "",
 }) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
@@ -942,6 +944,8 @@ export const startProductionLots = async ({
     labelTemplateId: String(labelTemplateId || "").trim(),
     seriesGroupId: String(seriesGroupId || "").trim(),
     isFlangeSeries: Boolean(isFlangeSeries),
+    isVirtualLot: Boolean(isVirtualLot),
+    virtualReason: String(virtualReason || "").trim(),
   };
 
   if (!payload.orderDocId || !payload.orderId || !payload.itemCode || !payload.lotStart || !payload.stationId) {

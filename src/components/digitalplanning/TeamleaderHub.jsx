@@ -643,6 +643,12 @@ const TeamleaderHub = React.memo(({
 
 
       <TeamleaderModals
+        showAddOrderModal={showAddOrderModal}
+        setShowAddOrderModal={setShowAddOrderModal}
+        creatingOrder={creatingOrder}
+        newOrderData={newOrderData}
+        setNewOrderData={setNewOrderData}
+        handleCreateOrder={handleCreateOrder}
         selectedStationDetail={selectedStationDetail}
         setSelectedStationDetail={setSelectedStationDetail}
         dataStore={dataStore}

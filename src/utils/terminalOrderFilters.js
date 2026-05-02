@@ -2,7 +2,12 @@ export const shouldHideBH18PlanningOrder = ({
   remainingAtOrder,
   startedAtStation,
   stationPlan,
+  hasStationActivity = false,
 }) => {
+  if (hasStationActivity) {
+    return false;
+  }
+
   const safeRemaining = Number(remainingAtOrder);
   if (Number.isFinite(safeRemaining) && safeRemaining <= 0) {
     return true;

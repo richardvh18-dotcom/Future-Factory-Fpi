@@ -12,6 +12,7 @@ import {
   Globe, // Taalwissel icoon
   Smartphone,
   Check,
+  ShieldCheck,
 } from "lucide-react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
@@ -30,7 +31,9 @@ const PortalView = () => {
   const normalizedRole = String(role || "").toLowerCase();
   const isTeamleader = normalizedRole === "teamleader";
   const isPlanner = normalizedRole === "planner";
+  const isQc = normalizedRole === "qc";
   const showPlannerDashboardTile = isPlanner || isAdmin;
+  const showQsheTile = isAdmin || isQc;
 
   // Select Language
   const handleLanguageSelect = async (lang) => {
@@ -384,6 +387,35 @@ const PortalView = () => {
                 </div>
                 <div className="mt-4 md:mt-6 flex items-center text-slate-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
                   {t('portal.tiles.admin.action')} <ArrowRight size={16} />
+                </div>
+              </div>
+            </button>
+          )}
+
+          {showQsheTile && (
+            <button
+              type="button"
+              onClick={() => navigate("/admin", { state: { openScreen: "qshe_virtual_lots" } })}
+              className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-orange-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-orange-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+            >
+              <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                <ShieldCheck className="text-white w-24 h-24 md:w-32 md:h-32" />
+              </div>
+
+              <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+                <div className="p-3 md:p-4 bg-orange-500/20 w-fit rounded-2xl mb-4 group-hover:bg-orange-500 group-hover:text-white transition-colors text-orange-400">
+                  <ShieldCheck size={24} className="md:w-8 md:h-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                    QSHE
+                  </h2>
+                  <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                    Virtuele lotuitgifte voor QC zonder fysiek product. Geoptimaliseerd voor mobiel scannen of handmatige invoer.
+                  </p>
+                </div>
+                <div className="mt-4 md:mt-6 flex items-center text-orange-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                  Open QSHE <ArrowRight size={16} />
                 </div>
               </div>
             </button>

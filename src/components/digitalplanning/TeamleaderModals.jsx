@@ -15,6 +15,14 @@ import ProductDossierModal from "./modals/ProductDossierModal.jsx";
  *   - Overproduction assign modal
  */
 export const TeamleaderModals = ({
+  // Add order modal
+  showAddOrderModal,
+  setShowAddOrderModal,
+  creatingOrder,
+  newOrderData,
+  setNewOrderData,
+  handleCreateOrder,
+
   // StationDetailModal
   selectedStationDetail,
   setSelectedStationDetail,
@@ -57,6 +65,100 @@ export const TeamleaderModals = ({
 }) => {
   return (
     <>
+      {showAddOrderModal && (
+        <div className="fixed inset-0 z-[120] bg-slate-900/55 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handleCreateOrder}
+            className="w-full max-w-xl rounded-[28px] border border-slate-200 bg-white shadow-2xl overflow-hidden"
+          >
+            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Teamleader</p>
+                <h3 className="text-xl font-black text-slate-900 italic mt-1">{t('teamleader.new_order', 'Nieuwe order')}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddOrderModal(false)}
+                className="p-2 rounded-full bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1.5">Order ID</label>
+                <input
+                  type="text"
+                  value={newOrderData.orderId}
+                  onChange={(e) => setNewOrderData((prev) => ({ ...prev, orderId: e.target.value.toUpperCase() }))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-800 outline-none focus:border-blue-500"
+                  placeholder="Bijv. N20030001"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1.5">Machine</label>
+                <input
+                  type="text"
+                  value={newOrderData.machine}
+                  onChange={(e) => setNewOrderData((prev) => ({ ...prev, machine: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-800 outline-none focus:border-blue-500"
+                  placeholder="Bijv. 40BH18"
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1.5">Item / Omschrijving</label>
+                <input
+                  type="text"
+                  value={newOrderData.item}
+                  onChange={(e) => setNewOrderData((prev) => ({ ...prev, item: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-800 outline-none focus:border-blue-500"
+                  placeholder="Product omschrijving"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1.5">Plan / Aantal</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={newOrderData.plan}
+                  onChange={(e) => setNewOrderData((prev) => ({ ...prev, plan: String(e.target.value || '').replace(/[^0-9]/g, '') }))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-800 outline-none focus:border-blue-500"
+                  placeholder="Bijv. 10"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddOrderModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-100"
+                disabled={creatingOrder}
+              >
+                {t('common.cancel', 'Annuleren')}
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2"
+                disabled={creatingOrder}
+              >
+                {creatingOrder && <Loader2 size={14} className="animate-spin" />}
+                {creatingOrder ? t('common.saving', 'Opslaan...') : t('common.save', 'Opslaan')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {selectedStationDetail && (
         <div className="fixed z-[9999]">
           <StationDetailModal

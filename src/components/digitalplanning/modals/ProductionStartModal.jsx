@@ -129,6 +129,7 @@ const ProductionStartModal = ({
   const lastLotInputAtRef = useRef(0);
   const previousLotInputRef = useRef("");
   const scannerLikeLotInputRef = useRef(false);
+  const lastResetKeyRef = useRef("");
   const [orderValidated, setOrderValidated] = useState(false);
   const [orderError, setOrderError] = useState("");
 
@@ -242,9 +243,28 @@ const ProductionStartModal = ({
 
   useEffect(() => {
     if (isOpen) {
-      setLabelCount((prev) => normalizePositiveIntInput(prev, parseInt(stringCount, 10) || 1));
+      let initialCount = parseInt(stringCount, 10) || 1;
+
+      if (stationId === 'BH18') {
+        const itemIdentifier = [order?.item, order?.itemCode, order?.itemDescription].join(' ').toUpperCase();
+        const isElbow = itemIdentifier.includes("ELBOW") || itemIdentifier.includes("BOCHT") || itemIdentifier.includes("ELB");
+        const isSpecialElbow = itemIdentifier.includes("AB/AB") || itemIdentifier.includes("SB/SB");
+        
+        const match = itemIdentifier.match(/\b(\d{2,4})\s*(?:MM|-|R|X|\b)/);
+        const dia = match ? parseInt(match[1], 10) : parseInt(order?.diameter || order?.dn || 0, 10);
+        
+        if (dia > 0 && dia < 125) {
+          initialCount = 1;
+        } else if (dia >= 125 && isElbow && !isSpecialElbow) {
+          initialCount = 2;
+        } else if (dia >= 125 && isElbow && isSpecialElbow) {
+          initialCount = 1;
+        }
+      }
+
+      setLabelCount((prev) => normalizePositiveIntInput(prev, initialCount));
     }
-  }, [isOpen, stringCount]);
+  }, [isOpen, stringCount, stationId, order]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -344,14 +364,18 @@ const ProductionStartModal = ({
     return filteredLabels;
   }, [allLabels, order, stationId]);
 
-  // Autofocus naar ordernummer bij openen in manuele modus
+  // Autofocus naar ordernummer (of lotnummer) bij openen in manuele modus
   useEffect(() => {
-    if (isOpen && mode === "manual" && orderInputRef.current) {
+    if (isOpen && mode === "manual") {
       setTimeout(() => {
-        orderInputRef.current?.focus();
+        if (orderValidated && lotInputRef.current) {
+          lotInputRef.current?.focus();
+        } else if (orderInputRef.current) {
+          orderInputRef.current?.focus();
+        }
       }, 300);
     }
-  }, [isOpen, mode]);
+  }, [isOpen, mode, orderValidated]);
 
   // 1. Label Templates & Rules Laden
   useEffect(() => {
@@ -360,23 +384,58 @@ const ProductionStartModal = ({
       
       try {
         if (availableLabels.length > 0) {
-          // FL-orders moeten altijd een klein voorbeeldlabel gebruiken.
-          if (shouldUseFlangeLabelFlow) {
-            const smallFlangeLabel = availableLabels.find(
-              (l) => l.name?.toLowerCase().includes("smal") || Number(l.height) < 45
-            ) || availableLabels[0];
+          const isFlange = isFlangeOrder || hasFlInArticle || shouldUseFlangeLabelFlow;
 
-            if (smallFlangeLabel?.id && smallFlangeLabel.id !== selectedLabelId) {
-              setSelectedLabelId(smallFlangeLabel.id);
+          if (isFlange) {
+            // Zoek eerst naar labels met de tag FLANGE, FLENS of FLENZEN
+            let flangeLabels = availableLabels.filter(l =>
+              Array.isArray(l.tags) && l.tags.some(tag => /^(FLANGE|FLENS|FLENZEN)$/i.test(tag))
+            );
+
+            // Als er geen specifiek FLANGE label is, gebruik dan alle labels als fallback
+            if (flangeLabels.length === 0) {
+              flangeLabels = availableLabels;
+            }
+
+            const itemIdentifier = [order?.item, order?.itemCode, order?.itemDescription].join(' ').toUpperCase();
+            let flangeLabelToSelect = null;
+
+            // Zoek naar specifieke materiaal tags in de labels (CST, EST, ETW/EWT, EMT)
+            const hasMaterialTagOrName = (label, materialVariants) => {
+               return (Array.isArray(label.tags) && label.tags.some(tag => materialVariants.includes(tag.toUpperCase()))) ||
+                      materialVariants.some(v => label.name?.toUpperCase().includes(v));
+            };
+
+            if (itemIdentifier.includes("EMT")) {
+              flangeLabelToSelect = flangeLabels.find(l => hasMaterialTagOrName(l, ["EMT", "FIBERMAR"]));
+            } else if (itemIdentifier.includes("CST")) {
+              flangeLabelToSelect = flangeLabels.find(l => hasMaterialTagOrName(l, ["CST", "WAVISTRONG"]));
+            } else if (itemIdentifier.includes("ETW") || itemIdentifier.includes("EWT")) {
+              flangeLabelToSelect = flangeLabels.find(l => hasMaterialTagOrName(l, ["ETW", "EWT", "WAVISTRONG"]));
+            } else if (itemIdentifier.includes("EST")) {
+              flangeLabelToSelect = flangeLabels.find(l => hasMaterialTagOrName(l, ["EST", "WAVISTRONG"]));
+            }
+
+            // Fallback
+            if (!flangeLabelToSelect) {
+                // Als het een van de Wavistrong varianten is, pak dan eventueel een EST label als fallback
+                if (itemIdentifier.includes("CST") || itemIdentifier.includes("EWT") || itemIdentifier.includes("ETW") || itemIdentifier.includes("EST")) {
+                     flangeLabelToSelect = flangeLabels.find(l => hasMaterialTagOrName(l, ["EST"])) || flangeLabels[0];
+                } else if (itemIdentifier.includes("EMT")) {
+                     flangeLabelToSelect = flangeLabels.find(l => hasMaterialTagOrName(l, ["EMT"])) || flangeLabels[0];
+                } else {
+                     flangeLabelToSelect = flangeLabels[0];
+                }
+            }
+
+            if (flangeLabelToSelect?.id && flangeLabelToSelect.id !== selectedLabelId) {
+              setSelectedLabelId(flangeLabelToSelect.id);
             }
             return;
           }
 
-          // NIEUW: Kies bij voorkeur een flens of code label
+          // NIEUW: Kies bij voorkeur een code label
           const preferred = availableLabels.find(t => 
-            t.tags?.includes("FLENZEN") ||
-            t.tags?.includes("FLENS") ||
-            t.tags?.includes("FLANGE") ||
             t.tags?.includes("CODE")
           );
 
@@ -386,7 +445,16 @@ const ProductionStartModal = ({
           }
 
           // Voor niet-FL: BH18 krijgt standaard groot, overige stations klein.
-          const preferLarge = stationId === 'BH18';
+          let preferLarge = stationId === 'BH18';
+          
+          if (stationId === 'BH18') {
+             const itemIdentifier = [order?.item, order?.itemCode, order?.itemDescription].join(' ').toUpperCase();
+             const match = itemIdentifier.match(/\b(\d{2,4})\s*(?:MM|-|R|X|\b)/);
+             const dia = match ? parseInt(match[1], 10) : parseInt(order?.diameter || order?.dn || 0, 10);
+             if (dia > 0 && dia < 125) {
+                 preferLarge = false; // Kleine variant
+             }
+          }
           
           let defaultLabel = preferLarge ? availableLabels.find(
             (l) => (l.height >= 45 && !l.name?.toLowerCase().includes("smal")) || 
@@ -401,14 +469,13 @@ const ProductionStartModal = ({
           if (labelToSelect && labelToSelect !== selectedLabelId) {
              setSelectedLabelId(labelToSelect);
           }
-          
         }
       } catch (e) {
         console.error("Fout bij laden labels:", e);
       }
     };
     setDefaultLabel();
-  }, [isOpen, order, availableLabels, loadingLabels, stationId, shouldUseFlangeLabelFlow, selectedLabelId]);
+  }, [isOpen, order, availableLabels, loadingLabels, stationId, isFlangeOrder, hasFlInArticle, selectedLabelId]);
   
   // 1b. Operators ophalen voor dit station
   useEffect(() => {
@@ -840,14 +907,30 @@ const ProductionStartModal = ({
 
     generateRobustLotNumber();
 
-    if (isOpen && mode === "manual") {
-      setManualLotInput("");
-      setManualOrderInput("");
-      setLotError("");
+    if (isOpen) {
+      const resetKey = `${order?.orderId}_${mode}`;
+      if (lastResetKeyRef.current !== resetKey) {
+        if (mode === "manual") {
+          const isSpecialFlangeStation = ["BH11", "BH12", "BH15"].includes(normalizedStationNoPrefix);
+          const isFlange = isFlangeOrder || hasFlInArticle;
+          if (isSpecialFlangeStation && isFlange) {
+            setManualLotInput("");
+            setManualOrderInput(order?.orderId || "");
+            setOrderValidated(true);
+            setLotError("");
+          } else {
+            setManualLotInput("");
+            setManualOrderInput("");
+            setOrderValidated(false);
+            setLotError("");
+          }
+        }
+        lastResetKeyRef.current = resetKey;
+      }
     }
 
     return () => { isMounted = false; };
-  }, [isOpen, order, mode, stationId]);
+  }, [isOpen, order, mode, stationId, isFlangeOrder, hasFlInArticle, normalizedStationNoPrefix]);
 
   const updateCounterOnStart = async (usedLotNumber, count) => {
       if (!usedLotNumber || mode !== "auto") return;

@@ -1646,8 +1646,14 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
   }
 
   const userRole = await resolveUserRoleForContext(context);
-  if (!START_PRODUCTION_ALLOWED_ROLES.has(userRole)) {
+  const isVirtualLot = Boolean(data?.isVirtualLot);
+  const virtualReason = clampText(data?.virtualReason, 300);
+  const canStartLots = START_PRODUCTION_ALLOWED_ROLES.has(userRole) || (userRole === 'qc' && isVirtualLot);
+  if (!canStartLots) {
     throw new functions.https.HttpsError('permission-denied', 'Geen rechten om productie te starten.');
+  }
+  if (userRole === 'qc' && !isVirtualLot) {
+    throw new functions.https.HttpsError('permission-denied', 'QC mag alleen virtuele lots uitgeven.');
   }
 
   const orderDocId = clean(data?.orderDocId);
@@ -1691,13 +1697,15 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
       labelTemplateId,
       seriesGroupId,
       isFlangeSeries,
+      isVirtualLot,
+      virtualReason,
       dbCtx: resolveDbContext(),
     });
     
     auditService.logCallable(
       context, 
       'START_PRODUCTION_LOTS', 
-      { orderDocId, orderDocPath, orderSourcePath, orderId, stationId, lotStart, totalToProduce, before: result?.before || null, after: result?.after || null }, 
+      { orderDocId, orderDocPath, orderSourcePath, orderId, stationId, lotStart, totalToProduce, isVirtualLot, before: result?.before || null, after: result?.after || null }, 
       { category: 'PRODUCTION', severity: 'INFO' }
     );
     return result;
@@ -3138,7 +3146,7 @@ const migrateLegacyActivityLogs = functions.https.onCall(async (data, context) =
  * Input: { orderId: string, machine: string }
  * Output: { ok, orderId, machine, eventLots, trackedLots, planningCounter, discrepancies }
  */
-const reconcileOrderControl = onCall(async (data, context) => {
+const reconcileOrderControl = functions.https.onCall(async (data, context) => {
   const auth = context?.auth;
   if (!auth?.uid) throw new Error('UNAUTHENTICATED');
 

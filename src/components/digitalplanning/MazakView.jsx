@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   collection,
@@ -117,7 +117,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
     return () => unsub();
   }, []);
 
-  const isShiftActive = (shiftLabel) => {
+  const isShiftActive = useCallback((shiftLabel) => {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
     const label = String(shiftLabel || "").toUpperCase();
@@ -135,7 +135,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }) => {
       return currentTime >= 7 * 60 + 15 && currentTime < 16 * 60;
     }
     return true;
-  };
+  }, []);
 
   const activeOperators = useMemo(() => {
     if (!stationId || occupancy.length === 0) return [];
