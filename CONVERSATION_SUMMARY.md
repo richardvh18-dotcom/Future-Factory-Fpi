@@ -1,3 +1,38 @@
+## Update sessie 135 (Planning Import UX & Nieuw-ribbon in Workstation/Terminal)
+
+**Datum:** 2 mei 2026 | **Branch:** `preview-v2`
+
+### Uitgevoerd in deze sessie:
+
+**1. Planning Import UI / UX Verbeteringen**
+- **Verwijderd:** De opties/knoppen voor "Plak Excel data" en "Alleen Nieuwe" zijn uit de interface gehaald voor een overzichtelijker proces.
+- **Drag & Drop:** Optie toegevoegd om Excel bestanden direct te slepen naar het upload-vlak, in plaats van alleen via de verkenner te hoeven zoeken.
+- **Voortgangsbalk:** De progress bar tijdens het importeren is duidelijker en mooier vormgegeven. Deze is nu dynamisch, groter in de hoogte en oogt niet meer "tussengedrukt".
+- **Centrering:** De "Import voorbereiden" weergave is beter gecentreerd op het scherm zodat deze niet meer (bijna) buiten de pop-up of het beeld valt.
+
+**2. Workstation / Terminal Zichtbaarheid (Nieuwe Orders)**
+- **"Nieuw" Ribbon:** Er is een opvallend lintje (ribbon) met de tekst "Nieuw" in de hoek toegevoegd aan de orderkaartjes in de Workstation en Terminal views.
+- **Tijdsbestek:** Dit ribbon wordt automatisch getoond bij orders die in de afgelopen 48 uur zijn geïmporteerd, zodat operators op de vloer direct zien welke orders recent zijn toegevoegd.
+
+**Status:**
+- De voortgang is hiermee succesvol opgeslagen.
+
+---
+
+## Update sessie 134 (Tweede record voor lotnummers op order-document)
+
+**Datum:** 2 mei 2026 | **Branch:** `preview-v2`
+
+### Opgelost / Gewijzigd
+**Tweede record bijhouden van uitgegeven lotnummers per order**
+- **Probleem:** De tracking van orders en producten liep af en toe nog spaak, wat voelde als een lappenmiddel. Het was moeilijk om snel te verifiëren of alle lots correct geregistreerd stonden, zeker bij nieuwe imports.
+- **Oplossing:** Er is een dubbel controle-mechanisme toegevoegd op de backend. Bij elke nieuwe order-import wordt er nu een veld `issuedLotNumbers: []` geïnitialiseerd.
+- Bij elke start van een product (via `startProductionLotsService` of `startWorkstationProductionRunService`) worden de gegenereerde lotnummers nu direct weggeschreven naar dit `issuedLotNumbers` veld op het order-document in de planning.
+- Hierdoor bevat de order zelf nu altijd de originele lijst met álle uitgegeven lotnummers. Dit dient als een veilige "tweede record" naast de losse documenten in `tracked_products` en `events`. Eventuele mismatches kunnen zo direct opgespoord worden.
+- **Aangepast bestand:** `functions/src/services/planningTransitionService.js`
+
+---
+
 ## Update sessie 133 (Fix: Afdeling bij handmatig aangemaakte orders)
 
 **Datum:** 30 april 2026 | **Branch:** `FPiFF-18-12-build`

@@ -27,6 +27,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   const [fileData, setFileData] = useState([]);
   const [rawWorkbook, setRawWorkbook] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [importing, setImporting] = useState(false);
   const [existingIds, setExistingIds] = useState(new Set());
   const [existingOrderMap, setExistingOrderMap] = useState(new Map());
@@ -622,14 +623,14 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           quantity: parseNum(row[idx.qty]),
           deliveredQty: idx.delivered !== -1 ? parseNum(row[idx.delivered]) : null,
           produced: idx.ready !== -1 ? parseNum(row[idx.ready]) : 0,
-          toDoQty: parseNum(row[idx.todo]),
+          toDoQty: parseNum(row[idx.qty]),
           plannedDeliveryDate: row[idx.delivery],
           orderCreationDate: clean(row[idx.creation]), // Alleen voor dossier
           orderStatus: rawStatus,
           drawing: clean(row[idx.drawing]),
           isValidForImport: rowStatusAllowed,
           status: "waiting",
-          plan: parseNum(row[idx.todo]) || parseNum(row[idx.qty]) || 0,
+          plan: parseNum(row[idx.qty]) || 0,
           totalPlannedHours: 0,
           totalEstimatedHoursFromLn: estimatedTotalTime,
           totalActualHours: 0,
@@ -817,6 +818,31 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { cellDates: true });
+      setRawWorkbook(workbook);
+      const bestSheet = workbook.SheetNames.find(n => n.toLowerCase().includes("data") || n.toLowerCase().includes("format") || n === "40BM01");
+      handleSheetChange(bestSheet || workbook.SheetNames[0], workbook);
+    } catch { addLog(t("digitalplanning.planning_import.logs.file_unreadable", "Bestand onleesbaar."), "error"); } finally { setLoading(false); }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
     if (!file) return;
     setLoading(true);
     try {
@@ -1051,8 +1077,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   const getComparableQty = (order) => {
     const raw =
       order?.plan ??
-      order?.toDoQty ??
       order?.quantity ??
+      order?.toDoQty ??
       0;
     const n = Number(raw);
     return Number.isFinite(n) ? n : 0;
@@ -1139,7 +1165,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
       const quantityChanged = hasManualPlanOverride ? false : oldQuantity !== newQuantity;
       const todoChanged = oldToDoQty !== newToDoQty;
       const readyChanged = oldReadyQty !== newReadyQty;
-      const notesChanged = oldNotes !== newNotes;
+      // We triggeren alleen op notesChanged als de nieuwe Excel note daadwerkelijk tekst bevat (en anders is).
+      // Dit voorkomt dat een bestaande opmerking in FF wordt overschreven/getriggerd door een lege Excel cel.
+      const notesChanged = newNotes !== "" && oldNotes !== newNotes;
       const oldPlannedHours = getComparablePlannedHours(existing);
       const newPlannedHours = getComparablePlannedHours(order);
       const hoursChanged =
@@ -1165,8 +1193,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         newPlannedHours,
         hasManualPlanOverride,
         // Ready LN vs FF is informatief; deze import schrijft produced/gereed niet terug.
-        // Als we readyChanged als trigger gebruiken, blijven orders oneindig als "Sync" terugkomen.
-        hasSmartChange: quantityChanged || todoChanged || notesChanged || hoursChanged,
+        // Als we readyChanged of todoChanged als trigger gebruiken, blijven orders onterecht als "Sync" terugkomen.
+        hasSmartChange: quantityChanged || notesChanged,
       });
     });
     return byId;
@@ -1323,6 +1351,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           ...item,
           isExistingOrder: isExistingOrder(item),
           planningVisible: selectedOrderIds.has(item.id),
+          importDate: new Date().toISOString(), // Zorgt ervoor dat nieuwe orders direct een importDate krijgen voor de "Nieuw" ribbon
         }));
 
         await importPlanningOrders({
@@ -1384,7 +1413,29 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-md">
-      <div className="bg-white w-full max-w-[96vw] max-h-[92vh] rounded-[3rem] shadow-2xl flex flex-col overflow-hidden border border-white/20 text-left">
+      <div className="bg-white w-full max-w-[96vw] h-[96vh] rounded-[3rem] shadow-2xl flex flex-col overflow-hidden border border-white/20 text-left relative">
+        {importing && (
+          <div className="absolute inset-0 z-[120] flex items-center justify-center bg-slate-900/60 backdrop-blur-md rounded-[3rem]">
+            <div className="bg-white border border-slate-200 rounded-[2.5rem] p-10 shadow-2xl w-full max-w-2xl flex flex-col gap-8">
+              <div className="flex items-center gap-4 text-blue-600">
+                <Loader2 className="animate-spin" size={40} />
+                <h3 className="text-3xl font-black uppercase tracking-tight">{t("digitalplanning.planning_import.progress_busy", "Importeren...")}</h3>
+              </div>
+              <div className="flex justify-between items-end text-base font-black uppercase tracking-widest text-slate-500">
+                <span className="text-slate-700">{importProgressLabel}</span>
+                <span className="flex items-center gap-4">
+                  {importEtaLabel ? <span className="text-slate-400 bg-slate-100 px-4 py-1.5 rounded-xl">{importEtaLabel}</span> : null}
+                  <span className="text-blue-600 text-3xl leading-none">{importProgressPct}%</span>
+                </span>
+              </div>
+              <div className="h-8 w-full bg-slate-100 rounded-full overflow-hidden border-2 border-slate-200/60 shadow-inner">
+                <div className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out flex items-center justify-end pr-3 shadow-lg" style={{ width: `${importProgressPct}%` }}>
+                   {importProgressPct > 5 && <div className="w-3 h-3 rounded-full bg-white/50 animate-pulse" />}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="p-5 border-b flex justify-between items-center bg-slate-50">
           <div className="flex items-center gap-4">
             <div className="bg-blue-600 p-3 rounded-[1.1rem] text-white shadow-xl"><Database size={22} /></div>
@@ -1400,46 +1451,24 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           <div className="flex-1 p-8 overflow-hidden bg-white custom-scrollbar">
             {fileData.length === 0 ? (
                 <div className="h-full rounded-[4rem] border-2 border-slate-100 p-8 flex flex-col gap-6 bg-slate-50/40">
-                  <div className="flex gap-3 justify-center">
-                    <button
-                      onClick={() => setPasteMode(true)}
-                      className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${pasteMode ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-200" : "bg-white text-slate-600 border-slate-200"}`}
-                    >
-                      <Clipboard size={16} /> {t("digitalplanning.planning_import.paste_excel_data", "Plak Excel Data")}
-                    </button>
-                    <button
-                      onClick={() => setPasteMode(false)}
-                      className={`px-6 py-3 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center gap-2 transition-all border-2 ${!pasteMode ? "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200" : "bg-white text-slate-600 border-slate-200"}`}
-                    >
-                      <Upload size={16} /> {t("digitalplanning.planning_import.select_file", "Bestand Selecteren")}
-                    </button>
+                  <div 
+                    onClick={() => fileInputRef.current?.click()} 
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`flex-1 border-4 border-dashed rounded-[3rem] flex flex-col items-center justify-center transition-all cursor-pointer group text-center min-h-[320px] ${
+                      isDragging 
+                        ? "border-blue-500 bg-blue-50/80 scale-[1.02]" 
+                        : "border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 bg-white"
+                    }`}
+                  >
+                    <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 transition-transform ${isDragging ? "bg-blue-600 text-white scale-110 shadow-xl" : "bg-blue-100 text-blue-600 group-hover:scale-110"}`}>
+                      {loading ? <Loader2 className="animate-spin" size={50} /> : <Upload size={50} />}
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-700 uppercase">{isDragging ? t("digitalplanning.planning_import.drop_to_import", "Laat los om te importeren") : t("digitalplanning.planning_import.select_ln_export", "Selecteer LN Export")}</h3>
+                    <p className="text-slate-400 mt-2 font-medium italic">{t("digitalplanning.planning_import.drag_drop_support", "Sleep een bestand hierheen of klik om te bladeren")}</p>
+                    <input type="file" ref={fileInputRef} onChange={handleFile} accept=".xlsx,.xlsm" className="hidden" />
                   </div>
-
-                  {pasteMode ? (
-                    <div className="flex-1 flex flex-col gap-4 min-h-0">
-                      <textarea
-                        ref={pasteTextAreaRef}
-                        placeholder={t("digitalplanning.planning_import.paste_placeholder", "Plak hier de Excel-gegevens (tabellen) uit LN...")}
-                        className="w-full flex-1 min-h-[260px] p-4 border-2 border-emerald-200 rounded-[24px] font-mono text-sm resize-none focus:outline-none focus:border-emerald-500 bg-white"
-                      />
-                      <button
-                        onClick={handlePasteImport}
-                        disabled={loading}
-                        className="w-full py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[20px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-                      >
-                        {loading ? <Loader2 className="animate-spin" size={16} /> : <Clipboard size={16} />} {t("digitalplanning.planning_import.process_pasted_data", "Verwerk Geplakte Data")}
-                      </button>
-                    </div>
-                  ) : (
-                    <div onClick={() => fileInputRef.current?.click()} className="flex-1 border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center hover:border-blue-400 hover:bg-blue-50/50 transition-all cursor-pointer group text-center min-h-[320px]">
-                      <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6 text-blue-600 group-hover:scale-110 transition-transform">
-                        {loading ? <Loader2 className="animate-spin" size={50} /> : <Upload size={50} />}
-                      </div>
-                      <h3 className="text-2xl font-black text-slate-700 uppercase">{t("digitalplanning.planning_import.select_ln_export", "Selecteer LN Export")}</h3>
-                      <p className="text-slate-400 mt-2 font-medium italic">{t("digitalplanning.planning_import.extended_support", "Geconsolideerde import inclusief Order Creation Date")}</p>
-                      <input type="file" ref={fileInputRef} onChange={handleFile} accept=".xlsx,.xlsm" className="hidden" />
-                    </div>
-                  )}
                 </div>
             ) : (
               <div className="h-full min-h-0 flex flex-col gap-8">
@@ -1718,25 +1747,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
 
         </div>
 
-        <div className="p-10 border-t bg-slate-50 flex justify-between items-center">
-          {importing && (
-            <div className="absolute left-10 right-10 -mt-20">
-              <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
-                <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-widest text-slate-600 mb-2">
-                  <span>{importProgressLabel || t("digitalplanning.planning_import.progress_busy", "Importeren...")}</span>
-                  <span className="flex items-center gap-3">
-                    {importEtaLabel ? <span className="text-slate-500">{importEtaLabel}</span> : null}
-                    <span>{importProgressPct}%</span>
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${importProgressPct}%` }} />
-                </div>
-              </div>
-            </div>
-          )}
+        <div className="p-10 border-t bg-slate-50 flex justify-between items-center relative">
           <div className="flex gap-3 bg-white p-1.5 rounded-3xl border border-slate-200">
-             <button onClick={() => setImportMode("new_only")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "new_only" ? "bg-blue-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.only_new", "Alleen Nieuwe")}</button>
              <button onClick={() => setImportMode("smart_update")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "smart_update" ? "bg-emerald-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.smart_update", "Slimme Sync")}</button>
              <button onClick={() => setImportMode("overwrite")} className={`px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${importMode === "overwrite" ? "bg-orange-600 text-white shadow-xl" : "text-slate-400 hover:bg-slate-50"}`}>{t("digitalplanning.planning_import.overwrite_all", "Overschrijf Alles")}</button>
           </div>

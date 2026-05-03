@@ -1124,6 +1124,8 @@ const bulkImportPlanningOrdersService = async ({
           plannedMinutesBM01: qcHours * 60,
           referenceOperationTimes: operationByCode,
           planningHidden: item.planningVisible === false,
+          issuedLotNumbers: [],
+          importDate: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         if (scopedPlanningRef) {
@@ -3114,6 +3116,9 @@ const startWorkstationProductionRunService = async ({
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
       ...(stationField ? { [stationField]: currentStartedCount + qty } : {}),
     };
+    if (createdLots && createdLots.length > 0) {
+      planningUpdates.issuedLotNumbers = admin.firestore.FieldValue.arrayUnion(...createdLots);
+    }
     const scopedPlanningRef = getScopedPlanningDocRef({
       ctx,
       department: scopedDepartment,
@@ -3746,6 +3751,9 @@ const startProductionLotsService = async ({
       };
     if (!virtualMode && startedCounterField) {
       planningUpdates[startedCounterField] = admin.firestore.FieldValue.increment(qty);
+    }
+    if (createdLots && createdLots.length > 0) {
+      planningUpdates.issuedLotNumbers = admin.firestore.FieldValue.arrayUnion(...createdLots);
     }
     batch.set(planningRef, planningUpdates, { merge: true });
     if (scopedPlanningRef) {
