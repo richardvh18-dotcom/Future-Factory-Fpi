@@ -729,11 +729,14 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   };
 
     const handlePrintQrOverview = async () => {
-            if (completedProducts.length === 0) return;
+            // BEPALING LIJST: Als we in NH tab zitten, gebruik ALTIJD de volledige nahardingProducts lijst
+            const listToPrint = activeTab === "naharding_batch" ? nahardingProducts : completedProducts;
+
+            if (listToPrint.length === 0) return;
 
             try {
                     const itemsWithQr = await Promise.all(
-                            completedProducts.map(async (item, index) => {
+                            listToPrint.map(async (item, index) => {
                                     const orderId = String(item.orderId || "").trim();
                                     const lotNumber = String(item.lotNumber || "").trim();
                                     const itemName = String(item.item || "").trim();
