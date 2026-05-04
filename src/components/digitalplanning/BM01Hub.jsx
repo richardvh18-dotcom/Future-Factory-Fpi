@@ -50,6 +50,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   
   const [scanInput, setScanInput] = useState("");
   const [scannerMode, setScannerMode] = useState(true);
+    const [isNahardingBatchProcessing, setIsNahardingBatchProcessing] = useState(false);
   const scanInputRef = useRef(null);
   const selectedProductRef = useRef(null); // Ref voor race-condition preventie
 
@@ -391,6 +392,146 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     });
   }, [products]);
 
+    const toMillisSafe = (value) => {
+        if (!value) return 0;
+        if (typeof value?.toMillis === "function") return value.toMillis();
+        if (typeof value?.seconds === "number") return value.seconds * 1000;
+        const parsed = new Date(value).getTime();
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const getNahardingOfferedMillis = (item) => {
+        const ts = item?.timestamps || {};
+        const directTs =
+            toMillisSafe(ts.oven_naharding_start)
+            || toMillisSafe(ts.naharding_start)
+            || 0;
+        if (directTs > 0) return directTs;
+
+        const historyList = Array.isArray(item?.history) ? item.history : [];
+        const nahardingEvent = [...historyList]
+            .reverse()
+            .find((entry) => String(entry?.details || "").toUpperCase().includes("NAHARD"));
+        const historyTs = toMillisSafe(nahardingEvent?.timestamp);
+        if (historyTs > 0) return historyTs;
+
+        // Laatste fallback: updatedAt / createdAt. Volatiel maar beter dan niets
+        // voor producten die vóór de timestamp-velden zijn aangeboden.
+        return toMillisSafe(item?.updatedAt) || toMillisSafe(item?.createdAt);
+    };
+
+    const nahardingProducts = useMemo(() => {
+        const items = products.filter((p) => {
+            const station = String(p.currentStation || "").toUpperCase().replace(/\s/g, "");
+            const step = String(p.currentStep || "").toUpperCase().replace(/\s/g, "");
+            const status = String(p.status || "").toUpperCase().trim();
+
+            const isNaharding =
+                station.includes("NAHARD") ||
+                station.includes("OVEN") ||
+                step.includes("NAHARD") ||
+                step.includes("OVEN") ||
+                status === "TE NAHARDEN"; // ook oude records die alleen op status staan
+            const isClosed =
+                status === "REJECTED" ||
+                status === "AFKEUR" ||
+                status === "COMPLETED" ||
+                step === "FINISHED" ||
+                station === "GEREED";
+
+            return isNaharding && !isClosed;
+        });
+
+        return items.sort((a, b) => getNahardingOfferedMillis(b) - getNahardingOfferedMillis(a));
+    }, [products]);
+
+    const latestNahardingBatchDateKey = useMemo(() => {
+        if (nahardingProducts.length === 0) return "";
+        const latest = getNahardingOfferedMillis(nahardingProducts[0]);
+        if (!latest) return "";
+        return format(new Date(latest), "yyyy-MM-dd");
+    }, [nahardingProducts]);
+
+    const nahardingBatchProducts = useMemo(() => {
+        if (!latestNahardingBatchDateKey) return [];
+        return nahardingProducts.filter((item) => {
+            const ts = getNahardingOfferedMillis(item);
+            if (!ts) return false;
+            return format(new Date(ts), "yyyy-MM-dd") === latestNahardingBatchDateKey;
+        });
+    }, [nahardingProducts, latestNahardingBatchDateKey]);
+
+    const latestNahardingBatchLabel = useMemo(() => {
+        if (!latestNahardingBatchDateKey) return "";
+        const parsed = new Date(`${latestNahardingBatchDateKey}T00:00:00`);
+        if (!isValid(parsed)) return latestNahardingBatchDateKey;
+        return format(parsed, "EEEE d MMMM yyyy", { locale: nl });
+    }, [latestNahardingBatchDateKey]);
+
+    const handleNahardingBatchComplete = async () => {
+        if (isNahardingBatchProcessing) return;
+        const batchItems = nahardingBatchProducts.filter((item) => Boolean(resolveProductIdentifier(item)));
+        if (batchItems.length === 0) {
+            notify(t("bm01.naharding_batch_empty", "Geen Naharding lots gevonden om te gereedmelden."));
+            return;
+        }
+
+        const confirmed = window.confirm(
+            t(
+                "bm01.naharding_batch_confirm",
+                "Weet je zeker dat je de laatst aangeboden batch ({{count}} Naharding lots) in 1x gereed wilt melden en archiveren?",
+                { count: batchItems.length }
+            )
+        );
+        if (!confirmed) return;
+
+        setIsNahardingBatchProcessing(true);
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const item of batchItems) {
+            const productId = resolveProductIdentifier(item);
+            try {
+                await completeTrackedProduct({
+                    productId,
+                    finishType: "archive",
+                    fromStation: "Naharding",
+                    note: "Batch Naharding gereedgemeld vanuit BM01",
+                    actorLabel: user?.email || "Operator",
+                    source: "BM01Hub:naharding-batch",
+                });
+                successCount += 1;
+            } catch (error) {
+                failCount += 1;
+                console.error("Naharding batch gereedmelden mislukt:", productId, error);
+            }
+        }
+
+        try {
+            await logActivity(
+                user?.uid || "system",
+                "POST_PROCESS_COMPLETE_BATCH",
+                `BM01 Naharding batch gereedgemeld: success=${successCount}, failed=${failCount}`
+            );
+        } catch (error) {
+            console.error("Kon BM01 batch log niet opslaan:", error);
+        }
+
+        if (failCount === 0) {
+            notify(t("bm01.naharding_batch_success", "Naharding batch gereedgemeld: {{count}} lots gearchiveerd.", { count: successCount }));
+        } else {
+            notify(
+                t(
+                    "bm01.naharding_batch_partial",
+                    "Naharding batch deels gereedgemeld: {{success}} gelukt, {{failed}} mislukt.",
+                    { success: successCount, failed: failCount }
+                )
+            );
+        }
+
+        setIsNahardingBatchProcessing(false);
+    };
+
   // Fetch archived products for selected date
   useEffect(() => {
     if (activeTab !== "completed") return;
@@ -494,7 +635,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
       if (status === "completed") {
         await completeTrackedProduct({
           productId,
-          finishType: "archive",
+                    finishType: "post_inspection",
           fromStation: "BM01",
           note: data.note || "",
           actorLabel: user?.email || "Operator",
@@ -503,9 +644,9 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         await logActivity(
           user?.uid || "system",
           "POST_PROCESS_COMPLETE",
-          `BM01 afgerond en gearchiveerd: lot ${product.lotNumber || productId}`
+                    `BM01 afgerond en doorgestuurd naar Naharding: lot ${product.lotNumber || productId}`
         );
-                notify(`Lot ${product.lotNumber || productId} is gereedgemeld.`);
+                notify(`Lot ${product.lotNumber || productId} is doorgestuurd naar Naharding.`);
                 if (resolveProductIdentifier(selectedProductRef.current) === productId) handleCloseModal();
         return;
       }
@@ -767,93 +908,42 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
       {/* Custom Tabs Header voor BM01 */}
-      <div className="p-2 bg-white border-b border-slate-200 shrink-0 shadow-sm">
-        <div className="flex justify-center overflow-x-auto">
-            <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-2xl min-w-[320px]">
+      <div className="p-1 bg-white border-b border-slate-200 shrink-0 shadow-sm sm:p-2">
+        <div className="flex justify-center overflow-x-auto no-scrollbar">
+            <div className="flex bg-slate-100 p-1 rounded-xl w-full max-w-2xl min-w-[300px]">
                 <button 
                     onClick={() => setActiveTab("planning")}
-                    className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     {t('bm01.planning_total')}
                 </button>
                 <button 
                     onClick={() => setActiveTab("inspectie")}
-                    className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "inspectie" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "inspectie" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     {t('bm01.to_offer')}
                 </button>
                 <button 
                     onClick={() => setActiveTab("completed")}
-                    className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "completed" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "completed" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     {t('bm01.offered')}
+                </button>
+                <button 
+                    onClick={() => setActiveTab("naharding_batch")}
+                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "naharding_batch" ? "bg-white text-amber-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                    NH
+                </button>
+                <button 
+                    onClick={() => setActiveTab("mismatch")}
+                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "mismatch" ? "bg-white text-rose-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                    LN
                 </button>
             </div>
         </div>
       </div>
-
-            <div className="mx-3 mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                    <button
-                        type="button"
-                        onClick={() => setShowDeliveryMismatch((prev) => !prev)}
-                        className="flex items-center gap-2 text-rose-700 hover:text-rose-800 transition-colors"
-                        aria-expanded={showDeliveryMismatch}
-                    >
-                        <AlertTriangle size={16} />
-                        <p className="text-[11px] font-black uppercase tracking-widest">LN geleverd vs FF mismatch</p>
-                        <ChevronDown size={16} className={`transition-transform ${showDeliveryMismatch ? "rotate-180" : "rotate-0"}`} />
-                    </button>
-                    <span className="px-2 py-1 rounded-lg bg-white border border-rose-200 text-rose-700 text-[10px] font-black uppercase tracking-wider">
-                        {deliveryInspectionMismatches.length} orders
-                    </span>
-                </div>
-                {showDeliveryMismatch && (
-                <>
-                <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        onClick={() => setDeliveryMismatchFilter("all")}
-                        className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "all" ? "bg-white border-rose-300 text-rose-700" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
-                    >
-                        Alles ({deliveryInspectionMismatches.length})
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setDeliveryMismatchFilter("over")}
-                        className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "over" ? "bg-white border-orange-300 text-orange-700" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
-                    >
-                        LN {'>'} FF ({deliveryInspectionOverMismatches.length})
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setDeliveryMismatchFilter("under")}
-                        className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "under" ? "bg-white border-amber-300 text-amber-700" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
-                    >
-                        LN {'<'} FF ({deliveryInspectionUnderMismatches.length})
-                    </button>
-                </div>
-                <div className="mt-2 space-y-1.5">
-                    {visibleDeliveryInspectionMismatches.length === 0 && (
-                        <div className="rounded-xl bg-white/80 border border-rose-100 px-3 py-2 text-[11px] font-bold text-slate-500">
-                            Geen mismatch-orders voor dit filter.
-                        </div>
-                    )}
-                    {visibleDeliveryInspectionMismatches.slice(0, 5).map((entry) => (
-                        <div key={`${entry.orderId}_${entry.item}`} className="flex items-center justify-between gap-3 rounded-xl bg-white/80 border border-rose-100 px-3 py-2">
-                            <div className="min-w-0">
-                                <p className="text-xs font-black text-slate-800 truncate">{entry.orderId}</p>
-                                <p className="text-[10px] font-bold text-slate-500 truncate">{entry.item}</p>
-                            </div>
-                            <div className="text-right text-[10px] font-black uppercase tracking-wider text-rose-700 shrink-0">
-                                LN {entry.deliveredQty} / FF {entry.inspectionApprovedQty}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-                </>
-                )}
-            </div>
 
       <style>{`
         @keyframes scan-pulse {
@@ -954,8 +1044,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         ) : activeTab === "inspectie" ? (
             <div className="h-full w-full">
                 <div
-                    className="h-full flex flex-col p-3 w-full overflow-y-auto custom-scrollbar pb-24"
-                    style={{ paddingBottom: "max(6rem, env(safe-area-inset-bottom))" }}
+                    className="h-full flex flex-col p-3 w-full overflow-y-auto custom-scrollbar"
                 >
                     {/* Scan Indicator & Input */}
                     <div className="shrink-0 space-y-2 mb-3 sticky top-0 bg-white py-2 z-10">
@@ -1036,7 +1125,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                     )}
                 </div>
             </div>
-        ) : (
+        ) : activeTab === "completed" ? (
             /* AANGEBODEN / GEREED TAB */
             <div className="h-full flex flex-col p-3 w-full">
                 {/* Datum Navigatie */}
@@ -1133,6 +1222,122 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                                             </button>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+        ) : activeTab === "naharding_batch" ? (
+            <div className="h-full flex flex-col p-4 gap-4">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Naharding Batch</p>
+                    <p className="text-sm font-bold text-slate-700 mt-1">
+                        {t("bm01.naharding_batch_desc", "Meld in 1x alle Naharding lots gereed zodra de oven is geleegd.")}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={handleNahardingBatchComplete}
+                        disabled={isNahardingBatchProcessing || nahardingBatchProducts.length === 0}
+                        className={`mt-4 w-full md:w-auto px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
+                            isNahardingBatchProcessing || nahardingBatchProducts.length === 0
+                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                                : "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200"
+                        }`}
+                    >
+                        {isNahardingBatchProcessing
+                            ? t("bm01.naharding_batch_processing", "Batch wordt verwerkt...")
+                            : t("bm01.naharding_batch_button", "Batch Naharding gereedmelden ({{count}})", { count: nahardingBatchProducts.length })}
+                    </button>
+                    {latestNahardingBatchLabel && (
+                        <p className="mt-3 text-[11px] font-bold text-amber-800">
+                            {t("bm01.naharding_batch_date", "Laatst aangeboden batch: {{date}}", { date: latestNahardingBatchLabel })}
+                        </p>
+                    )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3">
+                    {nahardingBatchProducts.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-center opacity-60">
+                            <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                                {nahardingProducts.length === 0
+                                    ? t("bm01.naharding_batch_none_total", "Geen lots op Naharding station gevonden.")
+                                    : t("bm01.naharding_batch_none", "{{total}} lots op Naharding, maar geen batch-datum bepaald.", { total: nahardingProducts.length })}
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {nahardingBatchProducts.map((item) => (
+                                <div key={item.id || item.lotNumber} className="rounded-xl border border-slate-200 p-3">
+                                    <p className="text-sm font-black text-slate-800">{item.lotNumber || item.id}</p>
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1">
+                                        {item.orderId || "-"} | {item.item || item.itemCode || "-"}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        ) : (
+            <div className="h-full flex flex-col p-4 overflow-y-auto">
+                <div className="mb-4 rounded-3xl border-2 border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 text-rose-700">
+                            <AlertTriangle size={20} className="shrink-0" />
+                            <div className="text-left">
+                                <p className="text-xs font-black uppercase tracking-widest leading-none">LN Mismatch</p>
+                                <p className="text-[10px] font-bold opacity-60 mt-1 uppercase">Geleverd vs Goedgekeurd</p>
+                            </div>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-xl bg-white border border-rose-200 text-rose-700 text-[11px] font-black italic">
+                            {deliveryInspectionMismatches.length}
+                        </span>
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setDeliveryMismatchFilter("all")}
+                            className={`px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "all" ? "bg-white border-rose-300 text-rose-700 shadow-sm" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
+                        >
+                            Alles ({deliveryInspectionMismatches.length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setDeliveryMismatchFilter("over")}
+                            className={`px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "over" ? "bg-white border-orange-300 text-orange-700 shadow-sm" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
+                        >
+                            LN {'>'} FF ({deliveryInspectionOverMismatches.length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setDeliveryMismatchFilter("under")}
+                            className={`px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all ${deliveryMismatchFilter === "under" ? "bg-white border-amber-300 text-amber-700 shadow-sm" : "bg-rose-100/60 border-rose-200 text-rose-600 hover:bg-white"}`}
+                        >
+                            LN {'<'} FF ({deliveryInspectionUnderMismatches.length})
+                        </button>
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    {visibleDeliveryInspectionMismatches.length === 0 ? (
+                        <div className="rounded-2xl bg-slate-50 border border-dashed border-slate-200 px-6 py-12 text-center">
+                            <CheckCircle2 size={40} className="mx-auto mb-3 text-slate-300" />
+                            <p className="text-xs font-black uppercase tracking-widest text-slate-400 italic">
+                                Geen mismatch-orders gevonden.
+                            </p>
+                        </div>
+                    ) : (
+                        visibleDeliveryInspectionMismatches.map((entry) => (
+                            <div key={`${entry.orderId}_${entry.item}`} className="flex items-center justify-between gap-4 rounded-3xl bg-white border border-slate-100 p-5 shadow-sm hover:border-blue-200 transition-all group">
+                                <div className="min-w-0">
+                                    <p className="text-base font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">{entry.orderId}</p>
+                                    <p className="text-xs font-bold text-slate-500 truncate mt-0.5">{entry.item}</p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                    <div className="text-xs font-black text-rose-600 uppercase tracking-wider">LN {entry.deliveredQty}</div>
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">FF {entry.inspectionApprovedQty}</div>
                                 </div>
                             </div>
                         ))
