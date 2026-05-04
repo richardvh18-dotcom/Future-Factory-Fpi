@@ -1194,7 +1194,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
-                    {completedProducts.length === 0 ? (
+                    {activeTab === "completed" && completedProducts.length === 0 ? (
                         <div className="text-center py-20 opacity-40">
                             <CheckCircle2 size={64} className="mx-auto mb-4 text-slate-300" />
                             <p className="font-black uppercase tracking-widest text-slate-400">{t('bm01.no_offered_items')}</p>
