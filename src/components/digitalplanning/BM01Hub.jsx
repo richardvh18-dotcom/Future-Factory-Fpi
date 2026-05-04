@@ -908,36 +908,36 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
       {/* Custom Tabs Header voor BM01 */}
-      <div className="p-1 bg-white border-b border-slate-200 shrink-0 shadow-sm sm:p-2">
+      <div className="p-0.5 bg-white border-b border-slate-200 shrink-0 shadow-sm sm:p-2">
         <div className="flex justify-center overflow-x-auto no-scrollbar">
-            <div className="flex bg-slate-100 p-1 rounded-xl w-full max-w-2xl min-w-[300px]">
+            <div className="flex bg-slate-100 p-0.5 rounded-lg w-full max-w-2xl min-w-[280px]">
                 <button 
                     onClick={() => setActiveTab("planning")}
-                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-1 py-1.5 rounded-md text-[9px] sm:text-[11px] font-black uppercase tracking-tighter sm:tracking-widest transition-all ${activeTab === "planning" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     {t('bm01.planning_total')}
                 </button>
                 <button 
                     onClick={() => setActiveTab("inspectie")}
-                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "inspectie" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-1 py-1.5 rounded-md text-[9px] sm:text-[11px] font-black uppercase tracking-tighter sm:tracking-widest transition-all ${activeTab === "inspectie" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     {t('bm01.to_offer')}
                 </button>
                 <button 
                     onClick={() => setActiveTab("completed")}
-                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "completed" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-1 py-1.5 rounded-md text-[9px] sm:text-[11px] font-black uppercase tracking-tighter sm:tracking-widest transition-all ${activeTab === "completed" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     {t('bm01.offered')}
                 </button>
                 <button 
                     onClick={() => setActiveTab("naharding_batch")}
-                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "naharding_batch" ? "bg-white text-amber-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-1 py-1.5 rounded-md text-[9px] sm:text-[11px] font-black uppercase tracking-tighter sm:tracking-widest transition-all ${activeTab === "naharding_batch" ? "bg-white text-amber-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     NH
                 </button>
                 <button 
                     onClick={() => setActiveTab("mismatch")}
-                    className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight sm:tracking-widest transition-all ${activeTab === "mismatch" ? "bg-white text-rose-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex-1 px-1 py-1.5 rounded-md text-[9px] sm:text-[11px] font-black uppercase tracking-tighter sm:tracking-widest transition-all ${activeTab === "mismatch" ? "bg-white text-rose-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
                     LN
                 </button>
@@ -1060,11 +1060,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                             {/* Scanner Mode Toggle */}
                             <button 
                                 onClick={() => setScannerMode(!scannerMode)}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-bold text-xs uppercase tracking-widest transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
+                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border-2 font-black text-[9px] uppercase tracking-tighter transition-all ${scannerMode ? 'bg-purple-100 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-400'}`}
                                 title={scannerMode ? "Toetsenbord verborgen (Scanner Modus)" : "Normale invoer"}
                             >
-                                {scannerMode ? <ScanBarcode size={16} /> : <Keyboard size={16} />}
-                                {scannerMode ? "Scanner Modus" : "Toetsenbord"}
+                                {scannerMode ? <ScanBarcode size={14} /> : <Keyboard size={14} />}
+                                {scannerMode ? "Scanner" : "Keyboard"}
                             </button>
                         </div>
                         {/* Scan Input */}
@@ -1129,40 +1129,40 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             /* AANGEBODEN / GEREED TAB */
             <div className="h-full flex flex-col p-3 w-full">
                 {/* Datum Navigatie */}
-                <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-4">
-                    <div className="flex items-center bg-white p-2 rounded-2xl shadow-sm border border-slate-100">
-                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500">
-                            <ChevronLeft size={20} />
+                <div className="flex flex-col md:flex-row items-center justify-center gap-2 mb-3">
+                    <div className="flex items-center bg-white p-1 rounded-xl shadow-sm border border-slate-100 scale-95 sm:scale-100">
+                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
+                            <ChevronLeft size={18} />
                         </button>
                         <div 
-                            className="flex items-center gap-2 px-4 min-w-[200px] justify-center cursor-pointer hover:bg-slate-50 rounded-lg transition-colors select-none"
+                            className="flex items-center gap-1.5 px-3 min-w-[160px] justify-center cursor-pointer hover:bg-slate-50 rounded-lg transition-colors select-none"
                             onDoubleClick={() => setSelectedDate(new Date())}
                             title={t('bm01.reset_date_tooltip', 'Dubbelklik om naar vandaag te gaan')}
                         >
-                            <Calendar size={16} className="text-emerald-500" />
-                            <span className="font-black text-slate-700 uppercase tracking-wide text-xs">
+                            <Calendar size={14} className="text-emerald-500" />
+                            <span className="font-black text-slate-700 uppercase tracking-tight text-[10px]">
                                 {viewMode === 'day' 
                                     ? format(selectedDate, "EEEE d MMMM", { locale: nl })
                                     : `Week ${format(selectedDate, "w")} (${format(startOfISOWeek(selectedDate), "d MMM")} - ${format(endOfISOWeek(selectedDate), "d MMM")})`
                                 }
                             </span>
                         </div>
-                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500">
-                            <ChevronRight size={20} />
+                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
+                            <ChevronRight size={18} />
                         </button>
                     </div>
                     
-                    <div className="flex gap-2">
-                        <div className="flex bg-white p-1 rounded-xl border border-slate-100 shadow-sm">
+                    <div className="flex gap-1.5 scale-95 sm:scale-100">
+                        <div className="flex bg-white p-0.5 rounded-lg border border-slate-100 shadow-sm">
                             <button 
                                 onClick={() => setViewMode("day")}
-                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === "day" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                                className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${viewMode === "day" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
                             >
                                 {t('bm01.day')}
                             </button>
                             <button 
                                 onClick={() => setViewMode("week")}
-                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${viewMode === "week" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                                className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${viewMode === "week" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
                             >
                                 {t('bm01.week')}
                             </button>
@@ -1170,18 +1170,18 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
 
                         <button 
                             onClick={handleExport}
-                            className="p-3 bg-white hover:bg-emerald-50 text-emerald-600 border border-slate-100 rounded-xl transition-colors shadow-sm"
+                            className="p-2 bg-white hover:bg-emerald-50 text-emerald-600 border border-slate-100 rounded-lg transition-colors shadow-sm"
                             title="Export CSV"
                         >
-                            <Download size={20} />
+                            <Download size={18} />
                         </button>
                         
                         <button 
                             onClick={() => setShowPrintModal(true)}
-                            className="p-3 bg-white hover:bg-blue-50 text-blue-600 border border-slate-100 rounded-xl transition-colors shadow-sm"
+                            className="p-2 bg-white hover:bg-blue-50 text-blue-600 border border-slate-100 rounded-lg transition-colors shadow-sm"
                             title="Print QR Overzicht"
                         >
-                            <Printer size={20} />
+                            <Printer size={18} />
                         </button>
                     </div>
                 </div>
