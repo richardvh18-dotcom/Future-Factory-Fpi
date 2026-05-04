@@ -381,12 +381,13 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     return products.filter(p => {
         const station = (p.currentStation || "").toUpperCase().replace(/\s/g, "");
         const step = (p.currentStep || "").toUpperCase();
+        const status = (p.status || "").toUpperCase();
         
         // Ruimere matching voor BM01/Inspectie
-        const isMatch = station.includes("BM01") || step.includes("INSPECTIE") || step === "EINDINSPECTIE" || step === "BM01" || step === "BM01";
+        const isMatch = station.includes("BM01") || step.includes("INSPECTIE") || step === "EINDINSPECTIE" || step === "BM01";
         
-        const isRejected = p.status === "rejected" || p.currentStep === "REJECTED";
-        const isFinished = p.currentStep === "Finished" || station === "GEREED";
+        const isRejected = status === "REJECTED" || step === "REJECTED" || status === "AFKEUR";
+        const isFinished = step === "FINISHED" || station === "GEREED";
         
         return isMatch && !isFinished && !isRejected;
     });
@@ -431,17 +432,19 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                 station.includes("OVEN") ||
                 step.includes("NAHARD") ||
                 step.includes("OVEN") ||
-                status === "TE NAHARDEN"; // ook oude records die alleen op status staan
+                status === "TE NAHARDEN";
+
             const isClosed =
+                status === "COMPLETED" ||
                 status === "REJECTED" ||
                 status === "AFKEUR" ||
-                status === "COMPLETED" ||
                 step === "FINISHED" ||
                 station === "GEREED";
 
             return isNaharding && !isClosed;
         });
 
+        console.debug('[BM01] Naharding filter:', items.length, 'items gevonden');
         return items.sort((a, b) => getNahardingOfferedMillis(b) - getNahardingOfferedMillis(a));
     }, [products]);
 
