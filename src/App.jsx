@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth, db, logActivity } from "./config/firebase";
-import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, serverTimestamp, query, collectionGroup, where, limit, getDocs } from "firebase/firestore";
 import LoggedOutView from "./components/LoggedOutView";
 
 // Basis Componenten
@@ -54,6 +54,8 @@ const AdminLogView = lazy(() => import("./components/admin/AdminLogView"));
 const PrintQueueAdminView = lazy(() =>
   import("./components/printer/PrintQueueAdminView")
 );
+const ProductDossierModal = lazy(() => import("./components/digitalplanning/modals/ProductDossierModal"));
+const TeamleaderOrderDetailModal = lazy(() => import("./components/digitalplanning/modals/TeamleaderOrderDetailModal"));
 /**
  * App.jsx V18.0 - Responsive Design
  * + Mobile menu state management
@@ -65,6 +67,10 @@ const App = () => {
   const [loginError, setLoginError] = useState(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const [globalDossierProduct, setGlobalDossierProduct] = useState(null);
+  const [globalOrderDetail, setGlobalOrderDetail] = useState(null);
+  const [globalOrders, setGlobalOrders] = useState([]);
 
   // Data fetching via Hooks
   const { user, isAdmin, role, loading: authLoading } = useAdminAuth();
@@ -253,6 +259,77 @@ const App = () => {
     }
   };
 
+  const handleGlobalSearch = async (queryStr) => {
+    const qStr = queryStr.trim().toUpperCase();
+    if (!qStr) return;
+
+    setGlobalSearchLoading(true);
+    try {
+      let foundProduct = null;
+      let foundOrder = null;
+      let parentOrders = [];
+
+      const itemsQuery = query(collectionGroup(db, "items"), where("lotNumber", "==", qStr), limit(1));
+      const itemsSnap = await getDocs(itemsQuery);
+      if (!itemsSnap.empty) {
+        foundProduct = { id: itemsSnap.docs[0].id, ...itemsSnap.docs[0].data() };
+      }
+
+      if (!foundProduct) {
+        const rootTracked = await getDocs(query(collection(db, ...PATHS.TRACKING), where("lotNumber", "==", qStr), limit(1)));
+        if (!rootTracked.empty) foundProduct = { id: rootTracked.docs[0].id, ...rootTracked.docs[0].data() };
+      }
+
+      if (!foundProduct) {
+        const currentYear = new Date().getFullYear();
+        for (const year of [currentYear, currentYear - 1]) {
+          const archiveRef = collection(db, "future-factory", "production", "archive", String(year), "items");
+          const archSnap = await getDocs(query(archiveRef, where("lotNumber", "==", qStr), limit(1)));
+          if (!archSnap.empty) {
+            foundProduct = { id: archSnap.docs[0].id, ...archSnap.docs[0].data(), archived: true };
+            break;
+          }
+        }
+      }
+
+      if (foundProduct) {
+        const orderId = foundProduct.orderId || foundProduct.orderNumber;
+        if (orderId) {
+          const orderSnap = await getDocs(query(collectionGroup(db, "orders"), where("orderId", "==", orderId), limit(1)));
+          if (!orderSnap.empty) parentOrders = [{ id: orderSnap.docs[0].id, ...orderSnap.docs[0].data() }];
+          else {
+            const rootOrderSnap = await getDocs(query(collection(db, ...PATHS.PLANNING), where("orderId", "==", orderId), limit(1)));
+            if (!rootOrderSnap.empty) parentOrders = [{ id: rootOrderSnap.docs[0].id, ...rootOrderSnap.docs[0].data() }];
+          }
+        }
+        setGlobalOrders(parentOrders);
+        setGlobalDossierProduct(foundProduct);
+        setSearchQuery("");
+        return;
+      }
+
+      const orderSnap = await getDocs(query(collectionGroup(db, "orders"), where("orderId", "==", qStr), limit(1)));
+      if (!orderSnap.empty) foundOrder = { id: orderSnap.docs[0].id, ...orderSnap.docs[0].data() };
+      else {
+        const rootOrderSnap = await getDocs(query(collection(db, ...PATHS.PLANNING), where("orderId", "==", qStr), limit(1)));
+        if (!rootOrderSnap.empty) foundOrder = { id: rootOrderSnap.docs[0].id, ...rootOrderSnap.docs[0].data() };
+      }
+
+      if (foundOrder) {
+        setGlobalOrderDetail(foundOrder);
+        setSearchQuery("");
+        return;
+      }
+
+      alert(`Geen product of order gevonden voor: ${qStr}`);
+    } catch (err) {
+      console.error("Fout bij globaal zoeken:", err);
+      alert("Er is een fout opgetreden bij het zoeken.");
+    } finally {
+      setGlobalSearchLoading(false);
+    }
+  };
+
 
   if (authLoading) {
     return (
@@ -294,6 +371,8 @@ const App = () => {
           user={user}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
+          onSearchSubmit={handleGlobalSearch}
+          isSearching={globalSearchLoading}
           logoUrl={generalConfig?.logoUrl}
           onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         />
@@ -349,6 +428,26 @@ const App = () => {
             onDismiss={dismissWarning} 
           />
         )}
+
+        <Suspense fallback={null}>
+          {globalDossierProduct && (
+            <ProductDossierModal
+              isOpen={!!globalDossierProduct}
+              product={globalDossierProduct}
+              orders={globalOrders}
+              onClose={() => {
+                setGlobalDossierProduct(null);
+                setGlobalOrders([]);
+              }}
+            />
+          )}
+          {globalOrderDetail && (
+            <TeamleaderOrderDetailModal
+              order={globalOrderDetail}
+              onClose={() => setGlobalOrderDetail(null)}
+            />
+          )}
+        </Suspense>
       </div>
     );
   }

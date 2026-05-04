@@ -72,6 +72,10 @@ export const PATHS = {
   NOTIFICATION_RULES: [BASE, "notifications", "rules"],
   NOTIFICATION_LOGS: [BASE, "notifications", "logs"],
   SCENARIOS: [BASE, "planning", "scenarios"],
+  
+  // --- EMAIL MANAGEMENT ---
+  EMAIL_TEMPLATES: [BASE, "settings", "email_templates"],
+  EMAIL_LOGS: [BASE, "logs", "email_logs"],
 };
 
 /**

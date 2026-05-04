@@ -1711,6 +1711,10 @@ exports.aiProxyGenerate = functions.runWith({ secrets: ['GOOGLE_AI_API_KEY'] }).
   }
 });
 
+const { sendEmail } = require('./src/callables/emailCallables');
+
+exports.sendEmail = sendEmail;
+
 exports.logClientError = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist voor error logging.');

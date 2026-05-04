@@ -572,6 +572,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   // Filter producten die gereed zijn (Aangeboden tab) op basis van geselecteerde datum
   // Combineert actieve producten (die nog niet gearchiveerd zijn) en gearchiveerde producten
   const completedProducts = useMemo(() => {
+    // Als we in naharding_batch tab zitten, toon de batch producten
+    if (activeTab === "naharding_batch") {
+        return nahardingBatchProducts;
+    }
+
     const activeFinished = products.filter(p => {
         const isFinished = p.status === 'completed' || p.currentStep === 'Finished' || p.currentStation === 'GEREED';
         if (!isFinished) return false;
@@ -738,7 +743,9 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
 
                                     const finishedAt = item.timestamps?.finished?.toDate
                                             ? item.timestamps.finished.toDate()
-                                            : new Date(item.timestamps?.finished || item.updatedAt || Date.now());
+                                            : (activeTab === "naharding_batch" 
+                                                ? new Date(getNahardingOfferedMillis(item))
+                                                : new Date(item.timestamps?.finished || item.updatedAt || Date.now()));
 
                                     return {
                                             index: index + 1,
@@ -1230,30 +1237,48 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             </div>
         ) : activeTab === "naharding_batch" ? (
             <div className="h-full flex flex-col p-4 gap-4">
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Naharding Batch</p>
-                    <p className="text-sm font-bold text-slate-700 mt-1">
-                        {t("bm01.naharding_batch_desc", "Meld in 1x alle Naharding lots gereed zodra de oven is geleegd.")}
-                    </p>
-                    <button
-                        type="button"
-                        onClick={handleNahardingBatchComplete}
-                        disabled={isNahardingBatchProcessing || nahardingBatchProducts.length === 0}
-                        className={`mt-4 w-full md:w-auto px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
-                            isNahardingBatchProcessing || nahardingBatchProducts.length === 0
-                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                                : "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200"
-                        }`}
-                    >
-                        {isNahardingBatchProcessing
-                            ? t("bm01.naharding_batch_processing", "Batch wordt verwerkt...")
-                            : t("bm01.naharding_batch_button", "Batch Naharding gereedmelden ({{count}})", { count: nahardingBatchProducts.length })}
-                    </button>
-                    {latestNahardingBatchLabel && (
-                        <p className="mt-3 text-[11px] font-bold text-amber-800">
-                            {t("bm01.naharding_batch_date", "Laatst aangeboden batch: {{date}}", { date: latestNahardingBatchLabel })}
+                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Naharding Batch</p>
+                        <p className="text-sm font-bold text-slate-700 mt-1">
+                            {t("bm01.naharding_batch_desc", "Meld in 1x alle Naharding lots gereed zodra de oven is geleegd.")}
                         </p>
-                    )}
+                        <button
+                            type="button"
+                            onClick={handleNahardingBatchComplete}
+                            disabled={isNahardingBatchProcessing || nahardingBatchProducts.length === 0}
+                            className={`mt-4 w-full md:w-auto px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
+                                isNahardingBatchProcessing || nahardingBatchProducts.length === 0
+                                    ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                                    : "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200"
+                            }`}
+                        >
+                            {isNahardingBatchProcessing
+                                ? t("bm01.naharding_batch_processing", "Batch wordt verwerkt...")
+                                : t("bm01.naharding_batch_button", "Batch Naharding gereedmelden ({{count}})", { count: nahardingBatchProducts.length })}
+                        </button>
+                        {latestNahardingBatchLabel && (
+                            <p className="mt-3 text-[11px] font-bold text-amber-800">
+                                {t("bm01.naharding_batch_date", "Laatst aangeboden batch: {{date}}", { date: latestNahardingBatchLabel })}
+                            </p>
+                        )}
+                    </div>
+
+                    <div className="flex gap-2 shrink-0">
+                        <button 
+                            onClick={() => setShowPrintModal(true)}
+                            disabled={nahardingBatchProducts.length === 0}
+                            className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all shadow-sm ${
+                                nahardingBatchProducts.length === 0 
+                                ? "bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed" 
+                                : "bg-white hover:bg-blue-50 text-blue-600 border-slate-100"
+                            }`}
+                            title="Print QR Overzicht (Naharding)"
+                        >
+                            <Printer size={24} />
+                            <span className="text-[9px] font-black uppercase tracking-widest">QR Print</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3">
@@ -1435,8 +1460,12 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
 
                 {/* Print Header - Visible only on Print */}
                 <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
-                    <h1 className="text-2xl font-black uppercase">{t('bm01.daily_overview_offered')}</h1>
-                    <p className="text-lg">{format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })}</p>
+                    <h1 className="text-2xl font-black uppercase">
+                        {activeTab === "naharding_batch" ? t('bm01.naharding_overview', 'QR Overzicht Naharding') : t('bm01.daily_overview_offered')}
+                    </h1>
+                    <p className="text-lg">
+                        {activeTab === "naharding_batch" ? latestNahardingBatchLabel : format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })}
+                    </p>
                 </div>
 
                 {/* Content */}

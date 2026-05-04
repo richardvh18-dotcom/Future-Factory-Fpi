@@ -767,7 +767,7 @@ const completeTrackedProduct = functions.https.onCall(async (data, context) => {
   }
 
   if (!ALLOWED_FINISH_TYPES.has(finishType)) {
-    throw new functions.https.HttpsError('invalid-argument', 'Niet-toegestaan finishType. Gebruik "archive" of "forward".');
+    throw new functions.https.HttpsError('invalid-argument', 'Niet-toegestaan finishType. Gebruik "archive", "forward" of "post_inspection".');
   }
 
   try {

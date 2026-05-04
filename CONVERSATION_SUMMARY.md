@@ -1,3 +1,172 @@
+## Update sessie 143 (Herstel Vastgelopen Gerepareerde Orders)
+
+**Datum:** 4 mei 2026 | **Branch:** `FPiFF-18-12-May`
+
+### Probleemomschrijving:
+**Vastgelopen orders na reparatie/nabewerking**
+- Twee orders (`402617418400046` en `402617418400053`) waren na een reparatie-verplaatsing "onzichtbaar" geworden.
+- Ze verschenen wel in de zoekresultaten en bij Nabewerken scan, maar gereedmelden in de UI resulteerde in een succesmelding zonder dat de status in de database daadwerkelijk wijzigde naar BM01.
+
+### Analyse & Oplossing:
+**1. Dubbele Document Structuur (Oorzaak)**
+- Er bleken twee versies van de documenten te bestaan:
+    - Eén in de oude hoofdmap (`/production/tracked_products/<id>`).
+    - Eén in de nieuwe scoped structuur (`/production/tracked_products/Fittings/machines/NABEWERKING/items/<id>`).
+- De UI bewerkingen (zoals gereedmelden) raakten in de war door deze dubbele aanwezigheid, waarbij updates op de verkeerde plek werden uitgevoerd.
+
+**2. Database Herstel (Fix)**
+- De actieve documenten in de **scoped structuur** zijn gereset naar de status `Te Nabewerken` / `Nabewerking`.
+- De redundante documenten in de **hoofdmap** zijn definitief verwijderd om verwarring en data-corruptie te voorkomen.
+- Hierdoor verschenen de orders weer correct in de UI en konden ze door de gebruiker succesvol worden afgemeld naar BM01.
+
+---
+
+## Update sessie 142 (E-mail Beheer Dashboard & Templates)
+
+**Datum:** 4 mei 2026 | **Branch:** `FPiFF-18-12-May`
+
+### Uitgevoerd in deze sessie:
+**1. E-mail Beheer Dashboard (`AdminEmailManager.jsx`)**
+- Nieuw dashboard voor het CRUD-beheer van e-mailtemplates en inzicht in het e-mail logboek.
+- Geïntegreerd in het Admin Dashboard onder "Automation & Notificaties".
+
+**2. Backend E-mail Infrastructuur**
+- `emailHelper.js` aangemaakt voor centrale afhandeling van templates (variabele injectie) en logging.
+- `emailCallables.js` gemodulariseerd om gebruik te maken van de nieuwe helper.
+- `automationService.js` uitgebreid met ondersteuning voor de actie `send_resend_email`.
+
+**3. Database & Security**
+- `EMAIL_TEMPLATES` en `EMAIL_LOGS` paden toegevoegd aan `dbPaths.jsx`.
+- Firestore Rules bijgewerkt voor veilige toegang tot templates en logs.
+
+**4. Automation Integratie**
+- `AutomationRulesView.jsx` geüpdatet zodat gebruikers templates kunnen selecteren voor automatische e-mailacties.
+
+---
+
+## Update sessie 141 (Globale zoekbalk, Lotnummer Export & KPI PDF Export)
+
+**Datum:** 3 mei 2026 | **Branch:** `preview-v2`
+
+### Uitgevoerd in deze sessie:
+**1. Globale Systeem Zoekfunctie (`Header.jsx` & `App.jsx`)**
+- Zoekbalk in de header zoekt nu globaal door het hele MES (actieve tracking, root planning, scoped orders en archief).
+- Bij het invoeren van een Lotnummer opent direct de `ProductDossierModal` vanuit elk willekeurig scherm.
+- Bij het invoeren van een Ordernummer opent direct de `TeamleaderOrderDetailModal`.
+- Laad-indicator toegevoegd in de zoekbalk tijdens het globaal zoeken.
+
+**2. Export Module Uitbreiding (`TeamleaderExportModal.jsx`)**
+- Toggle bovenaan toegevoegd om te wisselen tussen "Planning" (huidige acties) en "Lotnummers" (actuele fysieke werkvoorraad).
+- Filtert in de Lotnummers-weergave specifiek op "Oorsprong" (`originMachine`), zodat lots die bijv. bij Nabewerking liggen toch op de lijst van de originele BH-machine verschijnen. Dropdown toont alleen BH-machines.
+- Neemt "Tijdelijke Afkeur" correct mee in de actuele lotnummerlijst; definitieve afkeur wordt weggelaten.
+- Verblijftijd per lot wordt berekend.
+
+**3. KPI Lopend PDF Export (`TraceModal.jsx`)**
+- In het detailvenster van KPI's (zoals 'Lopend') is een PDF export-knop toegevoegd.
+- De layout en kolommen (Lotnummer, Ordernummer, Product, Oorsprong, Huidig Station, Status, Verblijftijd) zijn exact gelijkgetrokken met de "Actuele Lotnummer Lijst".
+
+---
+
+## Update sessie 140 (Lotnummers export filter op oorsprong)
+
+**Datum:** 3 mei 2026 | **Branch:** `preview-v2`
+
+### Gebruikersverzoek in deze sessie:
+- De dropdown voor de lotnummers-export mag alleen "BH" machines bevatten.
+- Bij de lotnummers-export moet een lotnummer zichtbaar blijven onder zijn originele machine (bijv. BH18), ook als het inmiddels fysiek bij Nabewerking of Eindinspectie ligt.
+
+### Uitgevoerde acties:
+- De dropdown options voor machines worden dynamisch gefilterd: in de "Lotnummers" modus zie je alleen nog machines die met "BH" beginnen.
+- Filterlogica in `TeamleaderExportModal.jsx` aangepast zodat er gefilterd wordt op de `originMachine` (waar het lot gestart is) in plaats van het `currentStation`.
+- Extra kolom "Oorsprong" toegevoegd in de Lotnummer PDF en Excel exports om inzichtelijk te maken waar elk item vandaan komt.
+
+---
+
+## Update sessie 139 (Teamleader Export: Actuele lotnummer lijst)
+
+**Datum:** 3 mei 2026 | **Branch:** `preview-v2`
+
+### Gebruikersverzoek in deze sessie:
+- Vervang in de Teamleader exports de "Actuele To Do Lijst" (nog niet gestarte orders) door een "Actuele Lotnummer Lijst".
+- Deze lijst toont alle actieve lotnummers die nog in omloop zijn.
+- Inclusief informatie over: waar ze momenteel liggen (station/stap) en hoe lang ze daar al liggen.
+- Mogelijkheid om te filteren op een specifieke machine.
+
+### Uit te voeren acties:
+- De export-opties in de Teamleader Export Modal worden hierop aangepast.
+- Databron: Alle actieve `tracked_products` ophalen.
+- Berekening toevoegen voor de verblijftijd (hoe lang een lot al op de huidige locatie is).
+- PDF en Excel exports genereren met de relevante kolommen: Lotnummer, Order, Product, Huidig Station, Status, en Verblijftijd.
+
+---
+
+## Update sessie 138 (Slimmere Productie Tijd Standaarden via LN Import)
+
+**Datum:** 3 mei 2026 | **Branch:** `preview-v2`
+
+### Uitgevoerd in deze sessie:
+**Auto-learning van Productie Tijden bij Planning Import**
+- **Slimmer Mechanisme:** De `bulkImportPlanningOrdersService` in de backend is uitgebreid. Wanneer er nieuwe orders via LN worden geïmporteerd (waar de totale geplande uren al in zitten), berekent het systeem nu direct de netto tijd per product (`minutesPerUnit = standardMinutes / quantity`).
+- **Conversie Matrix & Opslag:** Deze berekende tijd per product wordt automatisch weggeschreven naar de `future-factory/production/time_standards` database (de Productie Tijd Standaarden collectie), gekoppeld aan de `itemCode` (de planningscode / tekeningcode) en de specifieke `machine`.
+- **Achtergrond Update:** Dit proces verloopt volledig op de achtergrond. Bij elke import wordt de standaard tijd per product voor de betreffende code en machine geüpdatet met de nieuwste data uit LN. Dit zorgt voor een constant up-to-date lijst per tekeningcode zonder extra handmatige invoer.
+- **Frontend Weergave:** Deze data is direct zichtbaar en beheerbaar in het bestaande *Productie Tijd Standaarden* dashboard onder *Admin / Settings*.
+
+---
+
+## Update sessie 137 (Capaciteitsmatrix & Efficiency Factor)
+
+**Datum:** 3 mei 2026 | **Branch:** `preview-v2`
+
+### Toegevoegde Notitie:
+**Capaciteitsmatrix voor de Future Factory ("netto" werktijd)**
+Omdat pauzes niet meetellen voor de productie, rekenen we met 7 effectieve uren per persoon per dienst (8 uur min 1 uur pauze).
+
+Berekening voor een standaard werkweek van 5 dagen:
+
+1. **Ploeg 1 (2 personen)**
+In deze ploeg heb je één persoon die de hele week werkt en één persoon die op woensdag vrij is.
+- Maandag, Dinsdag, Donderdag, Vrijdag: 2 personen × 7 uur = 14 uur per dag.
+- Woensdag: 1 persoon × 7 uur = 7 uur.
+- Totaal Ploeg 1: (4 dagen × 14 uur) + 7 uur = 63 uur per week.
+
+2. **Ploeg 2 (1 persoon)**
+Deze persoon werkt de standaard 5 dagen.
+- Maandag t/m Vrijdag: 1 persoon × 7 uur = 7 uur per dag.
+- Totaal Ploeg 2: 5 dagen × 7 uur = 35 uur per week.
+
+**Het Totaal:**
+Als we deze twee ploegen bij elkaar optellen:
+Totaal theoretische werkuren: 63 uur + 35 uur = 98 uur per week.
+
+**Tip voor de App:**
+Als dit in de React-app wordt geprogrammeerd, is het slim om een 'Efficiency Factor' (bijv. 85%) in te bouwen. Mensen zijn namelijk nooit 100% van de tijd aan het wikkelen of lassen; er is altijd tijd nodig voor overleg, opruimen of een praatje bij de koffieautomaat. In dat geval zou je rekenen met 83,3 effectieve uren voor je planning.
+
+---
+
+## Update sessie 136 (Nieuwe Machine Export Functionaliteit & Kolom/Filter Optimalisaties)
+
+**Datum:** 3 mei 2026 | **Branch:** `preview-v2`
+
+### Uitgevoerd in deze sessie:
+
+**1. Nieuwe Machine Planning Export (Excel & PDF)**
+- **Export Modal Toegevoegd:** Een compleet nieuwe `TeamleaderExportModal` gebouwd die machine planningen kan exporteren naar PDF en Excel.
+- **Locatie Gewijzigd:** De export knop is netjes ondergebracht als aparte tegel in de "Import / Export" tab (`ImportExportDashboard`) om de UI schoon te houden.
+
+**2. Verbeteringen Export Logica & Data Integriteit**
+- **Archief Inclusie:** Gearchiveerde producten (en afgeleide orders uit het archief) worden nu meegerekend in de export zodat "Gereed" orders kloppen.
+- **Machine Prefix Normalisatie:** Machines met een "40" prefix (bijv. `40BH18`) worden nu gelijkgetrokken met de basisnaam (`BH18`), zodat orders op één bult geëxporteerd worden.
+- **Lotnummer Ontdubbeling:** Strikte ontdubbeling op `lotNumber` ingebouwd met een "score" systeem (bepaalt de meest definitieve status) om dubbeltellingen te voorkomen wanneer items tijdelijk nog in tracking en al in het archief staan.
+- **Leverdatum Datumfilter:** Extra vraag toegevoegd in het exportvenster om te filteren op 'Alles', 'Eén Datum' of 'Periode', met weergave van de gekozen data in het PDF-bestand.
+- **Kolom "Te doen":** De oude kolom "In Behandeling" vervangen door "Te doen" (gecalculeerd als `Plan - Gereed`).
+- **Kolom "Huidige Stap":** Extra kolom ingevoegd naast "Item Desc" die dynamisch de actuele status verzamelt van alle actieve producten binnen die order (toont bijv. `"Lossen, Nabewerking"` of `"Gereed"`).
+- **Leverdatum Weergave & Sortering:** Kolom 'Datum' aangepast naar 'Leverdatum', met sortering op de echte geplande of deadline-datum en week-dividers toegevoegd in de exportlijsten.
+
+**3. Bugfixes**
+- Syntax error (`Legacy octal literals are not allowed`) opgelost in `TeamleaderHeader.jsx` die was ontstaan door onbedoeld inplakken van een klembord-string.
+
+---
+
 ## Update sessie 135 (Planning Import UX & Nieuw-ribbon in Workstation/Terminal)
 
 **Datum:** 2 mei 2026 | **Branch:** `preview-v2`

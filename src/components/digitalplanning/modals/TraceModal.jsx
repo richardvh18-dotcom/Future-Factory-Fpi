@@ -11,10 +11,13 @@ import {
   ChevronRight,
   Archive,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, formatDistanceStrict } from "date-fns";
+import { nl } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { toDateSafe } from "../../../utils/dateUtils";
 import StatusBadge from "../common/StatusBadge";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 
 /**
  * TraceModal - Toont de gedetailleerde lijst die hoort bij een KPI tegel.
@@ -122,6 +125,47 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick, onRowAction
     return sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />;
   };
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF('landscape');
+    
+    doc.setFontSize(16);
+    doc.text(`${title} - Export`, 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Datum gegenereerd: ${format(new Date(), 'dd-MM-yyyy HH:mm')}`, 14, 22);
+
+    const getDwellTime = (product) => {
+      let startTime = new Date();
+      if (product.updatedAt) {
+        startTime = typeof product.updatedAt.toDate === 'function' ? product.updatedAt.toDate() : new Date(product.updatedAt);
+      } else if (product.createdAt) {
+        startTime = typeof product.createdAt.toDate === 'function' ? product.createdAt.toDate() : new Date(product.createdAt);
+      }
+      if (isNaN(startTime.getTime())) return "Onbekend";
+      return formatDistanceStrict(startTime, new Date(), { locale: nl });
+    };
+
+    const tableData = sortedData.map(product => [
+      product.lotNumber || "Onbekend",
+      product.orderId || product.orderNumber || "Onbekend",
+      product.item || product.description || "Onbekend",
+      product.originMachine || product.machine || "Onbekend",
+      product.currentStation || product.machine || product.stationLabel || "Onbekend",
+      product.status || product.currentStep || "Onbekend",
+      getDwellTime(product)
+    ]);
+
+    doc.autoTable({
+      startY: 28,
+      head: [['Lotnummer', 'Ordernummer', 'Product', 'Oorsprong', 'Huidig Station', 'Status', 'Verblijftijd']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      styles: { fontSize: 9 }
+    });
+
+    doc.save(`Export_${String(title).replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmm')}.pdf`);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -187,6 +231,15 @@ const TraceModal = ({ isOpen, onClose, title, data = [], onRowClick, onRowAction
                 autoFocus
               />
             </div>
+            
+            <button
+              onClick={handleExportPDF}
+              disabled={sortedData.length === 0}
+              className="p-3 sm:px-4 bg-white text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={t('common.export_pdf', 'Exporteer naar PDF')}
+            >
+              <FileText size={16} /> <span className="text-xs font-bold uppercase tracking-widest hidden sm:inline">PDF</span>
+            </button>
           </div>
 
           <button

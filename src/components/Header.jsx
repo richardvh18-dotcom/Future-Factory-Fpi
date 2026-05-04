@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Search, Factory, X, Bot, Sparkles, Menu } from "lucide-react";
+import { Search, Factory, X, Bot, Sparkles, Menu, Loader2 } from "lucide-react";
 
 /**
  * Header - Donker Thema v2.3 - Responsive voor mobiel en tablet
  * Nu met AI Assistant integratie in zoekbalk
  */
-const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle }) => {
+const Header = ({ searchQuery, setSearchQuery, onSearchSubmit, isSearching, logoUrl, appName, onMenuToggle }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [isAIMode, setIsAIMode] = useState(false);
@@ -38,6 +38,8 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
         const query = searchQuery.replace(/^\?/, '').trim();
         navigate('/assistant', { state: { initialQuery: query } });
         setSearchQuery('');
+      } else if (onSearchSubmit) {
+        onSearchSubmit(searchQuery.trim());
       }
     }
   };
@@ -105,7 +107,9 @@ const Header = ({ searchQuery, setSearchQuery, logoUrl, appName, onMenuToggle })
       <div className="flex-1 max-w-2xl px-2 md:px-4">
         <div className="relative group">
           <div className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            {isAIMode || searchQuery.startsWith('?') ? (
+            {isSearching ? (
+              <Loader2 className="text-blue-500 animate-spin" size={16} />
+            ) : isAIMode || searchQuery.startsWith('?') ? (
               <Sparkles
                 className="text-purple-400 animate-pulse"
                 size={16}

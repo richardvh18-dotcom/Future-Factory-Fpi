@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowLeft, FileSpreadsheet, BrainCircuit, Menu, X, RefreshCw } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet, BrainCircuit, Menu, X, RefreshCw, Download } from "lucide-react";
 
 /**
  * TeamleaderHeader

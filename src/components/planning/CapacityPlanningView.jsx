@@ -397,13 +397,25 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
     }
 
     // Bereken totale uren en splits op in productie vs support
-    let totalProductionHours = 0;
+    let totalTheoreticalHours = 0; // Bruto uren (voor weergave/vergelijking)
+    let totalProductionHours = 0; // Effectieve netto uren
     let realProductionHours = 0;
     let supportHours = 0;
     
     periodOccupancy.forEach(occ => {
-      const hours = parseFloat(occ.hoursWorked || occ.hours || 0);
-      totalProductionHours += hours;
+      let baseHours = parseFloat(occ.hoursWorked || occ.hours || 0);
+      
+      // Future Factory regel: standaard werkdag is 7 netto uren (8u min 1u pauze)
+      if (!baseHours || baseHours === 8) {
+        baseHours = 7;
+      }
+      
+      totalTheoreticalHours += baseHours;
+      
+      // Efficiency Factor 85% inbouwen voor de effectieve netto capaciteit
+      const effectiveHours = baseHours * 0.85;
+      
+      totalProductionHours += effectiveHours;
       
       // Check of station BH of BA is (werkelijke productie)
       // UPDATE: Ruimere check voor Mazak, Nabewerking en ID variaties (st_bh...)
@@ -414,18 +426,14 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       const isProduction = idStr.includes("BH") || idStr.includes("BA") || idStr.includes("MAZAK") || idStr.includes("NABEWERK");
 
       if (isProduction) {
-        realProductionHours += hours;
+        realProductionHours += effectiveHours;
       } else {
-        supportHours += hours;
+        supportHours += effectiveHours;
       }
     });
 
-    // Bereken rand-uren (setup, pauze, overhead)
-    // Aanname: 8 uur per dag - hoursWorked = overhead
-    const totalScheduledHours = periodOccupancy.reduce((sum) => {
-      return sum + 8; // Standaard werkdag
-    }, 0);
-
+    // Bereken rand-uren (setup, pauze, overhead) op basis van het verschil
+    const totalScheduledHours = totalTheoreticalHours;
     const overheadHours = totalScheduledHours - totalProductionHours;
 
     // Unieke operators deze periode
@@ -439,9 +447,7 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       overheadHours: Math.round(overheadHours * 10) / 10,
       totalScheduledHours: Math.round(totalScheduledHours * 10) / 10,
       operatorCount,
-      efficiency: totalScheduledHours > 0 
-        ? Math.round((totalProductionHours / totalScheduledHours) * 100) 
-        : 0,
+      efficiency: 85, // Vastgesteld op 85% volgens de matrix (of je kunt het berekenen als je dynamische downtime hebt)
       productionRatio: totalProductionHours > 0
         ? Math.round((realProductionHours / totalProductionHours) * 100)
         : 0
@@ -620,7 +626,15 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
       if (!machine) return;
       
       if (!breakdown[machine]) breakdown[machine] = { capacity: 0, demand: 0 };
-      breakdown[machine].capacity += parseFloat(occ.hoursWorked || occ.hours || 0);
+      
+      // Toepassen van de Future Factory Capaciteitsmatrix regel (7 netto uren, 85% efficiency)
+      let baseHours = parseFloat(occ.hoursWorked || occ.hours || 0);
+      if (!baseHours || baseHours === 8) {
+        baseHours = 7;
+      }
+      
+      const effectiveHours = baseHours * 0.85;
+      breakdown[machine].capacity += effectiveHours;
     });
 
     // 2. Vraag per machine (Orders)

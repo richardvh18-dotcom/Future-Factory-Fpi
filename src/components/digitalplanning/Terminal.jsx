@@ -617,7 +617,8 @@ const Terminal = ({ initialStation, onCancelProduction, orders = [] }) => {
       const producedAtOrder = toFiniteNumber(o.produced);
       const orderId = String(o.orderId || "").trim();
       const madeCount = madeCountMap[orderId] || 0;
-      const hasActiveTracked = (productionProgressMap[orderId] || 0) > 0;
+      const liveStartedCount = productionProgressMap[orderId] || 0;
+      const hasActiveTracked = liveStartedCount > 0;
       let hasStationActivity = (readyForReturnMap[orderId] || 0) > 0;
       const waitingForLossenCount = waitingForLossenMap[orderId] || 0;
       
@@ -631,14 +632,17 @@ const Terminal = ({ initialStation, onCancelProduction, orders = [] }) => {
       // Dit voorkomt dat oude "spook"-orders waarvan de lots gearchiveerd zijn onterecht weer opduiken.
       const hasShortage = stationPlan > 0 && madeCount > 0 && madeCount < stationPlan;
       const effectiveStarted = (hasShortage && isActiveStatus) ? madeCount : startedAtStation;
-      const remainingAtOrder = Math.max(0, stationPlan - effectiveStarted);
+      const bh18StartedCount = isBH18 && isActiveStatus
+        ? Math.min(stationPlan || Number.POSITIVE_INFINITY, Math.max(effectiveStarted, liveStartedCount))
+        : effectiveStarted;
+      const remainingAtOrder = Math.max(0, stationPlan - bh18StartedCount);
       const isFullyProduced = quantity > 0 && producedAtOrder >= quantity;
       const stationWorkCompleted = quantity > 0 && remainingAtOrder <= 0;
 
       // BH18 wikkelplanning gebruikt station-logica (plan + started counter),
       // zodat legacy orders met afwijkende quantity niet blijven hangen.
       // Alleen activity op BH18 zelf houdt de order zichtbaar; downstream activity niet.
-      if (isBH18 && !hasShortage && shouldHideBH18PlanningOrder({ remainingAtOrder, startedAtStation: effectiveStarted, stationPlan, hasStationActivity })) {
+      if (isBH18 && !hasShortage && shouldHideBH18PlanningOrder({ remainingAtOrder, startedAtStation: bh18StartedCount, stationPlan, hasStationActivity })) {
         return false;
       }
 

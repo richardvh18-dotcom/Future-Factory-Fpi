@@ -200,6 +200,7 @@ const resolveDbContext = () => {
     eventsPath: `${prodBase}/events`,
     planningLegacyPath: PLANNING_COLLECTION_LEGACY,
     efficiencyPath: `${prodBase}/efficiency_hours`,
+    standardsPath: `${prodBase}/time_standards`,
     archiveItemsPath: (year) => `${prodBase}/archive/${year}/items`,
     archiveRejectedPath: (year) => `${prodBase}/archive/${year}/rejected`,
     archivePlanningPath: (year) => `${prodBase}/archive/${year}/planning`,
