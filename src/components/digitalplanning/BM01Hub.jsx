@@ -567,19 +567,28 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   // Filter producten die gereed zijn (Aangeboden tab) op basis van geselecteerde datum
   // Combineert actieve producten (die nog niet gearchiveerd zijn) en gearchiveerde producten
   const completedProducts = useMemo(() => {
-    // Als we in naharding_batch tab zitten, toon de batch producten
+    // Als we in naharding_batch tab zitten, toon de batch producten (alle in Naharding)
     if (activeTab === "naharding_batch") {
         return nahardingBatchProducts;
     }
 
+    // VOOR DE PRINT/MODAL: We willen ook de zojuist naar Naharding gezette items zien in de "Gereed" lijst als ze vandaag zijn gedaan
     const activeFinished = products.filter(p => {
-        const isFinished = p.status === 'completed' || p.currentStep === 'Finished' || p.currentStation === 'GEREED';
-        if (!isFinished) return false;
+        const station = (p.currentStation || "").toUpperCase().replace(/\s/g, "");
+        const status = (p.status || "").toUpperCase();
+        
+        const isFinished = status === 'COMPLETED' || p.currentStep === 'Finished' || station === 'GEREED';
+        const isCurrentlyInNaharding = station.includes("NAHARD") || station.includes("OVEN") || status === "TE NAHARDEN";
+        
+        if (!isFinished && !isCurrentlyInNaharding) return false;
 
-        // Bepaal datum van afronding
+        // Bepaal datum van afronding of aanbieding aan Naharding
         let finishDate = null;
         if (p.timestamps?.finished) {
             finishDate = p.timestamps.finished.toDate ? p.timestamps.finished.toDate() : new Date(p.timestamps.finished);
+        } else if (isCurrentlyInNaharding) {
+            const ts = getNahardingOfferedMillis(p);
+            finishDate = ts ? new Date(ts) : null;
         } else if (p.updatedAt) {
             finishDate = p.updatedAt.toDate ? p.updatedAt.toDate() : new Date(p.updatedAt);
         }
