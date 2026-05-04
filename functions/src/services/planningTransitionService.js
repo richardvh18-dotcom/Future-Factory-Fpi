@@ -364,6 +364,15 @@ const getStepForStationServer = (stationName = '') => {
   if (name === 'BH31' || name.includes('REPARATIE') || name.includes('REPAIR')) {
     return { status: 'Tijdelijke afkeur', currentStep: 'Reparatie' };
   }
+  if (name.includes('OVEN') || name.includes('NAHARD')) {
+    return { status: 'Te Naharden', currentStep: 'Naharding' };
+  }
+  if (name === 'QC') {
+    return { status: 'In Productie', currentStep: 'QC' };
+  }
+  if (name.includes('SHIPPING') || name.includes('VERZEND')) {
+    return { status: 'In Productie', currentStep: 'Shipping' };
+  }
   if (name.includes('BM01')) return { status: 'Te Keuren', currentStep: 'Eindinspectie' };
   if (name.includes('NABEWERK') || name.includes('MAZAK')) {
     return { status: 'Te Nabewerken', currentStep: 'Nabewerking' };
@@ -1193,6 +1202,27 @@ const bulkImportPlanningOrdersService = async ({
         );
       }
 
+      // Auto-learn Productie Tijd Standaarden per product/machine
+      const minutesPerUnit = qty > 0 ? standardMinutes / qty : 0;
+      if (minutesPerUnit > 0 && item.itemCode && item.machine) {
+        const itemCodeClean = clean(item.itemCode);
+        const machineClean = clean(item.machine);
+        const stdId = `${itemCodeClean}_${machineClean}`;
+        
+        batch.set(
+          db.collection(ctx.standardsPath || 'future-factory/production/time_standards').doc(stdId),
+          {
+            itemCode: itemCodeClean,
+            machine: machineClean,
+            standardMinutes: minutesPerUnit,
+            description: normalizedItemDescription || `Auto-imported from LN`,
+            source: 'ln_import',
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
       processedCount += 1;
       if (isExistingOrder) updatedCount += 1;
       else createdCount += 1;
@@ -1547,7 +1577,9 @@ const completeTrackedProductService = async ({
     station,
     details: finishType === 'archive'
       ? 'Voltooid en gearchiveerd'
-      : `Doorgestuurd naar BM01 Eindinspectie`,
+      : (finishType === 'post_inspection'
+          ? 'Doorgestuurd naar Naharding'
+          : 'Doorgestuurd naar BM01 Eindinspectie'),
   };
 
   const orderId = clean(productData.orderId);
@@ -1664,6 +1696,25 @@ const completeTrackedProductService = async ({
     await batch.commit();
 
     return { ok: true, productId: trackedDoc.id, finishType: 'forward', producedIncremented: false };
+  }
+
+  if (finishType === 'post_inspection') {
+    const updatePayload = {
+      currentStation: 'Naharding',
+      currentStep: 'Naharding',
+      status: 'Te Naharden',
+      lastStation: station,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      'timestamps.oven_naharding_start': admin.firestore.FieldValue.serverTimestamp(),
+      note: clean(note) || '',
+      history: admin.firestore.FieldValue.arrayUnion(historyEntry),
+    };
+
+    const batch = db.batch();
+    batch.set(trackedDoc.ref, updatePayload, { merge: true });
+    await batch.commit();
+
+    return { ok: true, productId: trackedDoc.id, finishType: 'post_inspection', producedIncremented: false };
   }
 
   throw new Error('INVALID_FINISH_TYPE');

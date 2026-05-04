@@ -343,6 +343,9 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     "mazak",
     "nabewerking",
     "nabewerken",
+    "naharding",
+    "oven/naharding",
+    "oven",
     "bm01",
     "station bm01",
   ].includes((selectedStation || "").toLowerCase());
@@ -2084,8 +2087,10 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }) => {
     const productId = itemToFinish.id || itemToFinish.lotNumber;
     try {
       if (status === "completed") {
-        const isBM01 = selectedStation === "BM01" || selectedStation === "Station BM01";
-        const finishType = isBM01 ? "archive" : "forward";
+        const normalizedStation = String(selectedStation || "").toUpperCase().replace(/\s+/g, "");
+        const isBM01 = normalizedStation === "BM01" || normalizedStation === "STATIONBM01" || normalizedStation.includes("BM01");
+        const isNaharding = normalizedStation.includes("OVEN") || normalizedStation.includes("NAHARD");
+        const finishType = isBM01 ? "post_inspection" : (isNaharding ? "archive" : "forward");
         await completeTrackedProduct({
           productId,
           finishType,

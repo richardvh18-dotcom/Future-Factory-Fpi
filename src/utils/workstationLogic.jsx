@@ -108,6 +108,9 @@ export const FLOW_STEPS = {
   LOSSEN: "Lossen",
   NABEWERKING: "Nabewerking",
   EINDINSPECTIE: "Eindinspectie",
+  NAHARDING: "Naharding",
+  QC: "QC",
+  SHIPPING: "Shipping",
   FINISHED: "Finished",
   REJECTED: "REJECTED"
 };
@@ -118,6 +121,7 @@ export const FLOW_STATUS = {
   TE_LOSSEN: "Te Lossen",
   TE_NABEWERKEN: "Te Nabewerken",
   TE_KEUREN: "Te Keuren",
+  TE_NAHARDEN: "Te Naharden",
   COMPLETED: "completed",
   REJECTED: "rejected",
   PAUSED: "paused"
@@ -149,6 +153,13 @@ export const getNextFlowState = (action, currentState = {}) => {
       return { status: FLOW_STATUS.TE_KEUREN, currentStep: FLOW_STEPS.EINDINSPECTIE, currentStation: "BM01" };
       
     case 'FINISH_INSPECTION':
+      return {
+        status: FLOW_STATUS.TE_NAHARDEN,
+        currentStep: FLOW_STEPS.NAHARDING,
+        currentStation: "Naharding",
+      };
+
+    case 'FINISH_POST_INSPECTION':
       return { status: FLOW_STATUS.COMPLETED, currentStep: FLOW_STEPS.FINISHED, currentStation: "GEREED" };
       
     case 'PAUSE_FLOW':
@@ -187,6 +198,15 @@ export const getStepForStation = (stationName) => {
   
   if (name === "BH31" || name.includes("REPARATIE") || name.includes("REPAIR")) {
     return { status: "Tijdelijke afkeur", currentStep: "Reparatie" };
+  }
+  if (name.includes("OVEN") || name.includes("NAHARD")) {
+    return { status: FLOW_STATUS.TE_NAHARDEN, currentStep: FLOW_STEPS.NAHARDING };
+  }
+  if (name === "QC") {
+    return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.QC };
+  }
+  if (name.includes("SHIPPING") || name.includes("VERZEND")) {
+    return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.SHIPPING };
   }
   if (name.includes("BM01")) return { status: FLOW_STATUS.TE_KEUREN, currentStep: FLOW_STEPS.EINDINSPECTIE };
   if (name.includes("NABEWERK") || name.includes("MAZAK")) return { status: FLOW_STATUS.TE_NABEWERKEN, currentStep: FLOW_STEPS.NABEWERKING };

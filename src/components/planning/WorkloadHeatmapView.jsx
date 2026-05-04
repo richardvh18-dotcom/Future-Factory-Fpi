@@ -132,7 +132,11 @@ const WorkloadHeatmapView = () => {
         const year = weekStart.getFullYear();
         return o.week === weekNum && o.year === year;
       })
-      .reduce((sum, o) => sum + (parseFloat(o.hoursWorked || o.hours || o.productionHours || 0)), 0);
+      .reduce((sum, o) => {
+        let baseHours = parseFloat(o.hoursWorked || o.hours || o.productionHours || 0);
+        if (!baseHours || baseHours === 8) baseHours = 7;
+        return sum + (baseHours * 0.85);
+      }, 0);
 
     // Get demand (planning)
     const demand = planning
@@ -466,7 +470,13 @@ const WorkloadHeatmapView = () => {
                 {/* Capacity Column */}
                 <div>
                   <h4 className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <Users size={18} /> Capaciteit ({selectedCell.occupancy.reduce((sum, o) => sum + (parseFloat(o.hoursWorked || o.hours || 0)), 0)}u)
+                    <Users size={18} /> Capaciteit ({
+                      Math.round(selectedCell.occupancy.reduce((sum, o) => {
+                        let baseHours = parseFloat(o.hoursWorked || o.hours || 0);
+                        if (!baseHours || baseHours === 8) baseHours = 7;
+                        return sum + (baseHours * 0.85);
+                      }, 0) * 10) / 10
+                    }u)
                   </h4>
                   <div className="space-y-3">
                     {selectedCell.occupancy.length === 0 ? (
@@ -478,7 +488,16 @@ const WorkloadHeatmapView = () => {
                             <div className="font-bold text-slate-700 text-sm">{occ.operatorName}</div>
                             <div className="text-[10px] text-emerald-600 font-bold uppercase">{occ.shift || "Dagdienst"}</div>
                           </div>
-                          <div className="font-black text-emerald-700">{occ.hoursWorked || occ.hours || 8}u</div>
+                          <div className="font-black text-emerald-700 text-right">
+                            {(() => {
+                              let base = parseFloat(occ.hoursWorked || occ.hours || 0);
+                              if (!base || base === 8) base = 7;
+                              return (Math.round(base * 0.85 * 10) / 10);
+                            })()}u
+                            <div className="text-[9px] text-emerald-500 font-normal">
+                              ({parseFloat(occ.hoursWorked || occ.hours || 8)}u bruto)
+                            </div>
+                          </div>
                         </div>
                       ))
                     )}

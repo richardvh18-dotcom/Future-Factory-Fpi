@@ -35,12 +35,14 @@ import {
   BarChart3,
   FileText,
   QrCode,
+  Mail,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 // --- LAZY LOAD IMPORTS ---
 const RoadmapViewer = React.lazy(() => import("./RoadmapViewer"));
 const ProjectStructureExpertView = React.lazy(() => import("./ProjectStructureExpertView"));
+const AdminEmailManager = React.lazy(() => import("./AdminEmailManager"));
 const AdminProductManager = React.lazy(() => import("./AdminProductManager"));
 const FactoryStructureManager = React.lazy(() =>
   import("./FactoryStructureManager")
@@ -238,6 +240,15 @@ const AdminDashboard = () => {
           color: "bg-yellow-50 border-yellow-100",
           roles: ["admin", "engineer"],
           component: AutomationRulesView,
+        },
+        {
+          id: "email_manager",
+          title: "E-mail Beheer",
+          desc: "Templates en logboek voor e-mails.",
+          icon: <Mail size={24} className="text-red-500" />,
+          color: "bg-red-50 border-red-100",
+          roles: ["admin"],
+          component: AdminEmailManager,
         },
         {
           id: "manual_sync_drawings",

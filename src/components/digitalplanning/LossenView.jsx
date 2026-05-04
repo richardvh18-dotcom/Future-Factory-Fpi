@@ -292,6 +292,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         const isBM01Station = cleanStationId === "BM01" || cleanStationId === "STATIONBM01" || (currentStationNorm || "").toUpperCase().includes("BM01");
         const isMazakStation = cleanStationId === "MAZAK";
         const isNabewerkingStation = cleanStationId === "NABEWERKING" || cleanStationId === "NABW" || cleanStationId.includes("NABEWERK");
+        const isNahardingStation = cleanStationId === "NAHARDING" || cleanStationId.includes("NAHARD") || cleanStationId.includes("OVEN");
 
       const filtered = sourceData.filter((item) => {
         const stepUpper = String(item.currentStep || "").toUpperCase().trim();
@@ -313,7 +314,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         // Filter op currentStation die overeenkomt met dit werkstation
         // Fallback naar 'machine' (origin) als currentStation niet is gezet
         const itemStationNorm = normalizeMachine(item.currentStation || item.machine || "");
-          const isDownstreamStation = isBM01Station || isMazakStation || isNabewerkingStation;
+          const isDownstreamStation = isBM01Station || isMazakStation || isNabewerkingStation || isNahardingStation;
 
         if (!isDownstreamStation) {
           const isLossenCandidate =
@@ -375,6 +376,17 @@ const LossenView = ({ stationId, appId, products = [] }) => {
           if (itemClean === "BM01" || itemClean === "STATIONBM01" || itemClean.includes("BM01") ||
               stepClean === "EINDINSPECTIE" || stepClean === "INSPECTIE" || stepClean.includes("INSPECTIE") || stepClean === "BM01" ||
               statusClean.includes("BM01")) {
+            isOurStation = true;
+          }
+        }
+
+          if (isNahardingStation) {
+          const itemClean = (itemStationNorm || "").toUpperCase().replace(/\s/g, "");
+          const stepClean = (item.currentStep || "").toUpperCase().replace(/\s/g, "");
+          const statusClean = (item.status || "").toUpperCase().replace(/\s/g, "");
+          if (itemClean.includes("NAHARD") || itemClean.includes("OVEN") ||
+              stepClean.includes("NAHARD") || stepClean.includes("OVEN") ||
+              statusClean.includes("NAHARD") || statusClean.includes("OVEN")) {
             isOurStation = true;
           }
         }
@@ -679,14 +691,16 @@ const LossenView = ({ stationId, appId, products = [] }) => {
   const isBM01 = currentStationNorm === "BM01";
   const isMazak = currentStationNorm === "MAZAK";
   const isNabewerking = currentStationNorm === "NABEWERKING" || currentStationNorm === "NABW" || currentStationNorm.includes("NABEWERK");
-  const supportsSeriesGrouping = !isBM01 && !isMazak && !isNabewerking;
+  const isNaharding = currentStationNorm === "NAHARDING" || currentStationNorm.includes("NAHARD") || currentStationNorm.includes("OVEN");
+  const supportsSeriesGrouping = !isBM01 && !isMazak && !isNabewerking && !isNaharding;
 
   const viewTitle = useMemo(() => {
-    if (isBM01 || isMazak || isNabewerking) return t('bm01.to_offer');
+    if (isBM01 || isMazak || isNabewerking || isNaharding) return t('bm01.to_offer');
     if (currentStationNorm === "LOSSEN" || currentStationNorm === LOSSEN_1218_STATION_NORM) return t('lossen.wait_for_unload');
     return t('lossen.waiting_receipt');
-  }, [isBM01, isMazak, isNabewerking, currentStationNorm, t]);
-  const isAdvancedStation = isBM01 || isMazak || isNabewerking;
+  }, [isBM01, isMazak, isNabewerking, isNaharding, currentStationNorm, t]);
+  const isAdvancedStation = isBM01 || isMazak || isNabewerking || isNaharding;
+
 
   const groupedSeries = useMemo(() => {
     if (!supportsSeriesGrouping) return new Map();
@@ -752,7 +766,10 @@ const LossenView = ({ stationId, appId, products = [] }) => {
     const productId = product.id || product.lotNumber;
     try {
       if (status === "completed" && isAdvancedStation) {
-        const finishType = stationId === "BM01" ? "archive" : "forward";
+        const normalizedStation = String(stationId || "").toUpperCase().replace(/\s+/g, "");
+        const isBM01Station = normalizedStation === "BM01" || normalizedStation === "STATIONBM01" || normalizedStation.includes("BM01");
+        const isNahardingStation = normalizedStation.includes("OVEN") || normalizedStation.includes("NAHARD");
+        const finishType = isBM01Station ? "post_inspection" : (isNahardingStation ? "archive" : "forward");
         await completeTrackedProduct({
           productId,
           finishType,
@@ -764,7 +781,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
         await logActivity(
           user?.uid || "system",
           "POST_PROCESS_COMPLETE",
-          `${stationId} afgerond${finishType === "archive" ? " en gearchiveerd" : " → BM01"}: lot ${product.lotNumber || productId}`
+          `${stationId} afgerond${finishType === "archive" ? " en gearchiveerd" : (finishType === "post_inspection" ? " → Naharding" : " → BM01")}: lot ${product.lotNumber || productId}`
         );
         if (selectedProductRef.current?.id === product.id) handleCloseModal();
         return;
@@ -899,6 +916,7 @@ const LossenView = ({ stationId, appId, products = [] }) => {
                   value={scanInput}
                   onChange={(e) => setScanInput(e.target.value)}
                   inputMode={scannerMode ? "none" : "text"}
+                  virtualKeyboardPolicy={scannerMode ? "manual" : "auto"}
                   onKeyDown={handleScan}
                   placeholder={t("digitalplanning.terminal.scan_lot_or_order", "Scan lotnummer of order...")}
                   className="w-full pl-14 pr-4 py-4 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"

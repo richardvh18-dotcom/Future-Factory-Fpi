@@ -252,6 +252,29 @@ async function executeAction(action = {}, triggerData = {}) {
     return { success: true, message: `${products.length} reminder(s) verzonden` };
   }
 
+  if (type === 'send_resend_email') {
+    const { to, templateId } = params;
+    if (!to || !templateId) {
+      return { success: false, message: 'Ontvanger (to) of templateId ontbreekt' };
+    }
+
+    // Call the sendEmail function logic (internal or via helper)
+    // We reuse the variables from triggerData.data
+    const { sendEmailInternal } = require('../utils/emailHelper'); 
+    
+    try {
+      await sendEmailInternal({
+        to: String(to).split(',').map(e => e.trim()),
+        templateId,
+        variables: triggerData.data || {},
+        metadata: { ruleId: 'automation-system', source: 'automation' }
+      });
+      return { success: true, message: `E-mail verstuurd naar ${to}` };
+    } catch (err) {
+      return { success: false, message: `Email fout: ${err.message}` };
+    }
+  }
+
   if (type === 'update_status') {
     return { success: true, message: `Status update naar ${String(params.targetStatus || 'in_progress')} gepland` };
   }

@@ -16,7 +16,7 @@ import {
   Ban
 } from "lucide-react";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { db, auth, logActivity } from "../../../config/firebase.js";
+import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS, getArchiveItemsPath } from "../../../config/dbPaths";
 import { FITTING_MACHINES, PIPE_MACHINES } from "../../../utils/hubHelpers";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";

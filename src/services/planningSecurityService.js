@@ -378,8 +378,8 @@ export const completeTrackedProduct = async ({
     throw new Error("productId is verplicht.");
   }
 
-  if (!["archive", "forward"].includes(payload.finishType)) {
-    throw new Error('finishType moet "archive" of "forward" zijn.');
+  if (!["archive", "forward", "post_inspection"].includes(payload.finishType)) {
+    throw new Error('finishType moet "archive", "forward" of "post_inspection" zijn.');
   }
 
   const result = await completeTrackedProductCallable(payload);

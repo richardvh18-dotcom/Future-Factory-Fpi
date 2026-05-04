@@ -32,6 +32,7 @@ const AutomationRulesView = () => {
   const { showConfirm , notify} = useNotifications();
   const [rules, setRules] = useState([]);
   const [executions, setExecutions] = useState([]);
+  const [emailTemplates, setEmailTemplates] = useState([]);
   const [showAddRule, setShowAddRule] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
@@ -75,9 +76,22 @@ const AutomationRulesView = () => {
       }
     );
 
+    // Load email templates
+    const unsubEmailTemplates = onSnapshot(
+      collection(db, ...PATHS.EMAIL_TEMPLATES),
+      (snapshot) => {
+        const templatesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setEmailTemplates(templatesData);
+      }
+    );
+
     return () => {
       unsubRules();
       unsubExecutions();
+      unsubEmailTemplates();
     };
   }, []);
 
@@ -219,6 +233,7 @@ const AutomationRulesView = () => {
   const getActionLabel = (action) => {
     const labels = {
       send_notification: t("planning.automationRules.actions.send_notification", "Stuur Notificatie"),
+      send_resend_email: t("planning.automationRules.actions.send_resend_email", "Stuur E-mail (Template)"),
       update_status: t("planning.automationRules.actions.update_status", "Update Status"),
       assign_operator: t("planning.automationRules.actions.assign_operator", "Wijs Operator Toe"),
       reschedule_order: t("planning.automationRules.actions.reschedule_order", "Herplan Order"),
@@ -763,6 +778,7 @@ const AutomationRulesView = () => {
                       className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm mb-2"
                     >
                       <option value="send_notification">{t("planning.automationRules.actions.send_notification", "Stuur Notificatie")}</option>
+                      <option value="send_resend_email">{t("planning.automationRules.actions.send_resend_email", "Stuur E-mail (Template)")}</option>
                       <option value="create_log">{t("planning.automationRules.actions.create_log", "Maak Log Entry")}</option>
                       <option value="inspection_reminder">{t("planning.automationRules.actions.inspection_reminder", "Stuur Inspectie Reminder")}</option>
                       <option value="auto_learning_update">{t("planning.automationRules.actions.auto_learning_update", "Update Standaarden (AI)")}</option>
@@ -770,6 +786,37 @@ const AutomationRulesView = () => {
                       <option value="assign_operator">{t("planning.automationRules.actions.assign_operator", "Wijs Operator Toe")}</option>
                       <option value="reschedule_order">{t("planning.automationRules.actions.reschedule_order", "Herplan Order")}</option>
                     </select>
+
+                    {newRule.action.type === "send_resend_email" && (
+                      <div className="space-y-2">
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.emailTo", "Ontvanger(s) (komma gescheiden)")}</label>
+                        <input
+                          type="text"
+                          placeholder={t("planning.automationRules.emailToPlaceholder", "bijv. manager@bedrijf.nl")}
+                          value={newRule.action.params?.to || ""}
+                          onChange={(e) => setNewRule({ 
+                            ...newRule, 
+                            action: { ...newRule.action, params: { ...newRule.action.params, to: e.target.value } } 
+                          })}
+                          className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
+                        />
+                        <label className="text-xs text-slate-600">{t("planning.automationRules.emailTemplate", "Kies een Template")}</label>
+                        <select
+                          value={newRule.action.params?.templateId || ""}
+                          onChange={(e) => setNewRule({ 
+                            ...newRule, 
+                            action: { ...newRule.action, params: { ...newRule.action.params, templateId: e.target.value } } 
+                          })}
+                          className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm"
+                        >
+                          <option value="" disabled>{t("planning.automationRules.selectTemplate", "-- Selecteer een template --")}</option>
+                          {emailTemplates.map(tpl => (
+                            <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-slate-500">{t("planning.automationRules.emailTemplateHelp", "Templates beheer je via het 'E-mail Beheer' dashboard.")}</p>
+                      </div>
+                    )}
 
                     {newRule.action.type === "send_notification" && (
                       <div className="space-y-2">

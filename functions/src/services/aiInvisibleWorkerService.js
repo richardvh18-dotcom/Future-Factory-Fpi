@@ -527,12 +527,20 @@ const buildBottleneckMatrix = ({ orders = [], assignments = [], horizonDays = 7 
     if (!dayKey || !allowedKeys.has(dayKey)) return;
 
     const machine = clean(entry.machineId || entry.station || entry.primaryStation || 'UNASSIGNED');
-    const rawCapacity =
+    let baseCapacity =
       parseNum(entry.hoursWorkedGross) ||
       parseNum(entry.hoursWorked) ||
-      parseNum(entry.hoursPerDay) ||
-      (parseNum(entry.hoursPerWeek) > 0 ? parseNum(entry.hoursPerWeek) / 5 : 0) ||
-      8;
+      parseNum(entry.hoursPerDay);
+      
+    if (!baseCapacity) {
+      const weekly = parseNum(entry.hoursPerWeek);
+      baseCapacity = weekly > 0 ? weekly / 5 : 7; // Standaard 7 netto uren (8u - 1u pauze)
+    } else if (baseCapacity === 8) {
+      baseCapacity = 7; // Automatische correctie van 8 naar 7 netto uren
+    }
+    
+    // Future Factory Efficiency Factor (85%)
+    const rawCapacity = baseCapacity * 0.85;
 
     const key = `${dayKey}__${machine}`;
     capacityByDayMachine.set(key, (capacityByDayMachine.get(key) || 0) + rawCapacity);

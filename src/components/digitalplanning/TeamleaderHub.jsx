@@ -41,6 +41,7 @@ import { useTeamleaderModalData } from "./useTeamleaderModalData";
 import { useTeamleaderEventHandlers } from "./useTeamleaderEventHandlers";
 import { TeamleaderHeader } from "./TeamleaderHeader";
 import { TeamleaderModals } from "./TeamleaderModals";
+import TeamleaderExportModal from "./modals/TeamleaderExportModal";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -114,6 +115,7 @@ const TeamleaderHub = React.memo(({
   const [overproductionTargetOrderId, setOverproductionTargetOrderId] = useState("");
   const [overproductionManualStation, setOverproductionManualStation] = useState("");
   const [assigningOverproduction, setAssigningOverproduction] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // All Firestore real-time listeners extracted to useTeamleaderFirestore hook (Phase 4)
   const {
@@ -494,6 +496,7 @@ const TeamleaderHub = React.memo(({
               archivedHistoryProducts={archivedHistoryProducts}
               effectiveAllowedNorms={effectiveAllowedNorms}
               planningOrders={dataStore}
+              setShowExportModal={setShowExportModal}
             />
           ) : (
             <div className="h-full flex gap-6 overflow-hidden">
@@ -681,6 +684,16 @@ const TeamleaderHub = React.memo(({
         handleAssignOverproduction={handleAssignOverproduction}
         t={t}
       />
+
+      {showExportModal && (
+        <TeamleaderExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          rawOrders={rawOrders}
+          rawProducts={rawProducts}
+          archivedProducts={[...archivedProducts, ...archivedHistoryProducts]}
+        />
+      )}
     </div>
   );
 });

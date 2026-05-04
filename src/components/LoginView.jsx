@@ -190,22 +190,22 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
 
       <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
         {/* Logo + Welkomsttekst */}
-        <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
+        <div className="text-center mb-3 md:mb-12 mt-2 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
           {/* Logo */}
-          <div className="flex justify-center mb-6">
+          <div className="flex justify-center mb-3 md:mb-6">
             {settings.logoUrl ? (
               <img 
                 src={settings.logoUrl} 
                 alt={settings.appName || "Logo"}
-                className="h-20 md:h-24 w-auto object-contain drop-shadow-2xl"
+                className="h-14 md:h-24 w-auto object-contain drop-shadow-2xl"
               />
             ) : (
               <div className="p-3 md:p-4 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-900/50">
-                <Factory size={32} className="md:w-12 md:h-12" />
+                <Factory size={24} className="md:w-12 md:h-12" />
               </div>
             )}
           </div>
-          <h1 className="text-5xl md:text-6xl font-black text-white mb-3 uppercase italic tracking-tighter leading-none">
+          <h1 className="text-3xl md:text-6xl font-black text-white mb-1 md:mb-3 uppercase italic tracking-tighter leading-none">
             {settings.appName || (
               <>
                 {t('login.branding_main1', 'Future')}
@@ -223,7 +223,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
 
         {/* Login Card */}
         <div className={`max-w-md w-full bg-white/10 backdrop-blur-xl border-2 border-white/20 rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-500 mb-12 ${displayError ? 'shake' : ''}`}>
-          <div className="p-8 md:p-10 text-left">
+          <div className="p-5 md:p-10 text-left">
 
             {displayError && (
               <div className="bg-rose-500/20 border-2 border-rose-400/50 backdrop-blur-sm p-4 rounded-2xl flex items-center gap-3 text-rose-200 animate-in mb-6">
@@ -232,7 +232,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-3 md:space-y-5">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1">
                   {t('login.email_label', 'Email Address')}
@@ -248,7 +248,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                     autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
+                    className="w-full pl-12 pr-4 py-3 md:py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
               </div>
@@ -268,7 +268,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
+                    className="w-full pl-12 pr-4 py-3 md:py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
                 <div className="flex justify-end mt-1">
@@ -285,7 +285,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-500 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 mt-6 shadow-2xl shadow-blue-900/50"
+                className="w-full bg-blue-600 text-white py-3 md:py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-500 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 mt-3 md:mt-6 shadow-2xl shadow-blue-900/50"
               >
                 {loading ? (
                   <Loader2 className="animate-spin" size={20} />
@@ -305,7 +305,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
               <button
                 type="button"
                 onClick={() => setShowScanner(true)}
-                className="w-full bg-emerald-600/90 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-emerald-500 transition-all flex items-center justify-center gap-3 shadow-lg active:scale-95"
+                className="w-full bg-emerald-600/90 text-white py-3 md:py-4 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-emerald-500 transition-all flex items-center justify-center gap-3 shadow-lg active:scale-95"
               >
                 <QrCode size={18} />
                 {t('login.scan_badge', 'Scan Login Badge')}
@@ -318,7 +318,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }) => {
                   e.stopPropagation();
                   setShowRequestModal(true);
                 }}
-                className="w-full bg-white/10 border-2 border-white/20 text-cyan-200 py-4 rounded-2xl font-bold uppercase text-xs tracking-[0.15em] hover:bg-white/20 hover:border-white/30 transition-all flex items-center justify-center gap-2 mt-3"
+                className="w-full bg-white/10 border-2 border-white/20 text-cyan-200 py-3 md:py-4 rounded-2xl font-bold uppercase text-xs tracking-[0.15em] hover:bg-white/20 hover:border-white/30 transition-all flex items-center justify-center gap-2 mt-2 md:mt-3"
               >
                 {t('login.request_account', 'Request Account')}
               </button>

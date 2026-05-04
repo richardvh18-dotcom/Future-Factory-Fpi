@@ -141,6 +141,7 @@ const ImportExportDashboard = ({
   archivedHistoryProducts = [],
   effectiveAllowedNorms = [],
   planningOrders = [],
+  setShowExportModal,
 }) => {
   const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState("import"); // 'import', 'export'
@@ -603,6 +604,19 @@ const ImportExportDashboard = ({
                      </div>
                      <h4 className="font-black text-slate-700 uppercase tracking-widest text-xs mb-1">Eindinspectie Gereedlijst</h4>
                      <p className="text-[10px] text-slate-500 font-medium">Open popup voor dag- of weekexport naar PDF of Excel met kolommen en headers</p>
+                   </button>
+
+                   <button
+                     type="button"
+                     onClick={() => setShowExportModal?.(true)}
+                     className="p-6 bg-slate-50 rounded-2xl border-2 border-slate-100 hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
+                   >
+                     <div className="flex justify-between items-start mb-4">
+                       <Download size={24} className="text-slate-400 group-hover:text-blue-500 transition-colors" />
+                       <ArrowRight size={20} className="text-slate-300 group-hover:text-blue-500 transform group-hover:translate-x-1 transition-all" />
+                     </div>
+                     <h4 className="font-black text-slate-700 uppercase tracking-widest text-xs mb-1">Machine Export</h4>
+                     <p className="text-[10px] text-slate-500 font-medium">Exporteer de huidige of gereed gemelde machineplanning naar PDF of Excel</p>
                    </button>
                  </div>
               </div>

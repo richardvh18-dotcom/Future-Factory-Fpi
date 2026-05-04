@@ -51,15 +51,41 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
 
       try {
         // Haal voltooide producties op voor dit product/machine
-        const trackedQuery = query(
-          collection(db, ...PATHS.TRACKING),
-          where("item", "==", standard.itemCode),
-          where("originMachine", "==", standard.machine),
-          where("status", "==", "completed")
-        );
-
-        const trackedSnapshot = await getDocs(trackedQuery);
-        const completedProducts = trackedSnapshot.docs.map(doc => doc.data());
+        // Voor de nieuwe backend structuur zoeken we in de collectionGroup 'items'
+        // of de reguliere tracking collectie met een check op order en status
+        const { collectionGroup } = await import("firebase/firestore");
+        
+        let completedProducts = [];
+        
+        // Eerst checken we de oude/platte structuur
+        try {
+          const trackedQuery = query(
+            collection(db, ...PATHS.TRACKING),
+            where("item", "==", standard.itemCode),
+            where("originMachine", "==", standard.machine),
+            where("status", "==", "completed")
+          );
+          const trackedSnapshot = await getDocs(trackedQuery);
+          completedProducts = trackedSnapshot.docs.map(doc => doc.data());
+        } catch (e) {
+          console.warn("Could not query root tracking collection", e);
+        }
+        
+        // Nu checken we de nieuwe scoped structuur via collectionGroup (indien nodig/extra)
+        if (completedProducts.length === 0) {
+          try {
+            const scopedQuery = query(
+              collectionGroup(db, 'items'),
+              where("item", "==", standard.itemCode),
+              where("originMachine", "==", standard.machine),
+              where("status", "==", "completed")
+            );
+            const scopedSnapshot = await getDocs(scopedQuery);
+            completedProducts = scopedSnapshot.docs.map(doc => doc.data());
+          } catch (e) {
+            console.warn("Could not query scoped tracking collectionGroup", e);
+          }
+        }
 
         // Filter alleen producties met timestamps
         const validProducts = completedProducts.filter(p => 

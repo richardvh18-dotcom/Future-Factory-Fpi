@@ -266,6 +266,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /future-factory/settings/email_templates/{templateId} {
+      allow read: if hasUserRecord();
+      allow write: if isAdmin();
+    }
+
     match /future-factory/settings/{document=**} {
       allow read: if hasUserRecord();
       allow write: if isAdmin();
@@ -367,6 +372,11 @@ service cloud.firestore {
     match /future-factory/notifications/{document=**} {
       allow read: if hasUserRecord() || isSignedIn();
       allow write: if canManagePlanningSettings() || isSignedIn();
+    }
+
+    match /future-factory/logs/email_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Alleen backend via Cloud Functions
     }
 
     // activity_logs: nu gemigreerd naar /future-factory/audit/logs — geen nieuwe client writes meer.

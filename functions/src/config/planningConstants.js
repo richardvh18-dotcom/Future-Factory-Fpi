@@ -55,7 +55,7 @@ const COMPLETE_ALLOWED_ROLES = new Set([
   'management',
 ]);
 
-const ALLOWED_FINISH_TYPES = new Set(['archive', 'forward']);
+const ALLOWED_FINISH_TYPES = new Set(['archive', 'forward', 'post_inspection']);
 
 const CANCEL_ALLOWED_ROLES = new Set([
   'admin',
