@@ -453,13 +453,8 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     }, [nahardingProducts]);
 
     const nahardingBatchProducts = useMemo(() => {
-        if (!latestNahardingBatchDateKey) return [];
-        return nahardingProducts.filter((item) => {
-            const ts = getNahardingOfferedMillis(item);
-            if (!ts) return false;
-            return format(new Date(ts), "yyyy-MM-dd") === latestNahardingBatchDateKey;
-        });
-    }, [nahardingProducts, latestNahardingBatchDateKey]);
+        return nahardingProducts;
+    }, [nahardingProducts]);
 
     const latestNahardingBatchLabel = useMemo(() => {
         if (!latestNahardingBatchDateKey) return "";
