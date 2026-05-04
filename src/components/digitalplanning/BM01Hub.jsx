@@ -1477,11 +1477,11 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                 </div>
 
                 {/* Content */}
-                <div className="space-y-6 print:space-y-0 print:grid print:grid-cols-2 print:gap-x-4 print:gap-y-2 print:content-start">
-                    {completedProducts.length === 0 ? (
+                <div className="space-y-6 print:space-y-0 print:grid print:grid-cols-2 print:gap-y-4 print:gap-x-4 print:content-start">
+                    {(activeTab === "naharding_batch" ? nahardingProducts : completedProducts).length === 0 ? (
                         <p className="text-center text-slate-400 italic py-10">{t('bm01.no_products_date')}</p>
                     ) : (
-                        completedProducts.map((item, index) => (
+                        (activeTab === "naharding_batch" ? nahardingProducts : completedProducts).map((item, index) => (
                             <div key={item.id} className="border-b border-slate-200 pb-6 mb-6 break-inside-avoid print:border print:border-slate-300 print:p-2 print:mb-0 print:rounded-lg print:pb-1 print:break-inside-avoid">
                                 <div className="flex justify-between items-start mb-4 print:mb-1">
                                     <div className="min-w-0 overflow-hidden">
