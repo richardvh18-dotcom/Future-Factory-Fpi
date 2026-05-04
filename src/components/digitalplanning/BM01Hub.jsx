@@ -567,12 +567,13 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   // Filter producten die gereed zijn (Aangeboden tab) op basis van geselecteerde datum
   // Combineert actieve producten (die nog niet gearchiveerd zijn) en gearchiveerde producten
   const completedProducts = useMemo(() => {
-    // Als we in naharding_batch tab zitten, toon de batch producten (alle in Naharding)
+    // FORCEER: Als we in 'naharding_batch' (NH) tab zitten, ALTIJD de volledige nahardingProducts lijst gebruiken
     if (activeTab === "naharding_batch") {
-        return nahardingBatchProducts;
+        console.debug('[BM01] PRINT MODE: Naharding lijst:', nahardingProducts.length);
+        return nahardingProducts;
     }
 
-    // VOOR DE PRINT/MODAL: We willen ook de zojuist naar Naharding gezette items zien in de "Gereed" lijst als ze vandaag zijn gedaan
+    // Voor de 'Gereed' tab (Completed)
     const activeFinished = products.filter(p => {
         const station = (p.currentStation || "").toUpperCase().replace(/\s/g, "");
         const status = (p.status || "").toUpperCase();
