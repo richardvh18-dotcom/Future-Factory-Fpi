@@ -1074,7 +1074,11 @@ const ProductionStartModal = ({
   };
 
   const handleManualLotChange = async (e) => {
-    const value = e.target.value.toUpperCase();
+    let value = e.target.value.toUpperCase();
+    
+    // Alleen cijfers toestaan en beperken tot 15 tekens
+    value = value.replace(/\D/g, "").slice(0, 15);
+
     const now = Date.now();
     const previousValue = previousLotInputRef.current;
     const deltaLength = value.length - previousValue.length;

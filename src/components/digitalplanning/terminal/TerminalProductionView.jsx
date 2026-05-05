@@ -255,6 +255,24 @@ const TerminalProductionView = ({
                 <ClipboardCheck size={14} /> {t("common.ready", "Gereed")}
               </button>
             )}
+            <button 
+              onClick={async () => {
+                const confirmed = await showConfirm({
+                  title: t("digitalplanning.terminal.all_ready_title", "Alles gereedmelden"),
+                  message: t("digitalplanning.terminal.all_ready_confirm_message", "Je staat op het punt om ALLE {{count}} actieve wikkelingen in één keer gereed te melden. Weet je dit zeker?", { count: activeWikkelingen.length }),
+                  confirmText: t("common.confirm", "Bevestigen"),
+                  cancelText: t("common.back", "Terug"),
+                  tone: "danger",
+                });
+                if (confirmed) {
+                  onReleaseProduct(activeWikkelingen[0], activeWikkelingen);
+                  onSelectTracked(null);
+                }
+              }}
+              className="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-all flex items-center gap-2"
+            >
+              <Zap size={14} className="text-orange-400" /> {t("digitalplanning.terminal.all_ready", "Alles Gereed")}
+            </button>
             <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[10px] font-black">{activeWikkelingen.length}</span>
           </div>
         </div>
