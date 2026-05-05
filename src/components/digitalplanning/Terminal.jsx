@@ -1288,6 +1288,7 @@ const Terminal = ({ initialStation, onCancelProduction, orders = [] }) => {
                 scanInputRef={scanInputRef}
                 scannerMode={scannerMode}
                 onCancelProduction={onCancelProduction}
+                activeTab={activeTab}
               />
             ) : activeTab === "gereed" ? (
               <TerminalGereedTab

@@ -15,7 +15,8 @@ const TerminalProductionView = ({
   setScanInput = () => {},
   onScan = () => {},
   scanInputRef,
-  scannerMode = true
+  scannerMode = true,
+  activeTab = "wikkelen"
 }) => {
   const { t } = useTranslation();
   const { showConfirm } = useNotifications();
@@ -84,6 +85,50 @@ const TerminalProductionView = ({
     const group = groupedSeries.get(selectedWikkeling.seriesGroupId) || [];
     return group.length > 1 ? group : [];
   }, [selectedWikkeling, groupedSeries]);
+
+  const [selectedMultiLots, setSelectedMultiLots] = useState([]);
+  const isMultiSelectMode = selectedMultiLots.length > 0;
+
+  const toggleMultiLot = (lotId) => {
+    setSelectedMultiLots(prev => 
+      prev.includes(lotId) ? prev.filter(id => id !== lotId) : [...prev, lotId]
+    );
+  };
+
+  const handleBulkRelease = async () => {
+    if (selectedMultiLots.length === 0) return;
+    
+    const productsToRelease = activeWikkelingen.filter(p => selectedMultiLots.includes(p.id));
+    if (productsToRelease.length === 0) return;
+
+    const confirmed = await showConfirm({
+      title: t("digitalplanning.terminal.bulk_release_title", "Meerdere producten gereedmelden"),
+      message: t("digitalplanning.terminal.bulk_release_confirm_message", "Je staat op het punt om {{count}} verschillende producten tegelijk gereed te melden. Weet je dit zeker?", { count: productsToRelease.length }),
+      confirmText: t("common.confirm", "Bevestigen"),
+      cancelText: t("common.back", "Terug"),
+      tone: "warning",
+    });
+
+    if (confirmed) {
+      onReleaseProduct(productsToRelease[0], productsToRelease);
+      setSelectedMultiLots([]);
+      onSelectTracked(null);
+    }
+  };
+
+  const handleSeriesRelease = async (mainProduct, seriesUnits) => {
+    const confirmed = await showConfirm({
+      title: t("digitalplanning.terminal.series_release_title", "Hele serie gereedmelden"),
+      message: t("digitalplanning.terminal.series_release_confirm_message", "Je staat op het punt om de hele serie van {{count}} producten gereed te melden. Weet je dit zeker?", { count: seriesUnits.length }),
+      confirmText: t("common.confirm", "Bevestigen"),
+      cancelText: t("common.back", "Terug"),
+      tone: "warning",
+    });
+
+    if (confirmed) {
+      onReleaseProduct(mainProduct, seriesUnits);
+    }
+  };
 
   // Keyboard navigation
   useEffect(() => {
@@ -191,10 +236,27 @@ const TerminalProductionView = ({
         </div>
 
         <div className="flex justify-between items-center mb-6 px-2 text-left">
-          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-            <Zap size={16} className="text-orange-500" /> {t("digitalplanning.terminal.active_winding", "Actieve wikkelingen")}
-          </h3>
-          <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[10px] font-black">{activeWikkelingen.length}</span>
+          <div className="flex flex-col">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Zap size={16} className="text-orange-500" /> {t("digitalplanning.terminal.active_winding", "Actieve wikkelingen")}
+            </h3>
+            {isMultiSelectMode && (
+               <span className="text-[10px] font-black text-emerald-600 uppercase mt-1 animate-pulse">
+                {selectedMultiLots.length} {t("common.selected", "Geselecteerd")}
+               </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {isMultiSelectMode && (
+              <button 
+                onClick={handleBulkRelease}
+                className="bg-emerald-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center gap-2"
+              >
+                <ClipboardCheck size={14} /> {t("common.ready", "Gereed")}
+              </button>
+            )}
+            <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[10px] font-black">{activeWikkelingen.length}</span>
+          </div>
         </div>
         <div
           className="flex-1 overflow-y-auto space-y-3 custom-scrollbar text-left text-left pb-24"
@@ -239,17 +301,27 @@ const TerminalProductionView = ({
             const conflict = lotConflictMeta[lotKey];
             const hasLotConflict = Boolean(conflict?.hasConflict);
 
+            const isMultiSelected = selectedMultiLots.includes(prod.id);
+
             return (
               <div
                 key={prod.id}
                 ref={el => (itemRefs.current[prod.id] = el)}
-                onClick={() => onSelectTracked(prod.id)}
+                onClick={() => {
+                  if (activeTab === "wikkelen" && (prod.currentStation === "BH18" || prod.machine === "BH18")) {
+                    // BH18 Multi-select ondersteuning
+                    toggleMultiLot(prod.id);
+                  }
+                  onSelectTracked(prod.id);
+                }}
                 className={`p-5 rounded-[30px] border-2 transition-all cursor-pointer flex items-center justify-between group ${
-                  selectedTrackedId === prod.id ? "bg-orange-50 border-orange-500 shadow-md" : "bg-white border-slate-100"
+                  selectedTrackedId === prod.id ? "bg-orange-50 border-orange-500 shadow-md" : (isMultiSelected ? "bg-emerald-50 border-emerald-500" : "bg-white border-slate-100")
                 } text-left`}
               >
                 <div className="flex items-center gap-4 text-left">
-                  <div className="p-3 bg-orange-50 text-orange-600 rounded-2xl text-left"><Zap size={20} /></div>
+                  <div className={`p-3 rounded-2xl text-left ${isMultiSelected ? "bg-emerald-100 text-emerald-600" : "bg-orange-50 text-orange-600"}`}>
+                    {isMultiSelected ? <ClipboardCheck size={20} /> : <Zap size={20} />}
+                  </div>
                   <div className="text-left text-left">
                     <h4 className="font-black italic leading-none mb-1">{prod.lotNumber}</h4>
                     <p className="text-[10px] font-bold text-slate-400 uppercase">{t("productionStartModal.labels.order", "Order")}: {prod.orderId}</p>
@@ -291,7 +363,9 @@ const TerminalProductionView = ({
         className={`flex-1 p-6 md:p-8 bg-slate-50 flex flex-col overflow-y-auto custom-scrollbar ${!selectedTrackedId ? "hidden lg:flex" : "flex"} text-left pb-24`}
         style={{ paddingBottom: "max(6rem, env(safe-area-inset-bottom))" }}
       >
-         {selectedWikkeling ? (
+         {selectedWikkeling ? (() => {
+           const isMultiSelected = selectedMultiLots.includes(selectedWikkeling.id);
+           return (
           <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left">
             <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-orange-500/20 relative overflow-hidden shadow-xl text-left">
               <button onClick={() => onSelectTracked(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
@@ -311,16 +385,29 @@ const TerminalProductionView = ({
 
             <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-8 text-left">
               {selectedSeriesUnits.length > 1 && (
-                <button onClick={() => onReleaseProduct(selectedSeriesUnits[0], selectedSeriesUnits)} className="w-full py-4 bg-emerald-600 text-white rounded-[22px] font-black uppercase text-sm shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                <button onClick={() => handleSeriesRelease(selectedSeriesUnits[0], selectedSeriesUnits)} className="w-full py-4 bg-emerald-600 text-white rounded-[22px] font-black uppercase text-sm shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
                   <ClipboardCheck size={20} /> {t("digitalplanning.terminal.series_report_ready", "Serie gereedmelden")} ({selectedSeriesUnits.length}x)
                 </button>
               )}
-              <button onClick={() => onReleaseProduct(selectedWikkeling)} className="w-full py-6 bg-slate-900 text-white rounded-[30px] font-black uppercase text-base shadow-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-4 active:scale-95 group">
-                <ClipboardCheck size={28} /> {t("digitalplanning.terminal.product_report_ready", "Product gereedmelden")}
+              <button 
+                onClick={() => {
+                  if (isMultiSelected) {
+                    handleBulkRelease();
+                  } else {
+                    onReleaseProduct(selectedWikkeling);
+                  }
+                }} 
+                className={`w-full py-6 text-white rounded-[30px] font-black uppercase text-base shadow-xl transition-all flex items-center justify-center gap-4 active:scale-95 group ${isMultiSelected ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-emerald-600"}`}
+              >
+                <ClipboardCheck size={28} /> 
+                {isMultiSelected 
+                  ? t("digitalplanning.terminal.bulk_report_ready", "Selectie gereedmelden") 
+                  : t("digitalplanning.terminal.product_report_ready", "Product gereedmelden")}
               </button>
             </div>
           </div>
-        ) : (
+           );
+         })() : (
           <div className="flex-1 flex flex-col items-center justify-center opacity-30 text-center text-left">
             <Zap size={80} className="mb-6 text-slate-200" />
             <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">{t("digitalplanning.terminal.select_active_lot", "Selecteer actief lot")}</h4>
