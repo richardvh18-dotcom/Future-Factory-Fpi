@@ -151,6 +151,15 @@ const StationDetailModal = ({
     return null;
   };
 
+  const getStationStartTime = (product) => {
+    const direct =
+      toDateValue(product?.timestamps?.wikkelen_start) ||
+      toDateValue(product?.timestamps?.station_start) ||
+      toDateValue(product?.timestamps?.started) ||
+      toDateValue(product?.createdAt);
+    return direct;
+  };
+
   const getWikkelenCompletionTime = (product) => {
     const direct =
       toDateValue(product?.timestamps?.wikkelen_end) ||
@@ -193,21 +202,20 @@ const StationDetailModal = ({
       );
       if (productStationNorm !== stationNorm) return;
 
-      const statusNorm = String(product?.status || "").toLowerCase();
-      if (statusNorm === "cancelled" || statusNorm === "geannuleerd") return;
+        const statusNorm = String(product?.status || "").trim().toLowerCase();
+        if (statusNorm === "rejected" || statusNorm === "deleted" || statusNorm === "cancelled" || statusNorm === "geannuleerd") return;
 
       const orderId = String(product?.orderId || "").trim();
       if (!orderId) return;
 
-      const wikkelenCompletion = getWikkelenCompletionTime(product);
-      if (!wikkelenCompletion) return;
+        const startDate = getStationStartTime(product);
+        if (!startDate) return;
 
-      if (wikkelenCompletion < selectedDayStart || wikkelenCompletion > selectedDayEnd) return;
-      if (isToday && wikkelenCompletion > cutoff) return;
+        if (startDate < selectedDayStart || startDate > selectedDayEnd) return;
+        if (isToday && startDate > cutoff) return;
 
       const order = allOrdersByOrderId.get(orderId);
-      const refOps = toLnReferenceList(extractReferenceOperations(order));
-      const refOpsText = refOps.length > 0 ? refOps.join(",") : "20";
+        const refOpsText = "20";
 
       const existing = perOrder.get(orderId) || {
         orderId,
@@ -216,9 +224,6 @@ const StationDetailModal = ({
       };
 
       existing.count += 1;
-      if (!existing.refOpsText || existing.refOpsText === "20") {
-        existing.refOpsText = refOpsText;
-      }
       perOrder.set(orderId, existing);
     });
 

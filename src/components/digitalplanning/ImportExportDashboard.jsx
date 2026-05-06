@@ -26,6 +26,28 @@ const toEntryDate = (entry) => {
   return null;
 };
 
+const toWikkelenStartDate = (entry) => {
+  const candidates = [
+    entry?.timestamps?.wikkelen_start,
+    entry?.timestamps?.station_start,
+    entry?.timestamps?.started,
+    entry?.createdAt,
+  ];
+
+  for (const value of candidates) {
+    if (!value) continue;
+    if (typeof value?.toDate === "function") {
+      const converted = value.toDate();
+      if (Number.isFinite(converted?.getTime?.())) return converted;
+    }
+
+    const parsed = new Date(value);
+    if (Number.isFinite(parsed.getTime())) return parsed;
+  }
+
+  return null;
+};
+
 const toWikkelenCompletionDate = (entry) => {
   const candidates = [
     entry?.timestamps?.wikkelen_end,
@@ -235,10 +257,11 @@ const ImportExportDashboard = ({
   const lnReadyQrRows = useMemo(() => {
     const combinedProducts = [...trackedProducts, ...archivedHistoryProducts];
     const groupedRows = new Map();
+    const cutoff = new Date(Date.now() - 5 * 60 * 1000); // 5 minuten pauze
 
     combinedProducts.forEach((product) => {
       const originStation = normalizeStation(product?.originMachine || product?.machine || "");
-      if (!originStation.startsWith("BH")) return;
+      if (!originStation.startsWith("BH") && !originStation.startsWith("BA") && !originStation.startsWith("BM")) return;
 
       const inAllowedScope =
         effectiveAllowedNorms.length === 0 ||
@@ -247,25 +270,16 @@ const ImportExportDashboard = ({
 
       const status = String(product?.status || "").trim().toLowerCase();
       const step = String(product?.currentStep || "").trim().toUpperCase();
-      if (status === "rejected" || step === "REJECTED") return;
+      if (status === "rejected" || step === "REJECTED" || status === "deleted" || status === "cancelled" || status === "geannuleerd") return;
 
-      // Only include items where the wikkelen step was actually completed/released
-      // Include if: explicit wikkelen/lossen timestamp, archived (finished), or product is in/past lossen step
-      const wikkelenDone =
-        product?.timestamps?.wikkelen_end ||
-        product?.timestamps?.lossen_start ||
-        product?.timestamps?.finished ||
-        status === "te lossen" ||
-        step === "WACHT OP LOSSEN" ||
-        step === "FINISHED";
-      if (!wikkelenDone) return;
+      const startDate = toWikkelenStartDate(product);
+      if (!startDate) return;
 
-      const completionDate = toWikkelenCompletionDate(product);
-      if (!completionDate) return;
+      if (startDate > cutoff) return;
 
       const inRange = completedRangeMode === "day"
-        ? isSameDay(completionDate, selectedCompletedDate)
-        : isWithinInterval(completionDate, {
+        ? isSameDay(startDate, selectedCompletedDate)
+        : isWithinInterval(startDate, {
             start: startOfISOWeek(selectedCompletedDate),
             end: endOfISOWeek(selectedCompletedDate),
           });
@@ -275,18 +289,18 @@ const ImportExportDashboard = ({
       if (!orderId) return;
 
       const order = planningOrdersByOrderId.get(orderId);
-      const refOpsText = selectPrimaryLnReferenceOperation(order) || "20";
+      const refOpsText = "20"; // Vast ingesteld op referentiecode 20
       const rowKey = `${originStation}__${orderId}`;
       const current = groupedRows.get(rowKey) || {
         id: rowKey,
         station: originStation,
         orderId,
+        item: product?.item || product?.itemDescription || order?.item || "",
         refOpsText,
         count: 0,
       };
 
       current.count += 1;
-      current.refOpsText = current.refOpsText === "20" ? refOpsText : current.refOpsText;
       groupedRows.set(rowKey, current);
     });
 
@@ -399,6 +413,39 @@ const ImportExportDashboard = ({
     });
 
     doc.save(`teamleader_gereedlijst_${completedRangeMode}_${completedPeriodLabel}.pdf`);
+  };
+
+  const handleExportLnReadyListPdf = async () => {
+    if (!lnReadyQrRows.length) return;
+
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    doc.setFontSize(14);
+    doc.text("Gereed voor LN (Lijst)", 14, 14);
+    doc.setFontSize(9);
+    doc.text(`Periode: ${completedPeriodLabel}`, 14, 20);
+    doc.text(`Afdeling: ${currentDepartment || "all"}`, 75, 20);
+    doc.text(`Totaal regels: ${lnReadyQrRows.length}`, 145, 20);
+
+    autoTable(doc, {
+      startY: 25,
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+      head: [["Station", "Order", "Product", "Ref Ops", "Aantal"]],
+      body: lnReadyQrRows.map((row) => [
+        row.station,
+        row.orderId,
+        row.item,
+        row.refOpsText,
+        row.count,
+      ]),
+    });
+
+    doc.save(`teamleader_ln_gereed_lijst_${completedRangeMode}_${completedPeriodLabel}.pdf`);
   };
 
   const handleExportLnReadyPdf = async () => {
@@ -650,7 +697,7 @@ const ImportExportDashboard = ({
             </div>
 
             <div className="p-5 sm:p-8 space-y-5 sm:space-y-6 overflow-y-auto custom-scrollbar">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr_1fr_1fr] gap-4">
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                   <select
@@ -662,23 +709,36 @@ const ImportExportDashboard = ({
                     <option value="week">Per week</option>
                   </select>
                 </div>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                  {completedRangeMode === "day" ? (
-                    <input
-                      type="date"
-                      value={completedDateValue}
-                      onChange={(e) => setCompletedDateValue(e.target.value)}
-                      className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
-                    />
-                  ) : (
-                    <input
-                      type="week"
-                      value={completedWeekValue}
-                      onChange={(e) => setCompletedWeekValue(e.target.value)}
-                      className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
-                    />
-                  )}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    {completedRangeMode === "day" ? (
+                      <input
+                        type="date"
+                        value={completedDateValue}
+                        onChange={(e) => setCompletedDateValue(e.target.value)}
+                        className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
+                      />
+                    ) : (
+                      <input
+                        type="week"
+                        value={completedWeekValue}
+                        onChange={(e) => setCompletedWeekValue(e.target.value)}
+                        className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
+                      />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompletedDateValue(formatDateInputValue(new Date()));
+                      setCompletedWeekValue(formatWeekInputValue(new Date()));
+                    }}
+                    className="px-4 py-3 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 transition-colors shrink-0"
+                    title="Terug naar vandaag"
+                  >
+                    Vandaag
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -753,7 +813,7 @@ const ImportExportDashboard = ({
             </div>
 
             <div className="p-5 sm:p-8 space-y-5 sm:space-y-6 overflow-y-auto custom-scrollbar">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr_1fr_1fr] gap-4">
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                   <select
@@ -765,29 +825,50 @@ const ImportExportDashboard = ({
                     <option value="week">Per week</option>
                   </select>
                 </div>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                  {completedRangeMode === "day" ? (
-                    <input
-                      type="date"
-                      value={completedDateValue}
-                      onChange={(e) => setCompletedDateValue(e.target.value)}
-                      className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
-                    />
-                  ) : (
-                    <input
-                      type="week"
-                      value={completedWeekValue}
-                      onChange={(e) => setCompletedWeekValue(e.target.value)}
-                      className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
-                    />
-                  )}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    {completedRangeMode === "day" ? (
+                      <input
+                        type="date"
+                        value={completedDateValue}
+                        onChange={(e) => setCompletedDateValue(e.target.value)}
+                        className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
+                      />
+                    ) : (
+                      <input
+                        type="week"
+                        value={completedWeekValue}
+                        onChange={(e) => setCompletedWeekValue(e.target.value)}
+                        className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-emerald-500"
+                      />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompletedDateValue(formatDateInputValue(new Date()));
+                      setCompletedWeekValue(formatWeekInputValue(new Date()));
+                    }}
+                    className="px-4 py-3 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 transition-colors shrink-0"
+                    title="Terug naar vandaag"
+                  >
+                    Vandaag
+                  </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleExportLnReadyListPdf}
+                  disabled={lnReadyQrRows.length === 0}
+                  className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <FileText size={14} /> Lijst PDF
+                </button>
                 <button
                   type="button"
                   onClick={handleExportLnReadyPdf}
                   disabled={lnReadyQrRows.length === 0}
-                  className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 md:col-span-2"
+                  className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   <Printer size={14} /> QR PDF
                 </button>
@@ -799,11 +880,12 @@ const ImportExportDashboard = ({
               </div>
 
               <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                <div className="grid grid-cols-[8rem_10rem_10rem_8rem] gap-3 bg-slate-100 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                <div className="grid grid-cols-[6rem_8rem_6rem_5rem_minmax(0,1fr)] gap-3 bg-slate-100 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
                   <span>Station</span>
                   <span>Order</span>
                   <span>Ref ops</span>
                   <span>Aantal</span>
+                  <span>Product</span>
                 </div>
                 <div className="max-h-[22rem] overflow-y-auto custom-scrollbar divide-y divide-slate-100">
                   {lnReadyQrRows.length === 0 ? (
@@ -812,11 +894,12 @@ const ImportExportDashboard = ({
                     </div>
                   ) : (
                     lnReadyQrRows.map((row) => (
-                      <div key={row.id} className="grid grid-cols-[8rem_10rem_10rem_8rem] gap-3 px-4 py-3 text-xs text-slate-700 items-start">
+                      <div key={row.id} className="grid grid-cols-[6rem_8rem_6rem_5rem_minmax(0,1fr)] gap-3 px-4 py-3 text-xs text-slate-700 items-center">
                         <span className="font-bold">{row.station || "-"}</span>
                         <span className="font-bold">{row.orderId || "-"}</span>
                         <span>{row.refOpsText || "20"}</span>
-                        <span>{row.count || 0}</span>
+                        <span className="font-bold text-blue-600">{row.count || 0}</span>
+                        <span className="truncate" title={row.item}>{row.item || "-"}</span>
                       </div>
                     ))
                   )}

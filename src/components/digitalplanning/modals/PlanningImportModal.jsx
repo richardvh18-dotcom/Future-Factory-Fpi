@@ -56,7 +56,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         "N20024491",
         "N20024566",
         "N20024604",
-        "N20024607",
         "N20024738",
         "N20024739",
         "N20024740",
@@ -1284,16 +1283,36 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
     if (isFittingsScoped) {
       rows = rows.filter((d) => isFittingsMachine(d.machine));
     }
-    return rows;
-  }, [effectiveValidOrders, importMode, existingIds, selectedMachines, orderChangeMeta, isFittingsScoped, pasteMode, SMART_SYNC_EXCLUDED_ORDER_IDS, hoursOnlyMode]);
+
+    // Alleen geselecteerde orders meenemen in importCandidates
+    // Zodat zij ook daadwerkelijk de enigen zijn die de database raken.
+    return rows.filter((order) => selectedOrderIds.has(order.id));
+  }, [effectiveValidOrders, importMode, existingIds, selectedMachines, orderChangeMeta, isFittingsScoped, pasteMode, SMART_SYNC_EXCLUDED_ORDER_IDS, hoursOnlyMode, selectedOrderIds]);
 
   useEffect(() => {
-    if (pasteMode || importMode === "smart_update") {
-      setSelectedOrderIds(new Set(importCandidates.map((d) => d.id)));
-      return;
-    }
-    setSelectedOrderIds(new Set(effectiveValidOrders.map((d) => d.id)));
-  }, [effectiveValidOrders, importMode, importCandidates, pasteMode]);
+    // We willen de initiële selectie alleen doen als de data voor het eerst binnenkomt of modus wisselt.
+    // Anders overschrijft deze useEffect de handmatige vinkjes van de gebruiker.
+    setSelectedOrderIds((prev) => {
+      // Als we al een selectie hebben en niet in overwrite modus zitten, behoud deze dan.
+      if (prev.size > 0 && importMode !== "overwrite") return prev;
+
+      let candidates;
+      if (pasteMode) {
+        candidates = effectiveValidOrders.filter((d) => !isExistingOrder(d));
+      } else if (importMode === "smart_update") {
+        candidates = effectiveValidOrders.filter((d) => {
+          if (hoursOnlyMode) return true;
+          if (isSmartSyncExcludedOrder(d)) return false;
+          return !isExistingOrder(d) || orderChangeMeta.get(d.id)?.hasSmartChange;
+        });
+      } else {
+        candidates = effectiveValidOrders;
+      }
+      
+      const filtered = candidates.filter((d) => isAllowedBySelectedMachines(d));
+      return new Set(filtered.map((d) => d.id));
+    });
+  }, [effectiveValidOrders.length, importMode, pasteMode, hoursOnlyMode]); // Trigger op verandering van data-lengte of modus
 
   const importableCount = useMemo(
     () => importCandidates.length,

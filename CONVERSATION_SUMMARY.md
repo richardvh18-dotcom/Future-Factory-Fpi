@@ -1,3 +1,102 @@
+## Update sessie 147 (Idee: Automatische Oven-koppeling Naharding)
+
+**Datum:** 6 mei 2026 | **Branch:** `FPiFF-18-12-May`
+
+### Besproken & Vastgelegd voor ROADMAP (Fase 6):
+- **Smart Factory integratie (Ovens BM01):** Er is besproken om in de toekomst de software/sensoren van de ovens direct te koppelen aan de applicatie.
+- Zodra een ovenprogramma is afgerond, stuurt de oven-software een signaal (bijv. via een webhook) naar onze Firebase backend.
+- De backend vangt dit op en meldt de actieve "Naharding Batch" volautomatisch gereed, zonder tussenkomst van een operator.
+
+---
+
+## Update sessie 146 (Gereed voor LN Export & Vandaag-knoppen)
+
+**Datum:** 6 mei 2026 | **Branch:** `FPiFF-18-12-May`
+
+### Gebruikersverzoeken & Doelen:
+1. **Gereed voor LN Export (Teamleader):** De export moest een dagteller worden op basis van de starttijd op de machine (met 5 minuten vertraging in verband met eventuele annuleringen). Verder moest de lijst gegroepeerd worden per station en order, met referentiecode "20", en geprint kunnen worden als een simpele lijst of een QR-lijst.
+2. **Datum Selectors:** Toevoegen van een "Vandaag" knop in de export pop-ups om snel terug te springen naar de huidige datum na het bladeren.
+
+### Uitgevoerde acties:
+**1. Gereed voor LN Logica (`ImportExportDashboard.jsx` & `StationDetailModal.jsx`)**
+- `toWikkelenStartDate` functie toegevoegd om de daadwerkelijke starttijd van de order op de machine te bepalen.
+- 5-minuten pauze (`cutoff`) ingebouwd; orders verschijnen pas 5 minuten na de starttijd in de exportlijst.
+- Status filtering aangescherpt: afgekeurde of geannuleerde orders (`rejected`, `deleted`, `cancelled`) worden expliciet uitgesloten.
+- Data groepering aangepast zodat het station, ordernummer, product (item) en het gestarte aantal correct getoond worden.
+- Referentiecode voor LN export vast ingesteld op `"20"`.
+
+**2. Nieuwe Export PDF's (`ImportExportDashboard.jsx`)**
+- Twee export opties toegevoegd voor de LN-lijst:
+  - **Lijst PDF:** Een schone, compacte tabelweergave met Station, Order, Product, Ref Ops en Aantal.
+  - **QR PDF:** De uitgebreide weergave met 3 scanbare QR-codes per orderregel (Order, Ref Ops, Aantal).
+
+**3. Vandaag-knop in Kalender Pop-ups (`ImportExportDashboard.jsx`)**
+- Het grid in de export-modals ("Eindinspectie Gereedlijst" en "Gereed voor LN") is dynamisch schaalbaar gemaakt (`lg:grid-cols-[1fr_1.5fr_1fr_1fr]`).
+- Naast de datum/week-input is een prominente `Vandaag`-knop toegevoegd. Bij het klikken hierop worden zowel de dag- als de week-selectors direct gereset naar vandaag (`new Date()`).
+
+---
+
+## Update sessie 145 (Fix Order N20024607 & PDF Export voor Archief)
+
+**Datum:** 6 mei 2026 | **Branch:** `FPiFF-18-12-May`
+
+### Gebruikersverzoeken & Doelen:
+1. **Order Herstel:** Fix voor order `N20024607` die vastliep in de sync omdat deze hardcoded was uitgesloten.
+2. **Import Verbetering:** Duidelijkere interface in de `PlanningImportModal` (knoppen tellen nu mee met selectie) en strikte afhandeling van "Smart Sync" vs "Overschrijven".
+3. **PDF Export Archief:** Toevoegen van een PDF-export knop in de Teamleader/Planning view (zowel Sidebar als Dossier) voor gearchiveerde orders, inclusief aanmaak- en gereed-tijden per lotnummer.
+
+### Uitgevoerde acties:
+**1. Herstel Order N20024607 (`PlanningImportModal.jsx`)**
+- De hardcoded lijst `SMART_SYNC_EXCLUDED_ORDER_IDS` is leeggemaakt. Deze blokkeerde voorheen handmatige aanpassingen aan specifieke orders na afronding.
+- Logica van de import-knop aangepast: de tekst toont nu het aantal geselecteerde orders (bijv. "Update 1 geselecteerde items").
+- Validatie toegevoegd zodat er altijd minimaal één order geselecteerd moet zijn voordat de actie uitgevoerd kan worden.
+
+**2. PDF Export functionaliteit (`PlanningSidebar.jsx` & `OrderDetail.jsx`)**
+- **Sidebar (Lijstweergave):** PDF export toegevoegd die de volledige lijst van de huidige scope (bijv. Archief) exporteert met kolommen voor aanmaak- en voltooiingsdatum.
+- **Dossier (Rechterpaneel):** De bestaande PDF-export knop in `OrderDetail.jsx` is volledig herschreven.
+    - Kolommen aangepast naar: **Lotnummer**, **Order**, **Product**, **Status**, **Station**, **Aangemaakt** (`createdAt`) en **Gereed** (`finishedAt`).
+    - Layout geoptimaliseerd voor landscape A4 zodat alle tijdstempels volledig zichtbaar zijn.
+    - Gebruik van `jspdf` en `jspdf-autotable` voor dynamische gegenereerde rapporten.
+
+**3. Stabiliteit & Bugfixes**
+- Fix voor een crash in `App.jsx` veroorzaakt door een onbedoelde code-injectie.
+- Fix voor ontbrekende `isValid` import (van `date-fns`) in de `PlanningSidebar.jsx` die een crash veroorzaakte bij het exporteren van lege datums.
+
+### Volgende stappen:
+- Gebruiker adviseren om voor order `N20024607` de "Overschrijven" (Overwrite) functie te gebruiken om de hoeveelheid van 5 naar 10 te corrigeren in Firestore, aangezien Smart Sync de huidige status beschermt.
+
+---
+
+## Update sessie 144 (BH18 Terminal Multi-select, Veiligheid & Lotnummer Validatie)
+
+**Datum:** 5 mei 2026 | **Branch:** `FPiFF-18-12-May`
+
+### Gebruikersverzoeken & Doelen:
+1. **BH18 Efficiëntie:** Invoeren van multi-select voor BH18 wikkelen om meerdere producten tegelijk gereed te melden.
+2. **Operationele Veiligheid:** Voorkomen dat volledige series per ongeluk worden afgemeld via "Serie Gereedmelden".
+3. **Foutreductie Scan:** Voorkomen dat itemcodes in het lotnummer-veld worden gescand.
+4. **Zebra UI:** Optimalisatie van de displayruimte voor MC330L scanners (datum, operator en tabs verkleinen).
+5. **Batch Actie:** Knop "Alles Gereed" toevoegen voor extreme tijdwinst bij BH18.
+
+### Uitgevoerde acties:
+**1. Terminal & BH18 UI (`TerminalProductionView.jsx` & `Terminal.jsx`)**
+- **Multi-select:** Selectievakjes toegevoegd per lot in de lijst. Smaragdgroene styling voor actieve selectie.
+- **Alles Gereed Knop:** Nieuwe knop onder de scanbalk toegevoegd om de *volledige* actieve lijst in één keer door te sturen naar de volgende fase.
+- **Safety Prompts:** Verplichte bevestigingsmodals toegevoegd voor "Serie Gereedmelden", "Selectie Gereedmelden" en "Alles Gereedmelden".
+- **Zebra Fix:** Lettertypes en padding van de bovenste balken verkleind voor betere leesbaarheid op smalle industriële schermen.
+
+**2. Productie Start Validatie (`ProductionStartModal.jsx`)**
+- Lotnummer-veld beperkt tot **maximaal 15 tekens**.
+- Automatische filter die **geen letters of vreemde tekens** meer accepteert (regex `\D` vervanging). Dit dwingt af dat scancodes van item-labels (met letters) niet geaccepteerd worden als lotnummer.
+
+**3. Code Integriteit**
+- Linting-fout opgelost waarbij `isMultiSelected` buiten scope werd aangeroepen in het detailpaneel.
+- Geverifieerd dat bulk-gereedmeldingen vanuit BH18 correct gerouteerd worden door de backend (Lossen vs Lossen 12/18).
+
+**Deploy status:** Gepauzeerd op verzoek van gebruiker (lokale commit voltooid).
+
+---
+
 ## Update sessie 143 (Herstel Vastgelopen Gerepareerde Orders)
 
 **Datum:** 4 mei 2026 | **Branch:** `FPiFF-18-12-May`

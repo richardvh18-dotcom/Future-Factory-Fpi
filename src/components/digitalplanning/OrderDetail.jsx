@@ -397,7 +397,7 @@ const OrderDetail = React.memo(({
         tableWidth: doc.internal.pageSize.getWidth() - margin * 2,
         styles: { fontSize: 8, cellPadding: 1.6, overflow: "linebreak" },
         headStyles: { fillColor: [15, 23, 42], textColor: 255 },
-        head: [["Lotnummer", "Order", "Product", "Item code", "Status", "Station", "Laatst bijgewerkt"]],
+        head: [["Lotnummer", "Order", "Product", "Status", "Station", "Aangemaakt", "Gereed"]],
         body: orderProducts
           .slice()
           .sort((a, b) => String(a?.lotNumber || a?.id || "").localeCompare(String(b?.lotNumber || b?.id || ""), "nl"))
@@ -405,19 +405,19 @@ const OrderDetail = React.memo(({
             String(p?.lotNumber || p?.activeLot || p?.id || "-").trim() || "-",
             String(p?.orderId || order.orderId || "-").trim() || "-",
             String(p?.item || order.item || "-").trim() || "-",
-            String(p?.itemCode || "-").trim() || "-",
             String(p?.status || p?.currentStep || "-").trim() || "-",
             String(p?.currentStation || p?.lastStation || "-").trim() || "-",
-            formatDateTimeForExport(p?.updatedAt || p?.inspection?.timestamp || p?.createdAt),
+            formatDateTimeForExport(p?.createdAt),
+            formatDateTimeForExport(p?.finishedAt),
           ]),
         columnStyles: {
           0: { cellWidth: 40 },
           1: { cellWidth: 26 },
-          2: { cellWidth: 82 },
-          3: { cellWidth: 46, overflow: "ellipsize" },
-          4: { cellWidth: 24 },
-          5: { cellWidth: 24 },
-          6: { cellWidth: 31 },
+          2: { cellWidth: 80 },
+          3: { cellWidth: 26 },
+          4: { cellWidth: 26 },
+          5: { cellWidth: 35 },
+          6: { cellWidth: 35 },
         },
         didDrawPage: (data) => {
           drawHeaderFooter(data.pageNumber);

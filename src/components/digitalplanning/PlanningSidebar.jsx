@@ -17,7 +17,7 @@ import StatusBadge from "./common/StatusBadge";
 import { collection, query, getDocs, limit } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { getArchiveItemsPath } from "../../config/dbPaths";
-import { endOfISOWeek, format, getISOWeek, isSameDay, isWithinInterval, startOfISOWeek } from "date-fns";
+import { endOfISOWeek, format, getISOWeek, isSameDay, isWithinInterval, startOfISOWeek, isValid } from "date-fns";
 import { getEffectivePlanQty, getOrderFinishedUnits, getOrderIdentity, getTrackedRecordOrderId } from "../../utils/planningProgress";
 
 const FixedSizeList = List;
@@ -1168,8 +1168,8 @@ const PlanningSidebar = ({
     const rows = [];
     const seen = new Set();
 
-    // Combineer actieve en gearchiveerde producten
-    const allProducts = [...trackedProducts, ...archivedProducts];
+    // Combineer actieve en alle soorten gearchiveerde producten voor een compleet overzicht
+    const allProducts = [...trackedProducts, ...archivedProducts, ...archivedHistoryProducts];
 
     allProducts.forEach((product) => {
       const orderKey = getOrderIdFromRecord(product);
@@ -1185,6 +1185,12 @@ const PlanningSidebar = ({
         product?.currentStation || product?.currentStep || product?.lastStation || product?.originMachine || product?.machine || order?.machine || ""
       );
 
+      // Tijdsindicatie toevoegen voor PDF
+      const finishedDateRaw = product?.finishedAt || product?.completedAt || product?.archivedAt || product?.updatedAt || product?.timestamps?.finished;
+      const finishedDate = finishedDateRaw ? toEntryDate({ ...product, finishedAt: finishedDateRaw }) : null;
+      const createdDateRaw = product?.createdAt || product?.startedAt || product?.timestamps?.started;
+      const createdDate = createdDateRaw ? toEntryDate({ ...product, createdAt: createdDateRaw }) : null;
+
       rows.push({
         lotNumber,
         orderId: orderKey,
@@ -1192,6 +1198,8 @@ const PlanningSidebar = ({
         station: stationLabel,
         poText: order?.notes || order?.poText || "",
         status: product?.status || order?.status || "",
+        finishedAt: finishedDate && isValid(finishedDate) ? format(finishedDate, "dd-MM-yyyy HH:mm") : "-",
+        createdAt: createdDate && isValid(createdDate) ? format(createdDate, "dd-MM-yyyy HH:mm") : "-",
       });
     });
 
@@ -1205,8 +1213,10 @@ const PlanningSidebar = ({
       station: getStationLabel(order?.machine || ""),
       poText: order?.notes || order?.poText || "",
       status: order?.status || "",
+      finishedAt: "-",
+      createdAt: "-",
     }));
-  }, [filteredOrders, trackedProducts, archivedProducts]);
+  }, [filteredOrders, trackedProducts, archivedProducts, archivedHistoryProducts]);
 
   const handleExportCurrentPdf = async () => {
     if (!filteredProductRows.length) return;
@@ -1233,22 +1243,24 @@ const PlanningSidebar = ({
       startY: 25,
       styles: { fontSize: 8, cellPadding: 1.5, overflow: "linebreak" },
       headStyles: { fillColor: [15, 23, 42], textColor: 255 },
-      head: [["Lotnummer", "Ordernummer", "Product", "Station", "PO Text", "Status"]],
+      head: [["Lotnummer", "Ordernummer", "Product", "Aangemaakt", "Gereed", "Station", "PO Text"]],
       body: filteredProductRows.map((row) => [
         row.lotNumber || "",
         row.orderId || "",
         row.product || "",
+        row.createdAt || "-",
+        row.finishedAt || "-",
         row.station || "",
         row.poText || "",
-        row.status || "",
       ]),
       columnStyles: {
         0: { cellWidth: 28 },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 64 },
-        3: { cellWidth: 28 },
-        4: { cellWidth: 100 },
-        5: { cellWidth: 24 },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 30 },
+        5: { cellWidth: 22 },
+        6: { cellWidth: 84 },
       },
     });
 

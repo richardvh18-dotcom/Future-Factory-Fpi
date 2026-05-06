@@ -412,13 +412,34 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
         const historyList = Array.isArray(item?.history) ? item.history : [];
         const nahardingEvent = [...historyList]
             .reverse()
-            .find((entry) => String(entry?.details || "").toUpperCase().includes("NAHARD"));
-        const historyTs = toMillisSafe(nahardingEvent?.timestamp);
+            .find((entry) => {
+                const details = String(entry?.details || "").toUpperCase();
+                const station = String(entry?.station || "").toUpperCase();
+                const action = String(entry?.action || "").toUpperCase();
+                return details.includes("NAHARD") || details.includes("OVEN") ||
+                       station.includes("NAHARD") || station.includes("OVEN") ||
+                       action.includes("NAHARD");
+            });
+        const historyTs = toMillisSafe(nahardingEvent?.timestamp || nahardingEvent?.time);
         if (historyTs > 0) return historyTs;
 
-        // Laatste fallback: updatedAt / createdAt. Volatiel maar beter dan niets
-        // voor producten die vóór de timestamp-velden zijn aangeboden.
-        return toMillisSafe(item?.updatedAt) || toMillisSafe(item?.createdAt);
+        // Laatste fallback: alleen toepassen als het product daadwerkelijk een naharding relatie heeft
+        const station = String(item?.currentStation || "").toUpperCase().replace(/\s/g, "");
+        const step = String(item?.currentStep || "").toUpperCase().replace(/\s/g, "");
+        const status = String(item?.status || "").toUpperCase().trim();
+        const lastStation = String(item?.lastStation || "").toUpperCase().replace(/\s/g, "");
+
+        const isNahardingRelated =
+            station.includes("NAHARD") || station.includes("OVEN") ||
+            step.includes("NAHARD") || step.includes("OVEN") ||
+            status === "TE NAHARDEN" ||
+            lastStation.includes("NAHARD") || lastStation.includes("OVEN");
+
+        if (isNahardingRelated) {
+            return toMillisSafe(item?.updatedAt) || toMillisSafe(item?.createdAt);
+        }
+
+        return 0;
     };
 
     const nahardingProducts = useMemo(() => {
@@ -532,7 +553,7 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
 
   // Fetch archived products for selected date
   useEffect(() => {
-    if (activeTab !== "completed") return;
+    if (activeTab !== "completed" && activeTab !== "naharding_batch") return;
 
     const year = selectedDate.getFullYear();
     let start, end;
@@ -567,32 +588,45 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
     return () => unsub();
   }, [selectedDate, activeTab, viewMode]);
 
+  // Specifieke lijst voor de Naharding Print-tegel, inclusief historie/archief van de geselecteerde dag
+  const nahardingPrintList = useMemo(() => {
+      const isTargetPeriod = (p) => {
+          const ts = getNahardingOfferedMillis(p);
+          if (!ts) return false;
+          const date = new Date(ts);
+          if (viewMode === "day") {
+              return isSameDay(date, selectedDate);
+          } else {
+              const start = startOfISOWeek(selectedDate);
+              const end = endOfISOWeek(selectedDate);
+              return isWithinInterval(date, { start, end });
+          }
+      };
+      const activeMatches = products.filter(p => isTargetPeriod(p));
+      const archivedMatches = archivedProducts.filter(p => isTargetPeriod(p));
+      const combined = [...activeMatches];
+      archivedMatches.forEach(archived => {
+          if (!combined.some(p => p.id === archived.id)) combined.push(archived);
+      });
+      return combined.sort((a, b) => getNahardingOfferedMillis(a) - getNahardingOfferedMillis(b));
+  }, [products, archivedProducts, selectedDate, viewMode]);
+
   // Filter producten die gereed zijn (Aangeboden tab) op basis van geselecteerde datum
   // Combineert actieve producten (die nog niet gearchiveerd zijn) en gearchiveerde producten
   const completedProducts = useMemo(() => {
-    // FORCEER: Als we in 'naharding_batch' (NH) tab zitten, ALTIJD de volledige nahardingProducts lijst gebruiken
-    if (activeTab === "naharding_batch") {
-        console.debug('[BM01] PRINT MODE: Naharding lijst:', nahardingProducts.length);
-        return nahardingProducts;
-    }
-
     // Voor de 'Gereed' tab (Completed)
     const activeFinished = products.filter(p => {
         const station = (p.currentStation || "").toUpperCase().replace(/\s/g, "");
         const status = (p.status || "").toUpperCase();
         
         const isFinished = status === 'COMPLETED' || p.currentStep === 'Finished' || station === 'GEREED';
-        const isCurrentlyInNaharding = station.includes("NAHARD") || station.includes("OVEN") || status === "TE NAHARDEN";
         
-        if (!isFinished && !isCurrentlyInNaharding) return false;
+        if (!isFinished) return false;
 
-        // Bepaal datum van afronding of aanbieding aan Naharding
+        // Bepaal datum van afronding
         let finishDate = null;
         if (p.timestamps?.finished) {
             finishDate = p.timestamps.finished.toDate ? p.timestamps.finished.toDate() : new Date(p.timestamps.finished);
-        } else if (isCurrentlyInNaharding) {
-            const ts = getNahardingOfferedMillis(p);
-            finishDate = ts ? new Date(ts) : null;
         } else if (p.updatedAt) {
             finishDate = p.updatedAt.toDate ? p.updatedAt.toDate() : new Date(p.updatedAt);
         }
@@ -732,8 +766,8 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
   };
 
     const handlePrintQrOverview = async () => {
-            // BEPALING LIJST: Als we in NH tab zitten, gebruik ALTIJD de volledige nahardingProducts lijst
-            const listToPrint = activeTab === "naharding_batch" ? nahardingProducts : completedProducts;
+            // BEPALING LIJST: Als we in NH tab zitten, gebruik de specifieke print lijst voor die dag
+            const listToPrint = activeTab === "naharding_batch" ? nahardingPrintList : completedProducts;
 
             if (listToPrint.length === 0) return;
 
@@ -771,14 +805,15 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                             })
                     );
 
-                    const reportDate =
-                            viewMode === "day"
-                                    ? format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })
-                                    : `Week ${format(selectedDate, "w")} (${format(startOfISOWeek(selectedDate), "d MMM", { locale: nl })} - ${format(endOfISOWeek(selectedDate), "d MMM", { locale: nl })})`;
+                    const reportDate = viewMode === "day"
+                        ? format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })
+                        : `Week ${format(selectedDate, "w")} (${format(startOfISOWeek(selectedDate), "d MMM", { locale: nl })} - ${format(endOfISOWeek(selectedDate), "d MMM", { locale: nl })})`;
 
-                    const cardsHtml = itemsWithQr
-                            .map(
-                                    (row) => `
+                    let cardsHtml = "";
+                    let customStyle = "";
+
+                    if (activeTab === "naharding_batch") {
+                        cardsHtml = itemsWithQr.map((row) => `
                                         <article class="card">
                                             <div class="cardHeader">
                                                 <div>
@@ -806,8 +841,39 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                                             </div>
                                         </article>
                                     `
-                            )
-                            .join("");
+                        ).join("");
+                    } else {
+                        cardsHtml = `
+                            <table class="simple-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Lotnummer</th>
+                                        <th>Ordernummer</th>
+                                        <th>Product</th>
+                                        <th>Tijd</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${itemsWithQr.map(row => `
+                                        <tr>
+                                            <td>${row.index}</td>
+                                            <td><strong>${escapeHtml(row.lotNumber)}</strong></td>
+                                            <td>${escapeHtml(row.orderId)}</td>
+                                            <td>${escapeHtml(row.itemName)}</td>
+                                            <td>${escapeHtml(row.finishedAtText)}</td>
+                                        </tr>
+                                    `).join("")}
+                                </tbody>
+                            </table>
+                        `;
+                        customStyle = `
+                            .simple-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+                            .simple-table th, .simple-table td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; }
+                            .simple-table th { background-color: #f8fafc; font-weight: bold; text-transform: uppercase; font-size: 10px; color: #64748b; }
+                            .simple-table tr:nth-child(even) { background-color: #f1f5f9; }
+                        `;
+                    }
 
                     const html = `<!doctype html>
 <html lang="nl">
@@ -834,15 +900,22 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             .qrBlock img { width: 56px; height: 56px; object-fit: contain; border: 1px solid #e2e8f0; }
             .label { font-size: 9px; text-transform: uppercase; color: #64748b; font-weight: 700; }
             .value { font-size: 11px; font-weight: 800; word-break: break-all; }
+            ${customStyle}
         </style>
     </head>
     <body>
         <main class="sheet">
-            <header class="header">
-                <h1>QR Overzicht Aangeboden</h1>
-                <p>${escapeHtml(reportDate)}</p>
+            <header class="header" style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <div>
+                    <h1>${activeTab === "naharding_batch" ? "QR Overzicht Naharding" : "Gereedlijst Overzicht"}</h1>
+                    <p>${escapeHtml(reportDate)}</p>
+                </div>
+                <div style="text-align: right;">
+                    <span style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Aantal lots:</span>
+                    <span style="font-size: 24px; font-weight: 900; margin-left: 6px; color: #0f172a;">${itemsWithQr.length}</span>
+                </div>
             </header>
-            <section class="list">${cardsHtml}</section>
+            <section class="${activeTab === "naharding_batch" ? "list" : ""}">${cardsHtml}</section>
         </main>
     </body>
 </html>`;
@@ -1148,25 +1221,25 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             <div className="h-full flex flex-col p-3 w-full">
                 {/* Datum Navigatie */}
                 <div className="flex flex-col md:flex-row items-center justify-center gap-2 mb-3">
-                    <div className="flex items-center bg-white p-1 rounded-xl shadow-sm border border-slate-100 scale-95 sm:scale-100">
-                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
-                            <ChevronLeft size={18} />
+                    <div className="flex items-center bg-white p-1.5 rounded-xl shadow-md border-2 border-slate-200 scale-95 sm:scale-100">
+                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-500 hover:text-slate-800">
+                            <ChevronLeft size={20} />
                         </button>
                         <div 
-                            className="flex items-center gap-1.5 px-3 min-w-[160px] justify-center cursor-pointer hover:bg-slate-50 rounded-lg transition-colors select-none"
+                            className="flex items-center gap-2 px-4 min-w-[200px] justify-center cursor-pointer hover:bg-slate-50 rounded-lg transition-colors select-none"
                             onDoubleClick={() => setSelectedDate(new Date())}
                             title={t('bm01.reset_date_tooltip', 'Dubbelklik om naar vandaag te gaan')}
                         >
-                            <Calendar size={14} className="text-emerald-500" />
-                            <span className="font-black text-slate-700 uppercase tracking-tight text-[10px]">
+                            <Calendar size={18} className="text-emerald-500" />
+                            <span className="font-black text-slate-800 uppercase tracking-wider text-xs">
                                 {viewMode === 'day' 
                                     ? format(selectedDate, "EEEE d MMMM", { locale: nl })
                                     : `Week ${format(selectedDate, "w")} (${format(startOfISOWeek(selectedDate), "d MMM")} - ${format(endOfISOWeek(selectedDate), "d MMM")})`
                                 }
                             </span>
                         </div>
-                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
-                            <ChevronRight size={18} />
+                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-500 hover:text-slate-800">
+                            <ChevronRight size={20} />
                         </button>
                     </div>
                     
@@ -1197,10 +1270,18 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                         <button 
                             onClick={() => setShowPrintModal(true)}
                             className="p-2 bg-white hover:bg-blue-50 text-blue-600 border border-slate-100 rounded-lg transition-colors shadow-sm"
-                            title="Print QR Overzicht"
+                            title={t('bm01.print_list', 'Print Lijst')}
                         >
                             <Printer size={18} />
                         </button>
+                    </div>
+                </div>
+
+                <div className="text-center mb-3">
+                    <div className="inline-block bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 shadow-sm">
+                        <p className="text-xs font-bold text-slate-600 uppercase tracking-widest">
+                            Gevonden lots in deze periode: <span className="text-emerald-600 font-black text-xl ml-2">{completedProducts.length}</span>
+                        </p>
                     </div>
                 </div>
 
@@ -1248,46 +1329,97 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
             </div>
         ) : activeTab === "naharding_batch" ? (
             <div className="h-full flex flex-col p-4 gap-4">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 flex-1">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Naharding Batch</p>
-                        <p className="text-sm font-bold text-slate-700 mt-1">
-                            {t("bm01.naharding_batch_desc", "Meld in 1x alle Naharding lots gereed zodra de oven is geleegd.")}
-                        </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 flex flex-col justify-between shadow-sm">
+                        <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Naharding Batch</p>
+                            <p className="text-sm font-bold text-slate-700 mt-1">
+                                {t("bm01.naharding_batch_desc", "Meld in 1x alle Naharding lots gereed zodra de oven is geleegd.")}
+                            </p>
+                            {latestNahardingBatchLabel && (
+                                <p className="mt-3 text-[11px] font-bold text-amber-800">
+                                    {t("bm01.naharding_batch_date", "Laatst aangeboden batch: {{date}}", { date: latestNahardingBatchLabel })}
+                                </p>
+                            )}
+                        </div>
                         <button
                             type="button"
                             onClick={handleNahardingBatchComplete}
                             disabled={isNahardingBatchProcessing || nahardingBatchProducts.length === 0}
-                            className={`mt-4 w-full md:w-auto px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
+                            className={`mt-4 w-full px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
                                 isNahardingBatchProcessing || nahardingBatchProducts.length === 0
                                     ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                                    : "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200"
+                                    : "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200 shadow-sm"
                             }`}
                         >
                             {isNahardingBatchProcessing
                                 ? t("bm01.naharding_batch_processing", "Batch wordt verwerkt...")
                                 : t("bm01.naharding_batch_button", "Batch Naharding gereedmelden ({{count}})", { count: nahardingBatchProducts.length })}
                         </button>
-                        {latestNahardingBatchLabel && (
-                            <p className="mt-3 text-[11px] font-bold text-amber-800">
-                                {t("bm01.naharding_batch_date", "Laatst aangeboden batch: {{date}}", { date: latestNahardingBatchLabel })}
-                            </p>
-                        )}
                     </div>
 
-                    <div className="flex gap-2 shrink-0">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 flex flex-col justify-between shadow-sm">
+                        <div>
+                            <div className="flex justify-between items-start gap-2">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Print Labels</p>
+                                    <p className="text-sm font-bold text-slate-700 mt-1">
+                                        Print het QR-overzicht voor de Naharding batch van een specifieke dag of week.
+                                    </p>
+                                </div>
+                                <div className="flex bg-white p-0.5 rounded-lg border border-blue-100 shadow-sm shrink-0">
+                                    <button 
+                                        onClick={() => setViewMode("day")}
+                                        className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${viewMode === "day" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                                    >
+                                        {t('bm01.day', 'Dag')}
+                                    </button>
+                                    <button 
+                                        onClick={() => setViewMode("week")}
+                                        className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${viewMode === "week" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                                    >
+                                        {t('bm01.week', 'Week')}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex justify-between items-end mt-4">
+                                <p className="text-xs font-bold text-blue-800 bg-blue-100/50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm">
+                                    Aantal lots: <span className="font-black text-lg ml-1">{nahardingPrintList.length}</span>
+                                </p>
+                                <div className="flex items-center bg-white p-1.5 rounded-xl shadow-md border-2 border-blue-200 shrink-0">
+                                    <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-2 hover:bg-blue-50 rounded-lg text-slate-500 hover:text-blue-700 transition-colors">
+                                        <ChevronLeft size={18} />
+                                    </button>
+                                    <div 
+                                        className="flex items-center px-4 cursor-pointer select-none min-w-[120px] justify-center"
+                                        onDoubleClick={() => setSelectedDate(new Date())}
+                                        title="Dubbelklik voor vandaag"
+                                    >
+                                        <Calendar size={14} className="text-blue-500 mr-2 inline-block" />
+                                        <span className="font-black text-slate-800 text-xs uppercase tracking-wider">
+                                            {viewMode === 'day' 
+                                                ? format(selectedDate, "d MMM", { locale: nl })
+                                                : `Week ${format(selectedDate, "w")}`
+                                            }
+                                        </span>
+                                    </div>
+                                    <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-2 hover:bg-blue-50 rounded-lg text-slate-500 hover:text-blue-700 transition-colors">
+                                        <ChevronRight size={18} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <button 
                             onClick={() => setShowPrintModal(true)}
-                            disabled={nahardingBatchProducts.length === 0}
-                            className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all shadow-sm ${
-                                nahardingBatchProducts.length === 0 
-                                ? "bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed" 
-                                : "bg-white hover:bg-blue-50 text-blue-600 border-slate-100"
+                            disabled={nahardingPrintList.length === 0}
+                            className={`mt-4 w-full px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all shadow-sm flex items-center justify-center gap-2 ${
+                                nahardingPrintList.length === 0 
+                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed" 
+                                : "bg-white hover:bg-blue-100 text-blue-700 border-blue-300"
                             }`}
-                            title="Print QR Overzicht (Naharding)"
                         >
-                            <Printer size={24} />
-                            <span className="text-[9px] font-black uppercase tracking-widest">QR Print</span>
+                            <Printer size={16} className="inline-block mr-2 -mt-0.5" />
+                            <span>QR Print Overzicht</span>
                         </button>
                     </div>
                 </div>
@@ -1453,38 +1585,51 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                         <h2 className="text-2xl font-black uppercase italic text-slate-900">{t('bm01.daily_overview')}</h2>
                         <p className="text-slate-500 font-bold">{format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })}</p>
                     </div>
-                    <div className="flex gap-4">
-                        <button 
-                            onClick={handlePrintQrOverview}
-                            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 shadow-lg"
-                        >
-                            <Printer size={16} /> {t('bm01.print_pdf')}
-                        </button>
-                        <button 
-                            onClick={() => setShowPrintModal(false)}
-                            className="p-3 hover:bg-slate-100 rounded-xl text-slate-500"
-                        >
-                            <X size={24} />
-                        </button>
+                    <div className="flex items-center gap-6">
+                        <div className="bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 text-right">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Aantal lots</span>
+                            <span className="text-2xl font-black text-slate-800 leading-none">{(activeTab === "naharding_batch" ? nahardingPrintList : completedProducts).length}</span>
+                        </div>
+                        <div className="flex gap-4">
+                            <button 
+                                onClick={handlePrintQrOverview}
+                                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 shadow-lg"
+                            >
+                                <Printer size={16} /> {t('bm01.print_pdf')}
+                            </button>
+                            <button 
+                                onClick={() => setShowPrintModal(false)}
+                                className="p-3 hover:bg-slate-100 rounded-xl text-slate-500"
+                            >
+                                <X size={24} />
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 {/* Print Header - Visible only on Print */}
-                <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
-                    <h1 className="text-2xl font-black uppercase">
-                        {activeTab === "naharding_batch" ? t('bm01.naharding_overview', 'QR Overzicht Naharding') : t('bm01.daily_overview_offered')}
-                    </h1>
-                    <p className="text-lg">
-                        {activeTab === "naharding_batch" ? latestNahardingBatchLabel : format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })}
-                    </p>
+                <div className="hidden print:flex mb-8 border-b-2 border-slate-900 pb-4 justify-between items-end">
+                    <div>
+                        <h1 className="text-2xl font-black uppercase">
+                            {activeTab === "naharding_batch" ? t('bm01.naharding_overview', 'QR Overzicht Naharding') : t('bm01.daily_overview_offered')}
+                        </h1>
+                        <p className="text-lg">
+                            {format(selectedDate, "EEEE d MMMM yyyy", { locale: nl })}
+                        </p>
+                    </div>
+                    <div className="text-right">
+                        <span className="text-slate-500 text-sm font-bold uppercase tracking-widest">Aantal lots:</span>
+                        <span className="ml-2 text-3xl font-black text-slate-900">{(activeTab === "naharding_batch" ? nahardingPrintList : completedProducts).length}</span>
+                    </div>
                 </div>
 
                 {/* Content */}
-                <div className="space-y-6 print:space-y-0 print:grid print:grid-cols-2 print:gap-y-4 print:gap-x-4 print:content-start">
-                    {(activeTab === "naharding_batch" ? nahardingProducts : completedProducts).length === 0 ? (
+                <div className={`space-y-6 ${activeTab === "naharding_batch" ? "print:space-y-0 print:grid print:grid-cols-2 print:gap-y-4 print:gap-x-4 print:content-start" : "print:space-y-0"}`}>
+                    {(activeTab === "naharding_batch" ? nahardingPrintList : completedProducts).length === 0 ? (
                         <p className="text-center text-slate-400 italic py-10">{t('bm01.no_products_date')}</p>
                     ) : (
-                        (activeTab === "naharding_batch" ? nahardingProducts : completedProducts).map((item, index) => (
+                        activeTab === "naharding_batch" ? (
+                        nahardingPrintList.map((item, index) => (
                             <div key={item.id} className="border-b border-slate-200 pb-6 mb-6 break-inside-avoid print:border print:border-slate-300 print:p-2 print:mb-0 print:rounded-lg print:pb-1 print:break-inside-avoid">
                                 <div className="flex justify-between items-start mb-4 print:mb-1">
                                     <div className="min-w-0 overflow-hidden">
@@ -1521,6 +1666,33 @@ const BM01Hub = React.memo(({ orders = [], products = [], onMoveLot }) => {
                                 </div>
                             </div>
                         ))
+                        ) : (
+                            <table className="w-full border-collapse text-left text-sm print:text-[10px]">
+                                <thead>
+                                    <tr className="border-b-2 border-slate-200">
+                                        <th className="py-2 px-2 text-slate-500 uppercase">#</th>
+                                        <th className="py-2 px-2 text-slate-500 uppercase">Lotnummer</th>
+                                        <th className="py-2 px-2 text-slate-500 uppercase">Ordernummer</th>
+                                        <th className="py-2 px-2 text-slate-500 uppercase">Product</th>
+                                        <th className="py-2 px-2 text-slate-500 uppercase">Tijd</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {completedProducts.map((item, index) => {
+                                        const date = item.timestamps?.finished?.toDate ? item.timestamps.finished.toDate() : new Date(item.timestamps?.finished || item.updatedAt);
+                                        return (
+                                            <tr key={item.id} className="hover:bg-slate-50">
+                                                <td className="py-3 px-2 font-bold text-slate-400">{index + 1}</td>
+                                                <td className="py-3 px-2 font-black text-slate-800">{item.lotNumber}</td>
+                                                <td className="py-3 px-2 font-mono text-slate-600">{item.orderId}</td>
+                                                <td className="py-3 px-2 text-slate-700 truncate max-w-[200px]" title={item.item}>{item.item}</td>
+                                                <td className="py-3 px-2 font-bold text-slate-500">{isValid(date) ? format(date, "HH:mm") : "--:--"}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        )
                     )}
                 </div>
                 </div>
