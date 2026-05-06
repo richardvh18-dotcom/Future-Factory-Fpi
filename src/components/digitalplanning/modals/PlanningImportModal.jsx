@@ -64,6 +64,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         "N20024774",
         "N20024781",
         "N20024828",
+        "N20024731",
+        "N20024607",
       ]),
     []
   );
@@ -1159,25 +1161,55 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
       const newToDoQty = getComparableToDoQty(order);
       const oldReadyQty = getComparableReadyQty(existing);
       const newReadyQty = getComparableReadyQty(order);
+      const oldDeliveryDate = existing?.plannedDeliveryDate || existing?.deliveryDate || "";
+      const newDeliveryDate = order?.plannedDeliveryDate || order?.deliveryDate || "";
       const oldNotes = normalizePoText(existing?.notes);
       const newNotes = normalizePoText(order?.notes);
-      const quantityChanged = hasManualPlanOverride ? false : oldQuantity !== newQuantity;
-      const todoChanged = oldToDoQty !== newToDoQty;
-      const readyChanged = oldReadyQty !== newReadyQty;
+      
+      const quantityChanged = hasManualPlanOverride ? false : Math.abs(oldQuantity - newQuantity) > 0.001;
+      const todoChanged = Math.abs(oldToDoQty - newToDoQty) > 0.001;
+      const readyChanged = Math.abs(oldReadyQty - newReadyQty) > 0.001;
+
+      // Verfijnde datumvergelijking op dag-niveau om format-verschillen (bijv. 27-03 vs 27-3) te negeren
+      const parseForCompare = (d) => {
+        if (!d) return "";
+        const parsed = new Date(d);
+        if (isNaN(parsed.getTime())) {
+          // Fallback voor d-m-yyyy tekst (LN her-import)
+          const parts = clean(d).split(/[-/]/);
+          if (parts.length === 3) {
+            const day = parts[0].padStart(2, '0');
+            const month = parts[1].padStart(2, '0');
+            const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+            return `${year}-${month}-${day}`;
+          }
+          return clean(d);
+        }
+        return format(parsed, "yyyy-MM-dd");
+      };
+
+      const cleanOldDate = parseForCompare(oldDeliveryDate);
+      const cleanNewDate = parseForCompare(newDeliveryDate);
+      const deliveryDateChanged = cleanOldDate !== "" && cleanNewDate !== "" && cleanOldDate !== cleanNewDate;
+
       // We triggeren alleen op notesChanged als de nieuwe Excel note daadwerkelijk tekst bevat (en anders is).
       // Dit voorkomt dat een bestaande opmerking in FF wordt overschreven/getriggerd door een lege Excel cel.
-      const notesChanged = newNotes !== "" && oldNotes !== newNotes;
+      // We negeren kleine spatie-verschillen door te trimmen en dubbele spaties te mergen in normalizePoText.
+      const notesChanged = newNotes !== "" && oldNotes.toLowerCase() !== newNotes.toLowerCase();
       const oldPlannedHours = getComparablePlannedHours(existing);
       const newPlannedHours = getComparablePlannedHours(order);
       const hoursChanged =
         newPlannedHours !== null &&
         (oldPlannedHours === null || Math.abs(oldPlannedHours - newPlannedHours) > 0.0001);
 
+      const hasSmartChange = quantityChanged || notesChanged || deliveryDateChanged;
+
       byId.set(order.id, {
         isExisting: true,
         quantityChanged,
         todoChanged,
         readyChanged,
+        deliveryDateChanged,
         notesChanged,
         hoursChanged,
         oldQuantity,
@@ -1186,6 +1218,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         newToDoQty,
         oldReadyQty,
         newReadyQty,
+        oldDeliveryDate,
+        newDeliveryDate,
         oldNotes,
         newNotes,
         oldPlannedHours,
@@ -1193,7 +1227,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         hasManualPlanOverride,
         // Ready LN vs FF is informatief; deze import schrijft produced/gereed niet terug.
         // Als we readyChanged of todoChanged als trigger gebruiken, blijven orders onterecht als "Sync" terugkomen.
-        hasSmartChange: quantityChanged || notesChanged,
+        hasSmartChange,
       });
     });
     return byId;
@@ -1634,8 +1668,27 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                             </td>
                             <td className="px-3 py-1.5 text-center">
                               <div className="flex flex-col items-center gap-0.5 leading-tight">
-                                <span className={`px-2 py-[2px] rounded-lg border text-[10px] font-black ${deliveryColor}`}>{deliveryMeta.weekLabel}</span>
-                                <span className="text-[10px] font-bold text-slate-500">{deliveryMeta.dateLabel}</span>
+                                {importMode === "smart_update" && changeMeta?.isExisting && changeMeta?.deliveryDateChanged ? (
+                                  <>
+                                    <span 
+                                      className="px-2 py-[2px] rounded-lg border text-[10px] font-black line-through text-slate-400 bg-slate-50 border-slate-200"
+                                      title={t("digitalplanning.planning_import.old_delivery_date", "Oude leverdatum")}
+                                    >
+                                      {changeMeta.oldDeliveryDate ? format(new Date(changeMeta.oldDeliveryDate), "dd-MM") : "-"}
+                                    </span>
+                                    <span 
+                                      className={`px-2 py-[2px] rounded-lg border text-[10px] font-black ${deliveryColor}`}
+                                      title={t("digitalplanning.planning_import.new_delivery_date", "Nieuwe leverdatum")}
+                                    >
+                                      {deliveryMeta.dateLabel}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className={`px-2 py-[2px] rounded-lg border text-[10px] font-black ${deliveryColor}`}>{deliveryMeta.weekLabel}</span>
+                                    <span className="text-[10px] font-bold text-slate-500">{deliveryMeta.dateLabel}</span>
+                                  </>
+                                )}
                               </div>
                             </td>
                             <td className="px-2 py-1.5 text-center">
