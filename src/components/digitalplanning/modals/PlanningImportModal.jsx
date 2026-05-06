@@ -1274,6 +1274,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
     } else if (importMode === "smart_update") {
       if (!hoursOnlyMode) {
         rows = rows.filter((d) => {
+          // Hard-coded exclusion for specific problematic order
+          if (clean(d?.orderId) === "N20024607") return false;
+          
           if (isSmartSyncExcludedOrder(d)) return false;
           const meta = orderChangeMeta.get(d.id);
           return meta ? (!meta.isExisting || meta.hasSmartChange) : false;
