@@ -95,6 +95,7 @@ const OrderDetail = React.memo(({
   const [isSavingOrderEdit, setIsSavingOrderEdit] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [planDraft, setPlanDraft] = useState("");
+  const [todoDraft, setTodoDraft] = useState("");
   const [startedDraft, setStartedDraft] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
   const autoArchiveAttemptedRef = useRef(new Set());
@@ -149,7 +150,11 @@ const OrderDetail = React.memo(({
 
   useEffect(() => {
     setPlanDraft(String(visibleOrderPlan || ""));
-  }, [order?.id, order?.plan]);
+  }, [order?.id, order?.plan, visibleOrderPlan]);
+
+  useEffect(() => {
+    setTodoDraft("");
+  }, [order?.id]);
 
   useEffect(() => {
     setStartedDraft("");
@@ -440,11 +445,17 @@ const OrderDetail = React.memo(({
   const nextPlan = Number.isNaN(parsedPlanDraft) ? null : parsedPlanDraft;
   const hasNoteChanged = String(noteDraft || "").trim() !== visibleOrderNote;
   const hasPlanChanged = canEditOrderPlan && nextPlan !== null && nextPlan !== visibleOrderPlan;
+
+  const normalizedTodoDraft = String(todoDraft || "").trim().replace(/[^0-9]/g, "");
+  const parsedTodoDraft = parseInt(normalizedTodoDraft, 10);
+  const nextTodo = Number.isNaN(parsedTodoDraft) ? null : parsedTodoDraft;
+  const hasTodoChanged = canEditOrderPlan && nextTodo !== null;
+
   const normalizedStartedDraft = String(startedDraft || "").trim().replace(/[^0-9]/g, "");
   const parsedStartedDraft = parseInt(normalizedStartedDraft, 10);
   const nextStarted = Number.isNaN(parsedStartedDraft) ? null : parsedStartedDraft;
   const hasStartedChanged = canEditOrderPlan && nextStarted !== null;
-  const hasPendingChanges = hasNoteChanged || hasPlanChanged || hasStartedChanged;
+  const hasPendingChanges = hasNoteChanged || hasPlanChanged || hasStartedChanged || hasTodoChanged;
   const startedCounterField = getStartedCounterField(order?.machine || "");
   const stationStartedAmount = Number(startedCounterField ? order?.[startedCounterField] : 0) || 0;
   
@@ -528,6 +539,7 @@ const OrderDetail = React.memo(({
   // To do = stuks die nog niet gestart zijn: quantity - startedAmount (niet - producedAmount,
   // want "in behandeling" zijn al gestart en tellen niet meer als to do).
   const todoAmount = Math.max(0, Number((Number(effectivePlanForTodo || 0) - startedAmount).toFixed(2)));
+  const effectiveTodoAmount = todoAmount;
   const planAmount = Math.max(0, Number(visibleOrderPlan || 0));
   const shouldShowCompletedStatus = planAmount > 0 && producedAmount >= planAmount && inProcessAmount === 0;
   const displayStatus = shouldShowCompletedStatus ? "Gereed" : order.status;
@@ -587,6 +599,7 @@ const OrderDetail = React.memo(({
         notes: trimmedNote,
         plan: hasPlanChanged ? nextPlan : null,
         started: hasStartedChanged ? nextStarted : null,
+        manualTodo: hasTodoChanged ? nextTodo : null,
         source: "OrderDetail",
         actorLabel: user?.email || auth.currentUser?.email,
       });
@@ -870,7 +883,21 @@ const OrderDetail = React.memo(({
         </div>
         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.todo_amount", "To do")}</span>
-          <span className="font-black text-blue-700">{todoAmount}</span>
+          {canEditOrderPlan ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={todoDraft !== "" ? todoDraft : todoAmount}
+                onChange={(e) => setTodoDraft(String(e.target.value || "").replace(/[^0-9]/g, ""))}
+                placeholder={String(todoAmount)}
+                className="w-24 px-2 py-1 bg-white border border-slate-200 rounded-lg text-sm font-bold text-blue-700 outline-none focus:border-blue-500"
+              />
+            </div>
+          ) : (
+            <span className="font-black text-blue-700">{todoAmount}</span>
+          )}
         </div>
         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t("digitalplanning.order_detail.produced_amount", "Gereed")}</span>
