@@ -1,3 +1,149 @@
+## Sessie 7 mei 2026 — Senior Programmer Review (stappen 1–4)
+
+**Repository overgang:**
+- Gestart in `richardvh18-dotcom/FPIFF-30-1`, branch `FPiFF-18-12-May`
+- Einde sessie: `origin` omgezet naar `https://github.com/richardvh18-dotcom/Future-Factory-Fpi.git`
+- FPIFF-30-1 remote verwijderd — voortaan enkel op Future-Factory-Fpi
+- Commit hash: `7e19629` (22 bestanden, 2882 toevoegingen)
+
+**Bugfixes (voor de review):**
+- Order N20024782 verdween uit BH18 planning door doc-id prefix mismatch (`N20024781_...` maar `orderId = N20024782`) → `madeCountMap` telde te hoog → `exactToDo = 0` → order gefilterd
+- Fix: docs verplaatst naar correcte ID, `fields.id` gepatcht; globale sweep vond 2 extra mismatches (N20024837)
+- `planningTransitionService.js`: `buildReassignedTrackedDocId` toegevoegd — bij hernummering wordt voortaan altijd het juiste doc-id gebouwd
+- Nieuwe scripts: `diagnose-n20024782.cjs`, `fix-renumbered-order-docids-via-cli-auth.cjs`
+
+**Stap 1 — Testfundament:**
+- Vitest + jsdom + React Testing Library toegevoegd (`vitest.config.js`, `src/test/setupTests.js`)
+- 3 unit tests op `getOrderFinishedUnits` en `getTrackedRecordOrderId` (`src/utils/planningProgress.test.js`)
+- GitHub Actions CI workflow: `.github/workflows/tests.yml`
+
+**Stap 2 — TeamleaderHub componentopsplitsing:**
+- `teamleaderHub.helpers.js` — pure helperfuncties (lot, overproductie, prioriteit)
+- `OverproductionPanel.jsx` — amber overproductie-blok
+- `ArchivedOrderDetailPanel.jsx` — gearchiveerde order sidebar
+- `OrderDetailPlaceholder.jsx` — lege staat rechter kolom
+- `TeamleaderOrderRail.jsx` — linker kolom (sidebar + overproductie)
+- `TeamleaderDetailPane.jsx` — rechter kolom (order detail / archief / placeholder)
+
+**Stap 3 — Realtime listener performance:**
+- Redundante Firestore listener 5 (week-archief) verwijderd (–1 listener); dezelfde docs zaten al in de 365-daagse listener
+- `archivedHistoryProducts` is nu de enige archive bron in de hele hub
+- `useTeamleaderMetrics`: `finishedCount` gebruikt `archivedHistoryProducts` gefilterd op huidige week
+- Bijkomstig effect: potentiële dubbeltelling in `madeCountMap` voor huidige-week archive items opgelost
+
+**Stap 4 — Admin migratie tool:**
+- `functions/src/callables/migrationCallables.js`: Cloud Function `runMigrationTool` (alleen `admin` rol)
+  - `mode: 'scan'` → dry-run, geen schrijfacties, retourneert lijst mismatches
+  - `mode: 'apply'` → verplaatst docs naar correct ID, schrijft naar auditlog met `severity: CRITICAL`
+- `src/components/admin/PilotMigrationTool.jsx`: volledige admin UI
+  - Optioneel filteren op één Order ID of volledige sweep
+  - Stap 1: Scan (dry-run) → mismatches uitklapbaar per rij met rollback-info
+  - Stap 2: "Repareer alles" → resultaat per rij (Hersteld / Overgeslagen / Fout)
+  - Audit-trail verwijzing naar `MIGRATION_DOC_ID_REPAIR` in bestaand auditlog
+- `planningSecurityService.js`: `runMigrationTool` callable toegevoegd
+
+**Eindstand sessie:** Tests 3/3 ✅ · Errors 0 ✅ · Branch gepusht naar Future-Factory-Fpi ✅
+
+---
+## Update sessie 7 mei 2026 (BH Machine Planning Filter Simplificatie)
+
+**Digitale planning / Workstation Hub & Terminal:**
+- Complexiteit uit de BH-machine (wikkelstations) order filtering gehaald in `Terminal.jsx` en `WorkstationHub.jsx`.
+- Volledige overstap naar een strikte, enkele waarheidsbron gebaseerd op het UI "Te doen" veld (`Plan - (Gemaakt - Afkeur)`).
+- Oude lappenmiddelen zoals `shouldHideBH18PlanningOrder`, afhankelijkheid van downstream stations, en expliciete (soms legacy) LN database counters zoals `started_BH18` of `toDoQty` volledig verwijderd.
+- Dit verhelpt het bug-scenario (o.a. zichtbaar op order N20024607) waarbij orders met Te doen = 0 toch in het overzicht bleven hangen omdat de achterliggende LN counter de actuele werkelijkheid achterliep.
+- Hardcoded test-blacklist set (`TEMP_HIDDEN_ORDER_IDS`) met N20025138 en N20024916 uit `Terminal.jsx` gesloopt omdat deze nu robuust afgevangen worden door de live 'Te doen' logica.
+- Bestaande regressietesten (`npm run test:regression:bh18`) succesvol doorgelopen.
+
+**Digitale planning / Teamleader Volledige Lijst (`OrderDetail.jsx`):**
+- Opgelost dat orders met uitsluitend geannuleerde (`CANCELLED`/`DELETED`) lots toch als "In behandeling" werden geteld, doordat de app terugviel op oude LN-counters (bijv. `started_BH18`).
+- Logica aangepast: de app vertrouwt nu 100% op de lokale database als er tracking data is, óók als al die tracking data geannuleerd is. Hierdoor wordt de vervuilde LN-teller genegeerd en kloppen "Start Aantal" (0), "In behandeling" (0) en "To do" (weer gelijk aan Orderhoeveelheid) exact met de werkelijkheid en de Terminal weergave.
+
+---
+## Update sessie 28 april 2026
+
+**Digitale planning / Slimme Sync:**
+- Handmatige orderaanpassing voor `N20024781` zorgde voor onterechte afwijking in Slimme Sync.
+- Uitsluiting toegevoegd aan de bestaande businessguard-lijst in:
+    - `src/components/digitalplanning/modals/PlanningImportModal.jsx`
+- Effect: `N20024781` wordt niet meer als Slimme Sync-afwijking behandeld in de importflow.
+- Validatie: geen editor errors op aangepast bestand.
+
+**Vercel productie deploy:**
+- Productie deployment uitgevoerd via CLI vanaf huidige workspace.
+- Command: `npx vercel --prod --yes`
+- Status: Ready
+- Deployment ID: `dpl_31zVQ7bnKSw1XWfST3HeXQbYGdXt`
+- Productie URL:
+    - `https://futurefactoryapp-5w8xq3q25-richard-van-heerdes-projects.vercel.app`
+- Alias live:
+    - `https://future-factory.vercel.app`
+2899f1f - feat: Add delivery date change detection to Smart Sync and improve date parsing (richardvh18-dotcom)\n\n## Update session (Leverdatum Sync & Datum-parsing)\n- Nieuwe parameter 'leverdatum' toegevoegd aan Slimme Sync om wijzigingen te detecteren.\n- UI-indicatie toegevoegd voor gewijzigde leverdata (oude datum doorgestreept).\n- Datumvergelijking verbeterd voor verschillende formaten (bijv. 27-03 vs 27-3) door conversie naar YYYY-MM-DD.\n- Case-insensitive vergelijking voor PO Text toegevoegd.\n- Orders N20024731 en N20024607 tijdelijk uitgesloten van sync.
+## Update sessie 105 (Lossen 12/18 routingfix, scannerfocus Lossen/BM01, push + Vercel productie)
+
+**Datum:** 21 april 2026 | **Branch:** `FF-2-4-26`
+
+**Gebruikersmeldingen:**
+- Station `Lossen 12/18` bleef weer leeg.
+- In `Lossen` en `BM01` was de scan lotnummer-balk niet direct actief; er moest opnieuw in het veld worden geklikt.
+- Daarna verzoek om direct te pushen en naar Vercel productie te deployen.
+
+**Root cause / analyse:**
+- In `LossenView` was de centrale filtering weer inconsistent met de afgesproken routingregels.
+- De weergavelogica liet voor oorsprong `BH12/BH15/BH17` weer diameter-routing meespelen, terwijl deze origins exclusief bij `Lossen 12/18` horen.
+- Scannerfocus in `Lossen` en `BM01` vertrouwde op enkele losse focus-calls; bij modal/venster-state kon focus verloren gaan.
+
+**Fixes uitgevoerd:**
+- Bestand aangepast: `src/components/digitalplanning/LossenView.jsx`
+    - Routingfiltering gehard met expliciete sets:
+        - `LOSSEN_1218_DIRECT_STATIONS = {BH12,BH15,BH17,12,15,17}`
+        - `LOSSEN_1218_BH18_STATIONS = {BH18,18}`
+    - Nieuwe helperlogica toegevoegd:
+        - `hasOriginInSet(...)`
+        - `shouldBelongToLossen1218(...)`
+    - Gedrag nu:
+        - `BH12/BH15/BH17` altijd exclusief op `Lossen 12/18`
+        - alleen `BH18` splitst nog op diameter naar centraal `LOSSEN` of `Lossen 12/18`
+
+- Bestand aangepast: `src/components/digitalplanning/LossenView.jsx` en `src/components/digitalplanning/BM01Hub.jsx`
+    - Scannerfocus robuust gemaakt via `focusScanInput()` + `scheduleScanFocus()`.
+    - Focus wordt nu hersteld bij:
+        - eerste render
+        - klikken buiten interactieve controls
+        - window/tab focus terugkeer
+        - sluiten van actie/finish-modal
+    - Inputvelden kregen `autoFocus` voor directe activatie.
+
+**Validatie:**
+- Type/editor errors op beide gewijzigde bestanden: geen errors.
+- Gerichte lintcheck:
+    - `npx eslint src/components/digitalplanning/LossenView.jsx src/components/digitalplanning/BM01Hub.jsx`
+    - Resultaat: alleen bestaande warnings, geen errors.
+- Productiebuild succesvol:
+    - `npm run build`
+
+**Git / release:**
+- Commit gemaakt met alleen functionele codewijzigingen:
+    - `fd53a4d` — `Fix Lossen 12/18 routing and scanner autofocus in Lossen/BM01`
+- Push uitgevoerd naar origin:
+    - branch `FF-2-4-26`
+
+**Vercel productie deploy:**
+- Command uitgevoerd: `npx vercel deploy --prod --yes`
+- Production deployment geslaagd.
+- Deployment URL:
+    - `https://futurefactoryapp-906oudr74-richard-van-heerdes-projects.vercel.app`
+- Alias live:
+    - `https://future-factory.vercel.app`
+
+**Nog lokaal gewijzigd (niet in release-commit):**
+- `.firebase/hosting.ZGlzdA.cache`
+- `CONVERSATION_SUMMARY.md`
+
+---
+
+---
+
 ## Update sessie 151 (Repository pattern, error handling, services, audit log UI, nieuwe repo)
 
 **Datum:** 7 mei 2026 | **Branch:** `FPiFF-18-12-May` | **Commit:** `e5bba0f`
@@ -5929,150 +6075,3 @@ Made changes.
 
 **Doel van deze fase:**
 - Grootste architectuurgat (import-bypass) sluiten zonder pilot-flow te breken.
-
----
-
-## Update sessie 105 (Lossen 12/18 routingfix, scannerfocus Lossen/BM01, push + Vercel productie)
-
-**Datum:** 21 april 2026 | **Branch:** `FF-2-4-26`
-
-**Gebruikersmeldingen:**
-- Station `Lossen 12/18` bleef weer leeg.
-- In `Lossen` en `BM01` was de scan lotnummer-balk niet direct actief; er moest opnieuw in het veld worden geklikt.
-- Daarna verzoek om direct te pushen en naar Vercel productie te deployen.
-
-**Root cause / analyse:**
-- In `LossenView` was de centrale filtering weer inconsistent met de afgesproken routingregels.
-- De weergavelogica liet voor oorsprong `BH12/BH15/BH17` weer diameter-routing meespelen, terwijl deze origins exclusief bij `Lossen 12/18` horen.
-- Scannerfocus in `Lossen` en `BM01` vertrouwde op enkele losse focus-calls; bij modal/venster-state kon focus verloren gaan.
-
-**Fixes uitgevoerd:**
-- Bestand aangepast: `src/components/digitalplanning/LossenView.jsx`
-    - Routingfiltering gehard met expliciete sets:
-        - `LOSSEN_1218_DIRECT_STATIONS = {BH12,BH15,BH17,12,15,17}`
-        - `LOSSEN_1218_BH18_STATIONS = {BH18,18}`
-    - Nieuwe helperlogica toegevoegd:
-        - `hasOriginInSet(...)`
-        - `shouldBelongToLossen1218(...)`
-    - Gedrag nu:
-        - `BH12/BH15/BH17` altijd exclusief op `Lossen 12/18`
-        - alleen `BH18` splitst nog op diameter naar centraal `LOSSEN` of `Lossen 12/18`
-
-- Bestand aangepast: `src/components/digitalplanning/LossenView.jsx` en `src/components/digitalplanning/BM01Hub.jsx`
-    - Scannerfocus robuust gemaakt via `focusScanInput()` + `scheduleScanFocus()`.
-    - Focus wordt nu hersteld bij:
-        - eerste render
-        - klikken buiten interactieve controls
-        - window/tab focus terugkeer
-        - sluiten van actie/finish-modal
-    - Inputvelden kregen `autoFocus` voor directe activatie.
-
-**Validatie:**
-- Type/editor errors op beide gewijzigde bestanden: geen errors.
-- Gerichte lintcheck:
-    - `npx eslint src/components/digitalplanning/LossenView.jsx src/components/digitalplanning/BM01Hub.jsx`
-    - Resultaat: alleen bestaande warnings, geen errors.
-- Productiebuild succesvol:
-    - `npm run build`
-
-**Git / release:**
-- Commit gemaakt met alleen functionele codewijzigingen:
-    - `fd53a4d` — `Fix Lossen 12/18 routing and scanner autofocus in Lossen/BM01`
-- Push uitgevoerd naar origin:
-    - branch `FF-2-4-26`
-
-**Vercel productie deploy:**
-- Command uitgevoerd: `npx vercel deploy --prod --yes`
-- Production deployment geslaagd.
-- Deployment URL:
-    - `https://futurefactoryapp-906oudr74-richard-van-heerdes-projects.vercel.app`
-- Alias live:
-    - `https://future-factory.vercel.app`
-
-**Nog lokaal gewijzigd (niet in release-commit):**
-- `.firebase/hosting.ZGlzdA.cache`
-- `CONVERSATION_SUMMARY.md`
-
----
-
-## Update sessie 28 april 2026
-
-**Digitale planning / Slimme Sync:**
-- Handmatige orderaanpassing voor `N20024781` zorgde voor onterechte afwijking in Slimme Sync.
-- Uitsluiting toegevoegd aan de bestaande businessguard-lijst in:
-    - `src/components/digitalplanning/modals/PlanningImportModal.jsx`
-- Effect: `N20024781` wordt niet meer als Slimme Sync-afwijking behandeld in de importflow.
-- Validatie: geen editor errors op aangepast bestand.
-
-**Vercel productie deploy:**
-- Productie deployment uitgevoerd via CLI vanaf huidige workspace.
-- Command: `npx vercel --prod --yes`
-- Status: Ready
-- Deployment ID: `dpl_31zVQ7bnKSw1XWfST3HeXQbYGdXt`
-- Productie URL:
-    - `https://futurefactoryapp-5w8xq3q25-richard-van-heerdes-projects.vercel.app`
-- Alias live:
-    - `https://future-factory.vercel.app`
-2899f1f - feat: Add delivery date change detection to Smart Sync and improve date parsing (richardvh18-dotcom)\n\n## Update session (Leverdatum Sync & Datum-parsing)\n- Nieuwe parameter 'leverdatum' toegevoegd aan Slimme Sync om wijzigingen te detecteren.\n- UI-indicatie toegevoegd voor gewijzigde leverdata (oude datum doorgestreept).\n- Datumvergelijking verbeterd voor verschillende formaten (bijv. 27-03 vs 27-3) door conversie naar YYYY-MM-DD.\n- Case-insensitive vergelijking voor PO Text toegevoegd.\n- Orders N20024731 en N20024607 tijdelijk uitgesloten van sync.
-
-## Update sessie 7 mei 2026 (BH Machine Planning Filter Simplificatie)
-
-**Digitale planning / Workstation Hub & Terminal:**
-- Complexiteit uit de BH-machine (wikkelstations) order filtering gehaald in `Terminal.jsx` en `WorkstationHub.jsx`.
-- Volledige overstap naar een strikte, enkele waarheidsbron gebaseerd op het UI "Te doen" veld (`Plan - (Gemaakt - Afkeur)`).
-- Oude lappenmiddelen zoals `shouldHideBH18PlanningOrder`, afhankelijkheid van downstream stations, en expliciete (soms legacy) LN database counters zoals `started_BH18` of `toDoQty` volledig verwijderd.
-- Dit verhelpt het bug-scenario (o.a. zichtbaar op order N20024607) waarbij orders met Te doen = 0 toch in het overzicht bleven hangen omdat de achterliggende LN counter de actuele werkelijkheid achterliep.
-- Hardcoded test-blacklist set (`TEMP_HIDDEN_ORDER_IDS`) met N20025138 en N20024916 uit `Terminal.jsx` gesloopt omdat deze nu robuust afgevangen worden door de live 'Te doen' logica.
-- Bestaande regressietesten (`npm run test:regression:bh18`) succesvol doorgelopen.
-
-**Digitale planning / Teamleader Volledige Lijst (`OrderDetail.jsx`):**
-- Opgelost dat orders met uitsluitend geannuleerde (`CANCELLED`/`DELETED`) lots toch als "In behandeling" werden geteld, doordat de app terugviel op oude LN-counters (bijv. `started_BH18`).
-- Logica aangepast: de app vertrouwt nu 100% op de lokale database als er tracking data is, óók als al die tracking data geannuleerd is. Hierdoor wordt de vervuilde LN-teller genegeerd en kloppen "Start Aantal" (0), "In behandeling" (0) en "To do" (weer gelijk aan Orderhoeveelheid) exact met de werkelijkheid en de Terminal weergave.
-
----
-
-## Sessie 7 mei 2026 — Senior Programmer Review (stappen 1–4)
-
-**Repository overgang:**
-- Gestart in `richardvh18-dotcom/FPIFF-30-1`, branch `FPiFF-18-12-May`
-- Einde sessie: `origin` omgezet naar `https://github.com/richardvh18-dotcom/Future-Factory-Fpi.git`
-- FPIFF-30-1 remote verwijderd — voortaan enkel op Future-Factory-Fpi
-- Commit hash: `7e19629` (22 bestanden, 2882 toevoegingen)
-
-**Bugfixes (voor de review):**
-- Order N20024782 verdween uit BH18 planning door doc-id prefix mismatch (`N20024781_...` maar `orderId = N20024782`) → `madeCountMap` telde te hoog → `exactToDo = 0` → order gefilterd
-- Fix: docs verplaatst naar correcte ID, `fields.id` gepatcht; globale sweep vond 2 extra mismatches (N20024837)
-- `planningTransitionService.js`: `buildReassignedTrackedDocId` toegevoegd — bij hernummering wordt voortaan altijd het juiste doc-id gebouwd
-- Nieuwe scripts: `diagnose-n20024782.cjs`, `fix-renumbered-order-docids-via-cli-auth.cjs`
-
-**Stap 1 — Testfundament:**
-- Vitest + jsdom + React Testing Library toegevoegd (`vitest.config.js`, `src/test/setupTests.js`)
-- 3 unit tests op `getOrderFinishedUnits` en `getTrackedRecordOrderId` (`src/utils/planningProgress.test.js`)
-- GitHub Actions CI workflow: `.github/workflows/tests.yml`
-
-**Stap 2 — TeamleaderHub componentopsplitsing:**
-- `teamleaderHub.helpers.js` — pure helperfuncties (lot, overproductie, prioriteit)
-- `OverproductionPanel.jsx` — amber overproductie-blok
-- `ArchivedOrderDetailPanel.jsx` — gearchiveerde order sidebar
-- `OrderDetailPlaceholder.jsx` — lege staat rechter kolom
-- `TeamleaderOrderRail.jsx` — linker kolom (sidebar + overproductie)
-- `TeamleaderDetailPane.jsx` — rechter kolom (order detail / archief / placeholder)
-
-**Stap 3 — Realtime listener performance:**
-- Redundante Firestore listener 5 (week-archief) verwijderd (–1 listener); dezelfde docs zaten al in de 365-daagse listener
-- `archivedHistoryProducts` is nu de enige archive bron in de hele hub
-- `useTeamleaderMetrics`: `finishedCount` gebruikt `archivedHistoryProducts` gefilterd op huidige week
-- Bijkomstig effect: potentiële dubbeltelling in `madeCountMap` voor huidige-week archive items opgelost
-
-**Stap 4 — Admin migratie tool:**
-- `functions/src/callables/migrationCallables.js`: Cloud Function `runMigrationTool` (alleen `admin` rol)
-  - `mode: 'scan'` → dry-run, geen schrijfacties, retourneert lijst mismatches
-  - `mode: 'apply'` → verplaatst docs naar correct ID, schrijft naar auditlog met `severity: CRITICAL`
-- `src/components/admin/PilotMigrationTool.jsx`: volledige admin UI
-  - Optioneel filteren op één Order ID of volledige sweep
-  - Stap 1: Scan (dry-run) → mismatches uitklapbaar per rij met rollback-info
-  - Stap 2: "Repareer alles" → resultaat per rij (Hersteld / Overgeslagen / Fout)
-  - Audit-trail verwijzing naar `MIGRATION_DOC_ID_REPAIR` in bestaand auditlog
-- `planningSecurityService.js`: `runMigrationTool` callable toegevoegd
-
-**Eindstand sessie:** Tests 3/3 ✅ · Errors 0 ✅ · Branch gepusht naar Future-Factory-Fpi ✅
