@@ -6028,3 +6028,51 @@ Made changes.
 **Digitale planning / Teamleader Volledige Lijst (`OrderDetail.jsx`):**
 - Opgelost dat orders met uitsluitend geannuleerde (`CANCELLED`/`DELETED`) lots toch als "In behandeling" werden geteld, doordat de app terugviel op oude LN-counters (bijv. `started_BH18`).
 - Logica aangepast: de app vertrouwt nu 100% op de lokale database als er tracking data is, óók als al die tracking data geannuleerd is. Hierdoor wordt de vervuilde LN-teller genegeerd en kloppen "Start Aantal" (0), "In behandeling" (0) en "To do" (weer gelijk aan Orderhoeveelheid) exact met de werkelijkheid en de Terminal weergave.
+
+---
+
+## Sessie 7 mei 2026 — Senior Programmer Review (stappen 1–4)
+
+**Repository overgang:**
+- Gestart in `richardvh18-dotcom/FPIFF-30-1`, branch `FPiFF-18-12-May`
+- Einde sessie: `origin` omgezet naar `https://github.com/richardvh18-dotcom/Future-Factory-Fpi.git`
+- FPIFF-30-1 remote verwijderd — voortaan enkel op Future-Factory-Fpi
+- Commit hash: `7e19629` (22 bestanden, 2882 toevoegingen)
+
+**Bugfixes (voor de review):**
+- Order N20024782 verdween uit BH18 planning door doc-id prefix mismatch (`N20024781_...` maar `orderId = N20024782`) → `madeCountMap` telde te hoog → `exactToDo = 0` → order gefilterd
+- Fix: docs verplaatst naar correcte ID, `fields.id` gepatcht; globale sweep vond 2 extra mismatches (N20024837)
+- `planningTransitionService.js`: `buildReassignedTrackedDocId` toegevoegd — bij hernummering wordt voortaan altijd het juiste doc-id gebouwd
+- Nieuwe scripts: `diagnose-n20024782.cjs`, `fix-renumbered-order-docids-via-cli-auth.cjs`
+
+**Stap 1 — Testfundament:**
+- Vitest + jsdom + React Testing Library toegevoegd (`vitest.config.js`, `src/test/setupTests.js`)
+- 3 unit tests op `getOrderFinishedUnits` en `getTrackedRecordOrderId` (`src/utils/planningProgress.test.js`)
+- GitHub Actions CI workflow: `.github/workflows/tests.yml`
+
+**Stap 2 — TeamleaderHub componentopsplitsing:**
+- `teamleaderHub.helpers.js` — pure helperfuncties (lot, overproductie, prioriteit)
+- `OverproductionPanel.jsx` — amber overproductie-blok
+- `ArchivedOrderDetailPanel.jsx` — gearchiveerde order sidebar
+- `OrderDetailPlaceholder.jsx` — lege staat rechter kolom
+- `TeamleaderOrderRail.jsx` — linker kolom (sidebar + overproductie)
+- `TeamleaderDetailPane.jsx` — rechter kolom (order detail / archief / placeholder)
+
+**Stap 3 — Realtime listener performance:**
+- Redundante Firestore listener 5 (week-archief) verwijderd (–1 listener); dezelfde docs zaten al in de 365-daagse listener
+- `archivedHistoryProducts` is nu de enige archive bron in de hele hub
+- `useTeamleaderMetrics`: `finishedCount` gebruikt `archivedHistoryProducts` gefilterd op huidige week
+- Bijkomstig effect: potentiële dubbeltelling in `madeCountMap` voor huidige-week archive items opgelost
+
+**Stap 4 — Admin migratie tool:**
+- `functions/src/callables/migrationCallables.js`: Cloud Function `runMigrationTool` (alleen `admin` rol)
+  - `mode: 'scan'` → dry-run, geen schrijfacties, retourneert lijst mismatches
+  - `mode: 'apply'` → verplaatst docs naar correct ID, schrijft naar auditlog met `severity: CRITICAL`
+- `src/components/admin/PilotMigrationTool.jsx`: volledige admin UI
+  - Optioneel filteren op één Order ID of volledige sweep
+  - Stap 1: Scan (dry-run) → mismatches uitklapbaar per rij met rollback-info
+  - Stap 2: "Repareer alles" → resultaat per rij (Hersteld / Overgeslagen / Fout)
+  - Audit-trail verwijzing naar `MIGRATION_DOC_ID_REPAIR` in bestaand auditlog
+- `planningSecurityService.js`: `runMigrationTool` callable toegevoegd
+
+**Eindstand sessie:** Tests 3/3 ✅ · Errors 0 ✅ · Branch gepusht naar Future-Factory-Fpi ✅
