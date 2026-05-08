@@ -1,11 +1,9 @@
 {
-  "generatedAt": "2026-05-08T06:06:54.136Z",
+  "generatedAt": "2026-05-08T06:09:49.470Z",
   "files": [
     "src/App.jsx",
-    "src/components/CalculatorView.jsx",
     "src/components/PortalView.jsx",
     "src/components/ProfileView.jsx",
-    "src/components/Sidebar.jsx",
     "src/components/admin/AdminBadgeGenerator.jsx",
     "src/components/admin/AdminDashboard.jsx",
     "src/components/admin/AdminDatabaseView.jsx",
