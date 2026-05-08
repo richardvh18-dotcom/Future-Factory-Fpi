@@ -4,7 +4,7 @@ import { X, Loader2, Factory, Link2 } from "lucide-react";
 import StationDetailModal from "./modals/StationDetailModal";
 import TraceModal from "./modals/TraceModal";
 import ProductDossierModal from "./modals/ProductDossierModal.jsx";
-import { useTeamleaderModal } from "./TeamleaderModalContext";
+import { useTeamleaderModal } from "./TeamleaderModalContext.tsx";
 
 /**
  * TeamleaderModals

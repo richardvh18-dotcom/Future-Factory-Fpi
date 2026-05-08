@@ -1,8 +1,8 @@
 import React from "react";
 import OrderDetail from "./OrderDetail";
 import ArchivedOrderDetailPanel from "./ArchivedOrderDetailPanel";
-import OrderDetailPlaceholder from "./OrderDetailPlaceholder";
-import { useTeamleaderSelection } from "./TeamleaderSelectionContext";
+import OrderDetailPlaceholder from "./OrderDetailPlaceholder.tsx";
+import { useTeamleaderSelection } from "./TeamleaderSelectionContext.tsx";
 
 /**
  * TeamleaderDetailPane — right-side detail column of TeamleaderHub.

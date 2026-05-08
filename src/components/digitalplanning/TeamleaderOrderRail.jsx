@@ -1,7 +1,7 @@
 import React from "react";
 import PlanningSidebar from "./PlanningSidebar";
 import OverproductionPanel from "./OverproductionPanel";
-import { useTeamleaderSelection } from "./TeamleaderSelectionContext";
+import { useTeamleaderSelection } from "./TeamleaderSelectionContext.tsx";
 
 const TeamleaderOrderRail = ({
   canManageOverproduction,

@@ -44,7 +44,7 @@ import Terminal from "./Terminal";
 import Nabewerken from "./Nabewerken";
 import LossenView from "./LossenView";
 import MazakView from "./MazakView";
-import GereedView from "./GereedView";
+import GereedView from "./GereedView.tsx";
 import ProductDetailModal from "../products/ProductDetailModal";
 import ProductionStartModal from "./modals/ProductionStartModal";
 import OperatorLinkModal from "./modals/OperatorLinkModal";

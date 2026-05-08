@@ -33,7 +33,7 @@ import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { useBackgroundTasks } from "../../contexts/BackgroundTaskContext";
 import TeamleaderDashboard from "../teamleader/TeamleaderDashboard";
-import TeamleaderEfficiencyView from "../teamleader/TeamleaderEfficiencyView";
+import TeamleaderEfficiencyView from "../teamleader/TeamleaderEfficiencyView.tsx";
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView";
 import AiPredictionView from "./AiPredictionView";
 import ImportExportDashboard from "./ImportExportDashboard";
@@ -46,8 +46,8 @@ import { useTeamleaderModalData } from "./useTeamleaderModalData";
 import { useTeamleaderEventHandlers } from "./useTeamleaderEventHandlers";
 import { TeamleaderHeader } from "./TeamleaderHeader";
 import { TeamleaderModals } from "./TeamleaderModals";
-import { TeamleaderSelectionProvider } from "./TeamleaderSelectionContext";
-import { TeamleaderModalProvider } from "./TeamleaderModalContext";
+import { TeamleaderSelectionProvider } from "./TeamleaderSelectionContext.tsx";
+import { TeamleaderModalProvider } from "./TeamleaderModalContext.tsx";
 import TeamleaderExportModal from "./modals/TeamleaderExportModal";
 
 /**
