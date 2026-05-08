@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-08T06:23:01.475Z",
+  "generatedAt": "2026-05-08T06:24:49.328Z",
   "files": [
     "src/App.jsx",
     "src/components/admin/AdminBadgeGenerator.jsx",
@@ -24,7 +24,6 @@
     "src/components/admin/AdminUsersView.jsx",
     "src/components/admin/BoreDimensionsManager.jsx",
     "src/components/admin/ConversionManager.jsx",
-    "src/components/admin/DatabaseSetup.jsx",
     "src/components/admin/FactoryStructureManager.jsx",
     "src/components/admin/GodModeBootstrap.js",
     "src/components/admin/ManualSyncDrawings.jsx",
@@ -82,7 +81,6 @@
     "src/components/digitalplanning/NabewerkenView.jsx",
     "src/components/digitalplanning/OrderDetail.jsx",
     "src/components/digitalplanning/OverproductionPanel.jsx",
-    "src/components/digitalplanning/PlannerHub.jsx",
     "src/components/digitalplanning/PlanningSidebar.jsx",
     "src/components/digitalplanning/ProductMoveModal.jsx",
     "src/components/digitalplanning/ProgressToast.jsx",
@@ -142,9 +140,6 @@
     "src/components/notifications/ToastContainer.jsx",
     "src/components/personnel/PersonnelListView.jsx",
     "src/components/personnel/PersonnelOccupancyView.jsx",
-    "src/components/personnel/subviews/PersonnelImportView.jsx",
-    "src/components/personnel/subviews/PersonnelScheduleView.jsx",
-    "src/components/personnel/subviews/PersonnelTeamView.jsx",
     "src/components/planning/AutomationRulesView.jsx",
     "src/components/planning/CapacityPlanningView.jsx",
     "src/components/planning/EmailManagementView.jsx",
