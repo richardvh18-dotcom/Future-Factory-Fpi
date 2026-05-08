@@ -26,6 +26,7 @@ import {
   Package,
   Database,
   Edit3,
+  LucideIcon,
 } from "lucide-react";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 import { PATHS } from "../config/dbPaths";
@@ -41,6 +42,29 @@ import { updateUserProfile, clearPasswordChangeFlag } from '../services/planning
  * GEFIXST: Gebruikt nu setDoc (merge) in plaats van updateDoc om "document not found" errors te voorkomen.
  * UPDATE: Toegevoegd i18n ondersteuning en auth variabele conflict opgelost.
  */
+
+interface PermissionItemProps {
+  icon: LucideIcon;
+  label: string;
+  active: boolean;
+}
+
+const PermissionItem = ({ icon: Icon, label, active }: PermissionItemProps) => (
+  <div
+    className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${
+      active
+        ? "bg-emerald-50 border-emerald-100 text-emerald-700 shadow-sm"
+        : "bg-slate-50 border-slate-100 text-slate-400 opacity-40"
+    }`}
+  >
+    <Icon size={16} />
+    <span className="text-[9px] font-black uppercase tracking-widest">
+      {label}
+    </span>
+    {active && <CheckCircle2 size={12} className="ml-auto" />}
+  </div>
+);
+
 const ProfileView = () => {
   const { t, i18n } = useTranslation();
   const { user } = useAdminAuth();
@@ -70,7 +94,7 @@ const ProfileView = () => {
   const [success, setSuccess] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
   const [pwSuccess, setPwSuccess] = useState(false);
-  const [pwError, setPwError] = useState(null);
+  const [pwError, setPwError] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
 
   // 1. Laad Profiel & Voorkeuren
@@ -79,8 +103,8 @@ const ProfileView = () => {
       if (!user?.uid) return;
       try {
         // Gebruik de centrale PATHS configuratie (dezelfde als AdminMessagesView)
-        const userRef = doc(db, ...PATHS.USERS, user.uid);
-        let snap = await getDoc(userRef);
+        const userRef = doc(db, ...(PATHS.USERS as [string, ...string[]]), user.uid);
+        const snap = await getDoc(userRef);
 
         if (snap.exists()) {
           const data = snap.data();
@@ -139,35 +163,38 @@ const ProfileView = () => {
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error(err);
-      notify("Kon wijzigingen niet opslaan: " + err.message);
+      notify("Kon wijzigingen niet opslaan: " + (err as Error).message);
     } finally {
       setSaving(false);
     }
   };
 
   // 3. Wachtwoord Wijzigen
-  const handleUpdatePassword = async (e) => {
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwError(null);
     setPwSuccess(false);
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      return setPwError("Wachtwoorden komen niet overeen.");
+      setPwError("Wachtwoorden komen niet overeen.");
+      return;
     }
     if (passwordData.newPassword.length < 6) {
-      return setPwError("Minimaal 6 tekens vereist.");
+      setPwError("Minimaal 6 tekens vereist.");
+      return;
     }
 
     setPwLoading(true);
     try {
-      await updatePassword(auth.currentUser, passwordData.newPassword);
+      await updatePassword(auth.currentUser!, passwordData.newPassword);
       // Clear the requirePasswordChange flag via backend callable
       await clearPasswordChangeFlag();
 
       setPwSuccess(true);
       setPasswordData({ newPassword: "", confirmPassword: "" });
     } catch (err) {
-      if (err.code === "auth/requires-recent-login") {
+      const error = err as { code?: string };
+      if (error.code === "auth/requires-recent-login") {
         setPwError("Veiligheid: Log opnieuw in om je wachtwoord te wijzigen.");
       } else {
         setPwError("Systeemfout bij wachtwoord wijziging.");
@@ -176,22 +203,6 @@ const ProfileView = () => {
       setPwLoading(false);
     }
   };
-
-  const PermissionItem = ({ icon: Icon, label, active }) => (
-    <div
-      className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${
-        active
-          ? "bg-emerald-50 border-emerald-100 text-emerald-700 shadow-sm"
-          : "bg-slate-50 border-slate-100 text-slate-400 opacity-40"
-      }`}
-    >
-      <Icon size={16} />
-      <span className="text-[9px] font-black uppercase tracking-widest">
-        {label}
-      </span>
-      {active && <CheckCircle2 size={12} className="ml-auto" />}
-    </div>
-  );
 
   if (loading)
     return (

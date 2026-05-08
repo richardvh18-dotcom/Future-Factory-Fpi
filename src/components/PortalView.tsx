@@ -36,7 +36,7 @@ const PortalView = () => {
   const showQsheTile = isAdmin || isQc;
 
   // Select Language
-  const handleLanguageSelect = async (lang) => {
+  const handleLanguageSelect = async (lang: string) => {
     i18n.changeLanguage(lang);
     setShowLangMenu(false);
     
@@ -55,7 +55,7 @@ const PortalView = () => {
     const loadLanguagePreference = async () => {
       if (user?.uid) {
         try {
-          const userRef = doc(db, ...PATHS.USERS, user.uid);
+          const userRef = doc(db, ...(PATHS.USERS as [string, ...string[]]), user.uid);
           const snap = await getDoc(userRef);
           if (snap.exists() && snap.data().language) {
             i18n.changeLanguage(snap.data().language);
@@ -69,7 +69,8 @@ const PortalView = () => {
   }, [user, i18n]);
 
   // Ophalen ongelezen berichten voor badge
-  const { messages } = useMessages(user);
+  const firebaseUser = getAuth().currentUser;
+  const { messages } = useMessages(firebaseUser);
   const unreadCount = messages
     ? messages.filter((m) => !m.read && m.status !== 'read' && !m.archived).length
     : 0;
@@ -77,7 +78,7 @@ const PortalView = () => {
   // Mobiel detectie
   useEffect(() => {
     const checkMobile = () => {
-      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const userAgent = navigator.userAgent || navigator.vendor || String((window as unknown as Record<string, unknown>).opera ?? "");
       const isTouchDevice = /android|ipad|iphone|ipod/i.test(userAgent);
       const isSmallScreen = window.innerWidth < 1024;
       return isTouchDevice || isSmallScreen;
@@ -91,7 +92,7 @@ const PortalView = () => {
   }, []);
 
   const displayName = user?.displayName
-    ? user.displayName.split(" ")[0]
+    ? String(user.displayName).split(" ")[0]
     : user?.email?.split("@")[0] || t('common.employee', 'Medewerker');
 
   // FIX: Werkende uitlog functie
