@@ -25,7 +25,7 @@ const AutoScaledLabelPreview = ({
   maxScale = 3,
   printerDpi = 203,
 }: AutoScaledLabelPreviewProps) => {
-  const containerRef = useRef<HTMLElement | null>(null);
+  const containerRef = useRef(null);
   const [scale, setScale] = useState(1);
   const pixelsPerMm = getPixelsPerMm(printerDpi);
 
@@ -35,7 +35,8 @@ const AutoScaledLabelPreview = ({
     const calculateScale = () => {
       if (!containerRef.current) return;
 
-      const { width } = containerRef.current.getBoundingClientRect();
+      const currentContainer = containerRef.current as { getBoundingClientRect: () => { width: number } };
+      const { width } = currentContainer.getBoundingClientRect();
       const labelWidthPx = (label.width || 0) * pixelsPerMm;
 
       if (labelWidthPx === 0) return;
@@ -47,7 +48,7 @@ const AutoScaledLabelPreview = ({
     };
 
     const observer = new ResizeObserver(calculateScale);
-    observer.observe(containerRef.current);
+    observer.observe(containerRef.current as never);
     calculateScale();
 
     return () => observer.disconnect();
