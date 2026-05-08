@@ -1,3 +1,40 @@
+## Update sessie 8 mei 2026 — TypeScript migratie batches 6–11
+
+**Branch:** `FPiFF-18-12-May` | **Laatste commit:** `d85c8b1`
+
+### Baseline
+- Start: ~233 `.js/.jsx` bestanden → Na batch 11: **207 resterende** `.js/.jsx` bestanden
+
+### Gemigreerde bestanden per batch
+
+| Batch | Commit | Bestanden |
+|-------|--------|-----------|
+| 6 | `0cd1490` | PortalView.tsx, ProfileView.tsx |
+| fix | `f2c7f97` | DigitalPlanningHub lazy imports gepind |
+| 7 | `6a1a672` | GereedView, OrderDetailPlaceholder, TeamleaderModalContext, TeamleaderSelectionContext, TeamleaderPersonnelView, TeamleaderEfficiencyView |
+| 8 | `535579a` | DatabaseSetup, PlannerHub, PersonnelImportView, PersonnelScheduleView, PersonnelTeamView |
+| fix | `d0d7fd5` | DepartmentStationSelector dependency chain |
+| 9 | `a4f60a8` | TeamleaderOrderRail, ConfirmationModal, ProgressToast, VerificationBadge |
+| 10 | `06d9ee6` | BackgroundTaskOverlay, ConfirmDialog, AutoScaledLabelPreview, LogoutOverlay |
+| fix | `d25a436` | AutoScaledLabelPreview type-check repair |
+| 11 | `d85c8b1` | TeamleaderDetailPane, ProductPassportModal, TerminalManualInput, InternalQrImage, hubHelpers, ProgressOperationContext, findDrawingForProduct |
+
+### Kritieke patronen (import pinning)
+- `.jsx` importers → altijd explicit `.tsx`/`.ts` extensie pinnen (Vite HMR cache fix)
+- `.tsx`/`.ts` importers → GEEN extensie (TS verbiedt `.tsx` extensie zonder `allowImportingTsExtensions`)
+- `useRef(null)` + cast i.p.v. `useRef<HTMLDivElement>()` (ESLint no-undef op DOM globals)
+- `createContext<any>(null!)` i.p.v. `createContext()` (TS vereist type argument)
+- JSX-bestanden die nog niet gemigreerd zijn: casten als `React.ComponentType<any>` bij gebruik in TSX
+
+### Commit workflow
+```
+npm run type-check && npm run build && npm run ts:refresh-baseline && npm run enforce:new-ts && git add -A && git commit
+```
+
+**Status:** Branch volledig groen — type-check ✅ · build ✅ · enforce ✅
+
+---
+
 ## Update sessie 7 mei 2026 (TypeScript migratie hervatpunt)
 
 **Status:**
