@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useCallback } from 'react';
 
-const ProgressOperationContext = createContext();
+const ProgressOperationContext = createContext<any>(null!);
 
 export const useProgressOperations = () => {
   const context = useContext(ProgressOperationContext);

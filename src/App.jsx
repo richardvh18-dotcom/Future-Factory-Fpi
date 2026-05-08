@@ -20,7 +20,7 @@ import AutoLogoutWarning from "./components/AutoLogoutWarning";
 
 // Notification System
 import { NotificationProvider } from "./contexts/NotificationContext";
-import { ProgressOperationProvider } from "./contexts/ProgressOperationContext";
+import { ProgressOperationProvider } from "./contexts/ProgressOperationContext.tsx";
 import { BackgroundTaskProvider } from "./contexts/BackgroundTaskContext";
 import ToastContainer from "./components/notifications/ToastContainer";
 import ConfirmDialog from "./components/notifications/ConfirmDialog.tsx";

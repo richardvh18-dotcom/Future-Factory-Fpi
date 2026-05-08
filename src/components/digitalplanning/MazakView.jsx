@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, markMazakLabelsPrinted, queuePrintJob } from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";

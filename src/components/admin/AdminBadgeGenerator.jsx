@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { generateAuthQR } from '../../utils/qrAuth';
 import { Printer, QrCode } from 'lucide-react';
-import InternalQrImage from '../../utils/InternalQrImage';
+import InternalQrImage from '../../utils/InternalQrImage.tsx';
 
 const AdminBadgeGenerator = () => {
   const [email, setEmail] = useState('');

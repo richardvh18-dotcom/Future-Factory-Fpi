@@ -26,13 +26,13 @@ import {
 import { getFlangeSeriesInfo } from "../../../utils/flangeSeriesHelper";
 import { lookupProductByManufacturedId } from "../../../utils/conversionLogic";
 import { useNotifications } from "../../../contexts/NotificationContext";
-import { useProgressOperations } from "../../../contexts/ProgressOperationContext";
+import { useProgressOperations } from "../../../contexts/ProgressOperationContext.tsx";
 import { generatePrintData, generateLotBatchZPL } from "../../../utils/zplHelper";
 import { getDriver } from "../../../utils/printerDrivers";
 import { queuePrintJob } from "../../../services/printService";
 import LabelVisualPreview from "../../printer/LabelVisualPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
-import InternalQrImage from "../../../utils/InternalQrImage";
+import InternalQrImage from "../../../utils/InternalQrImage.tsx";
 
 /**
  * DPI-aware PIXELS_PER_MM for print preview parity

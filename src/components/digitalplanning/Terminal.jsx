@@ -31,14 +31,14 @@ import ProductDetailModal from "../products/ProductDetailModal";
 import LossenView from "./LossenView";
 import Nabewerken from "./Nabewerken";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";
+import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers.tsx";
 import { getOrderFinishedUnits } from "../../utils/planningProgress";
 import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 import { shouldHidePlanningOrder } from "../../utils/terminalOrderFilters";
 
 import TerminalPlanningView from "./terminal/TerminalPlanningView";
 import TerminalProductionView from "./terminal/TerminalProductionView";
-import TerminalManualInput from "./terminal/TerminalManualInput";
+import TerminalManualInput from "./terminal/TerminalManualInput.tsx";
 import TerminalGereedTab from "./terminal/TerminalGereedTab";
 import MalOptimizationPanel from "./MalOptimizationPanel";
 import MazakView from "./MazakView";

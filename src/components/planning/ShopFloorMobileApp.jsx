@@ -29,7 +29,7 @@ import { format } from "date-fns";
 import { nl } from "date-fns/locale";
 import MobileScanner from "../digitalplanning/MobileScanner";
 import ProductMoveModal from "../digitalplanning/ProductMoveModal";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 import StatusBadge from "../digitalplanning/common/StatusBadge";
 import {
   moveTrackedProductManual,

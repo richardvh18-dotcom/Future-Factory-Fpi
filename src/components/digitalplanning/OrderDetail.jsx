@@ -32,7 +32,7 @@ import ProductDetailModal from "../products/ProductDetailModal";
 import CancelOrderModal from "./modals/CancelOrderModal";
 import ConfirmationModal from "./modals/ConfirmationModal.tsx";
 import { FileImage } from "lucide-react";
-import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
+import { findDrawingForProduct } from "../../utils/findDrawingForProduct.ts";
 import { format, differenceInDays } from "date-fns";
 import { collection, getDoc, getDocs, query, where, limit, doc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
@@ -54,7 +54,7 @@ import {
 import { useNotifications } from "../../contexts/NotificationContext";
 import StatusBadge from "./common/StatusBadge";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
-import { getStartedCounterField } from "../../utils/hubHelpers";
+import { getStartedCounterField } from "../../utils/hubHelpers.tsx";
 
 /**
  * OrderDetail V2.3

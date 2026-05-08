@@ -36,7 +36,7 @@ import EfficiencyDashboard from "../digitalplanning/EfficiencyDashboard";
 import GanttChartView from "./GanttChartView";
 import TimeTrackingView from "./TimeTrackingView";
 import WorkloadHeatmapView from "./WorkloadHeatmapView";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 import { getDeliveryPlanningState, resolveDeliveryDate, toDateSafe } from "../../utils/dateUtils";
 import { subscribeScopedEfficiencyHours } from "../../utils/efficiencyScopedReader";
 

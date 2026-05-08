@@ -19,7 +19,7 @@ import { calculateWorkingMinutes } from '../../utils/workingTimeUtils';
 import AiPredictionView from './AiPredictionView';
 import { getDeliveryPlanningState, resolveDeliveryDate } from '../../utils/dateUtils';
 import { subscribeScopedEfficiencyHours } from '../../utils/efficiencyScopedReader';
-import { normalizeMachine } from '../../utils/hubHelpers';
+import { normalizeMachine } from '../../utils/hubHelpers.tsx';
 
 const EfficiencyDashboard = () => {
   const { t } = useTranslation();

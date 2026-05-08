@@ -52,7 +52,7 @@ const parseUsbId = (idStr) => {
 import { getDriver, applyCalibration, PRINTER_DRIVERS } from "../../utils/printerDrivers";
 import { queuePrintJob } from "../../services/planningSecurityService";
 import PrintQueueAdminView from "../printer/PrintQueueAdminView";
-import InternalQrImage from "../../utils/InternalQrImage";
+import InternalQrImage from "../../utils/InternalQrImage.tsx";
 
 const PRINTER_PROTOCOLS = ["zpl", "epl", "tspl", "escpos", "custom"];
 const PRINT_SETTINGS_KEY = 'printConfig';

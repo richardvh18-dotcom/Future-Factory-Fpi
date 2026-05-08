@@ -12,8 +12,8 @@ import { collection, query, where, getDocs, onSnapshot, limit } from "firebase/f
 import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveItemsPath } from "../../config/dbPaths";
 import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, appendQcNote } from "../../services/planningSecurityService";
-import { getStartedCounterField } from "../../utils/hubHelpers";
-import InternalQrImage from "../../utils/InternalQrImage";
+import { getStartedCounterField } from "../../utils/hubHelpers.tsx";
+import InternalQrImage from "../../utils/InternalQrImage.tsx";
 import PlanningSidebar from "./PlanningSidebar";
 import { useNotifications } from '../../contexts/NotificationContext';
 

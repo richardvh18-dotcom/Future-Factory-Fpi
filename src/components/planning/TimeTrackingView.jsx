@@ -16,7 +16,7 @@ import { format, getISOWeek, startOfWeek, endOfWeek, startOfDay, endOfDay, start
 import { calculateDuration } from "../../utils/efficiencyCalculator";
 import { calculateWorkingMinutes } from "../../utils/workingTimeUtils";
 import { subscribeScopedEfficiencyHours } from "../../utils/efficiencyScopedReader";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 
 const toEpochMs = (value) => {
   if (!value) return 0;

@@ -1,6 +1,6 @@
 import React from 'react';
 import { resolveLabelContent, getBarcodeUrl } from '../../utils/labelHelpers';
-import InternalQrImage from '../../utils/InternalQrImage';
+import InternalQrImage from '../../utils/InternalQrImage.tsx';
 
 /**
  * CRITICAL: PIXELS_PER_MM moet passen bij printer DPI voor print/preview parity.

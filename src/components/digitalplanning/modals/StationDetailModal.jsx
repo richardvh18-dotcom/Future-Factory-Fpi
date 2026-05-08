@@ -20,9 +20,9 @@ import {
   normalizeMachine,
   formatDate,
   getISOWeekInfo,
-} from "../../../utils/hubHelpers";
+} from "../../../utils/hubHelpers.tsx";
 import StatusBadge from "../common/StatusBadge";
-import InternalQrImage from "../../../utils/InternalQrImage";
+import InternalQrImage from "../../../utils/InternalQrImage.tsx";
 
 const StationDetailModal = ({
   stationId,

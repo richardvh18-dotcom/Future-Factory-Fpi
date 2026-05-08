@@ -20,7 +20,7 @@ import {
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS, getArchiveItemsPath } from "../../../config/dbPaths";
-import { FITTING_MACHINES, PIPE_MACHINES } from "../../../utils/hubHelpers";
+import { FITTING_MACHINES, PIPE_MACHINES } from "../../../utils/hubHelpers.tsx";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import { formatDateTimeSafe } from "../../../utils/dateUtils";
 import { resolvePostLossenStation } from "../../../utils/workstationLogic";
