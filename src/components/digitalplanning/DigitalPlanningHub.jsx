@@ -16,9 +16,9 @@ import {
 
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
-const DepartmentStationSelector = React.lazy(() => import("./DepartmentStationSelector"));
-const PlannerHub = React.lazy(() => import("./PlannerHub"));
-const TeamleaderHub = React.lazy(() => import("./TeamleaderHub"));
+const DepartmentStationSelector = React.lazy(() => import("./DepartmentStationSelector.jsx"));
+const PlannerHub = React.lazy(() => import("./PlannerHub.tsx"));
+const TeamleaderHub = React.lazy(() => import("./TeamleaderHub.jsx"));
 
 /**
  * DigitalPlanningHub V5.0 - Stability Edition
