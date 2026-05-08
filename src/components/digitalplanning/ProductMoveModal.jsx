@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { X, ArrowRight, Building2, Cpu } from "lucide-react";
-import ConfirmationModal from "./modals/ConfirmationModal";
+import ConfirmationModal from "./modals/ConfirmationModal.tsx";
 
 const ProductMoveModal = ({ product, onClose, onMove, allowedStations = [], currentDepartment }) => {
   const { t } = useTranslation();

@@ -30,7 +30,7 @@ import ProductJourneyModal from "./modals/ProductJourneyModal";
 import ProductDossierModal from "./modals/ProductDossierModal";
 import ProductDetailModal from "../products/ProductDetailModal";
 import CancelOrderModal from "./modals/CancelOrderModal";
-import ConfirmationModal from "./modals/ConfirmationModal";
+import ConfirmationModal from "./modals/ConfirmationModal.tsx";
 import { FileImage } from "lucide-react";
 import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";

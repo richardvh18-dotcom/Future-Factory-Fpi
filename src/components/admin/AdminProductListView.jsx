@@ -17,7 +17,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { verifyProduct } from "../../utils/productHelpers";
-import VerificationBadge from "./VerificationBadge";
+import VerificationBadge from "./VerificationBadge.tsx";
 import { VERIFICATION_STATUS } from "../../data/constants";
 
 /**

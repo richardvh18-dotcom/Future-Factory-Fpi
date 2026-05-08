@@ -9,47 +9,51 @@ import {
 } from "lucide-react";
 import { VERIFICATION_STATUS } from "../../data/constants";
 
-/**
- * VerificationBadge V6.0 - Industrial UI Edition
- * Toont de validatiestatus van producten conform het vier-ogen principe.
- */
-const VerificationBadge = ({ status, verifiedBy }) => {
+interface VerifiedBy {
+  name?: string;
+}
+
+interface VerificationBadgeProps {
+  status?: string;
+  verifiedBy?: VerifiedBy | null;
+}
+
+const VerificationBadge = ({ status, verifiedBy }: VerificationBadgeProps) => {
   const { t } = useTranslation();
-  // Configuratie van stijlen, labels en iconen per status
   const config = {
     [VERIFICATION_STATUS.CONCEPT]: {
       bg: "bg-slate-50 text-slate-400 border-slate-200",
-      label: t('verification.concept', "Concept"),
+      label: t("verification.concept", "Concept"),
       icon: <FileEdit size={12} />,
-      subText: t('verification.inProgress', "In bewerking"),
+      subText: t("verification.inProgress", "In bewerking"),
     },
     [VERIFICATION_STATUS.PENDING]: {
       bg: "bg-orange-50 text-orange-600 border-orange-200 animate-pulse",
-      label: t('verification.pending', "Te Verifiëren"),
+      label: t("verification.pending", "Te Verifiëren"),
       icon: <AlertOctagon size={12} />,
-      subText: t('verification.actionRequired', "Actie vereist"),
+      subText: t("verification.actionRequired", "Actie vereist"),
     },
     [VERIFICATION_STATUS.VERIFIED]: {
       bg: "bg-emerald-50 text-emerald-700 border-emerald-200",
-      label: t('verification.verified', "Geverifieerd"),
+      label: t("verification.verified", "Geverifieerd"),
       icon: <ShieldCheck size={12} />,
-      subText: verifiedBy?.name ? t('verification.by', { name: verifiedBy.name, defaultValue: `Door: ${verifiedBy.name}` }) : t('verification.approved', "Goedgekeurd"),
+      subText: verifiedBy?.name
+        ? t("verification.by", { name: verifiedBy.name, defaultValue: `Door: ${verifiedBy.name}` })
+        : t("verification.approved", "Goedgekeurd"),
     },
     [VERIFICATION_STATUS.REJECTED]: {
       bg: "bg-rose-50 text-rose-700 border-rose-200",
-      label: t('verification.rejected', "Afgekeurd"),
+      label: t("verification.rejected", "Afgekeurd"),
       icon: <XCircle size={12} />,
-      subText: t('verification.adjust', "Aanpassen"),
+      subText: t("verification.adjust", "Aanpassen"),
     },
   };
 
-  // Fallback voor onbekende statussen
   const currentStatus = status || VERIFICATION_STATUS.CONCEPT;
   const active = config[currentStatus] || config[VERIFICATION_STATUS.CONCEPT];
 
   return (
     <div className="flex flex-col items-start gap-1.5 select-none">
-      {/* De Pill Badge */}
       <div
         className={`
         flex items-center gap-2 px-3 py-1 rounded-lg border shadow-sm
@@ -61,16 +65,11 @@ const VerificationBadge = ({ status, verifiedBy }) => {
         {active.label}
       </div>
 
-      {/* Sub-informatie (Wie heeft het gedaan of wat is de actie) */}
       <div className="flex items-center gap-1.5 ml-1">
         <span
           className={`
           text-[9px] font-bold uppercase tracking-tighter italic
-          ${
-            currentStatus === VERIFICATION_STATUS.PENDING
-              ? "text-orange-500"
-              : "text-slate-400"
-          }
+          ${currentStatus === VERIFICATION_STATUS.PENDING ? "text-orange-500" : "text-slate-400"}
         `}
         >
           {active.subText}

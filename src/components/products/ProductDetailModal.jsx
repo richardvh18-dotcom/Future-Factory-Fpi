@@ -25,7 +25,7 @@ import { generateProductPDF } from "../../utils/pdfGenerator";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { PATHS } from "../../config/dbPaths";
 import { aiService } from "../../services/aiService";
-import VerificationBadge from "../admin/VerificationBadge";
+import VerificationBadge from "../admin/VerificationBadge.tsx";
 
 const getAppId = () => {
   if (typeof window !== "undefined" && window.__app_id) return window.__app_id;

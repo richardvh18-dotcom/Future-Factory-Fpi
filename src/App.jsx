@@ -25,7 +25,7 @@ import { BackgroundTaskProvider } from "./contexts/BackgroundTaskContext";
 import ToastContainer from "./components/notifications/ToastContainer";
 import ConfirmDialog from "./components/notifications/ConfirmDialog";
 import BackgroundTaskOverlay from "./components/notifications/BackgroundTaskOverlay";
-import { ProgressToast } from "./components/digitalplanning/ProgressToast";
+import { ProgressToast } from "./components/digitalplanning/ProgressToast.tsx";
 
 // Hooks
 import { useAdminAuth } from "./hooks/useAdminAuth";

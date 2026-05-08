@@ -31,7 +31,7 @@ import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import ProductDetailModal from "../../products/ProductDetailModal";
 import LabelVisualPreview from "../../printer/LabelVisualPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
-import ConfirmationModal from "./ConfirmationModal";
+import ConfirmationModal from "./ConfirmationModal.tsx";
 import { formatDateTimeSafe, toDateSafe } from "../../../utils/dateUtils";
 import { useNotifications } from '../../../contexts/NotificationContext';
 import {

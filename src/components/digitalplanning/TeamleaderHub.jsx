@@ -37,7 +37,7 @@ import TeamleaderEfficiencyView from "../teamleader/TeamleaderEfficiencyView.tsx
 import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView";
 import AiPredictionView from "./AiPredictionView";
 import ImportExportDashboard from "./ImportExportDashboard";
-import TeamleaderOrderRail from "./TeamleaderOrderRail";
+import TeamleaderOrderRail from "./TeamleaderOrderRail.tsx";
 import TeamleaderDetailPane from "./TeamleaderDetailPane";
 import { useTeamleaderFirestore } from "./useTeamleaderFirestore";
 import { useTeamleaderDataStore } from "./useTeamleaderDataStore";
