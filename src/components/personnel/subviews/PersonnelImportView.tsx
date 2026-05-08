@@ -1,8 +1,10 @@
 import React from "react";
 
+interface PersonnelImportViewProps {
+  onImport?: () => void;
+}
 
-const PersonnelImportView = React.memo(({ onImport }) => {
-  // Dummy import UI
+const PersonnelImportView = React.memo(({ onImport }: PersonnelImportViewProps) => {
   return (
     <div>
       <h3 className="font-bold mb-2">Personeel Importeren</h3>

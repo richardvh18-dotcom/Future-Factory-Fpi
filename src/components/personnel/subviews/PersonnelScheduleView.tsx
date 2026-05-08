@@ -1,7 +1,17 @@
 import React from "react";
 
-const PersonnelScheduleView = React.memo(({ personnel, viewDate }) => {
-  // Toon rooster per persoon
+interface PersonnelSchedulePerson {
+  id: string;
+  name?: string;
+  shiftId?: string;
+}
+
+interface PersonnelScheduleViewProps {
+  personnel: PersonnelSchedulePerson[];
+  viewDate: Date;
+}
+
+const PersonnelScheduleView = React.memo(({ personnel, viewDate }: PersonnelScheduleViewProps) => {
   return (
     <div>
       <h3 className="font-bold mb-2">Rooster Overzicht</h3>
@@ -14,7 +24,6 @@ const PersonnelScheduleView = React.memo(({ personnel, viewDate }) => {
       </ul>
     </div>
   );
-
 });
 
 export default PersonnelScheduleView;
