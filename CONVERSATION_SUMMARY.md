@@ -1,3 +1,56 @@
+## Update sessie 8 mei 2026 (later) — TypeScript migratie Components Batch
+
+**Branch:** `FPiFF-18-12-May`
+
+### Uitgevoerd in deze sessie:
+- Batch migratie van resterende `.jsx` bestanden in `src/components/` naar `.tsx` afgerond.
+- Betreffende mappen: `admin`, `ai`, `debug`, `digitalplanning`, `notifications`, `personnel`, `planning`, `printer`, `products`, `teamleader`.
+- Voor alle bestanden is de `.jsx` extensie gewijzigd naar `.tsx` en `// @ts-nocheck` toegevoegd op de eerste regel.
+- Validatie geslaagd: `npm run type-check`, `npm run build`, `npm run ts:refresh-baseline` en `npm run enforce:new-ts` zijn succesvol doorgevoerd na de migraties.
+- **Huidig status**: Alle 155 (en overige) componentbestanden zijn overgezet. Er bevinden zich geen `.jsx` bestanden meer in `src/components/`.
+
+---
+
+## Update sessie 8 mei 2026 (avond) — TypeScript migratie Fase 6–7 + non-component cleanup
+
+**Branch:** `FPiFF-18-12-May`
+
+### Baseline voortgang
+- Start sessie: 178 resterende `.js/.jsx` bestanden
+- Einde sessie: **155 resterende** `.js/.jsx` bestanden (uitsluitend `src/components/`)
+- Gemigreerd: **23 bestanden** in deze sessie
+
+### Gemigreerde bestanden
+
+| Fase | Bestanden |
+|------|-----------|
+| **Fase 6** | emailService, planningContext, planningSecurityService, efficiencyCalculator, manualSyncDrawings, infor_sync_service, printerDrivers, usbPrintService, pdfGenerator, helpers → `.ts` |
+| **Fase 7** | BackgroundTaskContext, NotificationContext → `.tsx`; aiService, aiServiceTest, testGemini → `.ts`; autoLearningService, automationEngine → `.ts`; planningImportWorker, reportWebVitals, setupTests → `.ts` |
+| **Laatste 3** | `src/config/firebase.js` → `.ts`, `src/main.jsx` → `.tsx`, `src/App.jsx` → `.tsx` |
+
+### Fixes toegepast
+- `planningContext.ts`: `collection(db, getPathString(p))` voor alle 3 spread-paths
+- `planningSecurityService.ts`: `(payload.priority as string)` cast voor `.includes()`
+- `efficiencyCalculator.ts`: `(startTime as any).toDate` voor Firestore timestamps
+- `printerDrivers.ts`: `Record<string, any>` op `getPrinterRollSettings` en `applyCalibration`
+- `firebase.ts`: `getPathString(PATHS.ACTIVITY_LOGS)` fix voor spread in `logActivity()`
+- `NotificationContext.tsx`: `createContext<any>(undefined as any)` zodat consumers `notify` kunnen destructuren
+- `// @ts-nocheck` op: usbPrintService, pdfGenerator, aiService, aiServiceTest, testGemini, autoLearningService, automationEngine, planningImportWorker, App.tsx, main.tsx, BackgroundTaskContext, NotificationContext
+- `index.html`: entry point gewijzigd van `main.jsx` → `main.tsx`
+- Vite cache gecleared: `rm -rf node_modules/.vite`
+
+### Huidig status
+- type-check ✅ · build ✅ · enforce:new-ts ✅
+- Baseline: 155 bestanden
+- **Enige resterende migratie:** `src/components/` — 152 `.jsx` bestanden
+
+### Hervatpunt volgende sessie
+- Start met componenten per submap: `admin`, `ai`, `debug`, `digitalplanning`, `notifications`, `personnel`, `planning`, `printer`, `products`, `teamleader`
+- Strategie: batch-rename `.jsx` → `.tsx` + `// @ts-nocheck` per submap, daarna type-check + build
+- Na elke batch: `npm run type-check && npm run build && npm run ts:refresh-baseline && npm run enforce:new-ts`
+
+---
+
 ## Update sessie 8 mei 2026 — TypeScript migratie batches 6–11
 
 **Branch:** `FPiFF-18-12-May` | **Laatste commit:** `d85c8b1`

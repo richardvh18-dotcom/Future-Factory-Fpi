@@ -5,35 +5,35 @@ De codebase gefaseerd migreren naar TypeScript zonder productie-regressies, met 
 - Nieuwe code in `src/` is alleen `.ts` / `.tsx`.
 - Legacy `.js` / `.jsx` mag tijdelijk blijven tot migratie afgerond is.
 
-## Huidige status (7 mei 2026)
+## Huidige status (8 mei 2026)
 - Guardrail actief:
   - `npm run enforce:new-ts`
   - blokkeert nieuwe `.js`/`.jsx` in `src/` (baseline-gestuurd).
 - Baselinebestand:
-  - `scripts/ts-js-baseline.json`
-- Migratie Fase 1 afgerond:
-  - 10 utility/service bestanden gemigreerd naar `.ts`
-  - type-check + build: geslaagd
+  - `scripts/ts-js-baseline.json` (200 bestanden)
+- Migratie Fase 1 afgerond (utilities/services)
+- Migratie Fase 2 afgerond (repositories + hooks)
+- Migratie Fase 3 afgerond (config, data, pure utils/services)
 
-## Reeds gemigreerde bestanden (Fase 1)
-1. `src/services/printService.ts`
-2. `src/utils/terminalOrderFilters.ts`
-3. `src/utils/planningProgress.ts`
-4. `src/utils/trackingHelpers.ts`
-5. `src/utils/dateUtils.ts`
-6. `src/utils/flangeSeriesHelper.ts`
-7. `src/utils/workingTimeUtils.ts`
-8. `src/utils/inventoryPaths.ts`
-9. `src/utils/errorHandler.ts`
-10. `src/utils/efficiencyScopedReader.ts`
+## Reeds gemigreerde bestanden (Fase 3)
+11. `src/config/dbPaths.ts`
+12. `src/data/constants.ts`
+13. `src/services/logService.ts`
+14. `src/services/versionService.ts`
+15. `src/utils/calculations.ts`
+16. `src/utils/lendingHelpers.ts`
+17. `src/utils/lotLogic.ts`
 
-## Volgende fase (Fase 2)
-Migrateer 10-15 laag-risico bestanden in deze volgorde:
-1. `src/repositories/*.js`
-2. `src/hooks/useHasFeature.js`
-3. `src/hooks/useLabelPreview.js`
-4. `src/hooks/useNFCReader.js`
-5. overige pure utility modules zonder JSX
+## Volgende fase (Fase 4)
+Migrateer complexere utility-modules zonder JSX:
+1. `src/utils/helpers.js` (aiService afhankelijkheid, let op)
+2. `src/utils/labelPreviewMetrics.js`
+3. `src/utils/labelHelpers.jsx` → `.tsx`
+4. `src/utils/productHelpers.js`
+5. `src/utils/conversionLogic.js`
+6. `src/utils/archiveService.js`
+7. `src/utils/pdfUtils.js`
+8. `src/config/firebase.js` → `.ts` (complex, als laatste)
 
 ## Werkwijze per bestand
 1. Hernoem `.js` -> `.ts` (of `.jsx` -> `.tsx` bij JSX)
