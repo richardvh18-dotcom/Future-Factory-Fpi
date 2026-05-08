@@ -25,7 +25,7 @@ import {
   queuePrintJob,
 } from '../../services/planningSecurityService';
 import { requestUsbDevice, printRawUsbToDevice, isUsbDirectSupported as usbDirectSupported } from '../../utils/usbPrintService';
-import AutoScaledLabelPreview from './AutoScaledLabelPreview';
+import AutoScaledLabelPreview from './AutoScaledLabelPreview.tsx';
 import { useNotifications } from '../../contexts/NotificationContext';
 
 const stationNameFromValue = (stationValue) => {

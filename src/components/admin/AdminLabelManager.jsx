@@ -7,7 +7,7 @@ import { PATHS } from "../../config/dbPaths";
 import { useNotifications } from "../../contexts/NotificationContext";
 import AdminLabelDesigner from "./AdminLabelDesigner";
 import AdminLabelLogic from "./AdminLabelLogic";
-import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";
+import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview.tsx";
 import { processLabelData } from "../../utils/labelHelpers";
 
 const LABEL_FOLDER_OPTIONS = [

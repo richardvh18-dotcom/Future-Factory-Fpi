@@ -8,7 +8,7 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import { generatePrintData, generateLotBatchZPL } from '../../utils/zplHelper';
 import { getDriver } from '../../utils/printerDrivers';
 import { getISOWeekInfo, getStationMachineCode } from '../../utils/lotLogic';
-import AutoScaledLabelPreview from './AutoScaledLabelPreview';
+import AutoScaledLabelPreview from './AutoScaledLabelPreview.tsx';
 import { useLabelPreview } from '../../hooks/useLabelPreview';
 import { processLabelData, applyLabelLogic, filterTempOrderLabelsByProduct, resolveLabelContent } from '../../utils/labelHelpers';
 

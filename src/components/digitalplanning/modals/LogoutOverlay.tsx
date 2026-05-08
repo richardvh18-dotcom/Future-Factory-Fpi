@@ -2,18 +2,12 @@ import React, { useEffect, useState } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 
-/**
- * LogoutOverlay
- * Toont een scherm na uitloggen om de gebruiker te dwingen te verversen.
- * Dit lost problemen op met state-vervuiling waardoor opnieuw inloggen soms faalt.
- */
 const LogoutOverlay = () => {
   const [showOverlay, setShowOverlay] = useState(false);
   const auth = getAuth();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      // Als er geen gebruiker is (uitgelogd), toon de overlay
       if (!user) {
         setShowOverlay(true);
       } else {
@@ -25,7 +19,6 @@ const LogoutOverlay = () => {
   }, [auth]);
 
   const handleRefresh = () => {
-    // Harde refresh en navigeer naar login
     window.location.href = "/login";
   };
 
@@ -37,11 +30,11 @@ const LogoutOverlay = () => {
         <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-900 shadow-inner">
           <LogOut size={32} />
         </div>
-        
+
         <h2 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight mb-2">
           U bent uitgelogd
         </h2>
-        
+
         <p className="text-slate-500 font-medium mb-8 text-sm leading-relaxed">
           Om verbindingsproblemen te voorkomen en uw sessie veilig af te sluiten, dient u de pagina te verversen.
         </p>
@@ -53,7 +46,7 @@ const LogoutOverlay = () => {
           <RefreshCw size={18} />
           Pagina Verversen
         </button>
-        
+
         <div className="mt-6 flex items-center justify-center gap-2 text-slate-300 text-[10px] font-black uppercase tracking-widest">
           <ShieldCheck size={12} />
           Secure Session End

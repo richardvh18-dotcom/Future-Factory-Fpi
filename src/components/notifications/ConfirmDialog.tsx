@@ -1,32 +1,45 @@
-import React from 'react';
-import { AlertTriangle, HelpCircle, XCircle } from 'lucide-react';
-import { useNotifications } from '../../contexts/NotificationContext';
+import React from "react";
+import { AlertTriangle, HelpCircle, XCircle } from "lucide-react";
+import { useNotifications } from "../../contexts/NotificationContext";
+
+interface ConfirmDialogState {
+  tone?: "danger" | "info" | "warning" | string;
+  title?: string;
+  message?: string;
+  cancelText?: string;
+  confirmText?: string;
+}
+
+interface NotificationsContextValue {
+  confirmDialog: ConfirmDialogState | null;
+  resolveConfirm: (confirmed: boolean) => void;
+}
 
 const ConfirmDialog = () => {
-  const { confirmDialog, resolveConfirm } = useNotifications();
+  const { confirmDialog, resolveConfirm } = useNotifications() as NotificationsContextValue;
 
   if (!confirmDialog) return null;
 
-  const getToneClasses = (tone) => {
+  const getToneClasses = (tone?: string) => {
     switch (tone) {
-      case 'danger':
+      case "danger":
         return {
           icon: <XCircle className="h-6 w-6" />,
-          iconWrap: 'text-rose-700 bg-rose-100 border-rose-200',
-          confirm: 'bg-rose-600 hover:bg-rose-700 text-white',
+          iconWrap: "text-rose-700 bg-rose-100 border-rose-200",
+          confirm: "bg-rose-600 hover:bg-rose-700 text-white",
         };
-      case 'info':
+      case "info":
         return {
           icon: <HelpCircle className="h-6 w-6" />,
-          iconWrap: 'text-blue-700 bg-blue-100 border-blue-200',
-          confirm: 'bg-blue-600 hover:bg-blue-700 text-white',
+          iconWrap: "text-blue-700 bg-blue-100 border-blue-200",
+          confirm: "bg-blue-600 hover:bg-blue-700 text-white",
         };
-      case 'warning':
+      case "warning":
       default:
         return {
           icon: <AlertTriangle className="h-6 w-6" />,
-          iconWrap: 'text-amber-700 bg-amber-100 border-amber-200',
-          confirm: 'bg-amber-500 hover:bg-amber-600 text-slate-900',
+          iconWrap: "text-amber-700 bg-amber-100 border-amber-200",
+          confirm: "bg-amber-500 hover:bg-amber-600 text-slate-900",
         };
     }
   };

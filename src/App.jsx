@@ -23,8 +23,8 @@ import { NotificationProvider } from "./contexts/NotificationContext";
 import { ProgressOperationProvider } from "./contexts/ProgressOperationContext";
 import { BackgroundTaskProvider } from "./contexts/BackgroundTaskContext";
 import ToastContainer from "./components/notifications/ToastContainer";
-import ConfirmDialog from "./components/notifications/ConfirmDialog";
-import BackgroundTaskOverlay from "./components/notifications/BackgroundTaskOverlay";
+import ConfirmDialog from "./components/notifications/ConfirmDialog.tsx";
+import BackgroundTaskOverlay from "./components/notifications/BackgroundTaskOverlay.tsx";
 import { ProgressToast } from "./components/digitalplanning/ProgressToast.tsx";
 
 // Hooks

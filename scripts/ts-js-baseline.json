@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-08T06:31:38.123Z",
+  "generatedAt": "2026-05-08T06:36:27.151Z",
   "files": [
     "src/App.jsx",
     "src/components/admin/AdminBadgeGenerator.jsx",
@@ -98,7 +98,6 @@
     "src/components/digitalplanning/modals/DrillDownModal.jsx",
     "src/components/digitalplanning/modals/InspectionModal.jsx",
     "src/components/digitalplanning/modals/LoanPersonnelModal.jsx",
-    "src/components/digitalplanning/modals/LogoutOverlay.jsx",
     "src/components/digitalplanning/modals/LotOverrideModal.jsx",
     "src/components/digitalplanning/modals/OperatorLinkModal.jsx",
     "src/components/digitalplanning/modals/OrderEditModal.jsx",
@@ -131,8 +130,6 @@
     "src/components/digitalplanning/useTeamleaderModalData.js",
     "src/components/digitalplanning/views/ActiveProductionView.jsx",
     "src/components/digitalplanning/views/PlanningListView.jsx",
-    "src/components/notifications/BackgroundTaskOverlay.jsx",
-    "src/components/notifications/ConfirmDialog.jsx",
     "src/components/notifications/ToastContainer.jsx",
     "src/components/personnel/PersonnelListView.jsx",
     "src/components/personnel/PersonnelOccupancyView.jsx",
@@ -147,7 +144,6 @@
     "src/components/planning/ShopFloorMobileApp.jsx",
     "src/components/planning/TimeTrackingView.jsx",
     "src/components/planning/WorkloadHeatmapView.jsx",
-    "src/components/printer/AutoScaledLabelPreview.jsx",
     "src/components/printer/LabelVisualPreview.jsx",
     "src/components/printer/LighthousePrintView.jsx",
     "src/components/printer/PrintQueueAdminView.jsx",

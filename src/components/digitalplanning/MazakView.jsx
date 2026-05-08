@@ -30,7 +30,7 @@ import { useAdminAuth } from "../../hooks/useAdminAuth";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import LabelVisualPreview from "../printer/LabelVisualPreview";
 import { subscribeTrackedProducts } from "../../utils/trackedProducts";
-import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";
+import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview.tsx";
 import StatusBadge from "./common/StatusBadge";
 import { getISOWeek, addWeeks, subWeeks } from "date-fns";
 import { filterLabelsByProduct, processLabelData, resolveLabelContent } from "../../utils/labelHelpers";
