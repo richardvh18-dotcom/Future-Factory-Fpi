@@ -1,13 +1,8 @@
 {
-  "generatedAt": "2026-05-08T05:59:02.944Z",
+  "generatedAt": "2026-05-08T06:06:54.136Z",
   "files": [
     "src/App.jsx",
-    "src/components/AccountRequestModal.jsx",
     "src/components/CalculatorView.jsx",
-    "src/components/Header.jsx",
-    "src/components/InventoryView.jsx",
-    "src/components/LoginView.jsx",
-    "src/components/MobileScanner.jsx",
     "src/components/PortalView.jsx",
     "src/components/ProfileView.jsx",
     "src/components/Sidebar.jsx",
