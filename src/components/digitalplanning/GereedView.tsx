@@ -1,7 +1,12 @@
 import React from "react";
 import TerminalGereedTab from "./terminal/TerminalGereedTab";
 
-const GereedView = ({ stationId, products = [] }) => {
+interface GereedViewProps {
+  stationId?: string;
+  products?: unknown[];
+}
+
+const GereedView = ({ stationId, products = [] }: GereedViewProps) => {
   return (
     <TerminalGereedTab
       allTracked={products}

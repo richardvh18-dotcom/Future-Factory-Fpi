@@ -9,10 +9,10 @@ import LoggedOutView from "./components/LoggedOutView";
 
 // Basis Componenten
 import Header from "./components/Header";
-import Sidebar from "./components/Sidebar";
-import LoginView from "./components/LoginView";
-import PortalView from "./components/PortalView";
-import ProfileView from "./components/ProfileView";
+import Sidebar from "./components/Sidebar.tsx";
+import LoginView from "./components/LoginView.tsx";
+import PortalView from "./components/PortalView.tsx";
+import ProfileView from "./components/ProfileView.tsx";
 import ProductSearchView from "./components/products/ProductSearchView";
 import ForcePasswordChangeView from "./components/ForcePasswordChangeView";
 import GodModeBootstrap from "./components/admin/GodModeBootstrap";
