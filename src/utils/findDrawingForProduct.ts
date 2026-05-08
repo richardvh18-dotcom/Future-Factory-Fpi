@@ -13,7 +13,7 @@ export async function findDrawingForProduct(manufacturedCode) {
   let articleCode = manufacturedCode;
   let product;
 
-  const productsRef = collection(db, ...PATHS.PRODUCTS);
+  const productsRef = collection(db, ...(PATHS.PRODUCTS as [string, ...string[]]));
   let q = query(productsRef, where("articleCode", "==", articleCode));
   let snap = await getDocs(q);
 

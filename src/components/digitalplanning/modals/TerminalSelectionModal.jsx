@@ -1,7 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Layers, Monitor, Clock, Tv } from "lucide-react";
-import { FITTING_MACHINES, PIPE_MACHINES } from "../../../utils/hubHelpers";
+import { FITTING_MACHINES, PIPE_MACHINES } from "../../../utils/hubHelpers.tsx";
 
 const TerminalSelectionModal = ({ onClose }) => {
   const navigate = useNavigate();

@@ -25,7 +25,7 @@ import { collection, query, getDocs, limit, doc, getDoc } from "firebase/firesto
 import { db } from "../../config/firebase";
 import { getArchiveItemsPath, PATHS } from "../../config/dbPaths";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 import { useNotifications } from '../../contexts/NotificationContext';
 import { fetchScopedEfficiencyHours } from "../../utils/efficiencyScopedReader";
 

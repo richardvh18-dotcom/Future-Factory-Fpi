@@ -14,7 +14,7 @@ import { Package,
     Keyboard } from "lucide-react";
 import ProductReleaseModal from "./modals/ProductReleaseModal";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { getNextFlowState } from "../../utils/workstationLogic";
 import { useNotifications } from '../../contexts/NotificationContext';

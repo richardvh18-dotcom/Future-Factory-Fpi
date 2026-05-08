@@ -22,7 +22,7 @@ import {
   getLegacyRejectedOrders,
   buildOverproductionGroups,
 } from "../../utils/teamleaderDerived";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 import {
   getLotFromTrackedRecord,
   resolveOverproductionRoute,
@@ -38,7 +38,7 @@ import PersonnelOccupancyView from "../personnel/PersonnelOccupancyView";
 import AiPredictionView from "./AiPredictionView";
 import ImportExportDashboard from "./ImportExportDashboard";
 import TeamleaderOrderRail from "./TeamleaderOrderRail.tsx";
-import TeamleaderDetailPane from "./TeamleaderDetailPane";
+import TeamleaderDetailPane from "./TeamleaderDetailPane.tsx";
 import { useTeamleaderFirestore } from "./useTeamleaderFirestore";
 import { useTeamleaderDataStore } from "./useTeamleaderDataStore";
 import { useTeamleaderMetrics } from "./useTeamleaderMetrics";

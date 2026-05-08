@@ -11,7 +11,7 @@ import { db, auth, logActivity } from "../../config/firebase";
 import { 
   collection, onSnapshot, query, orderBy, doc
 } from "firebase/firestore";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 import { PATHS } from "../../config/dbPaths";
 import LoanPersonnelModal from "../digitalplanning/modals/LoanPersonnelModal";
 import { useNotifications } from '../../contexts/NotificationContext';

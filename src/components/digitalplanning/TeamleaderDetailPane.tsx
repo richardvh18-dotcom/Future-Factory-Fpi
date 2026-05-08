@@ -1,15 +1,16 @@
 import React from "react";
-import OrderDetail from "./OrderDetail";
+import OrderDetailRaw from "./OrderDetail";
+const OrderDetail = OrderDetailRaw as React.ComponentType<any>;
 import ArchivedOrderDetailPanel from "./ArchivedOrderDetailPanel";
-import OrderDetailPlaceholder from "./OrderDetailPlaceholder.tsx";
-import { useTeamleaderSelection } from "./TeamleaderSelectionContext.tsx";
+import OrderDetailPlaceholder from "./OrderDetailPlaceholder";
+import { useTeamleaderSelection } from "./TeamleaderSelectionContext";
 
 /**
  * TeamleaderDetailPane — right-side detail column of TeamleaderHub.
  * Shows OrderDetail when an active order is selected, ArchivedOrderDetailPanel
  * when an archived order entry is selected, or a placeholder when nothing is selected.
  */
-const TeamleaderDetailPane = React.memo(({
+const TeamleaderDetailPane = React.memo(function TeamleaderDetailPane({
   handleMoveLot,
   setViewingDossier,
   targetSlug,
@@ -17,8 +18,8 @@ const TeamleaderDetailPane = React.memo(({
   rawProducts,
   archivedHistoryProducts,
   handleOpenArchivedLotDossier,
-}) => {
-  const { selectedOrder, selectedSidebarEntry, selectedDetailEntry, clearSelection } = useTeamleaderSelection();
+}: any) {
+  const { selectedOrder, selectedSidebarEntry, selectedDetailEntry, clearSelection } = useTeamleaderSelection() as any;
 
   return (
     <div className={`flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden ${selectedDetailEntry ? 'flex' : 'hidden lg:flex'}`}>

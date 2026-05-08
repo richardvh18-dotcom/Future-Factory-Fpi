@@ -4,7 +4,7 @@ import {
   resolveLabelContent,
   getBarcodeUrl,
 } from "../../utils/labelHelpers";
-import InternalQrImage from "../../utils/InternalQrImage";
+import InternalQrImage from "../../utils/InternalQrImage.tsx";
 import { useNotifications } from '../../contexts/NotificationContext';
 
 /**

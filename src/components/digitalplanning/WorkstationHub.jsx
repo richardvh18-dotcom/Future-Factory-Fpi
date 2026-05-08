@@ -34,7 +34,7 @@ import {
   getISOWeekInfo,
   isInspectionOverdue,
 } from "../../utils/workstationLogic";
-import { normalizeMachine, FITTING_MACHINES, PIPE_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
+import { normalizeMachine, FITTING_MACHINES, PIPE_MACHINES, getStartedCounterField } from "../../utils/hubHelpers.tsx";
 import { toDateSafe } from "../../utils/dateUtils";
 import ActiveProductionView from "./views/ActiveProductionView";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";

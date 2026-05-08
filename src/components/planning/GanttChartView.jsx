@@ -32,7 +32,7 @@ import { nl } from "date-fns/locale";
 import { getDeliveryPlanningState, resolveDeliveryDate, toDateSafe } from "../../utils/dateUtils";
 import { getOrderFinishedUnits } from "../../utils/planningProgress";
 import { subscribeScopedEfficiencyHours } from "../../utils/efficiencyScopedReader";
-import { normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers.tsx";
 
 /**
  * GanttChartView - Timeline visualization for order planning

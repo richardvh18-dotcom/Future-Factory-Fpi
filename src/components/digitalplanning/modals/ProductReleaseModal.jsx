@@ -6,7 +6,7 @@ import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { REJECTION_REASONS, resolvePostLossenStation } from "../../../utils/workstationLogic";
 import { useNotifications } from '../../../contexts/NotificationContext';
-import { useProgressOperations } from '../../../contexts/ProgressOperationContext';
+import { useProgressOperations } from '../../../contexts/ProgressOperationContext.tsx';
 import { rejectTrackedProductFinal, tempRejectTrackedProduct, advanceTrackedProduct } from "../../../services/planningSecurityService";
 
 const PILOT_ALLOW_INCOMPLETE_LOSSEN_MEASUREMENTS = true;

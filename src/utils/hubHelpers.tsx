@@ -4,7 +4,7 @@ import i18n from "../i18n";
 
 // --- CONFIGURATIE ---
 export const getAppId = () => {
-  if (typeof window !== "undefined" && window.__app_id) return window.__app_id;
+  if (typeof window !== "undefined" && (window as any).__app_id) return (window as any).__app_id;
   return "fittings-app-v1";
 };
 
@@ -61,7 +61,7 @@ export const getISOWeekInfo = (date) => {
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   const year = d.getUTCFullYear();
   return { week: weekNo, year: year };
 };
