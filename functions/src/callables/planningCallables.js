@@ -96,6 +96,7 @@ const {
 } = require('../services/conversionCatalogService');
 const { processInforUpdateService } = require('../services/inforSyncService');
 const { handleCallableError } = require('../utils/errorHandler');
+const { withAudit } = require('../utils/withAudit');
 const auditService = require('../services/auditService');
 const {
   saveAiContextConfigService,
@@ -146,7 +147,7 @@ const throwPermissionDenied = (context, action, userRole, message) => {
   throw new functions.https.HttpsError('permission-denied', message);
 };
 
-const rejectTrackedProductFinal = functions.https.onCall(async (data, context) => {
+const rejectTrackedProductFinal = withAudit('REJECT_PRODUCT_FINAL', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -190,7 +191,7 @@ const rejectTrackedProductFinal = functions.https.onCall(async (data, context) =
   }
 });
 
-const tempRejectTrackedProduct = functions.https.onCall(async (data, context) => {
+const tempRejectTrackedProduct = withAudit('TEMP_REJECT_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -253,7 +254,7 @@ const tempRejectTrackedProduct = functions.https.onCall(async (data, context) =>
   }
 });
 
-const advanceTrackedProduct = functions.https.onCall(async (data, context) => {
+const advanceTrackedProduct = withAudit('ADVANCE_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -312,7 +313,7 @@ const advanceTrackedProduct = functions.https.onCall(async (data, context) => {
   }
 });
 
-const completeTrackedProductRepair = functions.https.onCall(async (data, context) => {
+const completeTrackedProductRepair = withAudit('COMPLETE_REPAIR', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -358,7 +359,7 @@ const completeTrackedProductRepair = functions.https.onCall(async (data, context
   }
 });
 
-const routeTrackedProductsToLossen = functions.https.onCall(async (data, context) => {
+const routeTrackedProductsToLossen = withAudit('ROUTE_TO_LOSSEN', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -407,7 +408,7 @@ const routeTrackedProductsToLossen = functions.https.onCall(async (data, context
   }
 });
 
-const startWorkstationProductionRun = functions.https.onCall(async (data, context) => {
+const startWorkstationProductionRun = withAudit('START_WORKSTATION_PRODUCTION_RUN', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -465,7 +466,7 @@ const startWorkstationProductionRun = functions.https.onCall(async (data, contex
   }
 });
 
-const toggleTrackedProductPause = functions.https.onCall(async (data, context) => {
+const toggleTrackedProductPause = withAudit('TOGGLE_TRACKED_PRODUCT_PAUSE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -507,7 +508,7 @@ const toggleTrackedProductPause = functions.https.onCall(async (data, context) =
   }
 });
 
-const markTrackedProductReminder = functions.https.onCall(async (data, context) => {
+const markTrackedProductReminder = withAudit('MARK_TRACKED_PRODUCT_REMINDER', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -548,7 +549,7 @@ const markTrackedProductReminder = functions.https.onCall(async (data, context) 
   }
 });
 
-const moveTrackedProductManual = functions.https.onCall(async (data, context) => {
+const moveTrackedProductManual = withAudit('MOVE_TRACKED_PRODUCT_MANUAL', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -597,7 +598,7 @@ const moveTrackedProductManual = functions.https.onCall(async (data, context) =>
   }
 });
 
-const archiveRejectedTrackedProduct = functions.https.onCall(async (data, context) => {
+const archiveRejectedTrackedProduct = withAudit('ARCHIVE_REJECTED_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -637,7 +638,7 @@ const archiveRejectedTrackedProduct = functions.https.onCall(async (data, contex
   }
 });
 
-const archivePlanningOrder = functions.https.onCall(async (data, context) => {
+const archivePlanningOrder = withAudit('ARCHIVE_ORDER', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -683,7 +684,7 @@ const archivePlanningOrder = functions.https.onCall(async (data, context) => {
   }
 });
 
-const completeTrackedProduct = functions.https.onCall(async (data, context) => {
+const completeTrackedProduct = withAudit('COMPLETE_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -732,7 +733,7 @@ const completeTrackedProduct = functions.https.onCall(async (data, context) => {
   }
 });
 
-const cancelTrackedProduction = functions.https.onCall(async (data, context) => {
+const cancelTrackedProduction = withAudit('CANCEL_TRACKED_PRODUCTION', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -774,7 +775,7 @@ const cancelTrackedProduction = functions.https.onCall(async (data, context) => 
   }
 });
 
-const updatePlanningOrderPriority = functions.https.onCall(async (data, context) => {
+const updatePlanningOrderPriority = withAudit('UPDATE_ORDER_PRIORITY', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -825,7 +826,7 @@ const updatePlanningOrderPriority = functions.https.onCall(async (data, context)
   }
 });
 
-const movePlanningOrder = functions.https.onCall(async (data, context) => {
+const movePlanningOrder = withAudit('MOVE_PLANNING_ORDER', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -909,7 +910,7 @@ const retrievePlanningOrder = functions.https.onCall(async (data, context) => {
   }
 });
 
-const togglePlanningOrderHold = functions.https.onCall(async (data, context) => {
+const togglePlanningOrderHold = withAudit('TOGGLE_ORDER_HOLD', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -948,7 +949,7 @@ const togglePlanningOrderHold = functions.https.onCall(async (data, context) => 
   }
 });
 
-const updatePlanningOrderDetails = functions.https.onCall(async (data, context) => {
+const updatePlanningOrderDetails = withAudit('UPDATE_ORDER_DETAILS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1010,7 +1011,7 @@ const updatePlanningOrderDetails = functions.https.onCall(async (data, context) 
   }
 });
 
-const patchPlanningOrderMetadata = functions.https.onCall(async (data, context) => {
+const patchPlanningOrderMetadata = withAudit('PATCH_ORDER_METADATA', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1051,7 +1052,7 @@ const patchPlanningOrderMetadata = functions.https.onCall(async (data, context) 
   }
 });
 
-const assignOverproduction = functions.https.onCall(async (data, context) => {
+const assignOverproduction = withAudit('ASSIGN_OVERPRODUCTION', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1103,7 +1104,7 @@ const assignOverproduction = functions.https.onCall(async (data, context) => {
   }
 });
 
-const cancelPlanningOrder = functions.https.onCall(async (data, context) => {
+const cancelPlanningOrder = withAudit('CANCEL_ORDER', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1144,7 +1145,7 @@ const cancelPlanningOrder = functions.https.onCall(async (data, context) => {
   }
 });
 
-const assignPersonnelToStation = functions.https.onCall(async (data, context) => {
+const assignPersonnelToStation = withAudit('ASSIGN_PERSONNEL_TO_STATION', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1192,7 +1193,7 @@ const assignPersonnelToStation = functions.https.onCall(async (data, context) =>
   }
 });
 
-const removePersonnelAssignment = functions.https.onCall(async (data, context) => {
+const removePersonnelAssignment = withAudit('REMOVE_PERSONNEL_ASSIGNMENT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1228,7 +1229,7 @@ const removePersonnelAssignment = functions.https.onCall(async (data, context) =
   }
 });
 
-const loanPersonnelToDepartment = functions.https.onCall(async (data, context) => {
+const loanPersonnelToDepartment = withAudit('LOAN_PERSONNEL_TO_DEPARTMENT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1281,7 +1282,7 @@ const loanPersonnelToDepartment = functions.https.onCall(async (data, context) =
   });
 });
 
-const saveOccupancyAssignments = functions.https.onCall(async (data, context) => {
+const saveOccupancyAssignments = withAudit('SAVE_OCCUPANCY_ASSIGNMENTS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1311,7 +1312,7 @@ const saveOccupancyAssignments = functions.https.onCall(async (data, context) =>
   }
 });
 
-const deleteOccupancyAssignments = functions.https.onCall(async (data, context) => {
+const deleteOccupancyAssignments = withAudit('DELETE_OCCUPANCY_ASSIGNMENTS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1341,7 +1342,7 @@ const deleteOccupancyAssignments = functions.https.onCall(async (data, context) 
   }
 });
 
-const savePersonnelRecord = functions.https.onCall(async (data, context) => {
+const savePersonnelRecord = withAudit('SAVE_PERSONNEL_RECORD', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1377,7 +1378,7 @@ const savePersonnelRecord = functions.https.onCall(async (data, context) => {
   }
 });
 
-const createProductionMessages = functions.https.onCall(async (data, context) => {
+const createProductionMessages = withAudit('CREATE_PRODUCTION_MESSAGES', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1410,7 +1411,7 @@ const createProductionMessages = functions.https.onCall(async (data, context) =>
   }
 });
 
-const transitionPrintQueueJobStatus = functions.https.onCall(async (data, context) => {
+const transitionPrintQueueJobStatus = withAudit('TRANSITION_PRINT_QUEUE_JOB_STATUS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1447,7 +1448,7 @@ const transitionPrintQueueJobStatus = functions.https.onCall(async (data, contex
   }
 });
 
-const requeuePrintQueueJob = functions.https.onCall(async (data, context) => {
+const requeuePrintQueueJob = withAudit('REQUEUE_PRINT_QUEUE_JOB', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1480,7 +1481,7 @@ const requeuePrintQueueJob = functions.https.onCall(async (data, context) => {
   }
 });
 
-const deletePrintQueueJob = functions.https.onCall(async (data, context) => {
+const deletePrintQueueJob = withAudit('DELETE_PRINT_JOB', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1513,7 +1514,7 @@ const deletePrintQueueJob = functions.https.onCall(async (data, context) => {
   }
 });
 
-const startProductionLots = functions.https.onCall(async (data, context) => {
+const startProductionLots = withAudit('START_PRODUCTION_LOTS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1607,7 +1608,7 @@ const startProductionLots = functions.https.onCall(async (data, context) => {
   }
 });
 
-const editTrackedProductLotNumber = functions.https.onCall(async (data, context) => {
+const editTrackedProductLotNumber = withAudit('EDIT_LOT_NUMBER', async (data, context) => {
   if (!context.auth?.uid) {
     throwUnauthenticated(context, 'EDIT_LOT_NUMBER');
   }
@@ -1656,7 +1657,7 @@ const editTrackedProductLotNumber = functions.https.onCall(async (data, context)
   }
 });
 
-const reassignTrackedProductOrder = functions.https.onCall(async (data, context) => {
+const reassignTrackedProductOrder = withAudit('REASSIGN_TRACKED_PRODUCT_ORDER', async (data, context) => {
   if (!context.auth?.uid) {
     throwUnauthenticated(context, 'REASSIGN_TRACKED_PRODUCT_ORDER');
   }
@@ -1705,7 +1706,7 @@ const reassignTrackedProductOrder = functions.https.onCall(async (data, context)
   }
 });
 
-const linkPlanningOrderProduct = functions.https.onCall(async (data, context) => {
+const linkPlanningOrderProduct = withAudit('LINK_ORDER_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1743,7 +1744,7 @@ const linkPlanningOrderProduct = functions.https.onCall(async (data, context) =>
   }
 });
 
-const createPlanningOrderManual = functions.https.onCall(async (data, context) => {
+const createPlanningOrderManual = withAudit('CREATE_ORDER_MANUAL', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1783,7 +1784,7 @@ const createPlanningOrderManual = functions.https.onCall(async (data, context) =
   }
 });
 
-const markMazakLabelsPrinted = functions.https.onCall(async (data, context) => {
+const markMazakLabelsPrinted = withAudit('MARK_LABELS_PRINTED', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1822,7 +1823,7 @@ const markMazakLabelsPrinted = functions.https.onCall(async (data, context) => {
   }
 });
 
-const appendQcNote = functions.https.onCall(async (data, context) => {
+const appendQcNote = withAudit('APPEND_QC_NOTE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1859,7 +1860,7 @@ const appendQcNote = functions.https.onCall(async (data, context) => {
   }
 });
 
-const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) => {
+const reserveAutoLotNumberRange = withAudit('RESERVE_AUTO_LOT_NUMBER_RANGE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1890,7 +1891,7 @@ const reserveAutoLotNumberRange = functions.https.onCall(async (data, context) =
   }
 });
 
-const addOrderDependency = functions.https.onCall(async (data, context) => {
+const addOrderDependency = withAudit('ADD_ORDER_DEPENDENCY', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1920,7 +1921,7 @@ const addOrderDependency = functions.https.onCall(async (data, context) => {
   }
 });
 
-const removeOrderDependency = functions.https.onCall(async (data, context) => {
+const removeOrderDependency = withAudit('REMOVE_ORDER_DEPENDENCY', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -1950,7 +1951,7 @@ const removeOrderDependency = functions.https.onCall(async (data, context) => {
   }
 });
 
-const updateOrderPlannedDate = functions.https.onCall(async (data, context) => {
+const updateOrderPlannedDate = withAudit('UPDATE_ORDER_PLANNED_DATE', async (data, context) => {
   if (!context.auth?.uid) {
     throwUnauthenticated(context, 'UPDATE_PLANNED_DATE');
   }
@@ -1992,7 +1993,7 @@ const updateOrderPlannedDate = functions.https.onCall(async (data, context) => {
   }
 });
 
-const updateOrderKanbanStatus = functions.https.onCall(async (data, context) => {
+const updateOrderKanbanStatus = withAudit('UPDATE_ORDER_KANBAN_STATUS', async (data, context) => {
   if (!context.auth?.uid) {
     throwUnauthenticated(context, 'UPDATE_KANBAN_STATUS');
   }
@@ -2034,7 +2035,7 @@ const updateOrderKanbanStatus = functions.https.onCall(async (data, context) => 
   }
 });
 
-const markReadyForNextStep = functions.https.onCall(async (data, context) => {
+const markReadyForNextStep = withAudit('MARK_READY_FOR_NEXT_STEP', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2062,7 +2063,7 @@ const markReadyForNextStep = functions.https.onCall(async (data, context) => {
   }
 });
 
-const startTrackedProductRepair = functions.https.onCall(async (data, context) => {
+const startTrackedProductRepair = withAudit('START_TRACKED_PRODUCT_REPAIR', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2092,7 +2093,7 @@ const startTrackedProductRepair = functions.https.onCall(async (data, context) =
   }
 });
 
-const restoreArchivedTrackedProduct = functions.https.onCall(async (data, context) => {
+const restoreArchivedTrackedProduct = withAudit('RESTORE_ARCHIVED_TRACKED_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2138,7 +2139,7 @@ const restoreArchivedTrackedProduct = functions.https.onCall(async (data, contex
   }
 });
 
-const reportShopFloorIssue = functions.https.onCall(async (data, context) => {
+const reportShopFloorIssue = withAudit('REPORT_SHOP_FLOOR_ISSUE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2172,7 +2173,7 @@ const reportShopFloorIssue = functions.https.onCall(async (data, context) => {
   });
 });
 
-const resolveShopFloorIssue = functions.https.onCall(async (data, context) => {
+const resolveShopFloorIssue = withAudit('RESOLVE_SHOP_FLOOR_ISSUE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2202,7 +2203,7 @@ const resolveShopFloorIssue = functions.https.onCall(async (data, context) => {
   }
 });
 
-const importPlanningOrders = functions.https.onCall(async (data, context) => {
+const importPlanningOrders = withAudit('IMPORT_PLANNING_ORDERS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2234,7 +2235,7 @@ const importPlanningOrders = functions.https.onCall(async (data, context) => {
   });
 });
 
-const importReferenceOperations = functions.https.onCall(async (data, context) => {
+const importReferenceOperations = withAudit('IMPORT_REFERENCE_OPERATIONS', async (data, context) => {
   if (!context.auth?.uid) {
     throwUnauthenticated(context, 'IMPORT_REFERENCE_OPERATIONS');
   }
@@ -2333,7 +2334,7 @@ const importReferenceOperations = functions.https.onCall(async (data, context) =
   };
 });
 
-const queuePrintJob = functions.https.onCall(async (data, context) => {
+const queuePrintJob = withAudit('PRINT_JOB', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2386,7 +2387,7 @@ const queuePrintJob = functions.https.onCall(async (data, context) => {
   }
 });
 
-const updateUserProfile = functions.https.onCall(async (data, context) => {
+const updateUserProfile = withAudit('UPDATE_USER_PROFILE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2402,7 +2403,7 @@ const updateUserProfile = functions.https.onCall(async (data, context) => {
   return updateUserProfileService(context.auth.uid, profileData);
 });
 
-const clearPasswordChangeFlag = functions.https.onCall(async (data, context) => {
+const clearPasswordChangeFlag = withAudit('CLEAR_PASSWORD_FLAG', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2412,7 +2413,7 @@ const clearPasswordChangeFlag = functions.https.onCall(async (data, context) => 
   return clearPasswordChangeFlagService(context.auth.uid);
 });
 
-const submitAccountRequest = functions.https.onCall(async (data, context) => {
+const submitAccountRequest = withAudit('SUBMIT_ACCOUNT_REQUEST', async (data, context) => {
   const requestData = (typeof data?.requestData === 'object' && data.requestData) || {};
 
   if (!requestData.name || !requestData.email) {
@@ -2424,7 +2425,7 @@ const submitAccountRequest = functions.https.onCall(async (data, context) => {
   return submitAccountRequestService(requestData);
 });
 
-const updateUserLanguage = functions.https.onCall(async (data, context) => {
+const updateUserLanguage = withAudit('UPDATE_USER_LANGUAGE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2440,7 +2441,7 @@ const updateUserLanguage = functions.https.onCall(async (data, context) => {
   return updateUserLanguageService(context.auth.uid, language);
 });
 
-const executeAutomationRule = functions.https.onCall(async (data, context) => {
+const executeAutomationRule = withAudit('EXECUTE_AUTOMATION_RULE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2455,7 +2456,7 @@ const executeAutomationRule = functions.https.onCall(async (data, context) => {
   return executeAutomationRuleService(rule);
 });
 
-const updateProductionStandard = functions.https.onCall(async (data, context) => {
+const updateProductionStandard = withAudit('UPDATE_PRODUCTION_STANDARD', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2500,7 +2501,7 @@ const updateProductionStandard = functions.https.onCall(async (data, context) =>
   return { ok: true, standardId, standardMinutes };
 });
 
-const saveProductRecord = functions.https.onCall(async (data, context) => {
+const saveProductRecord = withAudit('SAVE_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2524,7 +2525,7 @@ const saveProductRecord = functions.https.onCall(async (data, context) => {
   });
 });
 
-const deleteProductRecord = functions.https.onCall(async (data, context) => {
+const deleteProductRecord = withAudit('DELETE_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2541,7 +2542,7 @@ const deleteProductRecord = functions.https.onCall(async (data, context) => {
   return deleteProductRecordService({ productId });
 });
 
-const verifyProductRecord = functions.https.onCall(async (data, context) => {
+const verifyProductRecord = withAudit('VERIFY_PRODUCT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2571,7 +2572,7 @@ const verifyProductRecord = functions.https.onCall(async (data, context) => {
   });
 });
 
-const upsertConversionRecord = functions.https.onCall(async (data, context) => {
+const upsertConversionRecord = withAudit('UPSERT_CONVERSION', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2593,7 +2594,7 @@ const upsertConversionRecord = functions.https.onCall(async (data, context) => {
   });
 });
 
-const deleteConversionRecord = functions.https.onCall(async (data, context) => {
+const deleteConversionRecord = withAudit('DELETE_CONVERSION', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2610,7 +2611,7 @@ const deleteConversionRecord = functions.https.onCall(async (data, context) => {
   return deleteConversionRecordService({ recordId });
 });
 
-const deleteAllConversionRecords = functions.https.onCall(async (data, context) => {
+const deleteAllConversionRecords = withAudit('DELETE_ALL_CONVERSIONS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2625,7 +2626,7 @@ const deleteAllConversionRecords = functions.https.onCall(async (data, context) 
   return deleteAllConversionRecordsService();
 });
 
-const upsertConversionBatch = functions.https.onCall(async (data, context) => {
+const upsertConversionBatch = withAudit('UPSERT_CONVERSION_BATCH', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2647,7 +2648,7 @@ const upsertConversionBatch = functions.https.onCall(async (data, context) => {
   });
 });
 
-const processInforUpdate = functions.https.onCall(async (data, context) => {
+const processInforUpdate = withAudit('PROCESS_INFOR_UPDATE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2667,7 +2668,7 @@ const processInforUpdate = functions.https.onCall(async (data, context) => {
   return processInforUpdateService(csvData);
 });
 
-const saveAiContextConfig = functions.https.onCall(async (data, context) => {
+const saveAiContextConfig = withAudit('SAVE_AI_CONFIG', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2687,7 +2688,7 @@ const saveAiContextConfig = functions.https.onCall(async (data, context) => {
   });
 });
 
-const createAiDocumentRecord = functions.https.onCall(async (data, context) => {
+const createAiDocumentRecord = withAudit('CREATE_AI_DOCUMENT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2707,7 +2708,7 @@ const createAiDocumentRecord = functions.https.onCall(async (data, context) => {
   });
 });
 
-const updateAiDocumentRecord = functions.https.onCall(async (data, context) => {
+const updateAiDocumentRecord = withAudit('UPDATE_AI_DOCUMENT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2725,7 +2726,7 @@ const updateAiDocumentRecord = functions.https.onCall(async (data, context) => {
   return updateAiDocumentRecordService({ docId, patch });
 });
 
-const deleteAiDocumentRecord = functions.https.onCall(async (data, context) => {
+const deleteAiDocumentRecord = withAudit('DELETE_AI_DOCUMENT', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2742,7 +2743,7 @@ const deleteAiDocumentRecord = functions.https.onCall(async (data, context) => {
   return deleteAiDocumentRecordService({ docId });
 });
 
-const verifyAiKnowledgeEntry = functions.https.onCall(async (data, context) => {
+const verifyAiKnowledgeEntry = withAudit('VERIFY_AI_KNOWLEDGE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2764,7 +2765,7 @@ const verifyAiKnowledgeEntry = functions.https.onCall(async (data, context) => {
   });
 });
 
-const deleteAiKnowledgeEntry = functions.https.onCall(async (data, context) => {
+const deleteAiKnowledgeEntry = withAudit('DELETE_AI_KNOWLEDGE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2781,7 +2782,7 @@ const deleteAiKnowledgeEntry = functions.https.onCall(async (data, context) => {
   return deleteAiKnowledgeEntryService({ entryId });
 });
 
-const migrateAiKnowledgeFields = functions.https.onCall(async (data, context) => {
+const migrateAiKnowledgeFields = withAudit('MIGRATE_AI_KNOWLEDGE', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2796,7 +2797,7 @@ const migrateAiKnowledgeFields = functions.https.onCall(async (data, context) =>
   return migrateAiKnowledgeFieldsService();
 });
 
-const migrateLegacyActivityLogs = functions.https.onCall(async (data, context) => {
+const migrateLegacyActivityLogs = withAudit('MIGRATE_LEGACY_ACTIVITY_LOGS', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }

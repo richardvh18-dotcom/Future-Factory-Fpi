@@ -298,9 +298,7 @@ service cloud.firestore {
 
     match /future-factory/production/print_queue/{jobId} {
       allow read: if canOperateProduction();
-      allow create: if canOperateProduction() && validPrintQueueCreate();
-      allow update: if canOperateProduction() && validPrintQueueUpdate();
-      allow delete: if isAdmin();
+      allow write: if false; // Verplaatst naar backend callables (printService)
     }
 
     // ISO hardening: all tracked product writes must go via backend callables.

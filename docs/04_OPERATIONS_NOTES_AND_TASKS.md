@@ -1,3 +1,9 @@
+
+
+# ==========================================
+# Oorspronkelijk document: i18n-literal-report.txt
+# ==========================================
+
 /workspaces/FPIFF-30-1/src/components/admin/AdminLabelDesigner.jsx:404:110: disallow literal string: <h1 className="font-black text-slate-900 text-lg uppercase italic tracking-tighter leading-none">
               Label <span className="text-blue-600">Architect</span>
             </h1> [Error/i18next/no-literal-string]
@@ -5466,3 +5472,80 @@
             </p> [Error/i18next/no-literal-string]
 
 1904 problems
+
+
+# ==========================================
+# Oorspronkelijk document: translation-tasks.txt
+# ==========================================
+
+# Resterende Vertaaltaken (i18n)
+
+Bijgewerkt op 15 maart 2026 op basis van de actuele code en [i18n-literal-report.txt](i18n-literal-report.txt).
+
+## Huidige stand
+
+- Er zijn nog openstaande literal-string meldingen in 84 bestanden.
+- De oude checklist hieronder was deels verouderd; meerdere componenten zijn inmiddels al omgezet naar t()-calls.
+- Naast hardcoded UI-teksten is er ook nog locale-werk open: sommige namespaces bestaan wel in nl/en, maar nog niet in de andere taalbestanden.
+
+## Gecontroleerd en bijgewerkt
+
+### Al omgezet in code
+- [x] src/components/admin/AdminLabelLogic.jsx
+- [x] src/components/admin/PersonnelManager.jsx
+- [x] src/components/admin/UserStationManager.jsx
+- [x] src/components/admin/UniversalRescueTool.jsx
+- [x] src/components/admin/AdminDrillingView.jsx
+- [x] src/components/admin/ManualSyncDrawings.jsx
+- [x] src/components/admin/VerificationBadge.jsx
+- [x] src/components/admin/ProductionTimeStandardsManager.jsx
+- [x] src/components/digitalplanning/TeamleaderHub.jsx
+- [x] src/components/digitalplanning/DepartmentStationSelector.jsx
+- [x] src/components/digitalplanning/RejectionAnalysisTile.jsx
+- [x] src/components/digitalplanning/PlannerHub.jsx
+- [x] src/components/digitalplanning/TeamleaderPipesHub.jsx
+- [x] src/components/digitalplanning/TeamleaderFittingHub.jsx
+- [x] src/components/digitalplanning/TeamleaderSpoolsHub.jsx
+- [x] src/components/digitalplanning/EfficiencyDashboard.jsx
+- [x] src/components/admin/ProjectStructureExpertView.jsx
+- [x] src/components/admin/RoadmapViewer.jsx
+
+### Nog open: ontbrekende locale-dekking
+- [ ] Voeg namespaces verification, planner en productionStandards ook toe aan src/lang/de.js
+- [ ] Voeg namespaces verification, planner en productionStandards ook toe aan src/lang/ar.js
+
+## Prioriteitenlijst op basis van literal report
+
+### Hoogste prioriteit
+- [x] src/components/planning/AutomationRulesView.jsx
+- [x] src/components/planning/ShopFloorMobileApp.jsx
+- [x] src/components/planning/CapacityPlanningView.jsx
+- [ ] src/components/planning/TimeTrackingView.jsx (35 open meldingen)
+- [ ] src/components/admin/ProjectStructureViewer.jsx (31 open meldingen)
+
+### Daarna oppakken
+- [ ] src/components/personnel/PersonnelOccupancyView.jsx (25 open meldingen)
+- [ ] src/components/digitalplanning/LossenView.jsx (24 open meldingen)
+- [ ] src/components/admin/ProductForm.jsx (24 open meldingen)
+- [ ] src/components/admin/AdminUsersView.jsx (23 open meldingen)
+- [ ] src/components/admin/AdminPrinterManager.jsx (17 open meldingen)
+- [ ] src/components/teamleader/TeamleaderDashboard.jsx (15 open meldingen)
+- [ ] src/components/planning/ScenarioPlanningView.jsx (15 open meldingen)
+- [ ] src/components/planning/OrderDependenciesView.jsx (15 open meldingen)
+- [ ] src/components/digitalplanning/terminal/TerminalPlanningView.jsx (15 open meldingen)
+- [ ] src/components/admin/PersonnelManager.jsx nalopen op resterende literals uit het report (14 open meldingen)
+- [ ] src/components/planning/NotificationRulesView.jsx (13 open meldingen)
+- [ ] src/components/digitalplanning/modals/TeamleaderOrderDetailModal.jsx (13 open meldingen)
+- [ ] src/components/digitalplanning/TeamleaderHub.jsx nalopen op resterende literals uit het report (13 open meldingen)
+
+## Werkwijze voor volgende sessies
+
+1. Pak steeds 1 tot 3 bestanden tegelijk.
+2. Vervang hardcoded UI-tekst door t()-calls.
+3. Voeg keys meteen toe aan nl.js en en.js.
+4. Vul daarna de ontbrekende keys in de.js en ar.js aan.
+5. Controleer opnieuw tegen i18n-literal-report.txt.
+
+## Prompt voor volgende sessie
+
+"Werk [translation-tasks.txt](translation-tasks.txt) af vanaf de hoogste prioriteit. Begin met [src/components/planning/AutomationRulesView.jsx](src/components/planning/AutomationRulesView.jsx), [src/components/planning/ShopFloorMobileApp.jsx](src/components/planning/ShopFloorMobileApp.jsx) en [src/components/planning/CapacityPlanningView.jsx](src/components/planning/CapacityPlanningView.jsx), voeg de benodigde keys toe aan de taalbestanden en werk daarna de takenlijst opnieuw bij." 

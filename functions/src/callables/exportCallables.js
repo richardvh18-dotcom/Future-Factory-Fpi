@@ -1,6 +1,7 @@
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const XLSX = require('xlsx');
+const { withAudit } = require('../utils/withAudit');
 
 const db = admin.firestore();
 
@@ -8,7 +9,9 @@ const db = admin.firestore();
  * Genereert een Excel export op de achtergrond en slaat deze op in Firestore
  * zodat het systeem niet wordt belast.
  */
-exports.requestExportTask = functions.region('europe-west1').https.onCall(async (data, context) => {
+exports.requestExportTask = withAudit(
+    'REQUEST_EXPORT_TASK',
+    async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'De gebruiker moet ingelogd zijn.');
     }
@@ -70,7 +73,9 @@ exports.requestExportTask = functions.region('europe-west1').https.onCall(async 
     }
 
     return { taskId: taskRef.id };
-});
+    },
+    (handler) => functions.region('europe-west1').https.onCall(handler),
+);
 
 async function generateLNCompareData(filter) {
     const { selectedMachine } = filter;

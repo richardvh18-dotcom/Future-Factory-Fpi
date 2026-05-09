@@ -21,6 +21,7 @@ const admin = require('firebase-admin');
 const auditService = require('../services/auditService');
 const { resolveUserRoleForContext } = require('../auth/resolveUserRole');
 const { clean } = require('../utils/text');
+const { withAudit } = require('../utils/withAudit');
 
 const db = admin.firestore();
 
@@ -199,7 +200,7 @@ const applyFixes = async ({ mismatches, actorUid, actorEmail, actorRole }) => {
  *
  * @throws {functions.https.HttpsError} If the user is unauthenticated or not an admin.
  */
-const runMigrationTool = functions.https.onCall(async (data, context) => {
+const runMigrationTool = withAudit('RUN_MIGRATION_TOOL', async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
