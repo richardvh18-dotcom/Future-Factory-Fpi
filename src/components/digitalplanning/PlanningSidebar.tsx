@@ -1117,209 +1117,6 @@ const PlanningSidebar = ({
     doc.save(`teamleader_gereedlijst_${completedRangeMode}_${completedPeriodLabel}.pdf`);
   };
 
-  const handleExportCurrentList = () => {
-    if (!filteredOrders.length) return;
-
-    const rows = filteredOrders.map((order) => ({
-      orderId: order.orderId || "",
-      lotNumber: order.lotNumber || order.activeLot || "",
-      item: order.item || order.itemDescription || order.itemCode || "",
-      machine: order.machine || order.originMachine || order.currentStation || "",
-      status: order.status || "",
-      week: order.weekNumber || order.week || "",
-      year: order.weekYear || order.year || "",
-      rejectType: order.rejectKind === "temp_reject" ? "Tijdelijke afkeur" : order.rejectKind === "definitive_reject" ? "Definitieve afkeur" : "",
-      rejectReason: order.inspection?.reasons ? order.inspection.reasons.join(" | ") : "",
-      updatedAt: order.updatedAt?.toDate ? order.updatedAt.toDate().toISOString() : (order.updatedAt || ""),
-    }));
-
-    const headers = Object.keys(rows[0]);
-    const escapeCsv = (value) => {
-      const text = String(value ?? "");
-      if (text.includes('"') || text.includes(",") || text.includes("\n")) {
-        return `"${text.replace(/"/g, '""')}"`;
-      }
-      return text;
-    };
-
-    const csv = [
-      headers.join(","),
-      ...rows.map((row) => headers.map((h) => escapeCsv(row[h])).join(",")),
-    ].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const datePart = new Date().toISOString().slice(0, 10);
-    const scopePart = String(dataScope || "lijst").toLowerCase();
-
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `teamleader_${scopePart}_${datePart}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const filteredProductRows = useMemo(() => {
-    const orderLookup = new Map(
-      filteredOrders.map((order) => [String(order?.orderId || order?.id || "").trim(), order])
-    );
-
-    const rows = [];
-    const seen = new Set();
-
-    // Combineer actieve en alle soorten gearchiveerde producten voor een compleet overzicht
-    const allProducts = [...trackedProducts, ...archivedProducts, ...archivedHistoryProducts];
-
-    allProducts.forEach((product) => {
-      const orderKey = getOrderIdFromRecord(product);
-      if (!orderKey || !orderLookup.has(orderKey)) return;
-
-      const lotNumber = String(product?.lotNumber || product?.activeLot || product?.id || "").trim();
-      const dedupeKey = `${orderKey}__${lotNumber || product?.id || ""}`;
-      if (seen.has(dedupeKey)) return;
-      seen.add(dedupeKey);
-
-      const order = orderLookup.get(orderKey);
-      const stationLabel = getStationLabel(
-        product?.currentStation || product?.currentStep || product?.lastStation || product?.originMachine || product?.machine || order?.machine || ""
-      );
-
-      // Tijdsindicatie toevoegen voor PDF
-      const finishedDateRaw = product?.finishedAt || product?.completedAt || product?.archivedAt || product?.updatedAt || product?.timestamps?.finished;
-      const finishedDate = finishedDateRaw ? toEntryDate({ ...product, finishedAt: finishedDateRaw }) : null;
-      const createdDateRaw = product?.createdAt || product?.startedAt || product?.timestamps?.started;
-      const createdDate = createdDateRaw ? toEntryDate({ ...product, createdAt: createdDateRaw }) : null;
-
-      rows.push({
-        lotNumber,
-        orderId: orderKey,
-        product: product?.item || product?.itemDescription || order?.item || order?.itemDescription || order?.itemCode || "",
-        station: stationLabel,
-        poText: order?.notes || order?.poText || "",
-        status: product?.status || order?.status || "",
-        finishedAt: finishedDate && isValid(finishedDate) ? format(finishedDate, "dd-MM-yyyy HH:mm") : "-",
-        createdAt: createdDate && isValid(createdDate) ? format(createdDate, "dd-MM-yyyy HH:mm") : "-",
-      });
-    });
-
-    if (rows.length > 0) return rows;
-
-    // Fallback: als er geen tracked products zijn, exporteer minimale orderregels.
-    return filteredOrders.map((order) => ({
-      lotNumber: order?.lotNumber || order?.activeLot || "",
-      orderId: order?.orderId || order?.id || "",
-      product: order?.item || order?.itemDescription || order?.itemCode || "",
-      station: getStationLabel(order?.machine || ""),
-      poText: order?.notes || order?.poText || "",
-      status: order?.status || "",
-      finishedAt: "-",
-      createdAt: "-",
-    }));
-  }, [filteredOrders, trackedProducts, archivedProducts, archivedHistoryProducts]);
-
-  const handleExportCurrentPdf = async () => {
-    if (!filteredProductRows.length) return;
-
-    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-      import("jspdf"),
-      import("jspdf-autotable"),
-    ]);
-
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const datePart = new Date().toISOString().slice(0, 10);
-    const selectedOption = machines.find((option) => option.value === selectedMachine);
-    const filterLabel = selectedOption?.label || selectedMachine;
-
-    doc.setFontSize(14);
-    doc.text("Planning Productlijst", 14, 14);
-    doc.setFontSize(9);
-    doc.text(`Filter: ${filterLabel}`, 14, 20);
-    doc.text(`Scope: ${dataScope}`, 70, 20);
-    doc.text(`Datum: ${datePart}`, 110, 20);
-    doc.text(`Totaal: ${filteredProductRows.length}`, 155, 20);
-
-    autoTable(doc, {
-      startY: 25,
-      styles: { fontSize: 8, cellPadding: 1.5, overflow: "linebreak" },
-      headStyles: { fillColor: [15, 23, 42], textColor: 255 },
-      head: [["Lotnummer", "Ordernummer", "Product", "Aangemaakt", "Gereed", "Station", "PO Text"]],
-      body: filteredProductRows.map((row) => [
-        row.lotNumber || "",
-        row.orderId || "",
-        row.product || "",
-        row.createdAt || "-",
-        row.finishedAt || "-",
-        row.station || "",
-        row.poText || "",
-      ]),
-      columnStyles: {
-        0: { cellWidth: 28 },
-        1: { cellWidth: 24 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 30 },
-        4: { cellWidth: 30 },
-        5: { cellWidth: 22 },
-        6: { cellWidth: 84 },
-      },
-    });
-
-    doc.save(`planning_productlijst_${String(selectedMachine || "all").toLowerCase()}_${datePart}.pdf`);
-  };
-
-  const getOrderDisplayName = (order) => {
-    return (
-      order?.item ||
-      order?.itemDescription ||
-      order?.itemCode ||
-      order?.productId ||
-      t("digitalplanning.sidebar.no_itemcode")
-    );
-  };
-
-  const formatDeliveryDate = (order) => {
-    const candidates = [
-      order?.rejectDate,
-      order?.plannedDeliveryDate,
-      order?.deliveryDate,
-      order?.dueDate,
-      order?.plannedDate,
-      order?.date,
-    ];
-
-    for (const value of candidates) {
-      if (!value) continue;
-      const date =
-        typeof value?.toDate === "function"
-          ? value.toDate()
-          : new Date(value);
-      if (Number.isFinite(date.getTime())) {
-        const dateStr = date.toLocaleDateString("nl-NL", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        });
-        const week = String(getISOWeek(date)).padStart(2, "0");
-        return `${dateStr}  W${week}`;
-      }
-    }
-
-    return "--";
-  };
-
-  const formatDateWithWeek = (dateInput) => {
-    const date = typeof dateInput?.toDate === "function" ? dateInput.toDate() : new Date(dateInput);
-    if (!Number.isFinite(date.getTime())) return "--";
-    const dateStr = date.toLocaleDateString("nl-NL", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-    const week = String(getISOWeek(date)).padStart(2, "0");
-    return `${dateStr}  W${week}`;
-  };
-
   const machineThroughputPerDay = useMemo(() => {
     const now = new Date();
     const windowStart = new Date(now);
@@ -1457,6 +1254,225 @@ const PlanningSidebar = ({
     return result;
   }, [sourceData, machineThroughputPerDay, trackedFinishedByOrder]);
 
+  const handleExportCurrentList = () => {
+    if (!filteredOrders.length) return;
+
+    const rows = filteredOrders.map((order) => {
+      const prediction = predictedScheduleByOrder.get(getOrderIdentity(order));
+      const predictionDateStr = prediction?.predictedReadyDate ? format(prediction.predictedReadyDate, "yyyy-MM-dd") : "";
+      return {
+      orderId: order.orderId || "",
+      lotNumber: order.lotNumber || order.activeLot || "",
+      item: order.item || order.itemDescription || order.itemCode || "",
+      machine: order.machine || order.originMachine || order.currentStation || "",
+      status: order.status || "",
+      week: order.weekNumber || order.week || "",
+      year: order.weekYear || order.year || "",
+      rejectType: order.rejectKind === "temp_reject" ? "Tijdelijke afkeur" : order.rejectKind === "definitive_reject" ? "Definitieve afkeur" : "",
+      rejectReason: order.inspection?.reasons ? order.inspection.reasons.join(" | ") : "",
+      updatedAt: order.updatedAt?.toDate ? order.updatedAt.toDate().toISOString() : (order.updatedAt || ""),
+      predictedReadyDate: predictionDateStr,
+      };
+    });
+
+    const headers = Object.keys(rows[0]);
+    const escapeCsv = (value) => {
+      const text = String(value ?? "");
+      if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) => headers.map((h) => escapeCsv(row[h])).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const datePart = new Date().toISOString().slice(0, 10);
+    const scopePart = String(dataScope || "lijst").toLowerCase();
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `teamleader_${scopePart}_${datePart}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const filteredProductRows = useMemo(() => {
+    const orderLookup = new Map(
+      filteredOrders.map((order) => [String(order?.orderId || order?.id || "").trim(), order])
+    );
+
+    const rows = [];
+    const seen = new Set();
+
+    // Combineer actieve en alle soorten gearchiveerde producten voor een compleet overzicht
+    const allProducts = [...trackedProducts, ...archivedProducts, ...archivedHistoryProducts];
+
+    allProducts.forEach((product) => {
+      const orderKey = getOrderIdFromRecord(product);
+      if (!orderKey || !orderLookup.has(orderKey)) return;
+
+      const lotNumber = String(product?.lotNumber || product?.activeLot || product?.id || "").trim();
+      const dedupeKey = `${orderKey}__${lotNumber || product?.id || ""}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+
+      const order = orderLookup.get(orderKey);
+      const stationLabel = getStationLabel(
+        product?.currentStation || product?.currentStep || product?.lastStation || product?.originMachine || product?.machine || order?.machine || ""
+      );
+
+      // Tijdsindicatie toevoegen voor PDF
+      const prediction = predictedScheduleByOrder.get(getOrderIdentity(order));
+      const predictionDateStr = prediction?.predictedReadyDate ? format(prediction.predictedReadyDate, "dd-MM-yyyy") : "-";
+
+      const finishedDateRaw = product?.finishedAt || product?.completedAt || product?.archivedAt || product?.updatedAt || product?.timestamps?.finished;
+      const finishedDate = finishedDateRaw ? toEntryDate({ ...product, finishedAt: finishedDateRaw }) : null;
+      const createdDateRaw = product?.createdAt || product?.startedAt || product?.timestamps?.started;
+      const createdDate = createdDateRaw ? toEntryDate({ ...product, createdAt: createdDateRaw }) : null;
+
+      rows.push({
+        lotNumber,
+        orderId: orderKey,
+        product: product?.item || product?.itemDescription || order?.item || order?.itemDescription || order?.itemCode || "",
+        station: stationLabel,
+        poText: order?.notes || order?.poText || "",
+        status: product?.status || order?.status || "",
+        finishedAt: finishedDate && isValid(finishedDate) ? format(finishedDate, "dd-MM-yyyy HH:mm") : "-",
+        createdAt: createdDate && isValid(createdDate) ? format(createdDate, "dd-MM-yyyy HH:mm") : "-",
+        predictedReadyDate: predictionDateStr,
+      });
+    });
+
+    if (rows.length > 0) return rows;
+
+    // Fallback: als er geen tracked products zijn, exporteer minimale orderregels.
+    return filteredOrders.map((order) => {
+      const prediction = predictedScheduleByOrder.get(getOrderIdentity(order));
+      const predictionDateStr = prediction?.predictedReadyDate ? format(prediction.predictedReadyDate, "dd-MM-yyyy") : "-";
+      return {
+      lotNumber: order?.lotNumber || order?.activeLot || "",
+      orderId: order?.orderId || order?.id || "",
+      product: order?.item || order?.itemDescription || order?.itemCode || "",
+      station: getStationLabel(order?.machine || ""),
+      poText: order?.notes || order?.poText || "",
+      status: order?.status || "",
+      finishedAt: "-",
+      createdAt: "-",
+      predictedReadyDate: predictionDateStr,
+      };
+    });
+  }, [filteredOrders, trackedProducts, archivedProducts, archivedHistoryProducts, predictedScheduleByOrder]);
+
+  const handleExportCurrentPdf = async () => {
+    if (!filteredProductRows.length) return;
+
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const datePart = new Date().toISOString().slice(0, 10);
+    const selectedOption = machines.find((option) => option.value === selectedMachine);
+    const filterLabel = selectedOption?.label || selectedMachine;
+
+    doc.setFontSize(14);
+    doc.text("Planning Productlijst", 14, 14);
+    doc.setFontSize(9);
+    doc.text(`Filter: ${filterLabel}`, 14, 20);
+    doc.text(`Scope: ${dataScope}`, 70, 20);
+    doc.text(`Datum: ${datePart}`, 110, 20);
+    doc.text(`Totaal: ${filteredProductRows.length}`, 155, 20);
+
+    autoTable(doc, {
+      startY: 25,
+      styles: { fontSize: 8, cellPadding: 1.5, overflow: "linebreak" },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+      head: [["Lotnummer", "Ordernummer", "Product", "Aangemaakt", "Gereed", "Voorspeld", "Station", "PO Text"]],
+      body: filteredProductRows.map((row) => [
+        row.lotNumber || "",
+        row.orderId || "",
+        row.product || "",
+        row.createdAt || "-",
+        row.finishedAt || "-",
+        row.predictedReadyDate || "-",
+        row.station || "",
+        row.poText || "",
+      ]),
+      columnStyles: {
+        0: { cellWidth: 26 },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 44 },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 24 },
+        5: { cellWidth: 24 },
+        6: { cellWidth: 22 },
+        7: { cellWidth: 80 },
+      },
+    });
+
+    doc.save(`planning_productlijst_${String(selectedMachine || "all").toLowerCase()}_${datePart}.pdf`);
+  };
+
+  const getOrderDisplayName = (order) => {
+    return (
+      order?.item ||
+      order?.itemDescription ||
+      order?.itemCode ||
+      order?.productId ||
+      t("digitalplanning.sidebar.no_itemcode")
+    );
+  };
+
+  const formatDeliveryDate = (order) => {
+    const candidates = [
+      order?.rejectDate,
+      order?.plannedDeliveryDate,
+      order?.deliveryDate,
+      order?.dueDate,
+      order?.plannedDate,
+      order?.date,
+    ];
+
+    for (const value of candidates) {
+      if (!value) continue;
+      const date =
+        typeof value?.toDate === "function"
+          ? value.toDate()
+          : new Date(value);
+      if (Number.isFinite(date.getTime())) {
+        const dateStr = date.toLocaleDateString("nl-NL", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+        const week = String(getISOWeek(date)).padStart(2, "0");
+        return `${dateStr}  W${week}`;
+      }
+    }
+
+    return "--";
+  };
+
+  const formatDateWithWeek = (dateInput) => {
+    const date = typeof dateInput?.toDate === "function" ? dateInput.toDate() : new Date(dateInput);
+    if (!Number.isFinite(date.getTime())) return "--";
+    const dateStr = date.toLocaleDateString("nl-NL", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const week = String(getISOWeek(date)).padStart(2, "0");
+    return `${dateStr}  W${week}`;
+  };
+
   const getOrderTileTintClass = (order) => {
     const orderKey = normalizeOrderKey(getOrderIdentity(order));
     if (virtualLotsByOrder.has(orderKey)) {
@@ -1504,6 +1520,7 @@ const PlanningSidebar = ({
 
   const Row = ({ index, style }) => {
     const order = filteredOrders[index];
+    if (!order) return null;
     const isSelected =
       selectedOrderId === order.id || selectedOrderId === order.orderId;
     const isNew = isOrderNew(order);
@@ -1558,9 +1575,8 @@ const PlanningSidebar = ({
     return (
       <div style={style} className="px-2 py-1">
         <button
-          key={order.id}
           onClick={() => onSelect(order)}
-          className={`w-full h-full p-4 rounded-2xl border-2 text-left transition-all duration-200 group relative overflow-hidden
+          className={`w-full h-full p-3 rounded-2xl border-2 text-left transition-all duration-200 group relative overflow-hidden block
             ${
               isSelected
                 ? "bg-emerald-50 border-emerald-500 shadow-md shadow-emerald-100"
@@ -1573,7 +1589,7 @@ const PlanningSidebar = ({
           `}
         >
           {isNew && (
-            <div className="absolute top-0 right-0 px-2 py-1 bg-emerald-500 text-white text-[8px] font-black uppercase tracking-widest rounded-bl-lg z-10 shadow-sm">
+            <div className="absolute top-0 right-0 px-2 py-0.5 bg-emerald-500 text-white text-[8px] font-black uppercase tracking-widest rounded-bl-lg z-10 shadow-sm">
               Nieuw
             </div>
           )}
@@ -1590,135 +1606,112 @@ const PlanningSidebar = ({
             />
           )}
 
-          <div className="flex justify-between items-start mb-2">
-            <div className="flex flex-col overflow-hidden">
-              <span
-                className={`font-black text-sm uppercase tracking-tight truncate ${
-                  isSelected ? "text-emerald-800" : "text-slate-700"
-                }`}
-              >
-                {getOrderDisplayName(order)}
-              </span>
-              <div className="flex items-center gap-1.5">
+          <div className="flex justify-between items-start mb-1">
+            <div className="flex flex-col overflow-hidden w-[70%]">
+              <div className="flex items-center gap-2 mb-0.5">
                 <span
                   className={`font-black text-sm tracking-tighter truncate ${
-                    isSelected ? "text-emerald-700" : "text-slate-900"
+                    isSelected ? "text-emerald-800" : "text-slate-900"
                   }`}
                 >
                   {order.orderId || t("digitalplanning.sidebar.no_id")}
                 </span>
-                {isDelegated && (
-                  <Factory size={12} className="text-purple-500" title={`Gedelegeerd aan ${order.delegatedTo}`} />
-                )}
-                {priorityBadge && (
-                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${priorityBadge.className}`}>
-                    {priorityBadge.label}
-                  </span>
-                )}
+                <span className="text-[10px] font-bold text-slate-400 truncate">
+                  {order.itemCode || order.productId || "-"}
+                </span>
               </div>
-              {order.extraCode && order.extraCode !== "-" && (
-                <span className="mt-0.5 inline-block px-1.5 py-0.5 bg-amber-400 text-amber-900 border border-amber-500 rounded text-[9px] font-black uppercase tracking-wide">
-                  {order.extraCode}
-                </span>
-              )}
-              {orderTypeBadge && (
-                <span className={`mt-0.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${orderTypeBadge.className}`}>
-                  {orderTypeBadge.label}
-                </span>
-              )}
-              {order.project && (
-                <span className="text-[9px] font-bold uppercase tracking-tighter text-slate-400 truncate max-w-[120px]">
-                  {order.project}
-                </span>
+              
+              <span
+                className={`font-bold text-xs truncate ${
+                  isSelected ? "text-emerald-700" : "text-slate-600"
+                }`}
+              >
+                {getOrderDisplayName(order)}
+              </span>
+
+              {((order.extraCode && order.extraCode !== "-") || orderTypeBadge || order.project || priorityBadge || isDelegated) && (
+                <div className="flex flex-wrap items-center gap-1 mt-1">
+                  {isDelegated && (
+                    <Factory size={10} className="text-purple-500" title={`Gedelegeerd aan ${order.delegatedTo}`} />
+                  )}
+                  {priorityBadge && (
+                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide ${priorityBadge.className}`}>
+                      {priorityBadge.label}
+                    </span>
+                  )}
+                  {order.extraCode && order.extraCode !== "-" && (
+                    <span className="px-1.5 py-0.5 bg-amber-400 text-amber-900 border border-amber-500 rounded text-[8px] font-black uppercase tracking-wide">
+                      {order.extraCode}
+                    </span>
+                  )}
+                  {orderTypeBadge && (
+                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide ${orderTypeBadge.className}`}>
+                      {orderTypeBadge.label}
+                    </span>
+                  )}
+                  {order.project && (
+                    <span className="text-[8px] font-bold uppercase tracking-tighter text-slate-400 truncate max-w-[120px]">
+                      {order.project}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-            {isDelegatedStatus ? (
-              <span className="px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 border border-purple-200 shadow-sm">
+            
+            <div className="shrink-0 mt-0.5">
+              {isDelegatedStatus ? (
+                <span className="px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 border border-purple-200 shadow-sm">
                 Delegated
               </span>
             ) : (
               <StatusBadge status={effectiveStatus} />
             )}
           </div>
-
-          <div className="flex items-center gap-2 mb-3">
-            <p className="text-[10px] font-bold text-slate-400 truncate">
-              {order.itemCode || order.productId || "-"}
-            </p>
           </div>
 
-          {/* Totaal Gereed */}
-          <div className="mb-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1">
-            <p className="text-[9px] font-black uppercase tracking-wide text-blue-600">Totaal Gereed</p>
-            <p className="text-[11px] font-black text-blue-900">
-              {getFinishedUnitsForOrder(order)} / {Math.max(0, getEffectivePlanQty(order))}
-            </p>
-          </div>
-
-          {/* Wikkelstappen (Planned Hours per step) */}
-          {(order?.plannedHoursBH || order?.plannedHoursNabewerken || order?.plannedHoursBM01) && (
-            <div className="mb-2 rounded-lg border border-purple-100 bg-purple-50 px-2 py-1">
-              <p className="text-[9px] font-black uppercase tracking-wide text-purple-600">Wikkelstappen (LN)</p>
-              <div className="flex gap-1.5 mt-1">
-                {order?.plannedHoursBH > 0 && (
-                  <span className="text-[9px] font-bold bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded">
-                    BH: {order.plannedHoursBH.toFixed(1)}h
-                  </span>
-                )}
-                {order?.plannedHoursNabewerken > 0 && (
-                  <span className="text-[9px] font-bold bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded">
-                    Nab: {order.plannedHoursNabewerken.toFixed(1)}h
-                  </span>
-                )}
-                {order?.plannedHoursBM01 > 0 && (
-                  <span className="text-[9px] font-bold bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded">
-                    BM01: {order.plannedHoursBM01.toFixed(1)}h
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {(order.poText || order.notes) && (
-            <div className="mb-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1">
-              <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">PO Text</p>
-              <p className="truncate text-[10px] font-bold text-amber-900">
-                {order.poText || order.notes}
+          {/* Totaal Gereed & Leverdata Blok */}
+          <div className="mb-2 rounded-xl border border-slate-100 bg-slate-50/50 p-2 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[9px] font-black uppercase tracking-wide text-blue-600">Totaal Gereed</p>
+              <p className="text-[10px] font-black text-blue-900 bg-blue-100/50 px-1.5 py-0.5 rounded">
+                {getFinishedUnitsForOrder(order)} / {Math.max(0, getEffectivePlanQty(order))}
               </p>
             </div>
-          )}
 
-          <div className="flex items-center gap-1.5 mb-2 text-[10px] font-bold text-slate-500">
-            <Calendar size={10} className="text-slate-300" />
-            <span className="uppercase text-slate-400">Leverdatum:</span>
-            <span className="text-slate-700">{formatDeliveryDate(order)}</span>
-          </div>
+            <div className="h-px bg-slate-200 w-full opacity-50" />
 
-          <div className="flex items-center gap-1.5 mb-2 text-[10px] font-bold text-slate-500">
-            <Calendar size={10} className="text-slate-300" />
-            <span className="uppercase text-slate-400">
-              {t("digitalplanning.sidebar.predicted_ready", "Voorspelde gereeddatum")}:
-            </span>
-            <span className="text-slate-700">
-              {prediction?.predictedReadyDate ? formatDateWithWeek(prediction.predictedReadyDate) : "--"}
-            </span>
-            <span className={`ml-1 ${predictionClass}`}>
-              {predictionLabel}
-              {Number.isFinite(prediction?.slipDays)
-                ? ` (${prediction.slipDays > 0 ? "+" : ""}${prediction.slipDays}d)`
-                : ""}
-            </span>
-          </div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[9px] font-bold text-slate-500">
+                <div className="flex items-center gap-1.5">
+                  <Calendar size={10} className="text-slate-400" />
+                  <span className="uppercase text-slate-400">Leverdatum:</span>
+                </div>
+                <span className="text-slate-700">{formatDeliveryDate(order)}</span>
+              </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-slate-100/50">
-            <div className="flex items-center gap-2">
-              {isNew && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[8px] font-black uppercase tracking-wider">
-                  <Sparkles size={8} />
-                  Nieuw
-                </span>
-              )}
+              <div className="flex items-center justify-between text-[9px] font-bold text-slate-500">
+                <div className="flex items-center gap-1.5">
+                  <Calendar size={10} className="text-slate-400" />
+                  <span className="uppercase text-slate-400 truncate max-w-[80px]" title={t("digitalplanning.sidebar.predicted_ready", "Voorspelde gereeddatum")}>
+                    Voorspeld:
+                  </span>
+                </div>
+                <div className="text-right truncate">
+                  <span className="text-slate-700">
+                    {prediction?.predictedReadyDate ? formatDateWithWeek(prediction.predictedReadyDate) : "--"}
+                  </span>
+                  <span className={`ml-1 ${predictionClass}`}>
+                    {predictionLabel}
+                    {Number.isFinite(prediction?.slipDays)
+                      ? ` (${prediction.slipDays > 0 ? "+" : ""}${prediction.slipDays}d)`
+                      : ""}
+                  </span>
+                </div>
+              </div>
             </div>
+          </div>
+
+          <div className="absolute bottom-3 right-3">
             <ChevronRight
               size={14}
               className={`transition-transform duration-300 ${
@@ -1732,128 +1725,6 @@ const PlanningSidebar = ({
       </div>
     );
   };
-
-  // FALLBACK: Als react-window niet geladen kan worden, toon een standaard lijst.
-  // Dit voorkomt de "Element type is invalid" crash.
-  if (!FixedSizeList) {
-    return (
-      <div className="flex flex-col h-full bg-white border-r border-slate-200 animate-in fade-in duration-300">
-        <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-3">
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              type="text"
-              placeholder={t("digitalplanning.sidebar.search_placeholder")}
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <select 
-                value={selectedMachine}
-                onChange={(e) => setSelectedMachine(e.target.value)}
-                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500 cursor-pointer"
-              >
-                {machines.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </select>
-            </div>
-            <div className="relative flex-1">
-              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              {isRejectScope ? (
-                <select
-                  value={rejectPeriod}
-                  onChange={(e) => setRejectPeriod(e.target.value)}
-                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
-                >
-                  <option value="this_week">Deze week</option>
-                  <option value="previous_week">Vorige week</option>
-                  <option value="this_month">Deze maand</option>
-                  <option value="this_year">Dit jaar</option>
-                  <option value="all">Alles</option>
-                </select>
-              ) : isCompletedScope ? (
-                <select
-                  value={completedRangeMode}
-                  onChange={(e) => setCompletedRangeMode(e.target.value)}
-                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
-                >
-                  <option value="day">Per dag</option>
-                  <option value="week">Per week</option>
-                </select>
-              ) : (
-                <select
-                  value={sortMode}
-                  onChange={(e) => setSortMode(e.target.value)}
-                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
-                >
-                  <option value="week_backlog">{t("digitalplanning.sidebar.sort_week_backlog", "Week + Backlog")}</option>
-                  <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
-                  <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
-                  <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
-                </select>
-              )}
-            </div>
-            <div className="relative flex-1">
-              <Archive className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <select
-                value={dataScope}
-                onChange={(e) => setDataScope(e.target.value)}
-                className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
-              >
-                {scopeOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-            {isCompletedScope && (
-              <div className="relative flex-1">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                <input
-                  type="date"
-                  value={completedDateValue}
-                  onChange={(e) => setCompletedDateValue(e.target.value)}
-                  className="w-full pl-9 pr-2 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase outline-none focus:border-blue-500"
-                />
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={isCompletedScope ? handleExportCompletedPdf : handleExportCurrentPdf}
-              disabled={filteredOrders.length === 0}
-              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-              title={isCompletedScope ? "Exporteer gereedlijst als PDF" : "Exporteer huidige lijst als PDF"}
-            >
-              <Printer size={14} /> PDF
-            </button>
-            <button
-              type="button"
-              onClick={isCompletedScope ? handleExportCompletedExcel : handleExportCurrentList}
-              disabled={filteredOrders.length === 0}
-              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-              title={isCompletedScope ? "Exporteer gereedlijst als Excel" : "Exporteer huidige lijst"}
-            >
-              <Download size={14} /> {isCompletedScope ? "Excel" : "Export"}
-            </button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-1 custom-scrollbar">
-           {filteredOrders.map((order, index) => (
-             <div key={order.id} style={{ height: 176, width: "100%" }}>
-                <Row index={index} style={{ height: "100%", width: "100%" }} />
-             </div>
-          ))}
-          {filteredOrders.length === 0 && loadingArchive && isHistoryScope && (
-             <div className="p-8 text-center text-xs text-slate-400 font-bold uppercase tracking-widest">
-               Archief laden...
-             </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-slate-200 animate-in fade-in duration-300">
@@ -1964,7 +1835,7 @@ const PlanningSidebar = ({
 
       <div className="flex-1 overflow-hidden p-1">
         {filteredOrders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 px-4 text-center opacity-40">
+          <div className="flex flex-col items-center justify-center py-12 px-4 text-center opacity-40 w-full">
             {loadingArchive && isHistoryScope ? (
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Archief laden...</p>
             ) : (
@@ -1982,11 +1853,13 @@ const PlanningSidebar = ({
               <FixedSizeList
                 className="custom-scrollbar"
                 rowCount={filteredOrders.length}
-                rowHeight={176}
+                rowHeight={148}
+                height={height}
+                width={width}
                 rowComponent={Row}
                 rowProps={{}}
-                style={{ height, width }}
-              />
+              >
+              </FixedSizeList>
             )}
           </AutoSizer>
         )}

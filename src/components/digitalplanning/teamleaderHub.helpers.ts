@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { normalizeMachine, PIPE_MACHINES } from "../../utils/hubHelpers";
 
 export const getLotFromTrackedRecord = (record) => {

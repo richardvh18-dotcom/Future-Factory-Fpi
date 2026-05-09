@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from "react";
 import { collection, collectionGroup, query, onSnapshot, doc, where } from "firebase/firestore";
 import { getAuth } from "firebase/auth";

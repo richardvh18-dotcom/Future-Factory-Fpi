@@ -50,6 +50,7 @@ import { TeamleaderModals } from "./TeamleaderModals";
 import { TeamleaderSelectionProvider } from "./TeamleaderSelectionContext.tsx";
 import { TeamleaderModalProvider } from "./TeamleaderModalContext.tsx";
 import TeamleaderExportModal from "./modals/TeamleaderExportModal";
+import { SmartPlanningSuggestions } from "./SmartPlanningSuggestions";
 
 /**
  * TeamleaderHub V7.3 - Strict Filtering Update & Cleanup
@@ -556,25 +557,31 @@ const TeamleaderHub = React.memo(({
             />
           ) : (
             <TeamleaderSelectionProvider value={selectionContextValue}>
-              <div className="h-full flex gap-6 overflow-hidden">
-                <TeamleaderOrderRail
-                  canManageOverproduction={canManageOverproduction}
-                  overproductionGroups={overproductionGroups}
-                  onOpenOverproductionGroup={handleOpenOverproductionGroup}
-                  resolveOverproductionRoute={resolveOverproductionRoute}
-                  orders={dataStore}
-                  trackedProducts={rawProducts}
-                  archivedHistoryProducts={archivedHistoryProducts}
+              <div className="h-full flex flex-col overflow-hidden">
+                <SmartPlanningSuggestions 
+                  orders={dataStore} 
+                  onOrderClick={handleSidebarSelect} 
                 />
-                <TeamleaderDetailPane
-                  handleMoveLot={handleMoveLot}
-                  setViewingDossier={setViewingDossier}
-                  targetSlug={targetSlug}
-                  effectiveStations={effectiveStations}
-                  rawProducts={rawProducts}
-                  archivedHistoryProducts={archivedHistoryProducts}
-                  handleOpenArchivedLotDossier={handleOpenArchivedLotDossier}
-                />
+                <div className="flex-1 flex gap-6 min-h-0 overflow-hidden">
+                  <TeamleaderOrderRail
+                    canManageOverproduction={canManageOverproduction}
+                    overproductionGroups={overproductionGroups}
+                    onOpenOverproductionGroup={handleOpenOverproductionGroup}
+                    resolveOverproductionRoute={resolveOverproductionRoute}
+                    orders={dataStore}
+                    trackedProducts={rawProducts}
+                    archivedHistoryProducts={archivedHistoryProducts}
+                  />
+                  <TeamleaderDetailPane
+                    handleMoveLot={handleMoveLot}
+                    setViewingDossier={setViewingDossier}
+                    targetSlug={targetSlug}
+                    effectiveStations={effectiveStations}
+                    rawProducts={rawProducts}
+                    archivedHistoryProducts={archivedHistoryProducts}
+                    handleOpenArchivedLotDossier={handleOpenArchivedLotDossier}
+                  />
+                </div>
               </div>
             </TeamleaderSelectionProvider>
           )}

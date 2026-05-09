@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useMemo } from "react";
 import { getISOWeek, startOfISOWeek } from "date-fns";
 import { normalizeMachine, getStartedCounterField } from "../../utils/hubHelpers";

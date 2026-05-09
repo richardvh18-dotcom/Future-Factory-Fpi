@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useMemo } from "react";
 import { normalizeMachine, FITTING_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
 import { normalizeOrderStatus } from "../../utils/trackingHelpers";

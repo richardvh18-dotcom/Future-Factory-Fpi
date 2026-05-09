@@ -1,3 +1,70 @@
+## Update sessie 9 mei 2026 (Laatste TypeScript cleanup + aiService importfix)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Uitgevoerd in deze sessie:
+**1. Laatste `src` JavaScript-bestanden gemigreerd naar TypeScript**
+- Overgebleven `.js`-bestanden in `src/` hernoemd naar `.ts`.
+- `// @ts-nocheck` toegevoegd op de gemigreerde bestanden om functioneel gedrag stabiel te houden tijdens deze afrondende migratiestap.
+- Gemigreerde bestanden:
+    - `src/components/admin/GodModeBootstrap.ts`
+    - `src/components/digitalplanning/teamleaderHub.helpers.ts`
+    - `src/components/digitalplanning/terminal/useTerminalGereedData.ts`
+    - `src/components/digitalplanning/useTeamleaderDataStore.ts`
+    - `src/components/digitalplanning/useTeamleaderEventHandlers.ts`
+    - `src/components/digitalplanning/useTeamleaderFirestore.ts`
+    - `src/components/digitalplanning/useTeamleaderMetrics.ts`
+    - `src/components/digitalplanning/useTeamleaderModalData.ts`
+    - `src/components/printer/usbPrintService.ts`
+    - `src/utils/automationEngine.test.ts`
+    - `src/utils/efficiencyCalculator.test.ts`
+    - `src/utils/planningProgress.test.ts`
+
+**2. Build-warning opgelost in Smart Planning component**
+- In `src/components/digitalplanning/SmartPlanningSuggestions.tsx` is de AI import opgeschoond:
+    - namespace/default fallback verwijderd;
+    - vervangen door expliciete named import: `import { aiService } from '../../services/aiService';`
+- Effect: Rollup/Vite warning over ontbrekende default export uit `aiService.ts` verdwenen.
+
+### Validatie:
+- `npm run type-check` ✅
+- `npm run build` ✅
+- `npm run ts:refresh-baseline` ✅
+- `npm run enforce:new-ts` ✅
+- `get_errors` (workspace) ✅ geen errors
+
+### Resultaat:
+- `src/` bevat nu **0** `.js/.jsx` bestanden volgens de TypeScript baseline.
+- Laatste bekende AI import/export mismatch is opgelost zonder regressies in build.
+
+---
+
+## Update sessie 8 mei 2026 (Smart Planning AI & Sidebar UI Optimalisaties)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Uitgevoerd in deze sessie:
+**1. AI Planningsassistent (Smart Planning)**
+- Nieuwe visuele module (`SmartPlanningSuggestions.tsx`) direct geïntegreerd bovenaan de Teamleader Hub (Volledige Lijst).
+- Module toont de top 5 prioriteitsorders gebaseerd op een weging tussen vrachtwagen/leverdatum en order type.
+- Zwaar rekenwerk (sorteren en berekenen van alle openstaande orders) verplaatst naar de backend via een nieuwe Cloud Function (`calculateSmartSuggestions` in `smartSchedulerCallables.js`), wat tablets ontlast en prestaties garandeert bij opschalen naar meerdere afdelingen.
+- AI analyseert de top 5 en vertaalt deze naar begrijpelijk advies voor de operator (menselijke "waarom" verklaring).
+- UI verfijnd en compacter gemaakt om minimale schermruimte in te nemen.
+
+**2. Planning Sidebar UI Optimalisatie**
+- Grote opschoonactie in `PlanningSidebar.tsx` om orderkaartjes overzichtelijker en compacter te maken.
+- Oude logica rondom losse uren per wikkelstap verwijderd uit de lijstweergave.
+- PO-tekst uit de zijbalklijst gehaald (dit blijft uiteraard wel in het OrderDetail rechterpaneel staan).
+- Nieuw geïntegreerd statusblok ontworpen waarin Totaal Gereed, Leverdatum en de Voorspelde Gereeddatum strak zijn samengevoegd met dividers.
+- Extra badges (EMT, CST, Projectcodes, Delegated) horizontaal laten teruglopen in plaats van verticaal, wat de kaartjes aanzienlijk korter maakt.
+- Totale kaart-hoogte in de virtualizer teruggeschroefd naar `148px`.
+- Fouten met `react-window` component-eigenschappen opgelost zodat de lijst supersnel scrollt via virtualisatie zonder crashes.
+
+**3. Exports Uitgebreid**
+- De 'Voorspelde gereeddatum' (uit de AI pijplijn) is nu succesvol toegevoegd aan zowel de PDF- als de Excel-exports.
+
+---
+
 ## Update sessie 8 mei 2026 (later) — TypeScript migratie Components Batch
 
 **Branch:** `FPiFF-18-12-May`

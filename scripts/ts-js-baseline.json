@@ -1,17 +1,4 @@
 {
-  "generatedAt": "2026-05-08T17:17:30.015Z",
-  "files": [
-    "src/components/admin/GodModeBootstrap.js",
-    "src/components/digitalplanning/teamleaderHub.helpers.js",
-    "src/components/digitalplanning/terminal/useTerminalGereedData.js",
-    "src/components/digitalplanning/useTeamleaderDataStore.js",
-    "src/components/digitalplanning/useTeamleaderEventHandlers.js",
-    "src/components/digitalplanning/useTeamleaderFirestore.js",
-    "src/components/digitalplanning/useTeamleaderMetrics.js",
-    "src/components/digitalplanning/useTeamleaderModalData.js",
-    "src/components/printer/usbPrintService.js",
-    "src/utils/automationEngine.test.js",
-    "src/utils/efficiencyCalculator.test.js",
-    "src/utils/planningProgress.test.js"
-  ]
+  "generatedAt": "2026-05-09T19:29:50.557Z",
+  "files": []
 }

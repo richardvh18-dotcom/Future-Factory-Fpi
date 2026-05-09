@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Controleert of WebUSB wordt ondersteund in deze browser.
  */

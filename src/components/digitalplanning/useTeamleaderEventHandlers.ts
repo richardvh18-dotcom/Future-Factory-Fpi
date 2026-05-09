@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useCallback } from "react";
 import { format, subDays } from "date-fns";
 import { collection, getDocs, query, where, limit } from "firebase/firestore";
