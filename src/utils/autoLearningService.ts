@@ -1,16 +1,73 @@
-// @ts-nocheck
 /**
  * autoLearningService.js
  * Zelflerend systeem dat standaard productietijden automatisch bijwerkt
  * op basis van historische werkelijke data
  */
 
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, collectionGroup, query, where, getDocs } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { PATHS } from "../config/dbPaths";
 import { calculateDuration } from "./efficiencyCalculator";
 import i18n from "../i18n";
 import { updateProductionStandard } from "../services/planningSecurityService";
+
+type AutoLearningOptions = {
+  minSamples?: number;
+  maxDeviation?: number;
+  learningRate?: number;
+  dryRun?: boolean;
+};
+
+type StandardRecord = {
+  id: string;
+  itemCode?: string;
+  machine?: string;
+  standardMinutes?: number;
+  [key: string]: unknown;
+};
+
+type TimestampBlock = {
+  station_start?: unknown;
+  completed?: unknown;
+  finished?: unknown;
+};
+
+type CompletedProduct = {
+  timestamps?: TimestampBlock;
+  [key: string]: unknown;
+};
+
+type AutoLearningRecommendation = {
+  itemCode: string;
+  machine: string;
+  currentStandard: number;
+  observedMedian: number;
+  observedAverage: number;
+  sampleCount: number;
+  deviation: number;
+  recommendedStandard: number;
+  change: number;
+};
+
+type AutoLearningError = {
+  standard: string;
+  reason: string;
+  currentStandard?: number;
+  observedTime?: number;
+};
+
+type AutoLearningResults = {
+  analyzed: number;
+  updated: number;
+  skipped: number;
+  errors: AutoLearningError[];
+  recommendations: AutoLearningRecommendation[];
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  return String(error ?? "Onbekende fout");
+};
 
 /**
  * Analyseer voltooide producties en update standaard tijden
@@ -21,7 +78,7 @@ import { updateProductionStandard } from "../services/planningSecurityService";
  * @param {boolean} options.dryRun - Test mode zonder daadwerkelijke updates
  * @returns {Promise<Object>} Update resultaten
  */
-export const analyzeAndUpdateStandards = async (options = {}) => {
+export const analyzeAndUpdateStandards = async (options: AutoLearningOptions = {}): Promise<AutoLearningResults> => {
   const {
     minSamples = 5,
     maxDeviation = 50,
@@ -29,7 +86,7 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
     dryRun = false
   } = options;
 
-  const results = {
+  const results: AutoLearningResults = {
     analyzed: 0,
     updated: 0,
     skipped: 0,
@@ -40,10 +97,9 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
   try {
     // Haal alle standaard tijden op
     const standardsSnapshot = await getDocs(collection(db, ...PATHS.PRODUCTION_STANDARDS));
-    const standards = standardsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const standards = standardsSnapshot.docs
+      .map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }) as StandardRecord)
+      .filter((record) => typeof record.itemCode === "string" && typeof record.machine === "string");
 
     console.log(i18n.t("autolearning.analyzing", { count: standards.length, defaultValue: `[Auto-Learning] Analyzing ${standards.length} standards...` }));
 
@@ -52,25 +108,29 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
       results.analyzed++;
 
       try {
+        const currentStandard = Number(standard.standardMinutes ?? 0);
+        if (!Number.isFinite(currentStandard) || currentStandard <= 0) {
+          results.skipped++;
+          continue;
+        }
+
         // Haal voltooide producties op voor dit product/machine
         // Voor de nieuwe backend structuur zoeken we in de collectionGroup 'items'
         // of de reguliere tracking collectie met een check op order en status
-        const { collectionGroup } = await import("firebase/firestore");
-        
-        let completedProducts = [];
+        let completedProducts: CompletedProduct[] = [];
         
         // Eerst checken we de oude/platte structuur
         try {
           const trackedQuery = query(
             collection(db, ...PATHS.TRACKING),
-            where("item", "==", standard.itemCode),
-            where("originMachine", "==", standard.machine),
+            where("item", "==", standard.itemCode as string),
+            where("originMachine", "==", standard.machine as string),
             where("status", "==", "completed")
           );
           const trackedSnapshot = await getDocs(trackedQuery);
-          completedProducts = trackedSnapshot.docs.map(doc => doc.data());
-        } catch (e) {
-          console.warn("Could not query root tracking collection", e);
+          completedProducts = trackedSnapshot.docs.map((doc) => doc.data() as CompletedProduct);
+        } catch (error: unknown) {
+          console.warn("Could not query root tracking collection", error);
         }
         
         // Nu checken we de nieuwe scoped structuur via collectionGroup (indien nodig/extra)
@@ -78,19 +138,19 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
           try {
             const scopedQuery = query(
               collectionGroup(db, 'items'),
-              where("item", "==", standard.itemCode),
-              where("originMachine", "==", standard.machine),
+              where("item", "==", standard.itemCode as string),
+              where("originMachine", "==", standard.machine as string),
               where("status", "==", "completed")
             );
             const scopedSnapshot = await getDocs(scopedQuery);
-            completedProducts = scopedSnapshot.docs.map(doc => doc.data());
-          } catch (e) {
-            console.warn("Could not query scoped tracking collectionGroup", e);
+            completedProducts = scopedSnapshot.docs.map((doc) => doc.data() as CompletedProduct);
+          } catch (error: unknown) {
+            console.warn("Could not query scoped tracking collectionGroup", error);
           }
         }
 
         // Filter alleen producties met timestamps
-        const validProducts = completedProducts.filter(p => 
+        const validProducts = completedProducts.filter((p) =>
           p.timestamps?.station_start && 
           (p.timestamps?.completed || p.timestamps?.finished)
         );
@@ -104,13 +164,13 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
         }
 
         // Bereken werkelijke tijden
-        const actualTimes = validProducts.map(p => {
+        const actualTimes = validProducts.map((p) => {
           const duration = calculateDuration(
             p.timestamps.station_start,
             p.timestamps.completed || p.timestamps.finished
           );
           return duration;
-        }).filter(t => t > 0);
+        }).filter((t) => t > 0);
 
         if (actualTimes.length === 0) {
           results.skipped++;
@@ -124,8 +184,6 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
 
         // Gebruik mediaan (robuuster tegen uitschieters)
         const observedTime = median;
-        const currentStandard = standard.standardMinutes;
-
         // Bereken afwijking
         const deviation = ((observedTime - currentStandard) / currentStandard) * 100;
 
@@ -158,8 +216,8 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
         const roundedNew = Math.round(newStandard);
 
         results.recommendations.push({
-          itemCode: standard.itemCode,
-          machine: standard.machine,
+          itemCode: standard.itemCode as string,
+          machine: standard.machine as string,
           currentStandard,
           observedMedian: Math.round(observedTime),
           observedAverage: Math.round(average),
@@ -193,20 +251,20 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
           );
         }
 
-      } catch (error) {
+      } catch (error: unknown) {
         console.error(i18n.t("autolearning.error_processing", { item: standard.itemCode, machine: standard.machine, defaultValue: `[Auto-Learning] Error processing ${standard.itemCode}/${standard.machine}:` }), error);
         results.errors.push({
           standard: `${standard.itemCode}/${standard.machine}`,
-          reason: error.message
+          reason: getErrorMessage(error)
         });
       }
     }
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(i18n.t("autolearning.fatal_error", "[Auto-Learning] Fatal error:"), error);
     results.errors.push({
       standard: "GLOBAL",
-      reason: error.message
+      reason: getErrorMessage(error)
     });
   }
 
@@ -218,7 +276,7 @@ export const analyzeAndUpdateStandards = async (options = {}) => {
  * Run auto-learning in background (scheduled job)
  * Kan worden aangeroepen vanuit een Cloud Function of cron job
  */
-export const scheduledAutoLearning = async () => {
+export const scheduledAutoLearning = async (): Promise<AutoLearningResults> => {
   console.log(i18n.t("autolearning.starting_scheduled", "[Auto-Learning] Starting scheduled analysis..."));
   
   const results = await analyzeAndUpdateStandards({
@@ -235,7 +293,7 @@ export const scheduledAutoLearning = async () => {
  * Get learning recommendations zonder direct te updaten
  * Voor review door planner/engineer
  */
-export const getRecommendations = async () => {
+export const getRecommendations = async (): Promise<AutoLearningRecommendation[]> => {
   const results = await analyzeAndUpdateStandards({
     minSamples: 5,
     maxDeviation: 50,

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from "react";
 import { DatabaseZap, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -6,14 +5,30 @@ import { manualSyncDrawings } from "../../utils/manualSyncDrawings";
 import ProductDetailModal from "../products/ProductDetailModal";
 import { auth, logActivity } from "../../config/firebase";
 
+type SyncResultItem = {
+  code: string;
+  found?: boolean;
+  removed?: boolean;
+  reason?: string;
+  product?: string;
+  fullProduct?: Record<string, unknown>;
+  sourceFields?: string[];
+  viaConversion?: boolean;
+};
+
+type SyncProgress = {
+  current: number;
+  total: number;
+};
+
 export default function ManualSyncDrawings() {
   const { t } = useTranslation();
 
   const [syncing, setSyncing] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [result, setResult] = useState<SyncResultItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<SyncProgress>({ current: 0, total: 0 });
+  const [selectedProduct, setSelectedProduct] = useState<Record<string, unknown> | null>(null);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -21,16 +36,17 @@ export default function ManualSyncDrawings() {
     setError(null);
     setProgress({ current: 0, total: 0 });
     try {
-      const res = await manualSyncDrawings((current, total, partialResults) => {
+      const res = (await manualSyncDrawings((current: number, total: number, partialResults: SyncResultItem[]) => {
         setProgress({ current, total });
         setResult([...partialResults]);
-      });
+      })) as SyncResultItem[];
       console.log("Sync resultaat:", res);
       setResult(res);
       setProgress({ current: res.length, total: res.length });
       await logActivity(auth.currentUser?.uid, "MASTER_SYNC", `Manual sync executed. Matches: ${res.filter(r => r.found).length}`);
-    } catch (err) {
-      setError(err.message || t('manualSync.unknownError', "Onbekende fout"));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err || "");
+      setError(message || t('manualSync.unknownError', "Onbekende fout"));
     } finally {
       setSyncing(false);
     }

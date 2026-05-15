@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db, auth, logActivity } from '../../config/firebase';
@@ -7,13 +6,44 @@ import { User, Check, Save, X, Shield, Loader2, MapPin, Briefcase } from 'lucide
 import { useTranslation } from 'react-i18next';
 import { useNotifications } from '../../contexts/NotificationContext';
 
+type ManagedUser = {
+  id: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  allowedStations?: string[];
+  [key: string]: unknown;
+};
+
+type StationOption = {
+  id: string;
+  name: string;
+  department: string;
+  country: string;
+};
+
+type FactoryStation = {
+  name?: string;
+};
+
+type FactoryDepartment = {
+  title?: string;
+  name?: string;
+  country?: string;
+  stations?: FactoryStation[];
+};
+
+type FactoryConfig = {
+  departments?: FactoryDepartment[];
+};
+
 const UserStationManager = () => {
   const { t } = useTranslation();
-  const { notify } = useNotifications();
-  const [users, setUsers] = useState([]);
-  const [allStations, setAllStations] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [tempAllowed, setTempAllowed] = useState([]);
+  const { notify } = useNotifications() as { notify: (message: string) => void };
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [allStations, setAllStations] = useState<StationOption[]>([]);
+  const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
+  const [tempAllowed, setTempAllowed] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCountry, setFilterCountry] = useState("All");
   const [filterDept, setFilterDept] = useState("All");
@@ -21,23 +51,23 @@ const UserStationManager = () => {
   useEffect(() => {
     // 1. Users ophalen
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      const userList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const userList = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) })) as ManagedUser[];
       setUsers(userList);
     });
 
     // 2. Stations ophalen uit Factory Config
     const unsubConfig = onSnapshot(doc(db, ...PATHS.FACTORY_CONFIG), (snap) => {
       if (snap.exists()) {
-        const config = snap.data();
-        const stations = [];
+        const config = snap.data() as FactoryConfig;
+        const stations: StationOption[] = [];
         
         if (config.departments) {
-          config.departments.forEach(dept => {
+          config.departments.forEach((dept) => {
             if (dept.stations) {
-              dept.stations.forEach(st => {
+              dept.stations.forEach((st) => {
                 stations.push({
-                  id: st.name,
-                  name: st.name,
+                  id: st.name || "",
+                  name: st.name || "",
                   department: dept.title || dept.name || t('common.other', "Overig"),
                   country: dept.country || t('common.other', "Overig")
                 });
@@ -68,14 +98,14 @@ const UserStationManager = () => {
     };
   }, []);
 
-  const handleUserSelect = (user) => {
+  const handleUserSelect = (user: ManagedUser) => {
     setSelectedUser(user);
     setFilterCountry("All");
     setFilterDept("All");
     // Als allowedStations niet bestaat of leeg is, gaan we ervan uit dat ze toegang hebben tot ALLES (standaard gedrag)
     // Om te editen zetten we dan alle vinkjes AAN, zodat je kunt zien dat ze alles hebben en kunt gaan beperken.
     if (!user.allowedStations) {
-        setTempAllowed(allStations.map(s => s.id));
+        setTempAllowed(allStations.map((s) => s.id));
     } else {
         setTempAllowed(user.allowedStations);
     }
@@ -92,9 +122,10 @@ const UserStationManager = () => {
       await logActivity(auth.currentUser?.uid, "USER_UPDATE", `Station access updated for user: ${selectedUser.email}`);
       setSelectedUser(null);
       // Optioneel: Toon succes melding
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Fout bij opslaan:", error);
-      notify(t('adminUserStation.saveError', { message: error.message }));
+      const message = error instanceof Error ? error.message : String(error);
+      notify(t('adminUserStation.saveError', { message }));
     }
   };
 

@@ -1,7 +1,59 @@
-// @ts-nocheck
 import React, { useState, useMemo } from 'react';
 import { X, AlertTriangle, Clock, Users, Filter, Plus, Minus } from 'lucide-react';
 import { getWeek } from 'date-fns';
+
+type Station = {
+  id?: string;
+  name?: string;
+};
+
+type Department = {
+  id?: string;
+  name?: string;
+};
+
+type RotationSchedule = {
+  enabled?: boolean;
+  shifts?: string[];
+  startWeek?: number;
+};
+
+type PersonnelItem = {
+  id: string;
+  name?: string;
+  employeeNumber?: string;
+  departmentId?: string;
+  isActive?: boolean;
+  shiftId?: string;
+  rotationSchedule?: RotationSchedule;
+};
+
+type ShiftItem = {
+  id?: string;
+  label?: string;
+  start?: string;
+  end?: string;
+};
+
+type OccupancyItem = {
+  operatorNumber?: string;
+  date?: string;
+  departmentId?: string;
+  hoursWorked?: string | number;
+};
+
+type AdvancedOperatorAssignModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onAssign: (person: PersonnelItem, hours: number) => void;
+  station?: Station;
+  department?: Department;
+  personnel?: PersonnelItem[];
+  shifts?: ShiftItem[];
+  occupancy?: OccupancyItem[];
+  selectedDate: string;
+  currentWeek?: number;
+};
 
 /**
  * AdvancedOperatorAssignModal - Geavanceerde operator toewijzing
@@ -20,10 +72,10 @@ const AdvancedOperatorAssignModal = ({
   occupancy,
   selectedDate,
   currentWeek = getWeek(new Date(), { weekStartsOn: 0 })
-}) => {
+}: AdvancedOperatorAssignModalProps) => {
   const [selectedShift, setSelectedShift] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [selectedPerson, setSelectedPerson] = useState<PersonnelItem | null>(null);
   const [hours, setHours] = useState(8.0);
   const [showWarning, setShowWarning] = useState(false);
 
@@ -37,7 +89,7 @@ const AdvancedOperatorAssignModal = ({
       if (p.isActive === false) return false;
       
       // Search query
-      if (searchQuery && !p.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+      if (searchQuery && !String(p.name || '').toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
       }
       
@@ -61,7 +113,7 @@ const AdvancedOperatorAssignModal = ({
   }, [personnel, department, selectedShift, searchQuery, currentWeek]);
 
   // Check of persoon al ergens is toegewezen
-  const getExistingAssignments = (person) => {
+  const getExistingAssignments = (person: PersonnelItem | null) => {
     if (!person || !occupancy) return [];
     return occupancy.filter(o => 
       o.operatorNumber === person.employeeNumber &&
@@ -71,7 +123,7 @@ const AdvancedOperatorAssignModal = ({
   };
 
   // Bereken hoeveel uren nog beschikbaar zijn
-  const getAvailableHours = (person) => {
+  const getAvailableHours = (person: PersonnelItem | null) => {
     if (!person) return 0;
     const existing = getExistingAssignments(person);
     const totalUsed = existing.reduce((sum, o) => sum + (parseFloat(o.hoursWorked) || 0), 0);
@@ -79,7 +131,7 @@ const AdvancedOperatorAssignModal = ({
     // Bereken max uren op basis van shift
     let maxHours = 8.0;
     if (person.rotationSchedule?.enabled && shifts) {
-      const shift = shifts.find(s => {
+      const shift = shifts.find((s) => {
         if (person.rotationSchedule.shifts?.length > 0) {
           const startWeekNum = person.rotationSchedule.startWeek || 1;
           const rotationShifts = person.rotationSchedule.shifts;
@@ -89,7 +141,7 @@ const AdvancedOperatorAssignModal = ({
         }
         return false;
       });
-      if (shift) {
+      if (shift?.start && shift?.end) {
         const start = new Date(`2000-01-01T${shift.start}`);
         const end = new Date(`2000-01-01T${shift.end}`);
         let diff = (end - start) / (1000 * 60 * 60);
@@ -103,7 +155,7 @@ const AdvancedOperatorAssignModal = ({
     return Math.max(0, maxHours - totalUsed);
   };
 
-  const handleSelectPerson = (person) => {
+  const handleSelectPerson = (person: PersonnelItem) => {
     setSelectedPerson(person);
     const existing = getExistingAssignments(person);
     const availableHours = getAvailableHours(person);
@@ -157,7 +209,7 @@ const AdvancedOperatorAssignModal = ({
                 className="w-full p-3 rounded-2xl bg-slate-50 border-2 border-slate-200 text-xs font-bold focus:border-blue-500 outline-none"
               >
                 <option value="all">Alle diensten</option>
-                {shifts?.map(s => (
+                {shifts?.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label} ({s.start}-{s.end})
                   </option>

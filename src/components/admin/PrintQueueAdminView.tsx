@@ -1,7 +1,6 @@
-// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { db } from '../../config/firebase';
-import { collection, collectionGroup, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, collectionGroup, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { PATHS } from '../../config/dbPaths';
 import { formatDistanceToNow } from 'date-fns';
 import { nl } from 'date-fns/locale';
@@ -9,8 +8,38 @@ import { Loader2, RefreshCw, Trash2, Wifi, WifiOff, AlertTriangle, CheckCircle }
 import { useNotifications } from '../../contexts/NotificationContext';
 import { requeuePrintQueueJob, deletePrintQueueJob } from '../../services/planningSecurityService';
 
-const StatusBadge = ({ status }) => {
-  const config = {
+type TimestampLike = {
+  toDate: () => Date;
+};
+
+type PrintJob = {
+  id: string;
+  printerId?: string;
+  zpl?: string;
+  status?: 'pending' | 'printing' | 'completed' | 'error' | string;
+  metadata?: {
+    description?: string;
+    requesterEmail?: string;
+    requesterName?: string;
+  };
+  description?: string;
+  requesterEmail?: string;
+  timestamp?: TimestampLike | string | null;
+  createdAt?: TimestampLike | string | null;
+  stationId?: string;
+  error?: string;
+  _scopeType?: string;
+  [key: string]: unknown;
+};
+
+type ListenerItem = {
+  id: string;
+  lastSeen?: TimestampLike;
+  [key: string]: unknown;
+};
+
+const StatusBadge = ({ status }: { status?: string }) => {
+  const config: Record<string, { icon: React.ReactNode; text: string; color: string }> = {
     pending: { icon: <Loader2 className="animate-spin text-yellow-500" size={16} />, text: 'Wachtend', color: 'bg-yellow-100 text-yellow-800' },
     printing: { icon: <RefreshCw className="animate-spin text-blue-500" size={16} />, text: 'Printen', color: 'bg-blue-100 text-blue-800' },
     completed: { icon: <CheckCircle className="text-green-500" size={16} />, text: 'Voltooid', color: 'bg-green-100 text-green-800' },
@@ -27,16 +56,16 @@ const StatusBadge = ({ status }) => {
 
 const PrintQueueAdminView = () => {
   const { showError, showConfirm } = useNotifications();
-  const [printJobs, setPrintJobs] = useState([]);
-  const [listeners, setListeners] = useState([]);
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
+  const [listeners, setListeners] = useState<ListenerItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let rootJobs = [];
-    let scopedJobs = [];
+    let rootJobs: PrintJob[] = [];
+    let scopedJobs: PrintJob[] = [];
 
-    const normalizeJob = (docSnap) => {
-      const data = docSnap.data() || {};
+    const normalizeJob = (docSnap: { id: string; data: () => Record<string, unknown> }) => {
+      const data = (docSnap.data() || {}) as PrintJob;
       const isQueueJob = Boolean(data.printerId || data.zpl || data.status || data.metadata?.description);
       if (!isQueueJob) return null;
       const normalizedTimestamp = data.timestamp || data.createdAt || null;
@@ -49,9 +78,9 @@ const PrintQueueAdminView = () => {
       };
     };
 
-    const tsToMillis = (ts) => {
+    const tsToMillis = (ts: TimestampLike | string | null | undefined): number => {
       if (!ts) return 0;
-      if (typeof ts.toDate === 'function') return ts.toDate().getTime();
+      if (typeof ts === 'object' && typeof ts.toDate === 'function') return ts.toDate().getTime();
       const parsed = new Date(ts);
       return Number.isFinite(parsed.getTime()) ? parsed.getTime() : 0;
     };
@@ -60,22 +89,22 @@ const PrintQueueAdminView = () => {
 
     const mergeJobs = () => {
       const byId = new Map();
-      rootJobs.forEach((job) => {
+      rootJobs.forEach((job: PrintJob) => {
         if (job?.id) byId.set(job.id, job);
       });
       // Scoped jobs krijgen voorrang op legacy root docs.
-      scopedJobs.forEach((job) => {
+      scopedJobs.forEach((job: PrintJob) => {
         if (job?.id) byId.set(job.id, job);
       });
 
-      const merged = Array.from(byId.values()).sort((a, b) => tsToMillis(b.timestamp) - tsToMillis(a.timestamp));
+      const merged = Array.from(byId.values()).sort((a: PrintJob, b: PrintJob) => tsToMillis(b.timestamp) - tsToMillis(a.timestamp));
       setPrintJobs(merged);
       setLoading(false);
     };
 
     const rootQ = query(collection(db, ...PATHS.PRINT_QUEUE), orderBy('createdAt', 'desc'));
     const unsubscribeRoot = onSnapshot(rootQ, (snapshot) => {
-      rootJobs = snapshot.docs.map(normalizeJob).filter(Boolean);
+      rootJobs = snapshot.docs.map(normalizeJob).filter(Boolean) as PrintJob[];
       mergeJobs();
     }, () => {
       rootJobs = [];
@@ -87,7 +116,7 @@ const PrintQueueAdminView = () => {
       scopedJobs = snapshot.docs
         .filter((docSnap) => String(docSnap.ref?.path || '').includes(printQueuePathFragment))
         .map(normalizeJob)
-        .filter((job) => job && String(job._scopeType || 'print_queue').trim() === 'print_queue');
+        .filter((job): job is PrintJob => Boolean(job) && String(job._scopeType || 'print_queue').trim() === 'print_queue');
       mergeJobs();
     }, () => {
       scopedJobs = [];
@@ -96,7 +125,7 @@ const PrintQueueAdminView = () => {
 
     const listenersRef = collection(db, ...PATHS.PRINT_LISTENERS);
     const unsubscribeListeners = onSnapshot(listenersRef, (snapshot) => {
-      setListeners(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setListeners(snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) })) as ListenerItem[]);
     });
 
     return () => {
@@ -106,7 +135,7 @@ const PrintQueueAdminView = () => {
     };
   }, []);
 
-  const handleReprint = async (jobId) => {
+  const handleReprint = async (jobId: string) => {
     const confirmed = await showConfirm({
       title: 'Taak opnieuw printen',
       message: 'Weet u zeker dat u deze taak opnieuw wilt printen?',
@@ -120,13 +149,13 @@ const PrintQueueAdminView = () => {
         jobId,
         source: 'AdminPrintQueueAdminView',
       });
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       showError("Fout bij opnieuw printen");
     }
   };
 
-  const handleDelete = async (jobId) => {
+  const handleDelete = async (jobId: string) => {
     const confirmed = await showConfirm({
       title: 'Printtaak verwijderen',
       message: 'Weet u zeker dat u deze taak permanent wilt verwijderen?',
@@ -140,8 +169,8 @@ const PrintQueueAdminView = () => {
         jobId,
         source: 'AdminPrintQueueAdminView',
       });
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       showError("Fout bij verwijderen");
     }
   };
@@ -154,8 +183,8 @@ const PrintQueueAdminView = () => {
       <div className="mb-8">
         <h2 className="text-xl font-bold mb-3">Printer Listeners</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {listeners.length > 0 ? listeners.map(listener => {
-            const isOnline = listener.lastSeen?.toDate() > new Date(Date.now() - 30000); // Online if seen in last 30s
+          {listeners.length > 0 ? listeners.map((listener) => {
+            const isOnline = !!listener.lastSeen?.toDate && listener.lastSeen.toDate() > new Date(Date.now() - 30000); // Online if seen in last 30s
             return (
               <div key={listener.id} className={`p-4 rounded-lg border ${isOnline ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                 <div className="flex items-center justify-between">
@@ -166,7 +195,7 @@ const PrintQueueAdminView = () => {
                   Status: {isOnline ? 'Online' : 'Offline'}
                 </p>
                 <p className="text-xs text-slate-500 mt-2">
-                  Laatst gezien: {listener.lastSeen ? formatDistanceToNow(listener.lastSeen.toDate(), { addSuffix: true, locale: nl }) : 'nooit'}
+                  Laatst gezien: {listener.lastSeen?.toDate ? formatDistanceToNow(listener.lastSeen.toDate(), { addSuffix: true, locale: nl }) : 'nooit'}
                 </p>
               </div>
             );
@@ -189,7 +218,7 @@ const PrintQueueAdminView = () => {
           <tbody>
             {loading && <tr><td colSpan="5" className="text-center p-8"><Loader2 className="animate-spin inline-block" /></td></tr>}
             {!loading && printJobs.length === 0 && <tr><td colSpan="5" className="text-center p-8">De print wachtrij is leeg.</td></tr>}
-            {printJobs.map(job => (
+            {printJobs.map((job) => (
               <tr key={job.id} className="bg-white border-b hover:bg-slate-50">
                 <td className="px-6 py-4">
                   <StatusBadge status={job.status} />
@@ -215,7 +244,9 @@ const PrintQueueAdminView = () => {
                 </td>
               </tr>
             ))}
-          </tbody>
+                  {job.timestamp && typeof job.timestamp === 'object' && job.timestamp.toDate
+                    ? formatDistanceToNow(job.timestamp.toDate(), { addSuffix: true, locale: nl })
+                    : '-'}
         </table>
       </div>
     </div>

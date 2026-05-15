@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -18,8 +17,32 @@ import {
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
 const DepartmentStationSelector = React.lazy(() => import('./DepartmentStationSelector'));
-const PlannerHub = React.lazy(() => import("./PlannerHub.tsx"));
+const PlannerHub = React.lazy(() => import("./PlannerHub"));
 const TeamleaderHub = React.lazy(() => import('./TeamleaderHub'));
+
+type AppUser = {
+  role?: string;
+  allowedStations?: string[];
+};
+
+type FactoryStation = {
+  name?: string;
+};
+
+type FactoryDepartment = {
+  id?: string;
+  slug?: string;
+  stations?: FactoryStation[];
+};
+
+type FactoryConfig = {
+  departments?: FactoryDepartment[];
+};
+
+type LocationState = {
+  searchOrder?: string;
+  initialView?: string;
+};
 
 /**
  * DigitalPlanningHub V5.0 - Stability Edition
@@ -30,12 +53,12 @@ const DigitalPlanningHub = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAdminAuth();
-  const [activeDept, setActiveDept] = useState(null);
+  const { user } = useAdminAuth() as { user: AppUser | null };
+  const [activeDept, setActiveDept] = useState<string | null>(null);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [searchOrderNumber, setSearchOrderNumber] = useState(null);
-  const [factoryConfig, setFactoryConfig] = useState(null);
+  const [searchOrderNumber, setSearchOrderNumber] = useState<string | null>(null);
+  const [factoryConfig, setFactoryConfig] = useState<FactoryConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
 
   // Laad factory config voor station-afdeling mapping
@@ -43,7 +66,7 @@ const DigitalPlanningHub = () => {
     const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
     const unsubscribe = onSnapshot(docRef, (snap) => {
       if (snap.exists()) {
-        setFactoryConfig(snap.data());
+        setFactoryConfig(snap.data() as FactoryConfig);
       }
       setConfigLoading(false);
     }, (err) => {
@@ -83,23 +106,24 @@ const DigitalPlanningHub = () => {
       console.log('[DigitalPlanningHub] Location:', location.pathname);
       console.log('[DigitalPlanningHub] State:', location.state);
       
-      if (location.state?.searchOrder) {
-        console.log('[DigitalPlanningHub] Search order:', location.state.searchOrder);
-        setSearchOrderNumber(location.state.searchOrder);
+      const state = (location.state || {}) as LocationState;
+      if (state.searchOrder) {
+        console.log('[DigitalPlanningHub] Search order:', state.searchOrder);
+        setSearchOrderNumber(state.searchOrder);
       }
       
       // Als we via een link met state binnenkomen (bijv. vanaf Portal)
-      if (location.state?.initialView) {
-        console.log('[DigitalPlanningHub] Setting activeDept:', location.state.initialView);
-        setActiveDept(location.state.initialView);
-      } else if (!location.state?.searchOrder) {
+      if (state.initialView) {
+        console.log('[DigitalPlanningHub] Setting activeDept:', state.initialView);
+        setActiveDept(state.initialView);
+      } else if (!state.searchOrder) {
         // FIX: Reset naar hoofdmenu als er geen specifieke state is (bijv. klik op Sidebar)
         // Dit zorgt ervoor dat een klik op 'Planning' je altijd terugbrengt naar de start
         setActiveDept(null);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Fout bij initialiseren planning view:", err);
-      setErrorMessage(err.message);
+      setErrorMessage(err instanceof Error ? err.message : String(err || "Onbekende fout"));
       setHasError(true);
     }
   }, [location, user, factoryConfig, configLoading]); // Trigger bij elke navigatie en als user/config data laadt

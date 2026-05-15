@@ -1,6 +1,5 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
-import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "react-beautiful-dnd";
 import { 
   Clock, 
   AlertCircle, 
@@ -15,19 +14,46 @@ import { format } from "date-fns";
 import { updateOrderKanbanStatus } from "../../services/planningSecurityService";
 import { useNotifications } from '../../contexts/NotificationContext';
 
+type KanbanStatus = "pending" | "in_progress" | "quality_check" | "completed" | "shipped";
+
+type TimestampLike = {
+  seconds: number;
+};
+
+type KanbanOrder = {
+  id: string;
+  status?: KanbanStatus | string;
+  orderId?: string;
+  item?: string;
+  itemCode?: string;
+  extraCode?: string;
+  plan?: number | string;
+  machine?: string;
+  plannedDate?: TimestampLike;
+  [key: string]: unknown;
+};
+
+type KanbanColumn = {
+  id: KanbanStatus;
+  title: string;
+  color: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  wipLimit: number | null;
+};
+
 /**
  * KanbanBoardView - Order Workflow Visualization
  * Statussen: Gepland → In Productie → Controle → Verzonden
  */
 const KanbanBoardView = () => {
-  const { notify } = useNotifications();
-  const [orders, setOrders] = useState([]);
+  const { notify } = useNotifications() as { notify: (message: string) => void };
+  const [orders, setOrders] = useState<KanbanOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Helper om statussen te normaliseren naar de kolommen
-  const normalizeStatus = (status) => {
+  const normalizeStatus = (status: unknown): KanbanStatus => {
     if (!status) return "pending";
-    const s = status.toLowerCase();
+    const s = String(status).toLowerCase();
     
     if (s === "planned" || s === "pending" || s === "open") return "pending";
     if (s === "in_production" || s === "in_progress" || s === "active" || s === "started") return "in_progress";
@@ -38,7 +64,7 @@ const KanbanBoardView = () => {
     return "pending";
   };
 
-  const columns = [
+  const columns: KanbanColumn[] = [
     { 
       id: "pending", 
       title: "📅 Gepland", 
@@ -66,15 +92,15 @@ const KanbanBoardView = () => {
     const unsubscribe = onSnapshot(
       collection(db, ...PATHS.PLANNING),
       (snapshot) => {
-        const ordersData = snapshot.docs.map(doc => ({
+        const ordersData = snapshot.docs.map((doc) => ({
           id: doc.id,
-          ...doc.data(),
+          ...(doc.data() as Record<string, unknown>),
           status: normalizeStatus(doc.data().status)
-        }));
+        })) as KanbanOrder[];
         setOrders(ordersData);
         setLoading(false);
       },
-      (error) => {
+      (error: unknown) => {
         console.error("Error loading orders:", error);
         setLoading(false);
       }
@@ -83,15 +109,15 @@ const KanbanBoardView = () => {
     return () => unsubscribe();
   }, []);
 
-  const onDragEnd = async (result) => {
+  const onDragEnd = async (result: DropResult) => {
     const { source, destination, draggableId } = result;
 
     if (!destination) return;
     if (source.droppableId === destination.droppableId) return;
 
     // Check WIP limit
-    const destColumn = columns.find(c => c.id === destination.droppableId);
-    const destOrders = orders.filter(o => o.status === destination.droppableId);
+    const destColumn = columns.find((c) => c.id === destination.droppableId);
+    const destOrders = orders.filter((o) => o.status === destination.droppableId);
     
     if (destColumn.wipLimit && destOrders.length >= destColumn.wipLimit) {
       notify(`⚠️ WIP Limiet bereikt! Max ${destColumn.wipLimit} orders in ${destColumn.title}`);
@@ -111,19 +137,19 @@ const KanbanBoardView = () => {
       );
 
       // Optimistic UI update
-      setOrders(prev => prev.map(order => 
+      setOrders((prev) => prev.map((order) => 
         order.id === draggableId 
           ? { ...order, status: destination.droppableId }
           : order
       ));
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error updating order status:", error);
       notify("Fout bij het verplaatsen van order");
     }
   };
 
-  const getOrdersByStatus = (status) => {
-    return orders.filter(order => order.status === status);
+  const getOrdersByStatus = (status: KanbanStatus): KanbanOrder[] => {
+    return orders.filter((order) => order.status === status);
   };
 
   if (loading) {
@@ -149,7 +175,7 @@ const KanbanBoardView = () => {
       {/* Kanban Board */}
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="grid grid-cols-3 gap-4 flex-1 min-h-0">
-          {columns.map(column => {
+          {columns.map((column) => {
             const columnOrders = getOrdersByStatus(column.id);
             const Icon = column.icon;
             
@@ -253,9 +279,9 @@ const KanbanBoardView = () => {
 
       {/* Stats Footer */}
       <div className="mt-6 grid grid-cols-3 gap-4 shrink-0">
-        {columns.map(column => {
+        {columns.map((column) => {
           const columnOrders = getOrdersByStatus(column.id);
-          const totalPlan = columnOrders.reduce((sum, o) => sum + (parseInt(o.plan) || 0), 0);
+          const totalPlan = columnOrders.reduce((sum, o) => sum + (parseInt(String(o.plan || 0), 10) || 0), 0);
           
           return (
             <div key={column.id} className="bg-white rounded-xl p-4 border-2 border-slate-200">

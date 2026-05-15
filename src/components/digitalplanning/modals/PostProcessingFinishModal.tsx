@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from "react";
 import {
   CheckCircle,
@@ -17,6 +16,25 @@ import { REJECTION_REASONS } from "../../../utils/workstationLogic";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { useTranslation } from "react-i18next";
 
+type ProductLike = {
+  id?: string;
+  lotNumber?: string;
+};
+
+type FinishStatus = "completed" | "rejected" | "temp_reject";
+
+type PostProcessingResult = {
+  reasons: string[];
+  note: string;
+};
+
+type PostProcessingFinishModalProps = {
+  product: ProductLike;
+  onClose: () => void;
+  onConfirm: (status: FinishStatus, payload: PostProcessingResult) => Promise<void>;
+  currentStation?: string;
+};
+
 const REJECTION_REASON_FALLBACKS = {
   "rejection.surfaceDamage": "Oppervlakteschade",
   "rejection.dimensionDeviation": "Maatafwijking (TW/TF/W)",
@@ -31,21 +49,23 @@ const PostProcessingFinishModal = ({
   onClose,
   onConfirm,
   currentStation,
-}) => {
+}: PostProcessingFinishModalProps) => {
   const { t } = useTranslation();
-  const { showWarning } = useNotifications();
-  const [status, setStatus] = useState("completed");
-  const [selectedReasons, setSelectedReasons] = useState([]);
+  const { showWarning } = useNotifications() as {
+    showWarning: (message: string, title?: string) => void;
+  };
+  const [status, setStatus] = useState<FinishStatus>("completed");
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const getReasonLabel = (reasonKey) => {
+  const getReasonLabel = (reasonKey: string) => {
     const translated = t(reasonKey);
     if (translated && translated !== reasonKey) return translated;
-    return REJECTION_REASON_FALLBACKS[reasonKey] || reasonKey;
+    return REJECTION_REASON_FALLBACKS[reasonKey as keyof typeof REJECTION_REASON_FALLBACKS] || reasonKey;
   };
 
-  const toggleReason = (reason) => {
+  const toggleReason = (reason: string) => {
     setSelectedReasons((prev) =>
       prev.includes(reason)
         ? prev.filter((r) => r !== reason)
@@ -74,7 +94,7 @@ const PostProcessingFinishModal = ({
           read: false,
           timestamp: serverTimestamp()
         });
-      } catch (e) { console.error("Kon notificatie niet versturen", e); }
+      } catch (error: unknown) { console.error("Kon notificatie niet versturen", error); }
     }
 
     await logActivity(

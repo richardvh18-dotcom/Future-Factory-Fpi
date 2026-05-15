@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ShieldCheck, Send, Loader2, Camera, Keyboard } from "lucide-react";
@@ -8,10 +7,39 @@ import { startProductionLots } from "../../services/planningSecurityService";
 import { useTeamleaderFirestore } from "../digitalplanning/useTeamleaderFirestore";
 import { isOpenOrRunningOrder } from "../../utils/teamleaderDerived";
 
+type TeamleaderOrder = {
+  id?: string;
+  __docPath?: string;
+  sourcePath?: string;
+  orderId?: string;
+  machine?: string;
+  itemCode?: string;
+  productId?: string;
+  item?: string;
+  itemDescription?: string;
+};
+
+type AuthUser = {
+  email?: string;
+};
+
+type BarcodeDetectionResultLike = {
+  rawValue?: string;
+};
+
+type BarcodeDetectorLike = {
+  detect: (image: ImageBitmapSource) => Promise<BarcodeDetectionResultLike[]>;
+};
+
+type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
+
 const QsheVirtualLotsView = () => {
   const { t } = useTranslation();
-  const { user } = useAdminAuth();
-  const { showSuccess, showWarning } = useNotifications();
+  const { user } = useAdminAuth() as { user: AuthUser | null };
+  const { showSuccess, showWarning } = useNotifications() as {
+    showSuccess: (message: string) => void;
+    showWarning: (message: string) => void;
+  };
 
   const [machine, setMachine] = useState("");
   const [orderId, setOrderId] = useState("");
@@ -20,13 +48,13 @@ const QsheVirtualLotsView = () => {
   const [scanMode, setScanMode] = useState("manual");
   const [isDecodingImage, setIsDecodingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const cameraInputRef = useRef(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
-  const { rawOrders } = useTeamleaderFirestore({ user });
+  const { rawOrders } = useTeamleaderFirestore({ user }) as { rawOrders: TeamleaderOrder[] };
 
   const machineOptions = useMemo(() => {
     const set = new Set();
-    (Array.isArray(rawOrders) ? rawOrders : []).forEach((order) => {
+    (Array.isArray(rawOrders) ? rawOrders : []).forEach((order: TeamleaderOrder) => {
       const value = String(order?.machine || "").trim();
       if (value) set.add(value);
     });
@@ -43,11 +71,11 @@ const QsheVirtualLotsView = () => {
     const machineKey = String(machine || "").trim().toUpperCase();
     return (Array.isArray(rawOrders) ? rawOrders : [])
       .filter((order) => isOpenOrRunningOrder(order))
-      .filter((order) => {
+      .filter((order: TeamleaderOrder) => {
         if (!machineKey) return true;
         return String(order?.machine || "").trim().toUpperCase() === machineKey;
       })
-      .sort((a, b) => String(a?.orderId || "").localeCompare(String(b?.orderId || "")));
+      .sort((a: TeamleaderOrder, b: TeamleaderOrder) => String(a?.orderId || "").localeCompare(String(b?.orderId || "")));
   }, [rawOrders, machine]);
 
   const selectedOrder = useMemo(() => {
@@ -74,11 +102,18 @@ const QsheVirtualLotsView = () => {
     cameraInputRef.current?.click();
   };
 
-  const handleCameraFileChange = async (event) => {
+  const handleCameraFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event?.target?.files?.[0];
     if (!file) return;
 
-    if (typeof window === "undefined" || typeof window.BarcodeDetector !== "function") {
+    if (typeof window === "undefined") {
+      showWarning("Barcode scan niet ondersteund op dit toestel/browser. Gebruik handmatige invoer.");
+      event.target.value = "";
+      return;
+    }
+
+    const detectorCtor = (window as Window & { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
+    if (typeof detectorCtor !== "function") {
       showWarning("Barcode scan niet ondersteund op dit toestel/browser. Gebruik handmatige invoer.");
       event.target.value = "";
       return;
@@ -86,7 +121,7 @@ const QsheVirtualLotsView = () => {
 
     setIsDecodingImage(true);
     try {
-      const detector = new window.BarcodeDetector({
+      const detector = new detectorCtor({
         formats: ["code_128", "code_39", "codabar", "ean_13", "ean_8", "qr_code"],
       });
       const imageBitmap = await createImageBitmap(file); // eslint-disable-line no-undef
@@ -98,7 +133,7 @@ const QsheVirtualLotsView = () => {
       }
       setLotNumber(detected);
       showSuccess(`Lotnummer gescand: ${detected}`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Fout bij camera scan:", error);
       showWarning("Scannen met camera is mislukt. Typ het lotnummer handmatig.");
     } finally {
@@ -107,7 +142,7 @@ const QsheVirtualLotsView = () => {
     }
   };
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!selectedOrder) {
@@ -153,9 +188,10 @@ const QsheVirtualLotsView = () => {
           order: selectedOrder?.orderId,
         })
       );
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Fout bij uitgeven virtueel lot:", error);
-      showWarning(error?.message || t("qshe.virtualLots.error", "Kon virtueel lot niet uitgeven."));
+      const message = error instanceof Error ? error.message : t("qshe.virtualLots.error", "Kon virtueel lot niet uitgeven.");
+      showWarning(message);
     } finally {
       setSubmitting(false);
     }

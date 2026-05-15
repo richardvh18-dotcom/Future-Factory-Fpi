@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
 import { UserCog, Check, Users, Search, ChevronRight, Loader2, LogOut } from 'lucide-react';
@@ -6,17 +5,48 @@ import { collection, getDocs, query, limit } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { PATHS } from '../../config/dbPaths';
 
+type RoleSwitcherUser = {
+  uid?: string;
+  role?: string;
+  name?: string;
+  email?: string;
+  allowedStations?: string[];
+};
+
+type AuthContext = {
+  user: RoleSwitcherUser | null;
+  realRole?: string;
+  isImpersonating?: boolean;
+  impersonateRole?: (newRole: string) => void;
+  impersonateUser?: (userId: string) => void;
+  stopImpersonating?: () => void;
+};
+
+type UserListItem = {
+  id: string;
+  name?: string;
+  email?: string;
+  role?: string;
+};
+
 const RoleSwitcher = () => {
-  const { user, realRole, isImpersonating, impersonateRole: hookImpersonateRole, impersonateUser: hookImpersonateUser, stopImpersonating: hookStopImpersonating } = useAdminAuth();
+  const {
+    user,
+    realRole,
+    isImpersonating,
+    impersonateRole: hookImpersonateRole,
+    impersonateUser: hookImpersonateUser,
+    stopImpersonating: hookStopImpersonating,
+  } = useAdminAuth() as AuthContext;
   
   // Fallback functies voor als de hook ze niet direct teruggeeft (voorkomt errors)
-  const impersonateRole = hookImpersonateRole || ((newRole) => {
+  const impersonateRole = hookImpersonateRole || ((newRole: string) => {
     localStorage.setItem('impersonated_role', newRole);
     localStorage.removeItem('impersonated_user_id');
     window.location.reload();
   });
 
-  const impersonateUser = hookImpersonateUser || ((userId) => {
+  const impersonateUser = hookImpersonateUser || ((userId: string) => {
     localStorage.setItem('impersonated_user_id', userId);
     localStorage.removeItem('impersonated_role'); 
     window.location.reload();
@@ -30,7 +60,7 @@ const RoleSwitcher = () => {
 
   const [isOpen, setIsOpen] = useState(false);
   const [showUserSelect, setShowUserSelect] = useState(false);
-  const [usersList, setUsersList] = useState([]);
+  const [usersList, setUsersList] = useState<UserListItem[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -53,11 +83,11 @@ const RoleSwitcher = () => {
         // FIX: Verwijder orderBy om index-errors te voorkomen. Sorteer client-side.
         const q = query(collection(db, ...PATHS.USERS), limit(100));
         const snap = await getDocs(q);
-        const users = snap.docs.map(d => ({id: d.id, ...d.data()}));
+        const users = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) })) as UserListItem[];
         users.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         setUsersList(users);
-    } catch (e) {
-        console.error("Fout bij laden gebruikers:", e);
+      } catch (error) {
+        console.error("Fout bij laden gebruikers:", error);
     } finally {
         setLoadingUsers(false);
     }
