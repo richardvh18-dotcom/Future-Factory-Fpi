@@ -1,22 +1,49 @@
-// @ts-nocheck
 import React, { useRef, useState } from "react";
 import { X, Printer, Loader2 } from "lucide-react";
 import {
   resolveLabelContent,
   getBarcodeUrl,
 } from "../../utils/labelHelpers";
-import InternalQrImage from "../../utils/InternalQrImage.tsx";
+import InternalQrImage from "../../utils/InternalQrImage";
 import { useNotifications } from '../../contexts/NotificationContext';
+
+type LabelElement = {
+  type?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  fontSize?: number;
+  fontFamily?: string;
+  isBold?: boolean;
+  rotation?: number;
+  align?: "left" | "center" | "right";
+  thickness?: number;
+  content?: string;
+};
+
+type LabelTemplate = {
+  name?: string;
+  width: number;
+  height: number;
+  elements?: LabelElement[];
+};
+
+type LighthousePrintViewProps = {
+  label: LabelTemplate;
+  data: Record<string, unknown>;
+  onClose: () => void;
+};
 
 /**
  * LighthousePrintView
  * Speciale print-view voor de Lighthouse CJ-PRO II (via Windows Driver).
  * Genereert een pixel-perfect HTML/CSS label en print via de browser dialoog.
  */
-const LighthousePrintView = ({ label, data, onClose }) => {
-  const { notify } = useNotifications();
+const LighthousePrintView = ({ label, data, onClose }: LighthousePrintViewProps) => {
+  const { notify } = useNotifications() as { notify: (message: string) => void };
   const [printing, setPrinting] = useState(false);
-  const previewRef = useRef(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   const handlePrint = () => {
     setPrinting(true);
@@ -30,7 +57,7 @@ const LighthousePrintView = ({ label, data, onClose }) => {
     }
 
     // Haal de innerHTML op van de preview om exact te printen wat we zien
-    const content = previewRef.current.innerHTML;
+    const content = previewRef.current?.innerHTML || "";
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -123,8 +150,9 @@ const LighthousePrintView = ({ label, data, onClose }) => {
             ref={previewRef}
           >
             {label.elements?.map((el, idx) => {
-              const { content } = resolveLabelContent(el, data);
-              const style = {
+              const resolved = resolveLabelContent(el, data) as { content?: unknown };
+              const content = String(resolved?.content ?? "");
+              const style: React.CSSProperties = {
                 left: `${el.x}mm`,
                 top: `${el.y}mm`,
                 width: el.width ? `${el.width}mm` : "auto",

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useRef } from "react";
 import {
   X,
@@ -12,15 +11,29 @@ import { db } from "../../../config/firebase";
 import { processInforUpdate } from "../../../utils/infor_sync_service";
 import { useNotifications } from '../../../contexts/NotificationContext';
 
-const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
-  const { notify } = useNotifications();
+type CapacityImportStats = {
+  countCreated: number;
+  countUpdated: number;
+  countDeleted: number;
+  countMatched: number;
+  unmatchedOrders: unknown[];
+};
+
+type CapacityImportModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess?: () => void;
+};
+
+const CapacityImportModal = ({ isOpen, onClose, onSuccess }: CapacityImportModalProps) => {
+  const { notify } = useNotifications() as { notify: (message: string) => void };
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [stats, setStats] = useState(null);
-  const fileInputRef = useRef(null);
+  const [stats, setStats] = useState<CapacityImportStats | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleFileChange = async (e) => {
-    const file = e.target.files[0];
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
 
     setLoading(true);
@@ -28,16 +41,22 @@ const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
     
     const reader = new FileReader();
 
-    reader.onload = async (evt) => {
+    reader.onload = async (evt: ProgressEvent<FileReader>) => {
       try {
         const XLSX = await import("xlsx");
-        const bstr = evt.target.result;
+        const bstr = evt.target?.result;
+        if (typeof bstr !== "string") {
+          notify("Kon bestand niet lezen als binary string.");
+          setLoading(false);
+          setProcessing(false);
+          return;
+        }
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         
         // We hebben de ruwe array van arrays nodig voor de service
-        const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[];
 
         if (!rawData || rawData.length < 2) {
           notify("Bestand lijkt leeg of ongeldig.");
@@ -54,9 +73,10 @@ const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
         setStats(result);
         if (onSuccess) onSuccess();
 
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("Import error:", err);
-        notify("Fout bij verwerken bestand: " + err.message);
+        const message = err instanceof Error ? err.message : String(err);
+        notify("Fout bij verwerken bestand: " + message);
       } finally {
         setLoading(false);
         setProcessing(false);
@@ -140,7 +160,7 @@ const CapacityImportModal = ({ isOpen, onClose, onSuccess }) => {
                   </h4>
                   <div className="max-h-32 overflow-y-auto custom-scrollbar pr-2">
                     <div className="flex flex-wrap gap-2">
-                      {stats.unmatchedOrders.map(id => (
+                      {stats.unmatchedOrders.map((id) => (
                         <span key={id} className="text-[10px] bg-white border border-amber-200 px-2 py-1 rounded text-amber-900 font-mono font-bold">
                           {id}
                         </span>

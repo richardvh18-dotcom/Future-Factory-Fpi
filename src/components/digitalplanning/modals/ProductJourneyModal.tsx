@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { X, MapPin, User, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -8,8 +7,36 @@ import { db } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
 import { toDateSafe } from "../../../utils/dateUtils";
 
-const ProductJourneyModal = ({ product, onClose }) => {
-  const [enrichedHistory, setEnrichedHistory] = useState([]);
+type JourneyEntry = {
+  action?: string;
+  details?: string;
+  station?: string;
+  machine?: string;
+  timestamp?: unknown;
+  time?: unknown;
+  user?: string;
+  operator?: string;
+  operatorName?: string;
+  operatorNumber?: string;
+  currentStep?: string;
+  [key: string]: unknown;
+};
+
+type JourneyProduct = {
+  lotNumber?: string;
+  itemCode?: string;
+  currentStation?: string;
+  status?: string;
+  history?: JourneyEntry[];
+};
+
+type ProductJourneyModalProps = {
+  product: JourneyProduct | null;
+  onClose: () => void;
+};
+
+const ProductJourneyModal = ({ product, onClose }: ProductJourneyModalProps) => {
+  const [enrichedHistory, setEnrichedHistory] = useState<JourneyEntry[]>([]);
 
   // Effect: Verrijk historie met operator data uit occupancy als deze ontbreekt
   useEffect(() => {
@@ -50,8 +77,8 @@ const ProductJourneyModal = ({ product, onClose }) => {
             const opData = snap.docs[0].data();
             return { ...entry, operatorName: opData.operatorName, operatorNumber: opData.operatorNumber };
           }
-        } catch (e) {
-          console.warn("Kon historie niet verrijken:", e);
+        } catch (error) {
+          console.warn("Kon historie niet verrijken:", error);
         }
         return entry;
       }));
@@ -76,7 +103,7 @@ const ProductJourneyModal = ({ product, onClose }) => {
     return tA - tB;
   });
 
-  const formatTime = (val) => {
+  const formatTime = (val: unknown) => {
     const date = toDateSafe(val);
     if (!date || isNaN(date.getTime())) return "-";
     return format(date, "dd MMM HH:mm", { locale: nl });

@@ -1,12 +1,28 @@
-// @ts-nocheck
 import React from 'react';
 import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-react';
 import { useNotifications } from '../../contexts/NotificationContext';
 
-const ToastContainer = () => {
-  const { activeToast, queuedCount, removeToast } = useNotifications();
+type ToastType = 'success' | 'error' | 'warning' | 'info';
 
-  const getIcon = (type) => {
+type ActiveToast = {
+  id: number | string;
+  title: string;
+  message?: string;
+  type: ToastType;
+  duration: number;
+  count?: number;
+};
+
+type NotificationToastApi = {
+  activeToast: ActiveToast | null;
+  queuedCount: number;
+  removeToast: (id: number | string) => void;
+};
+
+const ToastContainer = () => {
+  const { activeToast, queuedCount, removeToast } = useNotifications() as NotificationToastApi;
+
+  const getIcon = (type: ToastType) => {
     switch (type) {
       case 'success':
         return <CheckCircle className="w-5 h-5" />;
@@ -20,7 +36,7 @@ const ToastContainer = () => {
     }
   };
 
-  const getIconColors = (type) => {
+  const getIconColors = (type: ToastType) => {
     switch (type) {
       case 'success':
         return 'text-emerald-600';
@@ -34,7 +50,7 @@ const ToastContainer = () => {
     }
   };
 
-  const getSurface = (type) => {
+  const getSurface = (type: ToastType) => {
     switch (type) {
       case 'success':
         return 'border-emerald-300/70 bg-[linear-gradient(135deg,rgba(236,253,245,0.98),rgba(209,250,229,0.94))] text-emerald-950 shadow-emerald-200/70';
@@ -48,7 +64,7 @@ const ToastContainer = () => {
     }
   };
 
-  const getAccent = (type) => {
+  const getAccent = (type: ToastType) => {
     switch (type) {
       case 'success':
         return 'from-emerald-500 via-emerald-400 to-lime-300';

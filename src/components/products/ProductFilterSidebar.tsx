@@ -1,6 +1,31 @@
-// @ts-nocheck
 import React from "react";
 import { Filter, RotateCcw, Info } from "lucide-react";
+
+type FilterState = {
+  type: string;
+  diameter: string;
+  pressure: string;
+  connection: string;
+  angle: string;
+  radius: string;
+  boring: string;
+  productLabel: string;
+};
+
+type ProductFilterSidebarProps = {
+  filters: FilterState;
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
+  uniqueTypes?: string[];
+  uniqueDiameters?: string[];
+  uniquePressures?: string[];
+  uniqueConnections?: string[];
+  uniqueAngles?: string[];
+  uniqueRadii?: string[];
+  uniqueBorings?: string[];
+  uniqueLabels?: string[];
+  isOpen: boolean;
+  toggleSidebar: () => void;
+};
 
 const ProductFilterSidebar = ({
   filters,
@@ -15,7 +40,7 @@ const ProductFilterSidebar = ({
   uniqueLabels = [],
   isOpen,
   toggleSidebar,
-}) => {
+}: ProductFilterSidebarProps) => {
   const resetFilters = () => {
     setFilters({
       type: "-",
@@ -29,7 +54,7 @@ const ProductFilterSidebar = ({
     });
   };
 
-  const Tooltip = ({ text }) => (
+  const Tooltip = ({ text }: { text: string }) => (
     <div className="group relative inline-block ml-2 align-middle">
       <div className="p-1 bg-slate-100 rounded-full cursor-help hover:bg-emerald-100 transition-colors">
         <Info
@@ -51,6 +76,13 @@ const ProductFilterSidebar = ({
     filterKey,
     tooltipText,
     colorClass = "border-slate-200",
+  }: {
+    label: string;
+    value: string;
+    options?: string[];
+    filterKey: keyof FilterState;
+    tooltipText?: string;
+    colorClass?: string;
   }) => (
     <div className="mb-4 animate-in fade-in slide-in-from-left-1 duration-300">
       <div className="flex items-center mb-1.5 px-1">

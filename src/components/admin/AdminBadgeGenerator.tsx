@@ -1,29 +1,32 @@
-// @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, FC, FormEvent, ChangeEvent } from 'react';
 import { generateAuthQR } from '../../utils/qrAuth';
 import { Printer, QrCode } from 'lucide-react';
-import InternalQrImage from '../../utils/InternalQrImage.tsx';
+import InternalQrImage from '../../utils/InternalQrImage';
 
-const AdminBadgeGenerator = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [redirectPath, setRedirectPath] = useState('/planning');
-  const [qrValue, setQrValue] = useState(null);
+interface AdminBadgeGeneratorProps {}
 
-  const handleGenerate = (e) => {
+const AdminBadgeGenerator: FC<AdminBadgeGeneratorProps> = () => {
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [redirectPath, setRedirectPath] = useState<string>('/planning');
+  const [qrValue, setQrValue] = useState<string | null>(null);
+
+  const handleGenerate = (e: FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
-    if(!email || !password) return;
-    
+    if (!email || !password) return;
+
     const token = generateAuthQR(email, password, redirectPath);
     setQrValue(token);
   };
 
-  const handlePrint = () => {
+  const handlePrint = (): void => {
     const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
     // Haal de QR afbeelding URL op
-    const qrImg = document.getElementById('qr-code-img');
+    const qrImg = document.getElementById('qr-code-img') as HTMLImageElement | null;
     const qrSrc = qrImg ? qrImg.src : '';
-    
+
     printWindow.document.write(`
       <html>
         <head>
@@ -69,15 +72,15 @@ const AdminBadgeGenerator = () => {
         <QrCode className="text-indigo-600" />
         Login Badge Generator
       </h2>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <form onSubmit={handleGenerate} className="space-y-4 bg-slate-50 p-6 rounded-lg border border-slate-100">
           <div>
             <label className="block text-sm font-medium mb-1 text-slate-700">Gebruiker Email</label>
-            <input 
-              type="email" 
+            <input
+              type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
               className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
               placeholder="operator@fpi.com"
               required
@@ -85,10 +88,10 @@ const AdminBadgeGenerator = () => {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1 text-slate-700">Wachtwoord (voor badge)</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
               className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
               placeholder="Wachtwoord van deze user"
               required
@@ -99,10 +102,10 @@ const AdminBadgeGenerator = () => {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1 text-slate-700">Startpagina na scan</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={redirectPath}
-              onChange={(e) => setRedirectPath(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setRedirectPath(e.target.value)}
               className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
               placeholder="bijv. /planning of specifieke route"
             />
@@ -110,7 +113,7 @@ const AdminBadgeGenerator = () => {
               Hiermee stuur je de operator direct naar het juiste scherm na het scannen.
             </p>
           </div>
-          <button 
+          <button
             type="submit"
             className="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition-colors font-medium mt-2"
           >
@@ -125,7 +128,7 @@ const AdminBadgeGenerator = () => {
                 <InternalQrImage id="qr-code-img" value={qrValue} size={360} alt="Login QR" className="w-44 h-44" />
               </div>
               <p className="mt-4 font-mono text-sm text-slate-600">{email}</p>
-              <button 
+              <button
                 onClick={handlePrint}
                 className="mt-6 flex items-center gap-2 bg-slate-800 text-white px-6 py-2 rounded-full hover:bg-slate-700 transition-colors"
               >
@@ -135,7 +138,7 @@ const AdminBadgeGenerator = () => {
           ) : (
             <div className="text-center text-slate-400">
               <QrCode size={48} className="mx-auto mb-2 opacity-20" />
-              <p>Vul de gegevens in om een<br/>badge te genereren</p>
+              <p>Vul de gegevens in om een<br />badge te genereren</p>
             </div>
           )}
         </div>

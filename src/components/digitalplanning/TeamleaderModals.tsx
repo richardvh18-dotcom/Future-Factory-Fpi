@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import { getISOWeek, format, startOfISOWeek, endOfISOWeek, addWeeks } from "date-fns";
 import { X, Loader2, Factory, Link2 } from "lucide-react";

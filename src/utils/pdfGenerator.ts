@@ -1,11 +1,26 @@
-// @ts-nocheck
 import i18n from "../i18n";
+
+type ProductRecord = {
+  id?: string;
+  name?: string;
+  type?: string;
+  angle?: string | number;
+  radius?: string | number;
+  connection?: string;
+  diameter?: string | number;
+  pressure?: string | number;
+  label?: string;
+  extraCode?: string;
+  articleCode?: string;
+  imageUrl?: string;
+  [key: string]: unknown;
+};
 
 /**
  * imageToDataUri: Zet een URL om naar Base64 via een directe fetch.
  * Dit is robuuster tegen CORS-beperkingen dan de canvas-methode.
  */
-const imageToDataUri = async (url) => {
+const imageToDataUri = async (url: string | null | undefined): Promise<string | null> => {
   if (!url) return null;
 
   try {
@@ -21,7 +36,13 @@ const imageToDataUri = async (url) => {
 
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error("Kon afbeelding niet converteren naar data URI"));
+      };
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
@@ -39,7 +60,7 @@ const imageToDataUri = async (url) => {
  * @param {Object} product - Productdata met imageUrl en technische specificaties.
  * @param {String} role - De rol van de gebruiker (QC krijgt een andere kleur).
  */
-export const generateProductPDF = async (product, role = "operator") => {
+export const generateProductPDF = async (product: ProductRecord, role = "operator"): Promise<void> => {
   // Toon een kleine indicatie in de console dat we bezig zijn
   console.log(i18n.t("pdf.generating_for", "PDF genereren voor:"), product.name);
 
@@ -126,7 +147,7 @@ export const generateProductPDF = async (product, role = "operator") => {
   const FITTING_FIELDS = ["TW", "L", "Lo", "R", "Weight"];
   const MOF_FIELDS = ["B1", "B2", "BA", "A", "TWcb", "BD", "W"];
 
-  const tableData = [];
+  const tableData: string[][] = [];
   [...FITTING_FIELDS, ...MOF_FIELDS].forEach((key) => {
     let val = product[key];
     if (val === undefined || val === "") {

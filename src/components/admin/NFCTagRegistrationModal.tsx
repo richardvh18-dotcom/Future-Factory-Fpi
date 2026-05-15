@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { X, Nfc, Trash2, Plus } from "lucide-react";
 import { useNotifications } from "../../contexts/NotificationContext";

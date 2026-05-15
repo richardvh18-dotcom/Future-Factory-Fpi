@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useNotifications } from '../../contexts/NotificationContext';
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,27 +16,46 @@ import {
 } from "../../utils/productHelpers";
 import { useProductsData } from "../../hooks/useProductsData";
 
+type ProductRecord = {
+  id?: string;
+  [key: string]: unknown;
+};
+
+type NotificationApi = {
+  notify: (message: string) => void;
+};
+
+type ProductsHookResult = {
+  products: ProductRecord[];
+  loading: boolean;
+  refresh?: () => Promise<void>;
+};
+
+type AdminProductManagerProps = {
+  user: unknown;
+};
+
 /**
  * AdminProductManager V6.2 - Core Catalog Controller
  * Beheert de orchestratie tussen de productlijst en het bewerkingsformulier.
  * Maakt gebruik van de nieuwe root-architectuur voor data-consistentie.
  */
-const AdminProductManager = ({ user }) => {
+const AdminProductManager = ({ user }: AdminProductManagerProps) => {
   const { t } = useTranslation();
-  const { notify } = useNotifications();
+  const { notify } = useNotifications() as NotificationApi;
   const [view, setView] = useState("list"); // 'list' of 'form'
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState<ProductRecord | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   // Haal live data op uit de root via de custom hook
-  const { products, loading, refresh } = useProductsData(user);
+  const { products, loading, refresh } = useProductsData(user) as ProductsHookResult;
 
   const handleCreateNew = () => {
     setSelectedProduct(null);
     setView("form");
   };
 
-  const handleEdit = (product) => {
+  const handleEdit = (product: ProductRecord) => {
     setSelectedProduct(product);
     setView("form");
   };
@@ -47,7 +65,7 @@ const AdminProductManager = ({ user }) => {
     setView("list");
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     if (
       !window.confirm(
         t('adminProductManager.confirm_delete')
@@ -59,9 +77,10 @@ const AdminProductManager = ({ user }) => {
     try {
       await deleteProduct(id);
       if (refresh) await refresh();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Delete Error:", error);
-      notify(t('adminProductManager.delete_failed') + error.message);
+      const message = error instanceof Error ? error.message : String(error || "Onbekende fout");
+      notify(t('adminProductManager.delete_failed') + message);
     } finally {
       setActionLoading(false);
     }
@@ -72,9 +91,10 @@ const AdminProductManager = ({ user }) => {
     try {
       handleCancel();
       if (refresh) await refresh();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Save Error:", error);
-      notify(t('adminProductManager.save_failed') + error.message);
+      const message = error instanceof Error ? error.message : String(error || "Onbekende fout");
+      notify(t('adminProductManager.save_failed') + message);
     } finally {
       setActionLoading(false);
     }
@@ -212,7 +232,7 @@ const AdminProductManager = ({ user }) => {
 /**
  * Interne X icon component voor de modal
  */
-const X = ({ size, className }) => (
+const X = ({ size, className }: { size: number; className?: string }) => (
   <svg
     width={size}
     height={size}

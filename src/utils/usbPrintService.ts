@@ -1,17 +1,30 @@
-// @ts-nocheck
-export const parseUsbId = (value) => {
+type UsbPrinterFilterInput = {
+  vendorId?: unknown;
+  productId?: unknown;
+  usbVendorId?: unknown;
+  usbProductId?: unknown;
+};
+
+type UsbPrinterRef = {
+  vendorId?: number;
+  productId?: number;
+};
+
+export const parseUsbId = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value === "number") return value;
+
   const text = String(value).trim().toLowerCase();
   if (text.startsWith("0x")) {
     const parsedHex = parseInt(text, 16);
     return Number.isNaN(parsedHex) ? undefined : parsedHex;
   }
+
   const parsed = parseInt(text, 10);
   return Number.isNaN(parsed) ? undefined : parsed;
 };
 
-export const getPrinterFilters = (printer = {}) => {
+export const getPrinterFilters = (printer: UsbPrinterFilterInput = {}): USBDeviceFilter[] => {
   const vendorId = parseUsbId(printer.vendorId ?? printer.usbVendorId);
   const productId = parseUsbId(printer.productId ?? printer.usbProductId);
 
@@ -20,7 +33,7 @@ export const getPrinterFilters = (printer = {}) => {
   return [];
 };
 
-const ensureUsbSupport = () => {
+const ensureUsbSupport = (): void => {
   if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.usb) {
     throw new Error("WebUSB is niet beschikbaar in deze browser.");
   }
@@ -30,7 +43,9 @@ const ensureUsbSupport = () => {
   }
 };
 
-const getOutEndpoint = (device) => {
+const getOutEndpoint = (
+  device: USBDevice
+): { interfaceNumber: number; alternateSetting: number; endpointNumber: number } | null => {
   const interfaces = device.configuration?.interfaces || [];
 
   for (const iface of interfaces) {
@@ -49,8 +64,9 @@ const getOutEndpoint = (device) => {
   return null;
 };
 
-const safeCloseDevice = async (device) => {
+const safeCloseDevice = async (device: USBDevice | null | undefined): Promise<void> => {
   if (!device) return;
+
   try {
     if (device.opened) {
       await device.close();
@@ -60,7 +76,13 @@ const safeCloseDevice = async (device) => {
   }
 };
 
-const closeMatchingAuthorizedDevices = async ({ printer = {}, excludeDevice } = {}) => {
+const closeMatchingAuthorizedDevices = async ({
+  printer = {},
+  excludeDevice,
+}: {
+  printer?: UsbPrinterFilterInput;
+  excludeDevice?: USBDevice;
+} = {}): Promise<void> => {
   ensureUsbSupport();
   const filters = getPrinterFilters(printer);
   const authorizedDevices = await navigator.usb.getDevices();
@@ -78,26 +100,37 @@ const closeMatchingAuthorizedDevices = async ({ printer = {}, excludeDevice } = 
   }
 };
 
-const normalizeUsbError = (err) => {
-  const name = String(err?.name || "");
-  const message = String(err?.message || "");
-  const combined = `${name} ${message}`.toLowerCase();
+const normalizeUsbError = (err: unknown): Error => {
+  if (err instanceof Error) {
+    const name = String(err.name || "");
+    const message = String(err.message || "");
+    const combined = `${name} ${message}`.toLowerCase();
 
-  if (name === "SecurityError" || /access denied|permission|toegang|not allowed/i.test(combined)) {
-    return new Error(
-      "USB toegang geweigerd. Sluit andere tabbladen/apps die de printer gebruiken, koppel USB opnieuw en geef browsertoegang opnieuw." 
-    );
+    if (name === "SecurityError" || /access denied|permission|toegang|not allowed/i.test(combined)) {
+      return new Error(
+        "USB toegang geweigerd. Sluit andere tabbladen/apps die de printer gebruiken, koppel USB opnieuw en geef browsertoegang opnieuw."
+      );
+    }
+
+    return err;
   }
 
-  return err;
+  return new Error(String(err || "Onbekende USB fout"));
 };
 
-const prepareDevice = async (device, printer = {}) => {
+const prepareDevice = async (
+  device: USBDevice,
+  printer: UsbPrinterRef = {}
+): Promise<{ interfaceNumber: number; alternateSetting: number; endpointNumber: number }> => {
   if (!device.opened) {
     try {
       await device.open();
-    } catch (err) {
-      const isAccessIssue = err?.name === "SecurityError" || /access denied|permission|toegang/i.test(String(err?.message || ""));
+    } catch (err: unknown) {
+      const errName = err instanceof Error ? err.name : "";
+      const errMessage = err instanceof Error ? err.message : String(err || "");
+      const isAccessIssue =
+        errName === "SecurityError" || /access denied|permission|toegang/i.test(String(errMessage || ""));
+
       if (!isAccessIssue) throw err;
 
       // One retry after cleaning up potentially stale sessions in this browser context.
@@ -118,9 +151,10 @@ const prepareDevice = async (device, printer = {}) => {
 
   try {
     await device.claimInterface(endpointInfo.interfaceNumber);
-  } catch (err) {
-    const message = String(err?.message || "").toLowerCase();
-    const isAlreadyClaimed = err?.name === "InvalidStateError" || /already|claimed|state/i.test(message);
+  } catch (err: unknown) {
+    const errName = err instanceof Error ? err.name : "";
+    const message = String(err instanceof Error ? err.message : err || "").toLowerCase();
+    const isAlreadyClaimed = errName === "InvalidStateError" || /already|claimed|state/i.test(message);
     if (!isAlreadyClaimed) throw err;
   }
 
@@ -131,22 +165,27 @@ const prepareDevice = async (device, printer = {}) => {
   return endpointInfo;
 };
 
-const selectUsbDevice = async (printer = {}) => {
+const selectUsbDevice = async (printer: UsbPrinterFilterInput = {}): Promise<USBDevice> => {
   ensureUsbSupport();
 
   const filters = getPrinterFilters(printer);
   const authorizedDevices = await navigator.usb.getDevices();
 
-  const matchAuthorized = filters.length > 0
-    ? authorizedDevices.find((d) => filters.some((f) => d.vendorId === f.vendorId && (f.productId ? d.productId === f.productId : true)))
-    : authorizedDevices[0];
+  const matchAuthorized =
+    filters.length > 0
+      ? authorizedDevices.find((d) =>
+          filters.some((f) => d.vendorId === f.vendorId && (f.productId ? d.productId === f.productId : true))
+        )
+      : authorizedDevices[0];
 
   if (matchAuthorized) return matchAuthorized;
 
   return navigator.usb.requestDevice({ filters });
 };
 
-export const findAuthorizedUsbDevice = async (printer = {}) => {
+export const findAuthorizedUsbDevice = async (
+  printer: UsbPrinterFilterInput = {}
+): Promise<USBDevice | null> => {
   ensureUsbSupport();
   const filters = getPrinterFilters(printer);
   const authorizedDevices = await navigator.usb.getDevices();
@@ -157,20 +196,24 @@ export const findAuthorizedUsbDevice = async (printer = {}) => {
 
   return (
     authorizedDevices.find((d) =>
-      filters.some(
-        (f) => d.vendorId === f.vendorId && (f.productId ? d.productId === f.productId : true)
-      )
+      filters.some((f) => d.vendorId === f.vendorId && (f.productId ? d.productId === f.productId : true))
     ) || null
   );
 };
 
-export const requestUsbDevice = async (printer = {}) => {
+export const requestUsbDevice = async (printer: UsbPrinterFilterInput = {}): Promise<USBDevice> => {
   ensureUsbSupport();
   const filters = getPrinterFilters(printer);
   return navigator.usb.requestDevice({ filters });
 };
 
-export const printRawUsbToDevice = async ({ device, content }) => {
+export const printRawUsbToDevice = async ({
+  device,
+  content,
+}: {
+  device: USBDevice | null | undefined;
+  content: unknown;
+}) => {
   if (!device) {
     throw new Error("Geen printer verbonden.");
   }
@@ -196,14 +239,20 @@ export const printRawUsbToDevice = async ({ device, content }) => {
       vendorId: device.vendorId,
       productId: device.productId,
     };
-  } catch (err) {
+  } catch (err: unknown) {
     throw normalizeUsbError(err);
   } finally {
     await safeCloseDevice(device);
   }
 };
 
-export const printRawUsb = async ({ content, printer = {} }) => {
+export const printRawUsb = async ({
+  content,
+  printer = {},
+}: {
+  content: unknown;
+  printer?: UsbPrinterFilterInput;
+}) => {
   if (!content || !String(content).trim()) {
     throw new Error("Geen printinhoud opgegeven.");
   }
@@ -212,6 +261,6 @@ export const printRawUsb = async ({ content, printer = {} }) => {
   return printRawUsbToDevice({ device, content });
 };
 
-export const isUsbDirectSupported = () => {
+export const isUsbDirectSupported = (): boolean => {
   return typeof window !== "undefined" && typeof navigator !== "undefined" && !!navigator.usb && !!window.isSecureContext;
 };

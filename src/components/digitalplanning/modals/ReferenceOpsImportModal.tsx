@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useRef } from "react";
 import { X, Upload, Loader2, Database, CheckCircle, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";

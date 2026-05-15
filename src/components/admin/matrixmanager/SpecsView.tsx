@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import {
   Package,
@@ -16,7 +15,16 @@ import {
  * Toont een visueel overzicht van alle technische templates die zijn opgeslagen in de root.
  * Helpt Engineers om snel te valideren welke variabelen (zoals TW, L, B1) actief zijn per type.
  */
-const SpecsView = ({ blueprints = {} }) => {
+type BlueprintEntry = {
+  fields?: string[];
+  [key: string]: unknown;
+};
+
+type SpecsViewProps = {
+  blueprints?: Record<string, BlueprintEntry>;
+};
+
+const SpecsView = ({ blueprints = {} }: SpecsViewProps) => {
   // Sorteer de blueprints: Boringen eerst, daarna de rest
   const sortedEntries = Object.entries(blueprints).sort(([keyA], [keyB]) => {
     if (keyA.startsWith("BORE_") && !keyB.startsWith("BORE_")) return -1;

@@ -1,7 +1,6 @@
-// @ts-nocheck
 import React from 'react';
 import { resolveLabelContent, getBarcodeUrl } from '../../utils/labelHelpers';
-import InternalQrImage from '../../utils/InternalQrImage.tsx';
+import InternalQrImage from '../../utils/InternalQrImage';
 
 /**
  * CRITICAL: PIXELS_PER_MM moet passen bij printer DPI voor print/preview parity.
@@ -15,6 +14,35 @@ const SCREEN_DPI = 96;
 const CSS_PIXELS_PER_POINT = 96 / 72;
 const PRINTER_PREVIEW_FONT_STACK = '"Lucida Console", "Courier New", monospace';
 
+type LabelElement = {
+  type?: 'text' | 'line' | 'box' | 'qr' | 'barcode' | string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  fontSize?: number;
+  isBold?: boolean;
+  fontFamily?: string;
+  align?: 'left' | 'center' | 'right';
+  thickness?: number;
+  rotation?: number;
+  maxLines?: number;
+};
+
+type LabelTemplate = {
+  width: number;
+  height: number;
+  elements?: LabelElement[];
+};
+
+type LabelVisualPreviewProps = {
+  label?: LabelTemplate | null;
+  data?: Record<string, unknown>;
+  zoom?: number;
+  className?: string;
+  printerDpi?: number;
+};
+
 /**
  * Berekent PIXELS_PER_MM voor gegeven printer-DPI
  * Hiermee wordt preview gesynchroniseerd met actuele print-output
@@ -26,12 +54,18 @@ const getPixelsPerMm = (printerDpi = 203) => {
   return (printerDpi || 203) / 25.4;
 };
 
-const getLongestPreviewLineLength = (value) => {
+const getLongestPreviewLineLength = (value: unknown): number => {
   const lines = String(value || "").split(/\r?\n/);
   return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
 };
 
-const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1, pixelsPerMm = 3.78) => {
+const getResolvedPreviewMaxLines = (
+  element: LabelElement,
+  baseFontPx: number,
+  rotation = 0,
+  zoom = 1,
+  pixelsPerMm = 3.78
+): number => {
   const explicitMaxLines = Number(element.maxLines);
   if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
     return Math.max(1, Math.floor(explicitMaxLines));
@@ -54,7 +88,13 @@ const getResolvedPreviewMaxLines = (element, baseFontPx, rotation = 0, zoom = 1,
  * Berekent tekststijl exact gelijk aan AdminLabelDesigner.getPreviewTextStyle
  * zodat preview en designer identiek renderen.
  */
-const getPreviewTextStyle = (element, content, zoom, rotation = 0, pixelsPerMm = 3.78) => {
+const getPreviewTextStyle = (
+  element: LabelElement,
+  content: unknown,
+  zoom: number,
+  rotation = 0,
+  pixelsPerMm = 3.78
+): { fontSize: number; lineHeight: string } => {
   const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
   const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
   const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
@@ -96,7 +136,7 @@ const getPreviewTextStyle = (element, content, zoom, rotation = 0, pixelsPerMm =
   return { fontSize: fittedFontPx, lineHeight: "1.05" };
 };
 
-const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi = 203 }) => {
+const LabelVisualPreview = ({ label, data = {}, zoom = 1, className = "", printerDpi = 203 }: LabelVisualPreviewProps) => {
   const pixelsPerMm = getPixelsPerMm(printerDpi);
   
   if (!label) return <div className={`w-48 h-32 bg-slate-200 flex items-center justify-center text-xs text-slate-400 italic ${className}`}>Geen template</div>;
@@ -110,8 +150,8 @@ const LabelVisualPreview = ({ label, data, zoom = 1, className = "", printerDpi 
       }}
     >
       {label.elements?.map((el, index) => {
-        const resolved = resolveLabelContent(el, data);
-        const displayContent = resolved.content;
+        const resolved = resolveLabelContent(el, data) as { content?: unknown };
+        const displayContent = String(resolved?.content ?? '');
         const rotation = ((Number(el.rotation) || 0) % 360 + 360) % 360;
         const isVerticalRotation = rotation === 90 || rotation === 270;
         const baseStyle = {

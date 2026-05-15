@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, Cpu, Loader2, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -9,11 +8,37 @@ import WorkstationHub from "./WorkstationHub";
 import TeamleaderHub from "./TeamleaderHub";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
+type Station = {
+  id?: string;
+  name?: string;
+};
+
+type Department = {
+  id?: string;
+  slug?: string;
+  name?: string;
+  stations?: Station[];
+};
+
+type FactoryConfig = {
+  departments?: Department[];
+};
+
+type DepartmentStationSelectorProps = {
+  department: string;
+  onBack: () => void;
+  searchOrder?: string;
+};
+
+type AdminUser = {
+  allowedStations?: string[];
+};
+
 /**
  * DepartmentStationSelector
  * Laadt stations dynamisch uit factory_config in Firestore
  */
-const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
+const DepartmentStationSelector = ({ department, onBack, searchOrder }: DepartmentStationSelectorProps) => {
     // Station kleur/icon mapping
     const stationStyles = {
       'teamleader': {
@@ -50,10 +75,10 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
       }
     };
   const { t } = useTranslation();
-  const { user } = useAdminAuth();
-  const [selectedStation, setSelectedStation] = useState(null);
+  const { user } = useAdminAuth() as { user: AdminUser | null };
+  const [selectedStation, setSelectedStation] = useState<string | null>(null);
   const [showTeamleader, setShowTeamleader] = useState(false);
-  const [factoryConfig, setFactoryConfig] = useState(null);
+  const [factoryConfig, setFactoryConfig] = useState<FactoryConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Luister naar factory config
@@ -64,11 +89,11 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
       docRef,
       (snap) => {
         if (snap.exists()) {
-          setFactoryConfig(snap.data());
+          setFactoryConfig(snap.data() as FactoryConfig);
         }
         setLoading(false);
       },
-      (err) => {
+      (err: unknown) => {
         console.error("Factory config error:", err);
         setLoading(false);
       }
@@ -85,22 +110,22 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
     const targetSlug = slugMap[department] || department.toLowerCase();
     
     const deptData = (factoryConfig.departments || []).find(
-      (d) => d.slug === targetSlug || d.id === targetSlug || d.name?.toLowerCase() === targetSlug
+      (d) => d.slug === targetSlug || d.id === targetSlug || String(d.name || "").toLowerCase() === targetSlug
     );
     
     let availableStations = deptData ? (deptData.stations || [])
-      .filter(s => {
+      .filter((s) => {
         const name = (s.name || "").toLowerCase();
         return name !== "algemeen";
       })
-      .map(s => ({ id: s.id || s.name, name: s.name }))
+      .map((s) => ({ id: s.id || s.name, name: s.name || "" }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) : [];
 
     // Filter op toegewezen stations als de gebruiker beperkingen heeft
     if (user && user.allowedStations && Array.isArray(user.allowedStations) && user.allowedStations.length > 0) {
-      const allowedNorm = user.allowedStations.map(s => (s || "").toUpperCase().replace(/\s/g, ""));
+      const allowedNorm = user.allowedStations.map((s) => (s || "").toUpperCase().replace(/\s/g, ""));
       
-      availableStations = availableStations.filter(station => {
+      availableStations = availableStations.filter((station) => {
         const sName = (station.name || "").toUpperCase().replace(/\s/g, "");
         // Check of station naam (bv "BH11") in de allowed lijst staat
         // Ook checken of "TEAMLEADER" toegestaan is voor de teamleader knop
@@ -117,9 +142,9 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }) => {
     if (!selectedStation && stations.length === 1) {
       const singleStation = stations[0];
       // Don't auto-select teamleader hub
-      if (!singleStation.name.toLowerCase().includes('teamleader')) {
+      if (!String(singleStation.name || "").toLowerCase().includes('teamleader')) {
         console.log(`[DeptStationSelector] Auto-selecting single station: ${singleStation.name}`);
-        setSelectedStation(singleStation.name);
+        setSelectedStation(String(singleStation.name || ""));
       }
     }
   }, [stations, selectedStation]);

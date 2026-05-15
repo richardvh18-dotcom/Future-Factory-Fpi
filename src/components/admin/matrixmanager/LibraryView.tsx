@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import {
   Layers,
@@ -22,11 +21,31 @@ import LibrarySection from "./LibrarySection";
  */
 import { useState } from "react";
 
-const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, blueprints = {} }) => {
+type Blueprint = {
+  naam?: string;
+  omschrijving?: string;
+  [key: string]: unknown;
+};
+
+type LibraryData = Record<string, string[]>;
+
+type LibraryViewProps = {
+  libraryData: LibraryData;
+  setLibraryData: React.Dispatch<React.SetStateAction<LibraryData>>;
+  setHasUnsavedChanges?: (value: boolean) => void;
+  blueprints?: Record<string, Blueprint>;
+};
+
+const LibraryView = ({
+  libraryData,
+  setLibraryData,
+  setHasUnsavedChanges,
+  blueprints = {},
+}: LibraryViewProps) => {
     // State voor selectie van blauwdruk en targetveld
     const [targetField, setTargetField] = useState("product_names");
   // Helper om een item toe te voegen aan een specifieke lijst in de state
-  const addItem = (key, val) => {
+  const addItem = (key: string, val: string) => {
     setLibraryData((prev) => {
       const list = Array.isArray(prev[key]) ? [...prev[key]] : [];
       if (list.includes(val)) return prev; // Voorkom dubbele
@@ -35,7 +54,7 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, bluepr
         ...prev,
         [key]: [...list, val].sort((a, b) => {
           // Slim sorteren: nummers numeriek, tekst alfabetisch
-          if (!isNaN(a) && !isNaN(b)) return Number(a) - Number(b);
+          if (!Number.isNaN(Number(a)) && !Number.isNaN(Number(b))) return Number(a) - Number(b);
           return String(a).localeCompare(String(b));
         }),
       };
@@ -45,7 +64,7 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, bluepr
   };
 
   // Helper om een item te verwijderen
-  const removeItem = (key, val) => {
+  const removeItem = (key: string, val: string) => {
     setLibraryData((prev) => ({
       ...prev,
       [key]: (prev[key] || []).filter((i) => i !== val),
@@ -169,7 +188,7 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, bluepr
             <select
               className="border border-blue-200 rounded-lg px-2 py-1 text-xs font-bold"
               value={targetField}
-              onChange={e => setTargetField(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTargetField(e.target.value)}
             >
               <option value="product_names">Product Types</option>
               <option value="borings">Boring Types</option>
@@ -188,11 +207,11 @@ const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges, bluepr
             {Object.entries(blueprints).map(([key, blueprint]) => (
               <button
                 key={key}
-                onClick={() => addItem(targetField, blueprint?.naam || key)}
+                onClick={() => addItem(targetField, String(blueprint?.naam || key))}
                 className="px-4 py-2 rounded-xl text-[11px] font-black flex items-center gap-2 shadow-sm border bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100 transition-all uppercase"
-                title={blueprint?.omschrijving || key}
+                title={String(blueprint?.omschrijving || key)}
               >
-                {blueprint?.naam || key} <span className="ml-1 text-blue-400">+</span>
+                {String(blueprint?.naam || key)} <span className="ml-1 text-blue-400">+</span>
               </button>
             ))}
           </div>

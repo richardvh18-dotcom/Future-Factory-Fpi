@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect } from "react";
 import { collection, collectionGroup, query, onSnapshot, doc, where } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -8,6 +7,33 @@ import { PATHS, getArchiveItemsPath, getArchiveRejectedItemsPath } from "../../c
 import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 import { normalizeMachine } from "../../utils/hubHelpers";
 
+type TeamleaderUser = {
+  role?: string;
+};
+
+type FirestoreOrder = {
+  id?: string;
+  docId?: string;
+  sourceDataId?: string | null;
+  __docPath?: string;
+  sourcePath?: string;
+  orderId?: string;
+  orderNumber?: string;
+  machine?: string;
+  status?: string;
+  [key: string]: unknown;
+};
+
+type FirestoreTrackedProduct = {
+  id?: string;
+  timestamps?: { finished?: { toMillis?: () => number } };
+  updatedAt?: { toMillis?: () => number } | string | number | Date;
+  _archiveYear?: number;
+  [key: string]: unknown;
+};
+
+type FactoryConfig = Record<string, unknown> | null;
+
 /**
  * useTeamleaderFirestore
  *
@@ -16,15 +42,15 @@ import { normalizeMachine } from "../../utils/hubHelpers";
  *           archivedHistoryProducts, archivedRejectedProducts, factoryConfig,
  *           loading, dbError.
  */
-export const useTeamleaderFirestore = ({ user }) => {
-  const [rawOrders, setRawOrders] = useState([]);
-  const [rawProducts, setRawProducts] = useState([]);
-  const [bezetting, setBezetting] = useState([]);
-  const [archivedHistoryProducts, setArchivedHistoryProducts] = useState([]);
-  const [archivedRejectedProducts, setArchivedRejectedProducts] = useState([]);
-  const [factoryConfig, setFactoryConfig] = useState(null);
+export const useTeamleaderFirestore = ({ user }: { user: TeamleaderUser | null | undefined }) => {
+  const [rawOrders, setRawOrders] = useState<FirestoreOrder[]>([]);
+  const [rawProducts, setRawProducts] = useState<FirestoreTrackedProduct[]>([]);
+  const [bezetting, setBezetting] = useState<Record<string, unknown>[]>([]);
+  const [archivedHistoryProducts, setArchivedHistoryProducts] = useState<FirestoreTrackedProduct[]>([]);
+  const [archivedRejectedProducts, setArchivedRejectedProducts] = useState<FirestoreTrackedProduct[]>([]);
+  const [factoryConfig, setFactoryConfig] = useState<FactoryConfig>(null);
   const [loading, setLoading] = useState(true);
-  const [dbError, setDbError] = useState(null);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -52,10 +78,10 @@ export const useTeamleaderFirestore = ({ user }) => {
       setDbError(null);
 
       // LISTENER 1: Orders (legacy root + scoped /machines/*/orders)
-      let rootOrders = [];
-      let scopedOrders = [];
+      let rootOrders: FirestoreOrder[] = [];
+      let scopedOrders: FirestoreOrder[] = [];
 
-      const mapOrderDoc = (docSnap) => {
+      const mapOrderDoc = (docSnap: import("firebase/firestore").QueryDocumentSnapshot) => {
         const data = docSnap.data() || {};
         const sourceDataId = String(data?.id || "").trim();
         return {
@@ -71,9 +97,9 @@ export const useTeamleaderFirestore = ({ user }) => {
 
       const mergeOrders = () => {
         if (!isMounted) return;
-        const merged = new Map();
+        const merged = new Map<string, FirestoreOrder>();
 
-        const getMergeKey = (order) => {
+        const getMergeKey = (order: FirestoreOrder): string => {
           const pathKey = String(order?.__docPath || order?.sourcePath || "").trim();
           if (pathKey) return pathKey;
           const orderKey = String(order?.orderId || order?.id || "").trim();
@@ -106,7 +132,7 @@ export const useTeamleaderFirestore = ({ user }) => {
           mergeOrders();
           markStreamReady();
         },
-        (err) => {
+        (err: { code?: string }) => {
           if (!isMounted) return;
           console.error("Planning Root Sync Error:", err);
           setDbError(err.code || "permission-denied");
@@ -132,7 +158,7 @@ export const useTeamleaderFirestore = ({ user }) => {
           mergeOrders();
           markStreamReady();
         },
-        (err) => {
+        (err: { code?: string }) => {
           if (!isMounted) return;
           console.error("Planning Scoped Sync Error:", err);
         }
@@ -142,11 +168,11 @@ export const useTeamleaderFirestore = ({ user }) => {
       // LISTENER 2: Products
       const unsubProds = subscribeTrackedProducts({
         db,
-        onData: (items) => {
+        onData: (items: FirestoreTrackedProduct[]) => {
           if (!isMounted) return;
           setRawProducts(items);
         },
-        onError: (err) => {
+        onError: (err: { code?: string }) => {
           if (err.code === "permission-denied") return;
           console.warn("Tracked Products Sync Error:", err.code);
           markStreamReady();
@@ -161,7 +187,7 @@ export const useTeamleaderFirestore = ({ user }) => {
         (snap) => {
           isMounted && setBezetting(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         },
-        (err) => {
+        (err: { code?: string }) => {
           if (err.code === "permission-denied") return;
           console.warn("Occupancy Sync Error:", err.code);
         }
@@ -174,7 +200,7 @@ export const useTeamleaderFirestore = ({ user }) => {
         (snap) => {
           if (isMounted && snap.exists()) setFactoryConfig(snap.data());
         },
-        (err) => {
+        (err: { code?: string }) => {
           if (err.code === "permission-denied") return;
           console.warn("Factory Config Sync Error:", err);
         }
@@ -183,7 +209,7 @@ export const useTeamleaderFirestore = ({ user }) => {
 
       const now = new Date();
       const minArchiveDate = subDays(now, 365);
-      const archiveDataByYear = {};
+      const archiveDataByYear: Record<number, FirestoreTrackedProduct[]> = {};
 
       const syncArchiveHistory = () => {
         if (!isMounted) return;
@@ -224,7 +250,7 @@ export const useTeamleaderFirestore = ({ user }) => {
             }));
             syncArchiveHistory();
           },
-          (err) => console.warn("Archive Sync Error (KPI History):", historyYear, err.code)
+          (err: { code?: string }) => console.warn("Archive Sync Error (KPI History):", historyYear, err.code)
         );
         unsubs.push(unsubArchiveYear);
 
@@ -242,7 +268,7 @@ export const useTeamleaderFirestore = ({ user }) => {
               return [...filtered, ...items];
             });
           },
-          (err) => console.warn("Archive Rejected Sync Error:", historyYear, err.code)
+          (err: { code?: string }) => console.warn("Archive Rejected Sync Error:", historyYear, err.code)
         );
         unsubs.push(unsubRejectedYear);
       });

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,11 +16,32 @@ import AiChatView from "./AiChatView";
 import FlashcardViewer from "./FlashcardViewer";
 import { MOCK_FLASHCARDS } from "../../data/aiPrompts";
 
+type FlashcardSide = {
+  text: string;
+  language: string;
+};
+
+type Flashcard = {
+  front: FlashcardSide;
+  back: FlashcardSide;
+  category?: string;
+};
+
+type FlashcardPayload = {
+  flashcards: Flashcard[];
+};
+
+type NotificationApi = {
+  showError: (message: string) => void;
+  showSuccess: (message: string) => void;
+  showInfo?: (message: string) => void;
+};
+
 const AiAssistantView = () => {
   const { t } = useTranslation();
-  const { showError, showSuccess, showInfo } = useNotifications();
-  const [activeTab, setActiveTab] = useState("chat");
-  const [flashcards, setFlashcards] = useState(MOCK_FLASHCARDS);
+  const { showError, showSuccess, showInfo } = useNotifications() as NotificationApi;
+  const [activeTab, setActiveTab] = useState<"chat" | "flashcards">("chat");
+  const [flashcards, setFlashcards] = useState<FlashcardPayload>(MOCK_FLASHCARDS as FlashcardPayload);
   const [loadingFlashcards, setLoadingFlashcards] = useState(true);
 
   // Load flashcards from Firestore and AI knowledge base
@@ -31,22 +51,34 @@ const AiAssistantView = () => {
         // 1. Load custom flashcards from admin
         const flashcardsRef = collection(db, "future-factory", "settings", "flashcards");
         const flashcardsSnap = await getDocs(query(flashcardsRef, where("active", "==", true)));
-        const customCards = flashcardsSnap.docs.map(doc => ({
-          front: doc.data().front || { text: doc.data().question, language: "nl-NL" },
-          back: doc.data().back || { text: doc.data().answer, language: "nl-NL" },
-          category: doc.data().category || "general",
-        }));
+          const customCards: Flashcard[] = flashcardsSnap.docs.map((doc) => {
+          const row = doc.data() as Record<string, unknown>;
+          const frontObj = (row.front || {}) as Record<string, unknown>;
+          const backObj = (row.back || {}) as Record<string, unknown>;
+          return {
+            front: {
+              text: String(frontObj.text || row.question || ""),
+              language: String(frontObj.language || "nl-NL"),
+            },
+            back: {
+              text: String(backObj.text || row.answer || ""),
+              language: String(backObj.language || "nl-NL"),
+            },
+            category: String(row.category || "general"),
+          };
+          });
 
         // 2. Load verified Q&A from AI knowledge base
         const knowledgeRef = collection(db, "future-factory", "settings", "ai_knowledge_base");
         const knowledgeSnap = await getDocs(query(knowledgeRef, where("verified", "==", true)));
-        const knowledgeCards = knowledgeSnap.docs
-          .filter(doc => doc.data().question && doc.data().answer)
-          .map(doc => ({
-            front: { text: doc.data().question || doc.data().userInput, language: "nl-NL" },
-            back: { text: doc.data().correctedAnswer || doc.data().answer, language: "nl-NL" },
+        const knowledgeCards: Flashcard[] = knowledgeSnap.docs
+          .map((doc) => doc.data() as Record<string, unknown>)
+          .filter((row) => row.question && row.answer)
+          .map((row) => ({
+            front: { text: String(row.question || row.userInput || ""), language: "nl-NL" },
+            back: { text: String(row.correctedAnswer || row.answer || ""), language: "nl-NL" },
             category: "ai_verified",
-          }));
+            }));
 
         // 3. Combine with mock flashcards
         const allCards = [

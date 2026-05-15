@@ -1,7 +1,64 @@
-// @ts-nocheck
 import { useMemo } from "react";
 import { normalizeMachine, FITTING_MACHINES, getStartedCounterField } from "../../utils/hubHelpers";
 import { normalizeOrderStatus } from "../../utils/trackingHelpers";
+
+type FactoryStation = {
+  id?: string;
+  name?: string;
+  department?: string;
+  [key: string]: unknown;
+};
+
+type FactoryDepartment = {
+  slug?: string;
+  id?: string;
+  name?: string;
+  stations?: FactoryStation[];
+};
+
+type FactoryConfig = {
+  departments?: FactoryDepartment[];
+};
+
+type RawProduct = {
+  id?: string;
+  machine?: string;
+  originMachine?: string;
+  currentStation?: string;
+  lastStation?: string;
+  status?: string;
+  currentStep?: string;
+  [key: string]: unknown;
+};
+
+type RawOrder = {
+  orderId?: string;
+  machine?: string;
+  station?: string;
+  status?: string;
+  orderStatus?: string;
+  delegatedTo?: unknown;
+  department?: string;
+  originalDepartment?: string;
+  [key: string]: unknown;
+};
+
+type OrderProgressMeta = {
+  trackedInScopeCount: number;
+  activeTrackedInScopeCount: number;
+  trackedLots: Set<string>;
+};
+
+type UseTeamleaderDataStoreArgs = {
+  rawOrders: RawOrder[];
+  rawProducts: RawProduct[];
+  factoryConfig?: FactoryConfig;
+  fixedScope?: string;
+  allowedMachines?: string[];
+  departmentFilter?: string;
+  getOrderIdFromTrackedRecord: (record: RawProduct) => string | undefined;
+  getLotFromTrackedRecord: (record: RawProduct) => string | undefined;
+};
 
 /**
  * useTeamleaderDataStore
@@ -21,7 +78,7 @@ export const useTeamleaderDataStore = ({
   departmentFilter,
   getOrderIdFromTrackedRecord,
   getLotFromTrackedRecord,
-}) => {
+}: UseTeamleaderDataStoreArgs) => {
   const safeScope = (fixedScope || "all").toLowerCase();
   const scopeMap = {
     fittings: "fittings",
@@ -41,7 +98,7 @@ export const useTeamleaderDataStore = ({
         (d) =>
           d.slug === targetSlug ||
           d.id === targetSlug ||
-          d.name?.toLowerCase() === targetSlug
+          String(d.name || "").toLowerCase() === targetSlug
       );
       deptStations = dept ? dept.stations || [] : [];
     } else if (factoryConfig && factoryConfig.departments) {
@@ -51,7 +108,7 @@ export const useTeamleaderDataStore = ({
           (d) =>
             d.slug === filterSlug ||
             d.id === filterSlug ||
-            d.name?.toLowerCase() === filterSlug
+            String(d.name || "").toLowerCase() === filterSlug
         );
         deptStations = dept ? dept.stations || [] : [];
       } else {
@@ -63,7 +120,7 @@ export const useTeamleaderDataStore = ({
       stations = allowedMachines
         .map((m) => {
           const found = deptStations.find(
-            (s) => normalizeMachine(s.name) === normalizeMachine(m)
+            (s) => normalizeMachine(s.name || "") === normalizeMachine(m)
           );
           return found || null;
         })
@@ -137,7 +194,7 @@ export const useTeamleaderDataStore = ({
 
       if (!inScope) return;
 
-      const existing = perOrder.get(orderId) || {
+      const existing: OrderProgressMeta = perOrder.get(orderId) || {
         trackedInScopeCount: 0,
         activeTrackedInScopeCount: 0,
         trackedLots: new Set(),
@@ -167,7 +224,7 @@ export const useTeamleaderDataStore = ({
     if (!rawOrders) return [];
 
     const bh17InRaw = rawOrders.filter((o) =>
-      (o.machine || "").toUpperCase().includes("BH17")
+      String(o.machine || "").toUpperCase().includes("BH17")
     );
     if (bh17InRaw.length > 0) {
       console.log(

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from "react";
 import {
   X,
@@ -17,8 +16,23 @@ import { auth, logActivity } from "../../../config/firebase";
  * InspectionModal V2.0 - Final Quality Assurance
  * Used at the BM01 station for final product release and label printing.
  */
-const InspectionModal = ({ isOpen, onClose, order, onInspect }) => {
-  const [status, setStatus] = useState("approved");
+type InspectionStatus = "approved" | "rejected";
+
+type InspectionOrder = {
+  id: string;
+  lotNumber?: string;
+  [key: string]: unknown;
+};
+
+type InspectionModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  order: InspectionOrder | null;
+  onInspect: (orderId: string, status: InspectionStatus, notes: string) => void;
+};
+
+const InspectionModal = ({ isOpen, onClose, order, onInspect }: InspectionModalProps) => {
+  const [status, setStatus] = useState<InspectionStatus>("approved");
   const [notes, setNotes] = useState("");
   const [showLabelModal, setShowLabelModal] = useState(false);
 
@@ -28,8 +42,8 @@ const InspectionModal = ({ isOpen, onClose, order, onInspect }) => {
     // onInspect handles the database write in the parent component
     try {
       await logActivity(auth.currentUser?.uid, "INSPECTION_COMPLETE", `Inspection completed for order ${order.id}. Status: ${status}`);
-    } catch (e) {
-      console.error("Log error", e);
+    } catch (error) {
+      console.error("Log error", error);
     }
     onInspect(order.id, status, notes);
     onClose();
@@ -124,7 +138,7 @@ const InspectionModal = ({ isOpen, onClose, order, onInspect }) => {
               </label>
               <textarea
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
                 className="w-full bg-slate-50 border-2 border-slate-100 rounded-[25px] p-5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:bg-white outline-none min-h-[120px] transition-all shadow-inner placeholder:text-slate-300 italic"
                 placeholder="Beschrijf eventuele afwijkingen of bijzonderheden..."
               />

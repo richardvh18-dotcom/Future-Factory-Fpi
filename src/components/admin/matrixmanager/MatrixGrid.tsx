@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import {
   Plus,
@@ -12,6 +11,28 @@ import {
  * Een herbruikbare component voor het bewerken van tabel-gebaseerde data.
  * Gestyled conform de Future Factory MES Core richtlijnen.
  */
+
+type MatrixRow = {
+  id: string;
+  label: string;
+};
+
+type MatrixColumn = {
+  id: string;
+  label: string;
+};
+
+type MatrixGridProps = {
+  rows?: MatrixRow[];
+  columns?: MatrixColumn[];
+  values?: Record<string, string | number | null | undefined>;
+  onUpdateRowLabel: (rowId: string, nextLabel: string) => void;
+  onUpdateColLabel: (colId: string, nextLabel: string) => void;
+  onValueChange: (rowId: string, colId: string, nextValue: string) => void;
+  onAddRow: () => void;
+  onAddColumn: () => void;
+};
+
 const MatrixGrid = ({
   rows = [],
   columns = [],
@@ -21,7 +42,7 @@ const MatrixGrid = ({
   onValueChange,
   onAddRow,
   onAddColumn,
-}) => {
+}: MatrixGridProps) => {
   return (
     <div className="w-full bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500 text-left">
       {/* Grid Controls Header */}

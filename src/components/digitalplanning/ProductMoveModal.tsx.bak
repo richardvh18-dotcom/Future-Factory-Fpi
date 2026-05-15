@@ -51,7 +51,9 @@ const ProductMoveModal: FC<ProductMoveModalProps> = ({
   }, [currentDepartment]);
 
   const handleStationClick = (stationName: string): void => {
-    setStationToConfirm(stationName);
+    // if (onMove !== undefined) {
+      setStationToConfirm(stationName);
+    }
   };
 
   const handleConfirmMove = (): void => {

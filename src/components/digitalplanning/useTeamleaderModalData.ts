@@ -1,6 +1,28 @@
-// @ts-nocheck
 import { useMemo } from "react";
 import { addWeeks, endOfISOWeek, format, startOfISOWeek } from "date-fns";
+
+type GenericRecord = Record<string, unknown>;
+
+type UseTeamleaderModalDataArgs = {
+  activeKpi?: string;
+  dataStore: GenericRecord[];
+  rawProducts: GenericRecord[];
+  archivedHistoryProducts: GenericRecord[];
+  archivedRejectedProducts: GenericRecord[];
+  bezetting: GenericRecord[];
+  kpiWeekOffset: number;
+  getOrderProgressMeta: (order: GenericRecord) => { activeTrackedInScopeCount?: number } | null | undefined;
+  getOrderRemainingQueueQty: (order: GenericRecord) => number;
+  getOrderIdFromTrackedRecord: (record: GenericRecord) => string;
+  isInAllowedScope: (record: GenericRecord) => boolean;
+  isInactiveTrackedProduct: (record: GenericRecord) => boolean;
+  isRejectedProduct: (record: GenericRecord) => boolean;
+  isPriorityOrder: (order: GenericRecord) => boolean;
+  getPriorityLevel: (order: GenericRecord) => string;
+  getDeliveredQtyForOrder: (order: GenericRecord) => number;
+  getInspectionApprovedQtyForOrder: (order: GenericRecord) => number;
+  getDeliveryInspectionDeltaForOrder: (order: GenericRecord) => number;
+};
 
 export const useTeamleaderModalData = ({
   activeKpi,
@@ -21,12 +43,12 @@ export const useTeamleaderModalData = ({
   getDeliveredQtyForOrder,
   getInspectionApprovedQtyForOrder,
   getDeliveryInspectionDeltaForOrder,
-}) => {
+}: UseTeamleaderModalDataArgs): GenericRecord[] => {
   return useMemo(() => {
     if (!activeKpi) return [];
 
-    const validOrderIds = new Set(dataStore.map((o) => o.orderId));
-    let data = [];
+    const validOrderIds = new Set(dataStore.map((o) => String(o.orderId || "")));
+    let data: GenericRecord[] = [];
 
     if (activeKpi === "gepland") {
       data = dataStore.filter((o) => {
@@ -36,19 +58,19 @@ export const useTeamleaderModalData = ({
       });
     } else if (activeKpi === "in_proces") {
       data = rawProducts.filter((p) => {
-        const linkedToVisibleOrder = validOrderIds.has(getOrderIdFromTrackedRecord(p));
+        const linkedToVisibleOrder = validOrderIds.has(String(getOrderIdFromTrackedRecord(p) || ""));
         const inAllowedScope = isInAllowedScope(p);
         if (!linkedToVisibleOrder && !inAllowedScope) return false;
         return !isInactiveTrackedProduct(p);
       });
     } else if (activeKpi === "gereed") {
       const activeList = rawProducts.filter((p) => {
-        if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
-        const status = p.status || "";
-        const step = p.currentStep || "";
+        if (!validOrderIds.has(String(getOrderIdFromTrackedRecord(p) || ""))) return false;
+        const status = String(p.status || "");
+        const step = String(p.currentStep || "");
         return ["Finished", "completed", "GEREED"].includes(status) || step === "Finished";
       });
-      const archivedList = archivedHistoryProducts.filter((p) => validOrderIds.has(getOrderIdFromTrackedRecord(p)));
+      const archivedList = archivedHistoryProducts.filter((p) => validOrderIds.has(String(getOrderIdFromTrackedRecord(p) || "")));
       data = [...activeList, ...archivedList];
     } else if (activeKpi === "afkeur") {
       const activeRejected = rawProducts.filter((p) => isRejectedProduct(p));
@@ -61,10 +83,15 @@ export const useTeamleaderModalData = ({
     } else if (["tijdelijke_afkeur", "temp_rejected", "tijdelijke afkeur", "tijdelijk_afkeur"].includes(activeKpi)) {
       data = rawProducts
         .filter((p) => {
-          if (!validOrderIds.has(getOrderIdFromTrackedRecord(p))) return false;
-          return p.inspection?.status === "Tijdelijke afkeur";
+          if (!validOrderIds.has(String(getOrderIdFromTrackedRecord(p) || ""))) return false;
+          const inspection = (p.inspection || {}) as Record<string, unknown>;
+          return inspection.status === "Tijdelijke afkeur";
         })
-        .sort((a, b) => new Date(a.inspection?.timestamp || 0) - new Date(b.inspection?.timestamp || 0));
+        .sort((a, b) => {
+          const inspectionA = (a.inspection || {}) as Record<string, unknown>;
+          const inspectionB = (b.inspection || {}) as Record<string, unknown>;
+          return new Date(String(inspectionA.timestamp || 0)).getTime() - new Date(String(inspectionB.timestamp || 0)).getTime();
+        });
     } else if (activeKpi === "bezetting") {
       const currentDayStr = format(new Date(), "yyyy-MM-dd");
       data = bezetting
@@ -110,7 +137,7 @@ export const useTeamleaderModalData = ({
           };
         })
         .filter(Boolean)
-        .sort((a, b) => Math.abs(b.deliveryInspectionDelta) - Math.abs(a.deliveryInspectionDelta));
+        .sort((a, b) => Math.abs(Number(b.deliveryInspectionDelta || 0)) - Math.abs(Number(a.deliveryInspectionDelta || 0)));
     } else if (activeKpi === "geleverd_mismatch_plus") {
       data = dataStore
         .map((order) => {
@@ -131,7 +158,7 @@ export const useTeamleaderModalData = ({
           };
         })
         .filter(Boolean)
-        .sort((a, b) => b.deliveryInspectionDelta - a.deliveryInspectionDelta);
+        .sort((a, b) => Number(b.deliveryInspectionDelta || 0) - Number(a.deliveryInspectionDelta || 0));
     } else if (activeKpi === "geleverd_mismatch_min") {
       data = dataStore
         .map((order) => {
@@ -152,7 +179,7 @@ export const useTeamleaderModalData = ({
           };
         })
         .filter(Boolean)
-        .sort((a, b) => a.deliveryInspectionDelta - b.deliveryInspectionDelta);
+        .sort((a, b) => Number(a.deliveryInspectionDelta || 0) - Number(b.deliveryInspectionDelta || 0));
     }
 
     const isWeekNavigatedKpi = activeKpi === "gereed" || activeKpi === "afkeur";
@@ -160,7 +187,7 @@ export const useTeamleaderModalData = ({
     const selectedWeekStart = startOfISOWeek(selectedWeekDate);
     const selectedWeekEnd = endOfISOWeek(selectedWeekDate);
 
-    const getItemDateForKpi = (item) => {
+    const getItemDateForKpi = (item: GenericRecord): Date | null => {
       const candidates =
         activeKpi === "gereed"
           ? [
@@ -181,11 +208,11 @@ export const useTeamleaderModalData = ({
 
       for (const value of candidates) {
         if (!value) continue;
-        if (typeof value?.toDate === "function") {
-          const date = value.toDate();
+        if (typeof (value as { toDate?: () => Date })?.toDate === "function") {
+          const date = (value as { toDate: () => Date }).toDate();
           if (Number.isFinite(date.getTime())) return date;
         }
-        const date = new Date(value);
+        const date = new Date(value as string | number | Date);
         if (Number.isFinite(date.getTime())) return date;
       }
       return null;
