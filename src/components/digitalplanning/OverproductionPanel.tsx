@@ -1,13 +1,33 @@
-// @ts-nocheck
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Layers } from "lucide-react";
 
+type OverproductionGroup = {
+  key: string;
+  originalOrderId?: string;
+  originMachine?: string;
+  item?: string;
+  count: number;
+  lotNumbers: string[];
+};
+
+type OverproductionRoute = {
+  station: string | null;
+  mode: "auto" | "manual";
+  label: string;
+};
+
+type OverproductionPanelProps = {
+  overproductionGroups?: unknown[];
+  onOpenOverproductionGroup?: (group: OverproductionGroup) => void;
+  resolveOverproductionRoute?: (...args: unknown[]) => unknown;
+};
+
 const OverproductionPanel = ({
-  overproductionGroups,
+  overproductionGroups = [],
   onOpenOverproductionGroup,
   resolveOverproductionRoute,
-}) => {
+}: OverproductionPanelProps) => {
   const { t } = useTranslation();
 
   return (
@@ -35,12 +55,15 @@ const OverproductionPanel = ({
             {t("teamleader.no_pending_overproduction", "Geen openstaande overproductie")}
           </div>
         ) : (
-          overproductionGroups.map((group) => {
-            const sampleRoute = resolveOverproductionRoute({ machine: group.originMachine, item: group.item }, group, "");
+          overproductionGroups.map((rawGroup, index) => {
+            const group = (rawGroup || {}) as OverproductionGroup;
+            const sampleRoute = (resolveOverproductionRoute
+              ? resolveOverproductionRoute({ machine: group.originMachine, item: group.item }, group, "")
+              : { station: null, mode: "manual", label: "Handmatig kiezen" }) as OverproductionRoute;
             return (
               <button
-                key={group.key}
-                onClick={() => onOpenOverproductionGroup(group)}
+                key={group.key || `${group.originalOrderId || "group"}-${index}`}
+                onClick={() => onOpenOverproductionGroup?.(group)}
                 className="w-full rounded-2xl border border-amber-100 bg-white px-4 py-3 text-left hover:border-amber-300 hover:bg-amber-50/40 transition-all"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -57,7 +80,7 @@ const OverproductionPanel = ({
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-amber-600 font-black text-xs uppercase">
-                    <Layers size={14} /> {group.lotNumbers.length}
+                    <Layers size={14} /> {Array.isArray(group.lotNumbers) ? group.lotNumbers.length : 0}
                   </div>
                 </div>
               </button>

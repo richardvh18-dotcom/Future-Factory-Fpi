@@ -3,15 +3,27 @@ import { collection, query, where, getDocs } from "firebase/firestore";
 import { PATHS } from "../config/dbPaths";
 import { lookupProductByManufacturedId } from "./conversionLogic";
 
+type ProductRecord = {
+  drawingUrl?: string;
+  imageUrl?: string;
+  [key: string]: unknown;
+};
+
+type ConversionLookupResult = {
+  targetProductId?: string;
+} | null;
+
 /**
  * Zoekt de juiste tekening bij een productcode (oud of nieuw) via de conversiematrix en products-collectie.
  * @param {string} manufacturedCode
- * @returns {Promise<Object|null>} product-data met tekening-url of null
+ * @returns {Promise<ProductRecord | null>} product-data met tekening-url of null
  */
-export async function findDrawingForProduct(manufacturedCode) {
+export async function findDrawingForProduct(
+  manufacturedCode: string | null | undefined
+): Promise<ProductRecord | null> {
   // 1. Probeer direct te zoeken op articleCode (meest actuele code)
-  let articleCode = manufacturedCode;
-  let product;
+  let articleCode = String(manufacturedCode || "");
+  let product: ProductRecord | undefined;
 
   const productsRef = collection(db, ...(PATHS.PRODUCTS as [string, ...string[]]));
   let q = query(productsRef, where("articleCode", "==", articleCode));
@@ -30,7 +42,7 @@ export async function findDrawingForProduct(manufacturedCode) {
   }
 
   // 2. Geen directe match: zoek in conversiematrix naar een nieuwe code
-  const conversion = await lookupProductByManufacturedId(null, manufacturedCode);
+  const conversion = (await lookupProductByManufacturedId(null, manufacturedCode)) as ConversionLookupResult;
   if (conversion && conversion.targetProductId) {
     articleCode = conversion.targetProductId;
     q = query(productsRef, where("articleCode", "==", articleCode));

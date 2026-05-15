@@ -10,8 +10,8 @@ import {
 import { calculateZDimension } from "../utils/calculations";
 
 interface CalculatorViewProps {
-  bellDimensions?: Record<string, unknown>;
-  standardFittingDims?: Record<string, unknown>;
+  bellDimensions?: Record<string, Record<string, Record<string, { B1?: number | string } | undefined> | undefined> | undefined> | null;
+  standardFittingDims?: Record<string, Record<string, Record<string, { L?: number | string } | undefined> | undefined> | undefined> | null;
 }
 
 interface CalcState {

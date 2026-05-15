@@ -7,6 +7,32 @@ import { format } from "date-fns";
 import QRCode from "qrcode";
 import i18n from "../i18n";
 
+type AnyRecord = Record<string, unknown>;
+
+type LabelRuleMapping = {
+  condition?: string;
+  project?: string;
+  value?: string;
+};
+
+type LabelRuleVariable = {
+  name: string;
+  defaultValue?: string;
+  triggerField?: string;
+  mappings?: LabelRuleMapping[];
+};
+
+type LabelRule = {
+  productCode?: string;
+  variables?: LabelRuleVariable[];
+};
+
+type LabelTemplate = {
+  name?: unknown;
+  tags?: unknown[];
+  [key: string]: unknown;
+};
+
 // Definieer de standaard formaten
 export const LABEL_SIZES = {
   Standard: { width: 90, height: 55, name: i18n.t("label.size_standard", "Standaard (90x55mm)") },
@@ -19,9 +45,9 @@ export const LABEL_SIZES = {
 // --- HULPFUNCTIES VOOR PARSING ---
 
 // Converteert mm naar inches (afgerond op halve inches)
-const toInches = (mm) => {
+const toInches = (mm: unknown): string => {
   if (!mm) return "";
-  const num = parseFloat(mm);
+  const num = parseFloat(String(mm));
   if (isNaN(num)) return "";
   const inches = num / 25.4;
   // Rond af op 0.5: (x * 2 -> round -> / 2)
@@ -30,14 +56,14 @@ const toInches = (mm) => {
 };
 
 // Converteert Bar naar PSI (afgerond op geheel getal)
-const barToPsi = (bar) => {
-  const num = parseFloat(bar);
+const barToPsi = (bar: unknown): number | string => {
+  const num = parseFloat(String(bar));
   if (isNaN(num)) return "";
   return Math.round(num * 14.5038);
 };
 
 // Zoekt drukklasse (EST20, CST16, EMT25, EDF11)
-const parsePressure = (text) => {
+const parsePressure = (text: string): string => {
   // Zoek naar patroon: EST, CST, EMT, EDF, EWT gevolgd door cijfers
   const match = text.match(/\b(EST|CST|EMT|EDF|EWT)\s*(\d+(?:\.\d+)?)\b/i);
 
@@ -82,7 +108,7 @@ const parsePressure = (text) => {
 };
 
 // Zoekt connecties (CB-CB, FL-TB, TBTB, etc)
-const parseConnections = (text) => {
+const parseConnections = (text: string): string => {
   // Zoekt patronen zoals CB-CB, TB-TB, of aan elkaar TBTB, FLTB
   const match = text.match(
     /\b(TB|CB|FL|AM|AB|CS|CF|FB)-?(TB|CB|FL|AM|AB|CS|CF|FB)(-?(TB|CB|FL|AM|AB|CS|CF|FB))?\b/i
@@ -96,7 +122,7 @@ const parseConnections = (text) => {
 };
 
 // Bepaalt productnaam + graden (voor elbows)
-const parseProductType = (text) => {
+const parseProductType = (text: string): string => {
   const upper = text.toUpperCase();
   const teePairMatch = upper.match(/(\d+)\s*[xX/]\s*(\d+)/);
   const hasTee = upper.includes("TEE");
@@ -142,7 +168,11 @@ const parseProductType = (text) => {
 };
 
 // Bepaalt ID in mm en inch
-const parseDimensions = (text, productType, data: Record<string, any> = {}) => {
+const parseDimensions = (
+  text: string | null | undefined,
+  productType: string,
+  data: { dn?: string | number; diameter?: string | number } = {}
+): string | null => {
   // 1. Check voor Reducer patroon (400x300) of (400/300)
   const reducerMatch = text?.match(/(\d+)\s*[xX/]\s*(\d+)/);
   const upperText = String(text || "").toUpperCase();
@@ -166,46 +196,50 @@ const parseDimensions = (text, productType, data: Record<string, any> = {}) => {
 
   // 2. Check voor standaard ID
   const idMatch = text?.match(/(\d+)(?=[RmM/])/i) || text?.match(/\b(\d+)\b/);
-  let val = null;
+  let val: number | null = null;
 
   if (idMatch) val = parseInt(idMatch[1]);
-  
+
   // Fallback naar gestructureerde data als regex faalt of per ongeluk een hoek (45,90) oppikt
   if ((!val || val <= 25 || val === 45 || val === 90) && (data.dn || data.diameter)) {
-     val = parseInt(data.dn || data.diameter);
+    val = parseInt(data.dn as string) || parseInt(data.diameter as string);
   }
 
-  if (val > 25 && val !== 45 && val !== 90) {
+  if (typeof val === "number" && val > 25 && val !== 45 && val !== 90) {
     return `ID: ${val}mm ${toInches(val)}`;
   }
 
   if (text) {
-      const fallbackMatch = text.match(/(\d{2,4})/g);
-      if (fallbackMatch) {
-        const maxVal = Math.max(...fallbackMatch.map((n) => parseInt(n)));
-        if (maxVal > 25) {
-          return `ID: ${maxVal}mm ${toInches(maxVal)}`;
-        }
+    const fallbackMatch = text.match(/(\d{2,4})/g);
+    if (fallbackMatch) {
+      const maxVal = Math.max(...fallbackMatch.map((n) => parseInt(n)));
+      if (maxVal > 25) {
+        return `ID: ${maxVal}mm ${toInches(maxVal)}`;
       }
+    }
   }
 
-  return data.dn || data.diameter ? `ID: ${parseInt(data.dn || data.diameter)}mm ${toInches(data.dn || data.diameter)}` : "ID: ???";
+  return null;
 };
 
 // Hulpfunctie om geneste object properties te vinden
-const getNestedValue = (obj, path) => {
+const getNestedValue = (obj: Record<string, unknown> | null | undefined, path: string): unknown => {
   if (!path) return undefined;
-  return path.split(".").reduce((acc, part) => acc && acc[part], obj);
+  return path.split(".").reduce((acc: unknown, part: string) => {
+    if (!acc || typeof acc !== "object") return undefined;
+    return (acc as Record<string, unknown>)[part];
+  }, obj);
 };
 
 /**
  * Verwerkt ruwe orderdata naar rijke label data.
  */
-export const processLabelData = (data) => {
+export const processLabelData = (data: Record<string, unknown> | null | undefined): Record<string, unknown> => {
   if (!data) return {};
 
-  const desc = String(data.item || data.description || "").trim();
-  const lotNumber = String(data.lotNumber || "");
+  const rawData = data as Record<string, unknown>;
+  const desc = String(rawData.item || rawData.description || "").trim();
+  const lotNumber = String(rawData.lotNumber || "");
 
   // 1. Bepaal Product Type
   let productType = parseProductType(desc);
@@ -220,10 +254,11 @@ export const processLabelData = (data) => {
 
   // 2. Bepaal Drukklasse (EST/CST/EMT + psi)
   let pressureLine = parsePressure(desc);
+  const specs = rawData.specs as { pressure?: unknown; connection?: unknown } | undefined;
   // Fallback: als regex faalt, gebruik specs; anders leeg laten (geen ??).
   if (!pressureLine) {
-    if (data.specs?.pressure) {
-      const bar = data.specs.pressure;
+    if (specs?.pressure) {
+      const bar = specs.pressure;
       const psi = barToPsi(bar);
       pressureLine = `EST ${bar} (${psi}psi)`;
     } else {
@@ -233,20 +268,22 @@ export const processLabelData = (data) => {
 
   // Bepaal Pressure Line EMT (zoekt specifiek naar waarden zoals "EMT 30/10" of "EMT30/10")
   let pressureLineEmt = "";
-  const emtMatch = desc.match(/EMT\s*(\d+\/\d+)/i) || (data.productId || "").match(/EMT\s*(\d+\/\d+)/i) || (data.itemCode || "").match(/EMT\s*(\d+\/\d+)/i);
+  const emtMatch = desc.match(/EMT\s*(\d+\/\d+)/i) || String(rawData.productId || "").match(/EMT\s*(\d+\/\d+)/i) || String(rawData.itemCode || "").match(/EMT\s*(\d+\/\d+)/i);
   if (emtMatch) {
       pressureLineEmt = `EMT ${emtMatch[1]}`;
   }
 
   // 3. Bepaal Connecties
   let connectionLine = parseConnections(desc);
-  if (!connectionLine && data.specs?.connection) {
-    connectionLine = data.specs.connection;
+  if (!connectionLine) {
+    if (specs?.connection) {
+      connectionLine = String(specs.connection);
+    }
   }
 
   // 4. Bepaal Afmetingen
   let idLine = parseDimensions(desc, productType, data);
-  const diameterVal = parseInt(data.diameter || data.dn || 0, 10);
+  const diameterVal = parseInt(String(rawData.diameter || rawData.dn || 0), 10);
 
   // 5. Radius logic
   let radiusText = "";
@@ -283,18 +320,19 @@ export const processLabelData = (data) => {
       if (fPnMatch) {
         const b = fPnMatch[1];
         flangePressureLine = `EST ${b} (${barToPsi(b)} PSI)`;
-      } else if (data.specs?.pressure) {
-        const b = data.specs.pressure;
+      } else if (specs?.pressure) {
+        const b = specs.pressure;
         flangePressureLine = `EST ${b} (${barToPsi(b)} PSI)`;
       }
     }
 
     // 3. Flange Connection Line
     const fConnMatch = desc.match(/\bFL-?(CB|TB|FB)\b/i);
+    const tbCbMatch = desc.match(/\b(CB|TB)\b/i);
     if (fConnMatch) {
       flangeConnectionLine = `FL-${fConnMatch[1].toUpperCase()}`;
-    } else if (desc.match(/\b(CB|TB)\b/i)) {
-      flangeConnectionLine = `FL-${desc.match(/\b(CB|TB)\b/i)[1].toUpperCase()}`;
+    } else if (tbCbMatch) {
+      flangeConnectionLine = `FL-${tbCbMatch[1].toUpperCase()}`;
     }
 
     // 4. Flange Drilling Line
@@ -313,8 +351,8 @@ export const processLabelData = (data) => {
           const pnMatch = desc.match(/\b(?:PN|BAR)\s*(\d+(?:\.\d+)?)\b/i);
           if (pnMatch) {
             flangeDrillingLine = `DRILLING PN${pnMatch[1]} LIMITED TORQUE`;
-          } else if (data.specs?.pressure || data.pn) {
-            flangeDrillingLine = `DRILLING PN${data.specs?.pressure || data.pn} LIMITED TORQUE`;
+          } else if (specs?.pressure || rawData.pn) {
+            flangeDrillingLine = `DRILLING PN${specs?.pressure || rawData.pn} LIMITED TORQUE`;
           } else {
             flangeDrillingLine = `DRILLING LIMITED TORQUE`;
           }
@@ -329,7 +367,7 @@ export const processLabelData = (data) => {
   const isHeavyLoad = diameterVal > 300;
 
   // 2. Export Logica (Engels)
-  const isExport = data.country && data.country !== "Nederland";
+  const isExport = rawData.country && rawData.country !== "Nederland";
   if (isExport) {
       if (productType === "ELBOW") productType = "ELBOW (EXPORT)";
   }
@@ -338,7 +376,7 @@ export const processLabelData = (data) => {
   // ID < 100 -> EST50
   // 100 <= ID < 150 -> EST40
   // ID >= 150 -> EST32
-  let jointCode = data.jointCode || "";
+  let jointCode = String(rawData.jointCode || "");
   // Zoek A2G3 in alle relevante velden voor betere detectie
   const fullContext = [
       data.itemCode, 
@@ -351,8 +389,8 @@ export const processLabelData = (data) => {
 
   if (fullContext.includes("A2G3")) {
       // Gebruik de berekende idLine om het getal te vinden
-      const idVal = idLine.match(/(\d+)/)?.[1]; 
-      const id = parseInt(idVal || data.innerDiameter || data.diameter || 0, 10);
+      const idVal = idLine?.match(/(\d+)/)?.[1];
+      const id = parseInt(String(idVal || rawData.innerDiameter || rawData.diameter || 0), 10);
       
       let suffix = "";
       if (id > 0) {
@@ -402,17 +440,22 @@ export const processLabelData = (data) => {
  * @param {Array} rules - Array van logica regels uit Firestore.
  * @returns {Object} - Verrijkte data.
  */
-export const applyLabelLogic = (data, rules) => {
+export const applyLabelLogic = (
+  data: AnyRecord,
+  rules: LabelRule[] | null | undefined
+): AnyRecord => {
   if (!rules || rules.length === 0) return data;
   
   const enriched = { ...data };
-  const productCode = (data.itemCode || data.productId || "").toUpperCase();
+  const productCode = String(data.itemCode || data.productId || "").toUpperCase();
 
   // Zoek regels die van toepassing zijn op dit product
-  const activeRule = rules.find(r => r.productCode === productCode);
+  const activeRule = rules.find(
+    (r: LabelRule) => String(r.productCode || "").toUpperCase() === productCode
+  );
   
   if (activeRule && activeRule.variables) {
-    activeRule.variables.forEach(variable => {
+    activeRule.variables.forEach((variable: LabelRuleVariable) => {
       let value = variable.defaultValue || "";
       
       if (variable.mappings) {
@@ -420,7 +463,7 @@ export const applyLabelLogic = (data, rules) => {
         const triggerField = variable.triggerField || "project";
         
         // Helper om waarde op te halen (ook uit specs of mappings)
-        const getValue = (field) => {
+        const getValue = (field: string): unknown => {
             // 1. Directe match
             if (data[field] !== undefined) return data[field];
             // 2. Mapping aliases
@@ -428,15 +471,16 @@ export const applyLabelLogic = (data, rules) => {
             if (field === 'pressure' && data.pn !== undefined) return data.pn;
             if (field === 'extraCode') return data.extraCode || data.code;
             // 3. Specs object
-            if (data.specs && data.specs[field] !== undefined) return data.specs[field];
+            const specs = data.specs as AnyRecord | undefined;
+            if (specs && specs[field] !== undefined) return specs[field];
             
             // 4. Case-insensitive fallback (voor bijv. NPRs vs nprs)
             const lowerField = field.toLowerCase();
-            const key = Object.keys(data).find(k => k.toLowerCase() === lowerField);
+            const key = Object.keys(data).find((k) => k.toLowerCase() === lowerField);
             if (key) return data[key];
-            if (data.specs) {
-                const specKey = Object.keys(data.specs).find(k => k.toLowerCase() === lowerField);
-                if (specKey) return data.specs[specKey];
+            if (specs) {
+              const specKey = Object.keys(specs).find((k) => k.toLowerCase() === lowerField);
+              if (specKey) return specs[specKey];
             }
             
             return "";
@@ -444,7 +488,7 @@ export const applyLabelLogic = (data, rules) => {
 
         const dataValue = String(getValue(triggerField)).toUpperCase();
 
-        const match = variable.mappings.find(m => {
+        const match = variable.mappings.find((m: LabelRuleMapping) => {
             const condition = String(m.condition || m.project || "").trim();
             const val = String(dataValue).trim();
             
@@ -463,7 +507,7 @@ export const applyLabelLogic = (data, rules) => {
             return condition.toUpperCase() === val.toUpperCase();
         });
         
-        if (match) value = match.value;
+        if (match) value = String(match.value || "");
       }
       enriched[variable.name] = value;
     });
@@ -474,7 +518,10 @@ export const applyLabelLogic = (data, rules) => {
 /**
  * Vervangt placeholders.
  */
-export const resolveLabelContent = (contentOrElement, data) => {
+export const resolveLabelContent = (
+  contentOrElement: string | AnyRecord | null | undefined,
+  data: AnyRecord | null | undefined
+): string | AnyRecord | null | undefined => {
   if (!data) return contentOrElement;
 
   let content = "";
@@ -483,7 +530,7 @@ export const resolveLabelContent = (contentOrElement, data) => {
   if (typeof contentOrElement === "string") {
     content = contentOrElement;
   } else if (contentOrElement && typeof contentOrElement === "object") {
-    content = contentOrElement.content || "";
+    content = String(contentOrElement.content || "");
     isElement = true;
   } else {
     return contentOrElement;
@@ -517,8 +564,9 @@ export const resolveLabelContent = (contentOrElement, data) => {
   }
 
   if (isElement) {
+    const element = contentOrElement as AnyRecord;
     return {
-      ...contentOrElement,
+      ...element,
       content: content,
     };
   }
@@ -533,17 +581,21 @@ export const resolveLabelContent = (contentOrElement, data) => {
  * @param {Object} product - Het product waarvoor geprint wordt
  * @returns {Array} Gefilterde labels
  */
-export const filterLabelsByProduct = (labels, product, options: Record<string, any> = {}) => {
+export const filterLabelsByProduct = (
+  labels: LabelTemplate[] | null | undefined,
+  product: AnyRecord | null | undefined,
+  options: Record<string, unknown> = {}
+): LabelTemplate[] => {
   if (!product || !labels) return labels || [];
 
-  if (options.strictTempOrderLabels) {
+  if (options.strictTempOrderLabels === true) {
     return filterTempOrderLabelsByProduct(labels, product);
   }
 
   const excludeTempOrderLabels = options.excludeTempOrderLabels === true;
   const sourceLabels = excludeTempOrderLabels
-    ? labels.filter((label) => {
-        const tags = (label.tags || []).map((t) => String(t).toUpperCase().trim());
+    ? labels.filter((label: LabelTemplate) => {
+      const tags = (label.tags || []).map((t: unknown) => String(t).toUpperCase().trim());
         const name = String(label.name || "").toUpperCase();
         return (
           !tags.includes("TIJDELIJK") &&
@@ -557,7 +609,7 @@ export const filterLabelsByProduct = (labels, product, options: Record<string, a
     : labels;
   
   // 1. Normaliseer product data naar tags (Set voor unieke waarden)
-  const productTags = new Set();
+  const productTags = new Set<string>();
   const desc = [
     product.itemCode,
     product.productId,
@@ -605,8 +657,10 @@ export const filterLabelsByProduct = (labels, product, options: Record<string, a
   if (desc.includes("EWT")) productTags.add("EWT");
   
   // 2. Filter logica
-  return sourceLabels.filter(label => {
-      const labelTags = (label.tags || []).map(t => String(t).toUpperCase()).filter(Boolean);
+  return sourceLabels.filter((label: LabelTemplate) => {
+      const labelTags = (label.tags || [])
+        .map((t: unknown) => String(t).toUpperCase())
+        .filter(Boolean);
       
       // REGEL 1: Als een label GEEN tags heeft -> Altijd tonen (Generiek label)
       if (labelTags.length === 0) return true; 
@@ -625,13 +679,16 @@ export const filterLabelsByProduct = (labels, product, options: Record<string, a
  * - Item met CST/EST/EWT => alleen labels met diezelfde tag(s).
  * - Geen specifieke item-tag => alle tijdelijke labels.
  */
-export const filterTempOrderLabelsByProduct = (labels, product) => {
+export const filterTempOrderLabelsByProduct = (
+  labels: LabelTemplate[] | null | undefined,
+  product: AnyRecord | null | undefined
+): LabelTemplate[] => {
   if (!product || !labels) return labels || [];
 
   const itemText = `${product.itemCode || product.productId || ""} ${product.description || product.item || ""} ${product.extraCode || product.code || ""} ${product.productType || product.type || ""}`.toUpperCase();
   const normalizedItemText = itemText.replace(/[^A-Z0-9]+/g, " ").trim();
 
-  const hasItemTag = (tag) => {
+  const hasItemTag = (tag: string): boolean => {
     const upperTag = String(tag || "").toUpperCase();
     return new RegExp(`\\b${upperTag}(?:\\d+)?\\b`).test(normalizedItemText);
   };
@@ -641,17 +698,18 @@ export const filterTempOrderLabelsByProduct = (labels, product) => {
   const itemCodeTags = Array.from(new Set((normalizedItemText.match(/\bA\d[A-Z]\d\b/g) || [])));
   const itemHasAdapter = hasItemTag("ADAPTOR") || hasItemTag("ADAPTER");
 
-  const normalizedTags = (label) => (label.tags || []).map(tag => String(tag).toUpperCase().trim());
-  const hasAdapterTag = (tags) => tags.includes("ADAPTOR") || tags.includes("ADAPTER");
+  const normalizedTags = (label: LabelTemplate): string[] =>
+    (label.tags || []).map((tag: unknown) => String(tag).toUpperCase().trim());
+  const hasAdapterTag = (tags: string[]): boolean => tags.includes("ADAPTOR") || tags.includes("ADAPTER");
 
-  const tempLabels = labels.filter(label => {
+  const tempLabels = labels.filter((label: LabelTemplate) => {
     const tags = normalizedTags(label);
     return tags.includes("TIJDELIJK") || tags.includes("TEMP");
   });
 
-  const hasAnyAdapterLabel = tempLabels.some(label => hasAdapterTag(normalizedTags(label)));
+  const hasAnyAdapterLabel = tempLabels.some((label: LabelTemplate) => hasAdapterTag(normalizedTags(label)));
 
-  return tempLabels.filter(label => {
+  return tempLabels.filter((label: LabelTemplate) => {
     const tags = normalizedTags(label);
 
     // Adapter items: als er adapter-labels bestaan, toon alleen die labels
@@ -679,9 +737,9 @@ export const filterTempOrderLabelsByProduct = (labels, product) => {
   });
 };
 
-const qrDataUrlCache = new Map();
+const qrDataUrlCache = new Map<string, string>();
 
-export const getQRCodeDataUrl = async (data, size = 150) => {
+export const getQRCodeDataUrl = async (data: unknown, size = 150): Promise<string> => {
   const value = String(data || "leeg");
   const width = Math.max(64, Number(size) || 150);
   const cacheKey = `${width}::${value}`;
@@ -700,9 +758,10 @@ export const getQRCodeDataUrl = async (data, size = 150) => {
 };
 
 // Backward-compatible alias; returns a Promise<string> just like getQRCodeDataUrl.
-export const getQRCodeUrl = (data, size = 150) => getQRCodeDataUrl(data, size);
+export const getQRCodeUrl = (data: unknown, size = 150): Promise<string> =>
+  getQRCodeDataUrl(data, size);
 
-export const getBarcodeUrl = (data) =>
+export const getBarcodeUrl = (data: unknown): string =>
   `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(
-    data || "leeg"
+    String(data ?? "leeg")
   )}&scale=3&height=10&incltext&guardwhitespace`;

@@ -5,14 +5,32 @@ import { PATHS, getPathString } from "../config/dbPaths";
 import { patchPlanningOrderMetadata } from "../services/planningSecurityService";
 import i18n from "../i18n";
 
-const normalizeCode = (value) => String(value || "").trim().toUpperCase();
-const compactCode = (value) => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+type DrawingProductEntry = {
+  id: string;
+  drawing?: string;
+  articleCode?: unknown;
+  manufacturedId?: unknown;
+  erpCode?: unknown;
+  productCode?: unknown;
+  [key: string]: unknown;
+};
+
+type DrawingConversionEntry = {
+  targetProductId?: unknown;
+  manufacturedId?: unknown;
+  searchTerms?: unknown[];
+};
+
+type DrawingOrderInput = Record<string, unknown> | null | undefined;
+
+const normalizeCode = (value: unknown): string => String(value || "").trim().toUpperCase();
+const compactCode = (value: unknown): string => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
 
 /**
  * Genereer materiaalvarianten: CST (C) ↔ EST (E) op positie 6.
  * Tekeningen maken geen onderscheid tussen materiaaltype.
  */
-const materialVariants = (code) => {
+const materialVariants = (code: string): string[] => {
   if (!code || code.length < 8) return [];
   const c = code.toUpperCase();
   if (c[6] === "C") return [c.slice(0, 6) + "E" + c.slice(7)];
@@ -23,7 +41,7 @@ const materialVariants = (code) => {
 /**
  * Bouw meerdere lookup-keys voor een code (inclusief underscore-splits en materiaalvarianten)
  */
-const buildLookupKeys = (value) => {
+const buildLookupKeys = (value: unknown): string[] => {
   const normalized = normalizeCode(value);
   const compact = compactCode(value);
   const keys = new Set([normalized, compact].filter(Boolean));
@@ -48,8 +66,8 @@ const buildLookupKeys = (value) => {
  * Zoekt een tekening voor een order via de flow:
  * Order(itemCode) -> Conversie Matrix(manufacturedId → targetProductId) -> Catalogus(articleCode → drawing)
  */
-export const findDrawingForOrder = async (order) => {
-  const rawCode = order.itemCode || order.item || order.productId || order.manufacturedId || order.articleCode;
+export const findDrawingForOrder = async (order: DrawingOrderInput): Promise<string | null> => {
+  const rawCode = order?.itemCode || order?.item || order?.productId || order?.manufacturedId || order?.articleCode;
   if (!rawCode) return null;
 
   try {
@@ -61,13 +79,15 @@ export const findDrawingForOrder = async (order) => {
     const productsSnap = await getDocs(productsRef);
 
     // Indexeer alle producten op hun codes
-    const productIndex = new Map();
+    const productIndex = new Map<string, DrawingProductEntry>();
     productsSnap.docs.forEach((d) => {
-      const p = d.data();
-      const entry = { id: d.id, ...p };
-      const addKey = (k) => {
+      const p = d.data() as Record<string, unknown>;
+      const entry: DrawingProductEntry = { id: d.id, ...p };
+      const addKey = (k: unknown): void => {
         if (!k) return;
-        buildLookupKeys(k).forEach((lk) => { if (lk) productIndex.set(lk, entry); });
+        buildLookupKeys(k).forEach((lk) => {
+          if (lk) productIndex.set(lk, entry);
+        });
       };
       addKey(p.articleCode);
       addKey(d.id);
@@ -91,16 +111,20 @@ export const findDrawingForOrder = async (order) => {
     const convSnap = await getDocs(convRef);
 
     // Bouw map: sourceKey → Set<targetKeys>
-    const conversionMap = new Map();
+    const conversionMap = new Map<string, Set<string>>();
     convSnap.docs.forEach((d) => {
-      const c = d.data();
+      const c = d.data() as DrawingConversionEntry;
       if (!c.targetProductId) return;
 
       const targetKeys = buildLookupKeys(c.targetProductId);
-      const indexSource = (src) => {
+      const indexSource = (src: unknown): void => {
         buildLookupKeys(src).forEach((sk) => {
-          if (!conversionMap.has(sk)) conversionMap.set(sk, new Set());
-          targetKeys.forEach((tk) => conversionMap.get(sk).add(tk));
+          let targetSet = conversionMap.get(sk);
+          if (!targetSet) {
+            targetSet = new Set<string>();
+            conversionMap.set(sk, targetSet);
+          }
+          targetKeys.forEach((tk) => targetSet!.add(tk));
         });
       };
 
@@ -134,7 +158,7 @@ export const findDrawingForOrder = async (order) => {
 /**
  * Update de order met de gevonden tekening
  */
-export const syncOrderDrawing = async (orderId, drawing) => {
+export const syncOrderDrawing = async (orderId: string, drawing: string): Promise<boolean | undefined> => {
   if (!orderId || !drawing) return;
   try {
     await patchPlanningOrderMetadata({
@@ -161,16 +185,18 @@ export const syncOrderDrawing = async (orderId, drawing) => {
  * Omdat dit frontend code is, moet dit aangeroepen worden door een admin
  * of verplaatst worden naar een Firebase Cloud Function (Node.js) voor echte automatisering.
  */
-export const runBatchDrawingSync = async () => {
+export const runBatchDrawingSync = async (): Promise<number> => {
   console.log(i18n.t("drawing.batch_start", "Start batch sync..."));
   const ordersRef = collection(db, getPathString(PATHS.PLANNING));
   const snap = await getDocs(ordersRef);
   
   let count = 0;
   for (const d of snap.docs) {
-    const data = d.data();
+    const data = d.data() as Record<string, unknown>;
     // Alleen actieve orders zonder tekening
-    if (data.status !== "completed" && (!data.drawing || data.drawing === "-" || data.drawing === "")) {
+    const status = String(data.status || "");
+    const drawingValue = String(data.drawing || "");
+    if (status !== "completed" && (!drawingValue || drawingValue === "-" || drawingValue === "")) {
       const drawing = await findDrawingForOrder({ ...data, id: d.id });
       if (drawing) {
         await syncOrderDrawing(d.id, drawing);

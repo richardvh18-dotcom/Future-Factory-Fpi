@@ -1,12 +1,35 @@
-// @ts-nocheck
-import React from "react";
+import React, { FC } from "react";
 import { useLocation } from "react-router-dom";
 import { X, ArrowRightLeft, Trash2, Loader2 } from "lucide-react";
 
 /**
  * Modal om individuele units handmatig te verplaatsen in het proces.
  */
-const LotOverrideModal = ({
+
+interface LotData {
+  lotNumber: string;
+  currentStation: string;
+  currentStep: string;
+}
+
+interface Station {
+  id: string;
+  name: string;
+}
+
+interface LotOverrideModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  lotData: LotData | null;
+  setLotData: (data: LotData) => void;
+  onSave: () => void;
+  onDelete: (lotNumber: string) => void;
+  loading: boolean;
+  stations: Station[];
+  steps: string[];
+}
+
+const LotOverrideModal: FC<LotOverrideModalProps> = ({
   isOpen,
   onClose,
   lotData,

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../../config/firebase";
@@ -13,9 +12,50 @@ import {
 
 const DAYS_BACK = 5;
 
-export const useTerminalGereedData = ({ allTracked = [], stationId }) => {
-  const [gereedSearch, setGereedSearch] = useState("");
-  const [archivedTracked, setArchivedTracked] = useState([]);
+interface TrackedItem {
+  id?: string;
+  lotNumber?: string;
+  item?: string;
+  itemCode?: string;
+  itemDescription?: string;
+  description?: string;
+  orderId?: string;
+  originMachine?: string;
+  machine?: string;
+  _source?: string;
+  status?: unknown;
+  currentStep?: unknown;
+  timestamps?: {
+    finished?: unknown;
+    completed?: unknown;
+    lossen_start?: unknown;
+    wikkelen_end?: unknown;
+    station_end?: unknown;
+  };
+  archivedAt?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+  [key: string]: any;
+}
+
+interface UseTerminalGereedDataParams {
+  allTracked?: TrackedItem[];
+  stationId?: string;
+}
+
+interface UseTerminalGereedDataReturn {
+  gereedSearch: string;
+  setGereedSearch: (search: string) => void;
+  needle: string;
+  filtered: TrackedItem[];
+}
+
+export const useTerminalGereedData = ({
+  allTracked = [],
+  stationId,
+}: UseTerminalGereedDataParams): UseTerminalGereedDataReturn => {
+  const [gereedSearch, setGereedSearch] = useState<string>("");
+  const [archivedTracked, setArchivedTracked] = useState<TrackedItem[]>([]);
 
   const normalizedStationId = useMemo(
     () => (normalizeMachine(stationId || "") || "").toUpperCase().trim(),
@@ -30,10 +70,10 @@ export const useTerminalGereedData = ({ allTracked = [], stationId }) => {
         const cutoff = subtractWorkingDays(new Date(), DAYS_BACK);
         const years = Array.from(new Set([cutoff.getFullYear(), new Date().getFullYear()]));
         const snaps = await Promise.all(
-          years.map((y) => getDocs(collection(db, ...getArchiveItemsPath(y))))
+          years.map((y) => getDocs(collection(db, ...(getArchiveItemsPath(y) as [string, ...string[]]))))
         );
         const items = snaps.flatMap((snap) =>
-          snap.docs.map((d) => ({ id: d.id, ...d.data(), _source: "archive" }))
+          snap.docs.map((d) => ({ id: d.id, ...d.data(), _source: "archive" } as TrackedItem))
         );
 
         if (isMounted) setArchivedTracked(items);
@@ -51,12 +91,12 @@ export const useTerminalGereedData = ({ allTracked = [], stationId }) => {
   const completedByStation = useMemo(() => {
     const cutoff = subtractWorkingDays(new Date(), DAYS_BACK);
 
-    const getTimestampMs = (item) => {
+    const getTimestampMs = (item: TrackedItem): number => {
       const best = getTrackedCompletionDate(item);
       return best ? best.getTime() : 0;
     };
 
-    const filterItem = (item) => {
+    const filterItem = (item: TrackedItem): boolean => {
       const originNorm = (normalizeMachine(item?.originMachine || item?.machine || "") || "")
         .toUpperCase()
         .trim();

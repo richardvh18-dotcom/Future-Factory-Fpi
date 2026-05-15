@@ -1,20 +1,13 @@
 // @ts-nocheck
-import React, { useState } from 'react';
-import { Sparkles, Loader2, ArrowRight, BrainCircuit } from 'lucide-react';
-import { aiService } from '../../services/aiService';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import React, { useState } from "react";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { aiService } from "../../services/aiService";
 
-export interface PlanningOrder {
-  id: string;
+interface PlanningOrder {
   orderId: string;
-  orderNumber?: string;
-  deliveryDate?: string | Date;
-  plannedDate?: string | Date;
-  type?: 'klant' | 'project' | 'voorraad';
-  priority?: 'immediate' | 'urgent' | 'high' | 'normal' | 'low';
-  status: string;
-  plan?: number;
-  score?: number;
+  score: number;
+  deliveryDate?: string;
+  plannedDate?: string;
 }
 
 interface Props {
@@ -25,40 +18,44 @@ interface Props {
 export const SmartPlanningSuggestions: React.FC<Props> = ({ orders, onOrderClick }) => {
   const [loading, setLoading] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<PlanningOrder[]>([]);
 
   const handleGenerateSuggestions = async () => {
     if (!orders || orders.length === 0) return;
-    
+
     setLoading(true);
     try {
       // 1. Schaalbare wiskunde: laat de Cloud Function de top orders berekenen
       const functions = getFunctions();
-      const calculateSuggestions = httpsCallable(functions, 'calculateSmartSuggestions', { region: 'europe-west1' });
-      
+      const calculateSuggestions = httpsCallable<{ orders: PlanningOrder[] }, { topOrders: PlanningOrder[] }>(
+        functions,
+        "calculateSmartSuggestions",
+        { region: "europe-west1" }
+      );
+
       const result = await calculateSuggestions({ orders });
-      const topOrders = (result.data as any).topOrders || [];
+      const topOrders = result.data.topOrders || [];
       setSuggestions(topOrders);
 
       // 2. AI Analyse: Leg aan de Teamleider uit WAAROM
       const prompt = `
 Je bent de productieplanner AI van FPi Future Factory.
 Ik geef je de top ${topOrders.length} orders die prioriteit moeten krijgen op basis van ons algoritme.
-Orders: ${JSON.stringify(topOrders.map(o => ({ 
-  OrderNummer: o.orderId, 
-  Score: o.score, 
-  Deadline: o.deliveryDate || o.plannedDate || 'Onbekend' 
-})))}
+Orders: ${JSON.stringify(
+        topOrders.map((o) => ({
+          OrderNummer: o.orderId,
+          Score: o.score,
+          Deadline: o.deliveryDate || o.plannedDate || "Onbekend",
+        }))
+      )}
 
 Geef een korte, professionele en menselijke verklaring (maximaal 2 of 3 zinnen) aan de teamleider waarom deze orders bovenaan staan. Focus op de deadlines (vrachtwagens). Gebruik geen markdown of opsommingstekens.
 `;
-      
-      const aiResponse = await aiService.chat([{ role: 'user', content: prompt }]);
+
+      const aiResponse = await aiService.chat([{ role: "user", content: prompt }]);
       setExplanation(aiResponse);
-      
     } catch (error) {
-      console.error('Fout bij het genereren van AI suggesties:', error);
-      setExplanation("Kon geen AI-uitleg genereren, maar de berekende suggesties zijn hieronder geladen.");
+      console.error("Fout bij het genereren van AI suggesties:", error);
     } finally {
       setLoading(false);
     }
@@ -74,7 +71,7 @@ Geef een korte, professionele en menselijke verklaring (maximaal 2 of 3 zinnen) 
           </h3>
           <p className="text-[10px] text-indigo-700/70 mt-0.5 font-medium">Klantlevering t.o.v. voorraad</p>
         </div>
-        <button 
+        <button
           onClick={handleGenerateSuggestions}
           disabled={loading || orders.length === 0}
           className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-sm shadow-indigo-200 disabled:opacity-50 disabled:shadow-none"
@@ -92,8 +89,8 @@ Geef een korte, professionele en menselijke verklaring (maximaal 2 of 3 zinnen) 
       {suggestions.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3">
           {suggestions.map((order, index) => (
-            <div 
-              key={order.id} 
+            <div
+              key={order.id}
               onClick={() => onOrderClick && onOrderClick(order)}
               className="bg-white p-2 rounded-xl border border-indigo-50 flex items-center justify-between cursor-pointer hover:border-indigo-300 hover:shadow-sm transition-all group"
             >

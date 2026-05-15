@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -7,26 +6,42 @@ import TeamleaderHub from "./TeamleaderHub";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
+type StationConfig = {
+  name: string;
+};
+
+type DepartmentConfig = {
+  slug?: string;
+  id?: string;
+  stations?: StationConfig[];
+};
+
+type FactoryConfigDoc = {
+  departments?: DepartmentConfig[];
+};
+
+const TeamleaderHubAny = TeamleaderHub as React.ComponentType<any>;
+
 /**
  * TeamleaderPipesHub - V2 (Future Factory Path)
  */
-const TeamleaderPipesHub = React.memo((props) => {
-  const [stations, setStations] = useState([]);
+const TeamleaderPipesHub = React.memo((props: Record<string, unknown>) => {
+  const [stations, setStations] = useState<StationConfig[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     console.log('[TeamleaderPipesHub] Initializing, path:', PATHS.FACTORY_CONFIG.join('/'));
-    const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
+    const docRef = (doc as any)(db, ...(PATHS.FACTORY_CONFIG as string[]));
 
     const unsubscribe = onSnapshot(
       docRef,
-      (docSnap) => {
+      (docSnap: any) => {
         console.log('[TeamleaderPipesHub] Factory config exists:', docSnap.exists());
         if (docSnap.exists()) {
-          const data = docSnap.data();
+          const data = docSnap.data() as FactoryConfigDoc;
           console.log('[TeamleaderPipesHub] Departments:', data.departments?.length || 0);
           const myDept = (data.departments || []).find(
-            (d) => d.slug === "pipes" || d.id === "pipes"
+            (d: DepartmentConfig) => d.slug === "pipes" || d.id === "pipes"
           );
           if (myDept) {
             console.log('[TeamleaderPipesHub] Found pipes dept with', myDept.stations?.length || 0, 'stations');
@@ -39,7 +54,7 @@ const TeamleaderPipesHub = React.memo((props) => {
         }
         setLoading(false);
       },
-      (err) => {
+      (err: unknown) => {
         console.error("[TeamleaderPipesHub] Factory config error:", err);
         setLoading(false);
       }
@@ -60,10 +75,10 @@ const TeamleaderPipesHub = React.memo((props) => {
       </div>
     );
 
-  const machineIds = stations.map((s) => s.name);
+  const machineIds = stations.map((s: StationConfig) => s.name).filter(Boolean);
 
   return (
-    <TeamleaderHub
+    <TeamleaderHubAny
       {...props}
       fixedScope="pipe"
       departmentName={t('teamleader.pipe_productions', 'Pijp Productie')}

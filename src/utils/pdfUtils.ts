@@ -8,7 +8,12 @@ if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerSrc) {
   ).toString();
 }
 
-export const extractTextFromPdf = async (file, maxChars = 50000) => {
+type PdfInputFile = Blob;
+
+export const extractTextFromPdf = async (
+  file: PdfInputFile,
+  maxChars = 50000
+): Promise<string> => {
   const buffer = await file.arrayBuffer();
   const pdf = await getDocument({ data: buffer }).promise;
   let fullText = "";

@@ -5,6 +5,15 @@ import i18n from "../i18n";
 const functions = getFunctions(app);
 const archivePlanningOrderCallable = httpsCallable(functions, "archivePlanningOrder");
 
+type ArchiveReason = "completed" | "rejected" | "manual";
+
+type ArchiveOrderInput = {
+  __docPath?: string;
+  id?: string;
+  orderId?: string;
+  status?: string;
+};
+
 /**
  * Verplaatst een order van de actieve planning naar de juiste archief-collectie.
  * * Strategie:
@@ -13,7 +22,7 @@ const archivePlanningOrderCallable = httpsCallable(functions, "archivePlanningOr
  * @param {import('../types').PlanningOrder} order - Het volledige order object
  * @param {'completed'|'rejected'|'manual'} reason - Reden van archiveren
  */
-export const archiveOrder = async (order, reason) => {
+export const archiveOrder = async (order: ArchiveOrderInput | null | undefined, reason: ArchiveReason) => {
   const orderDocId = order?.__docPath || order?.id;
   if (!order || !orderDocId) {
     console.error(i18n.t("archive.missing_data", "Kan niet archiveren: Gegevens ontbreken"));

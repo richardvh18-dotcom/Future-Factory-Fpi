@@ -1,7 +1,20 @@
 import React from "react";
 import { X, FileText, Image as ImageIcon } from "lucide-react";
 
-const ProductPassportModal = ({ item, onClose }) => {
+interface ProductPassportItem {
+  lotNumber?: string;
+  item?: string;
+  orderId?: string;
+  drawing?: string;
+  notes?: string;
+}
+
+interface ProductPassportModalProps {
+  item: ProductPassportItem | null | undefined;
+  onClose: () => void;
+}
+
+const ProductPassportModal = ({ item, onClose }: ProductPassportModalProps) => {
   if (!item) return null;
 
   return (

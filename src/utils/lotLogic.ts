@@ -10,7 +10,11 @@
  * @param {Date} date - De datum om te checken (standaard nu)
  * @returns {Object} { week: number, year: number }
  */
-export const getISOWeekInfo = (date = new Date()) => {
+interface ExistingProductLike {
+  lotNumber?: string | number | null;
+}
+
+export const getISOWeekInfo = (date: Date = new Date()): { week: number; year: number } => {
   const d = new Date(
     Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
   );
@@ -28,7 +32,10 @@ export const getISOWeekInfo = (date = new Date()) => {
  * @param {Array} existingProducts - Lijst van alle huidige producten om het volgende nummer te bepalen
  * @returns {string} Het nieuwe unieke lotnummer
  */
-export const generateLotNumber = (stationId, existingProducts = []) => {
+export const generateLotNumber = (
+  stationId: string,
+  existingProducts: ExistingProductLike[] = []
+): string => {
   const now = new Date();
   const yy = now.getFullYear().toString().slice(-2);
   const { week } = getISOWeekInfo(now);
@@ -70,7 +77,7 @@ export const generateLotNumber = (stationId, existingProducts = []) => {
 };
 
 // Mapping voor specifieke stations naar codes (voor placeholders)
-const stationToCode = {
+const stationToCode: Record<string, string> = {
   BH11: "411",
   BH12: "412",
   BH15: "415",
@@ -88,7 +95,7 @@ const stationToCode = {
   BA09: "409",
 };
 
-export const getStationMachineCode = (stationId) => {
+export const getStationMachineCode = (stationId: string): string => {
   if (!stationId) return "400";
 
   const normalized = String(stationId).toUpperCase().trim();
@@ -102,7 +109,7 @@ export const getStationMachineCode = (stationId) => {
   return `4${digits.slice(-2).padStart(2, "0")}`;
 };
 
-export const getLotPlaceholder = (stationId) => {
+export const getLotPlaceholder = (stationId: string): string => {
   if (!stationId) return "402608400000000";
   const code = getStationMachineCode(stationId);
   return `402608${code}0000`;

@@ -1,13 +1,21 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-const TerminalManualInput = ({ 
-  isOpen, 
-  onClose, 
-  value, 
-  onChange, 
-  onSearch 
-}) => {
+interface TerminalManualInputProps {
+  isOpen: boolean;
+  onClose: () => void;
+  value: string;
+  onChange: (value: string) => void;
+  onSearch: () => void;
+}
+
+const TerminalManualInput = ({
+  isOpen,
+  onClose,
+  value,
+  onChange,
+  onSearch,
+}: TerminalManualInputProps) => {
   const { t } = useTranslation();
   if (!isOpen) return null;
 
@@ -19,8 +27,8 @@ const TerminalManualInput = ({
           autoFocus 
           type="text" 
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onSearch()}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+          onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && onSearch()}
           className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-2xl text-2xl font-mono font-black text-slate-900 outline-none focus:border-blue-600 transition-all uppercase text-center"
           placeholder={t("digitalplanning.terminal.number_placeholder", "NUMMER...")}
         />

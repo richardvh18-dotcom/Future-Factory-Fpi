@@ -39,11 +39,31 @@ export const WORKSTATIONS = [
   { id: "Station BM01", name: "stations.bm01", category: "inspection" },
 ];
 
+type WorkstationCategory = "winding" | "pipes" | "post-processing" | "inspection";
+
+type MaterialInfo = {
+  material: string;
+  diameter: number | null;
+  pressure?: string | null;
+};
+
+type FlowState = {
+  status: string;
+  currentStep: string;
+};
+
+const toDateInput = (value: unknown): string | number | Date | null => {
+  if (value instanceof Date || typeof value === "string" || typeof value === "number") {
+    return value;
+  }
+  return null;
+};
+
 /**
  * Get ISO week info from a date
  * Haal ISO week informatie op van een datum
  */
-export const getISOWeekInfo = (date) => {
+export const getISOWeekInfo = (date: Date | number): { week: number; year: number } => {
   const week = getISOWeek(date);
   const year = getYear(date);
   return { week, year };
@@ -57,7 +77,7 @@ export const getRejectionReasons = () => {
   return REJECTION_REASONS.map(r => i18n.t(r));
 };
 // Helper om station-namen te vertalen
-export const getWorkstationName = (name) => {
+export const getWorkstationName = (name: unknown): unknown => {
   // Als de naam een i18n key is, vertaal deze, anders geef de naam terug
   if (typeof name === "string" && name.startsWith("stations.")) {
     return i18n.t(name);
@@ -69,11 +89,12 @@ export const getWorkstationName = (name) => {
  * Check if inspection is overdue (more than 7 days)
  * Controleer of inspectie te laat is (meer dan 7 dagen)
  */
-export const isInspectionOverdue = (timestampString) => {
-  if (!timestampString) return false;
+export const isInspectionOverdue = (timestampString: unknown): boolean => {
+  const dateInput = toDateInput(timestampString);
+  if (!dateInput) return false;
   
   try {
-    const inspectionDate = new Date(timestampString);
+    const inspectionDate = new Date(dateInput);
     const now = new Date();
     const daysSince = (now.getTime() - inspectionDate.getTime()) / (1000 * 60 * 60 * 24);
     
@@ -87,7 +108,7 @@ export const isInspectionOverdue = (timestampString) => {
  * Get material info from item code
  * Haal materiaal informatie op uit item code
  */
-export const getMaterialInfo = (itemCode) => {
+export const getMaterialInfo = (itemCode: unknown): MaterialInfo => {
   if (!itemCode) return { material: "Unknown", diameter: null };
   
   // Bijvoorbeeld: "PP-50-PN10" -> material: "PP", diameter: 50
@@ -135,49 +156,76 @@ export const FLOW_STATUS = {
  * @param {Object} [currentState] - Optioneel: de huidige state van het product (voor resume/pause)
  * @returns {Object} De nieuwe status velden (status, currentStep, currentStation, etc.)
  */
-export const getNextFlowState = (action: string, currentState: Record<string, any> = {}) => {
+export const getNextFlowState = (
+  action: string,
+  currentState: {
+    currentStep?: string;
+    status?: string;
+    previousStep?: string;
+    previousStatus?: string;
+    currentStation?: string;
+  } = {}
+): {
+  status?: string;
+  currentStep?: string;
+  currentStation?: string;
+  previousStep?: string | null;
+  previousStatus?: string | null;
+} => {
   switch (action) {
-    case 'START_WINDING':
+    case "START_WINDING":
       return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.WIKKELEN };
-      
-    case 'FINISH_WINDING':
+
+    case "FINISH_WINDING":
       return { status: FLOW_STATUS.TE_LOSSEN, currentStep: FLOW_STEPS.WACHT_OP_LOSSEN };
-      
-    case 'START_UNLOADING':
+
+    case "START_UNLOADING":
       return { status: FLOW_STATUS.IN_PROGRESS, currentStep: FLOW_STEPS.LOSSEN };
-      
-    case 'FINISH_UNLOADING':
-      return { status: FLOW_STATUS.TE_NABEWERKEN, currentStep: FLOW_STEPS.NABEWERKING, currentStation: "Nabewerking" };
-      
-    case 'FINISH_PROCESSING':
-      return { status: FLOW_STATUS.TE_KEUREN, currentStep: FLOW_STEPS.EINDINSPECTIE, currentStation: "BM01" };
-      
-    case 'FINISH_INSPECTION':
+
+    case "FINISH_UNLOADING":
+      return {
+        status: FLOW_STATUS.TE_NABEWERKEN,
+        currentStep: FLOW_STEPS.NABEWERKING,
+        currentStation: "Nabewerking",
+      };
+
+    case "FINISH_PROCESSING":
+      return {
+        status: FLOW_STATUS.TE_KEUREN,
+        currentStep: FLOW_STEPS.EINDINSPECTIE,
+        currentStation: "BM01",
+      };
+
+    case "FINISH_INSPECTION":
       return {
         status: FLOW_STATUS.TE_NAHARDEN,
         currentStep: FLOW_STEPS.NAHARDING,
         currentStation: "Naharding",
       };
 
-    case 'FINISH_POST_INSPECTION':
-      return { status: FLOW_STATUS.COMPLETED, currentStep: FLOW_STEPS.FINISHED, currentStation: "GEREED" };
-      
-    case 'PAUSE_FLOW':
-      return { 
-        status: FLOW_STATUS.PAUSED, 
-        currentStep: "Onderbroken",
-        previousStep: currentState.currentStep,
-        previousStatus: currentState.status
+    case "FINISH_POST_INSPECTION":
+      return {
+        status: FLOW_STATUS.COMPLETED,
+        currentStep: FLOW_STEPS.FINISHED,
+        currentStation: "GEREED",
       };
 
-    case 'RESUME_FLOW':
+    case "PAUSE_FLOW":
+      return {
+        status: FLOW_STATUS.PAUSED,
+        currentStep: "Onderbroken",
+        previousStep: currentState.currentStep,
+        previousStatus: currentState.status,
+      };
+
+    case "RESUME_FLOW":
       // Als er historie is, keer terug naar de oude staat
       if (currentState.previousStep) {
         return {
           status: currentState.previousStatus || FLOW_STATUS.IN_PROGRESS,
           currentStep: currentState.previousStep,
           previousStep: null, // Reset historie
-          previousStatus: null
+          previousStatus: null,
         };
       }
       // Geen historie? Bepaal logische stap op basis van station
@@ -193,7 +241,7 @@ export const getNextFlowState = (action: string, currentState: Record<string, an
  * Bepaalt de logische processtap op basis van een stationsnaam.
  * Handig als een Teamleader een item handmatig verplaatst.
  */
-export const getStepForStation = (stationName) => {
+export const getStepForStation = (stationName: unknown): FlowState => {
   const name = String(stationName || "").toUpperCase();
   
   if (name === "BH31" || name.includes("REPARATIE") || name.includes("REPAIR")) {
@@ -228,7 +276,10 @@ export const getStepForStation = (stationName) => {
  * - flens (FL/FLENS/FLANGE) -> Mazak
  * - anders -> Nabewerking
  */
-export const resolvePostLossenStation = (itemText, originMachine) => {
+export const resolvePostLossenStation = (
+  itemText: unknown,
+  originMachine: unknown
+): string => {
   const item = String(itemText || "").toUpperCase().trim().replace(/\s+/g, " ");
   const machine = String(originMachine || "").toUpperCase().replace(/\s+/g, "");
 

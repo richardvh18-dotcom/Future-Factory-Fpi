@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Quick test script to verify backend AI proxy is working
  * Run in browser console after importing

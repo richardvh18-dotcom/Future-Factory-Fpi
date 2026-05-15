@@ -1,8 +1,18 @@
-// @ts-nocheck
 import React from "react";
 import { ClipboardList } from "lucide-react";
 import PlanningSidebar from "../digitalplanning/PlanningSidebar";
 import OrderDetail from "../digitalplanning/OrderDetail";
+
+const PlanningSidebarAny = PlanningSidebar as React.ComponentType<any>;
+const OrderDetailAny = OrderDetail as React.ComponentType<any>;
+
+type TeamleaderPlanningViewProps = {
+  orders: any[];
+  products: any[];
+  selectedOrderId: string | null;
+  onSelectOrder: (orderId: string | null) => void;
+  selectedOrder: any;
+};
 
 const TeamleaderPlanningView = ({ 
   orders, 
@@ -10,11 +20,11 @@ const TeamleaderPlanningView = ({
   selectedOrderId, 
   onSelectOrder, 
   selectedOrder 
-}) => {
+}: TeamleaderPlanningViewProps) => {
   return (
     <div className="h-full flex gap-6 overflow-hidden">
       <div className="w-80 shrink-0 flex flex-col min-h-0">
-        <PlanningSidebar
+        <PlanningSidebarAny
           orders={orders}
           selectedOrderId={selectedOrderId}
           onSelect={onSelectOrder}
@@ -22,7 +32,7 @@ const TeamleaderPlanningView = ({
       </div>
       <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden">
         {selectedOrder ? (
-          <OrderDetail
+          <OrderDetailAny
             order={selectedOrder}
             products={products}
             onClose={() => onSelectOrder(null)}

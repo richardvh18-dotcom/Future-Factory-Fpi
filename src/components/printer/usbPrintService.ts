@@ -1,22 +1,49 @@
-// @ts-nocheck
 /**
  * Controleert of WebUSB wordt ondersteund in deze browser.
  */
-export const isUsbDirectSupported = () => {
-  return !!navigator.usb;
+type UsbEndpointInfo = {
+  direction?: string;
+  endpointNumber: number;
+};
+
+type UsbDeviceLike = {
+  opened: boolean;
+  configuration: {
+    interfaces: Array<{
+      alternate?: {
+        endpoints: UsbEndpointInfo[];
+      };
+    }>;
+  } | null;
+  open: () => Promise<void>;
+  selectConfiguration: (configurationValue: number) => Promise<void>;
+  claimInterface: (interfaceNumber: number) => Promise<void>;
+  transferOut: (endpointNumber: number, data: Uint8Array) => Promise<unknown>;
+};
+
+const usbNavigator = navigator as Navigator & {
+  usb?: {
+    requestDevice: (options: { filters: unknown[] }) => Promise<UsbDeviceLike>;
+  };
+};
+
+export const isUsbDirectSupported = (): boolean => {
+  return !!usbNavigator.usb;
 };
 
 /**
  * Vraagt de gebruiker om een USB-apparaat te selecteren.
  * Dit moet worden aangeroepen vanuit een user-gesture (klik).
  */
-export const requestUsbPrinter = async () => {
+export const requestUsbPrinter = async (): Promise<UsbDeviceLike> => {
   try {
     // Filters leeg laten toont alle apparaten, handig voor Zadig-drivers
-    const device = await navigator.usb.requestDevice({ filters: [] });
+    if (!usbNavigator.usb) throw new Error("WebUSB niet ondersteund in deze browser.");
+    const device = await usbNavigator.usb.requestDevice({ filters: [] });
     return device;
   } catch (err) {
-    throw new Error(`USB Toegang Geweigerd: ${err.message}`, { cause: err });
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`USB Toegang Geweigerd: ${message}`, { cause: err });
   }
 };
 
@@ -25,7 +52,7 @@ export const requestUsbPrinter = async () => {
  * @param {USBDevice} device - Het verbonden USB apparaat
  * @param {string} zplData - De ZPL code string
  */
-export const printRawUsb = async (device, zplData) => {
+export const printRawUsb = async (device: UsbDeviceLike | null | undefined, zplData: string): Promise<void> => {
   if (!device) throw new Error("Geen printer geselecteerd.");
 
   if (!device.opened) await device.open();
@@ -36,8 +63,10 @@ export const printRawUsb = async (device, zplData) => {
   const data = encoder.encode(zplData);
 
   // Zoek het 'out' endpoint (waar we data naartoe kunnen sturen)
-  const interface0 = device.configuration.interfaces[0];
-  const endpoint = interface0?.alternate?.endpoints.find((endpointInfo) => endpointInfo.direction === "out");
+  const configuration = device.configuration;
+  if (!configuration) throw new Error("USB configuratie ontbreekt op dit apparaat.");
+  const interface0 = configuration.interfaces[0];
+  const endpoint = interface0?.alternate?.endpoints.find((endpointInfo: UsbEndpointInfo) => endpointInfo.direction === "out");
   
   if (!endpoint) throw new Error("Geen schrijf-endpoint gevonden op dit apparaat.");
 

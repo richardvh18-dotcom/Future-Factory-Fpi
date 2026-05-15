@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { differenceInMinutes } from "date-fns";
 
 export interface PlanningOrder {
@@ -49,7 +48,7 @@ export const calculateOrderPriorityScore = (order: PlanningOrder): number => {
   return score;
 };
 
-export const generateSmartSuggestions = (orders: PlanningOrder[]) => {
+export const generateSmartSuggestions = (orders: PlanningOrder[]): Array<PlanningOrder & { score: number }> => {
   // Filter alleen orders die nog niet gereed of geannuleerd zijn
   const activeOrders = orders.filter(o => 
     !['completed', 'gereed', 'rejected', 'cancelled', 'deleted'].includes(o.status?.toLowerCase())

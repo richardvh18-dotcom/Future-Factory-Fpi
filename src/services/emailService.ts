@@ -1,6 +1,22 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../config/firebase';
 
+type SendEmailOptions = {
+  to: string | string[];
+  subject: string;
+  html?: string;
+  text?: string;
+  from?: string;
+  templateId?: string;
+  variables?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+type SendEmailResult = {
+  ok: boolean;
+  id: string;
+};
+
 /**
  * Verstuurt een email via de Resend Cloud Function.
  * 
@@ -15,9 +31,18 @@ import { functions } from '../config/firebase';
  * @param {Object} [options.metadata] - Extra metadata voor logging
  * @returns {Promise<{ ok: boolean, id: string }>}
  */
-export const sendEmail = async ({ to, subject, html, text, from, templateId, variables, metadata }) => {
+export const sendEmail = async ({
+  to,
+  subject,
+  html,
+  text,
+  from,
+  templateId,
+  variables,
+  metadata,
+}: SendEmailOptions): Promise<SendEmailResult> => {
   try {
-    const sendEmailFn = httpsCallable(functions, 'sendEmail');
+    const sendEmailFn = httpsCallable<SendEmailOptions, SendEmailResult>(functions, 'sendEmail');
     const result = await sendEmailFn({ to, subject, html, text, from, templateId, variables, metadata });
     return result.data;
   } catch (error) {

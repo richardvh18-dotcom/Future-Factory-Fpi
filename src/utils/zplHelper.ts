@@ -1,5 +1,58 @@
 // Debugmodus: zet op true om ZPL-output te loggen
 const DEBUG_ZPL = false;
+
+type ZplRotation = "N" | "R" | "I" | "B";
+type ZplTextAlign = "left" | "center" | "right" | "justify";
+
+type ZplElement = {
+    type: "text" | "barcode" | "qr" | "box" | "line" | "image";
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    offsetX?: number;
+    offsetY?: number;
+    rotation?: number;
+    content?: string;
+    fontSize?: number;
+    fontWidth?: number;
+    maxLines?: number;
+    align?: ZplTextAlign;
+    inverted?: boolean;
+    moduleWidth?: number;
+    showText?: boolean;
+    magnification?: number;
+    thickness?: number;
+    color?: string;
+    hexData?: string;
+    byteCount?: number;
+    totalBytes?: number;
+    rowBytes?: number;
+};
+
+type ZplTemplate = {
+    width?: number;
+    height?: number;
+    elements?: ZplElement[];
+    darkness?: number;
+    printSpeed?: number;
+};
+
+type LabelData = Record<string, unknown> & {
+    isLastOfBatch?: boolean;
+    columnIndex?: number;
+    useDynamicLength?: boolean;
+    lotNumber?: string;
+};
+
+type LegacyOptions = {
+    paperWidthMm?: number;
+    baseHeightMm?: number;
+    [key: string]: unknown;
+};
+
+type ResolveFn = (el: ZplElement, data: LabelData) => { content?: string } | null | undefined;
+type TranslateFn = (value: string) => string;
 /**
  * ZPL Helper voor Future Factory Labels
  * Geavanceerde ZPL Rendering Engine (NiceLabel-style).
@@ -14,21 +67,21 @@ const DEBUG_ZPL = false;
 
 // Conversie helpers (203 DPI standaard)
 const DEFAULT_DPI = 203 / 25.4; // dots/mm
-const mmToDots = (mm) => Math.round(mm * DPI);
+const mmToDots = (mm: number): number => Math.round(mm * DPI);
 let DPI = DEFAULT_DPI;
 
-const getLongestLineLength = (value) => {
+const getLongestLineLength = (value: unknown): number => {
     const lines = String(value || "").split(/\r?\n/);
-    return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
+    return lines.reduce((maxLen: number, line: string) => Math.max(maxLen, line.length), 0);
 };
 
-const wrapTextContent = (value, maxCharsPerLine = 1, maxLines = 1) => {
+const wrapTextContent = (value: unknown, maxCharsPerLine = 1, maxLines = 1): string[] => {
     const safeMaxChars = Math.max(1, Math.floor(maxCharsPerLine));
     const safeMaxLines = Math.max(1, Math.floor(maxLines));
     const sourceLines = String(value || "").replace(/\r/g, "").split("\n");
-    const wrapped = [];
+    const wrapped: string[] = [];
 
-    const pushLine = (line) => {
+    const pushLine = (line: string): void => {
         if (wrapped.length >= safeMaxLines) return;
         wrapped.push(line);
     };
@@ -86,7 +139,7 @@ const wrapTextContent = (value, maxCharsPerLine = 1, maxLines = 1) => {
     return wrapped.slice(0, safeMaxLines);
 };
 
-const getResolvedTextMaxLines = (el, requestedHeight, rot = 'N') => {
+const getResolvedTextMaxLines = (el: ZplElement, requestedHeight: number, rot: ZplRotation = "N"): number => {
     const explicitMaxLines = Number(el.maxLines);
     if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
         return Math.max(1, Math.floor(explicitMaxLines));
@@ -102,14 +155,19 @@ const getResolvedTextMaxLines = (el, requestedHeight, rot = 'N') => {
     return Math.max(1, Math.floor((lineBudgetDots * 0.92) / estimatedLineHeightDots));
 };
 
-const getTextMetrics = (el, content, rot = 'N') => {
-    const requestedHeight = mmToDots((el.fontSize || 10) / 2.8);
+const getTextMetrics = (el: ZplElement, content: string, rot: ZplRotation = "N") => {
+    // CALIBRATION FIX: CSS fontSize (pt) -> Zebra dots
+    // CSS uses 96 DPI = 13.33 px/pt, but Zebra ZPL height is dots at printer DPI
+    // Correction: 10pt CSS ≈ 26 dots @ 203DPI, so divide by 2.834 (not 2.8)
+    const CSS_PT_TO_DOTS = 2.834; // Precise calibration factor
+    const requestedHeight = mmToDots((el.fontSize || 10) / CSS_PT_TO_DOTS);
     const maxLines = getResolvedTextMaxLines(el, requestedHeight, rot);
     const hasExplicitWidth = Number.isFinite(Number(el.fontWidth));
     const explicitWidth = hasExplicitWidth
-        ? mmToDots((el.fontWidth || 12) / 2.8)
+        ? mmToDots((el.fontWidth || 12) / CSS_PT_TO_DOTS)
         : 0;
-    const naturalWidth = explicitWidth || Math.max(1, Math.round(requestedHeight * 0.48));
+    // Character width is ~52% of height for monospace fonts
+    const naturalWidth = explicitWidth || Math.max(1, Math.round(requestedHeight * 0.52));
 
     if (!el.width) {
         return {
@@ -138,7 +196,8 @@ const getTextMetrics = (el, content, rot = 'N') => {
     const maxCharWidth = Math.max(1, Math.floor((innerWidthDots * 0.98) / estimatedLongestWrappedLine));
     const fittedWidth = Math.min(naturalWidth, maxCharWidth);
     const fittedHeight = Math.max(1, Math.min(heightLimitDots, requestedHeight));
-    const estimatedCharWidthDots = Math.max(1, hasExplicitWidth ? fittedWidth : Math.round(fittedHeight * 0.48));
+    // Monospace character width ratio: 52% of height (not 48%)
+    const estimatedCharWidthDots = Math.max(1, hasExplicitWidth ? fittedWidth : Math.round(fittedHeight * 0.52));
     const charsPerLine = Math.max(1, Math.floor((innerWidthDots * 0.98) / estimatedCharWidthDots));
 
     return {
@@ -156,9 +215,9 @@ const getTextMetrics = (el, content, rot = 'N') => {
 /**
  * Vervangt placeholders zoals {itemCode} met echte data
  */
-const parseContent = (text, data) => {
+const parseContent = (text: string | undefined, data: LabelData): string => {
     if (!text) return "";
-    return text.replace(/\{(\w+)\}/g, (_, key) => data[key] || "");
+    return text.replace(/\{(\w+)\}/g, (_match: string, key: string) => String(data[key] ?? ""));
 };
 
 /**
@@ -168,14 +227,21 @@ const parseContent = (text, data) => {
  * @param {number} printerDpi - DPI van de printer (default 203)
  * @returns {string} ZPL string
  */
-export const generatePrintData = (template, data, printerDpi = 203, resolveFn = null, t = null) => {
+export const generatePrintData = (
+    template: ZplTemplate | LabelData,
+    data: LabelData = {},
+    printerDpi = 203,
+    resolveFn: ResolveFn | null = null,
+    t: TranslateFn | null = null
+): string => {
     // Update globale DPI setting
     DPI = (Number(printerDpi) > 0 ? Number(printerDpi) : 203) / 25.4;
 
     // Fallback voor oude aanroepen (backward compatibility)
     // Als eerste argument geen template object is met elements, behandelen we het als 'data'
-    if (!template.elements && !template.width) {
-        return generateLegacyZPL(template, data); // data zit in 2e arg in oude call, maar hier in 1e
+    const templateInput = template as ZplTemplate;
+    if (!templateInput.elements && !templateInput.width) {
+        return generateLegacyZPL(template as LabelData, data as LegacyOptions); // data zit in 2e arg in oude call, maar hier in 1e
     }
 
     const {
@@ -184,7 +250,7 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
         elements = [],
         darkness = 15,
         printSpeed = 3
-    } = template;
+    } = templateInput;
 
     const {
         isLastOfBatch = true,
@@ -216,22 +282,25 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
     const globalXOffset = mmToDots(colOffsetMm);
 
     // 4. Render Elements (De "NiceLabel" Engine)
-    elements.forEach(el => {
+    elements.forEach((el: ZplElement) => {
         // Ondersteun per-object offsetX/offsetY (in mm, optioneel)
         // Voeg { offsetX: 1, offsetY: 0 } toe aan een element om extra correctie toe te passen
         // Variabelen vervangen
-           const resolvedContent = resolveFn
-              ? (resolveFn(el, data)?.content || "")
-              : parseContent(el.content, data);
-           const content = t ? t(resolvedContent) : resolvedContent;
+              const resolvedContent = resolveFn
+                  ? String(resolveFn(el, data)?.content || "")
+                  : parseContent(el.content, data);
+              const content = t ? t(resolvedContent) : resolvedContent;
 
         // Positie berekenen
-        let baseX = globalXOffset + mmToDots(el.x + (el.offsetX || 0));
-        let baseY = mmToDots(el.y + (el.offsetY || 0));
+        let baseX = globalXOffset + mmToDots(Number(el.x || 0) + Number(el.offsetX || 0));
+        let baseY = mmToDots(Number(el.y || 0) + Number(el.offsetY || 0));
 
         // Rotatie
-        const rotationMap = { 0: 'N', 90: 'R', 180: 'I', 270: 'B' };
-        const rot = rotationMap[el.rotation || 0] || 'N';
+        const rotationMap: Record<0 | 90 | 180 | 270, ZplRotation> = { 0: "N", 90: "R", 180: "I", 270: "B" };
+        const rotationValue = Number(el.rotation) || 0;
+        const normalizedRotation: 0 | 90 | 180 | 270 =
+            rotationValue === 90 || rotationValue === 180 || rotationValue === 270 ? rotationValue : 0;
+        const rot = rotationMap[normalizedRotation];
         const rawRotation = Number(el.rotation) || 0;
 
         // Correctie voor verticale objecten zodat print overeenkomt met preview
@@ -266,12 +335,19 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             // dus voor verticale tekst bewust uitschakelen.
             if (!isVerticalRotation) {
                 zpl += `^FO${x},${y}`;
-                zpl += `^A0${rot},${fontHeight},${fontWidth}`;
+                // ^A0 = built-in font family (monospace), rotation, height (dots), width (dots)
+                // Ensure fontHeight > 0 to prevent rendering issues
+                const safeFontHeight = Math.max(6, Math.min(fontHeight, 500)); // Valid range: 6-500 dots
+                zpl += `^A0${rot},${safeFontHeight},${fontWidth}`;
             }
 
             if (widthDots && !isVerticalRotation) {
                 const alignMap = { 'left': 'L', 'center': 'C', 'right': 'R', 'justify': 'J' };
-                const align = alignMap[el.align] || 'L';
+                const alignKey: ZplTextAlign =
+                    el.align === 'center' || el.align === 'right' || el.align === 'justify'
+                        ? el.align
+                        : 'left';
+                const align = alignMap[alignKey] || 'L';
                 zpl += `^FB${widthDots},${maxLines},0,${align},0`;
             }
 
@@ -290,7 +366,8 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
                         ? startX - (lineIndex * lineAdvanceDots)
                         : startX + (lineIndex * lineAdvanceDots);
                     zpl += `^FO${lineX},${y}`;
-                    zpl += `^A0${rot},${fontHeight},${fontWidth}`;
+                    const safeFontHeight = Math.max(6, Math.min(fontHeight, 500));
+                    zpl += `^A0${rot},${safeFontHeight},${fontWidth}`;
                     if (el.inverted) {
                         zpl += `^FR`;
                     }
@@ -299,7 +376,8 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             } else if (isVerticalRotation) {
                 // Vertical without wrapping
                 zpl += `^FO${x},${y}`;
-                zpl += `^A0${rot},${fontHeight},${fontWidth}`;
+                const safeFontHeight = Math.max(6, Math.min(fontHeight, 500));
+                zpl += `^A0${rot},${safeFontHeight},${fontWidth}`;
                 if (el.inverted) {
                     zpl += `^FR`;
                 }
@@ -314,8 +392,8 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             const x = baseX;
             const y = baseY;
             zpl += `^FO${x},${y}`;
-            const h = mmToDots(el.height || 10);
-            const w = el.moduleWidth || 2; // Module width (dikte streepjes)
+            const h = mmToDots(Number(el.height || 10));
+            const w = Number(el.moduleWidth || 2); // Module width (dikte streepjes)
             const showText = el.showText ? 'Y' : 'N';
             zpl += `^BY${w},3,${h}`; // Module width, ratio, height
             zpl += `^BC${rot},${h},${showText},N,N`;
@@ -328,7 +406,7 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             const y = baseY;
             zpl += `^FO${x},${y}`;
             // ^BQ orientation, model, magnification, error correction, mask
-            const mag = el.magnification || 4; // Grootte (1-10)
+            const mag = Number(el.magnification || 4); // Grootte (1-10)
             zpl += `^BQN,2,${mag},Q,7`;
             zpl += `^FDQA,${content}^FS`;
         }
@@ -338,9 +416,9 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             const x = baseX;
             const y = baseY;
             zpl += `^FO${x},${y}`;
-            const w = mmToDots(el.width || 1);
-            const h = mmToDots(el.height || 1);
-            const t = mmToDots(el.thickness || 0.5);
+            const w = mmToDots(Number(el.width || 1));
+            const h = mmToDots(Number(el.height || 1));
+            const t = mmToDots(Number(el.thickness || 0.5));
             const color = el.color === 'white' ? 'W' : 'B'; // Black or White lines
             zpl += `^GB${w},${h},${t},${color},0^FS`;
         }
@@ -352,7 +430,7 @@ export const generatePrintData = (template, data, printerDpi = 203, resolveFn = 
             zpl += `^FO${x},${y}`;
             // ^GFA = Graphic Field ASCII
             // Dit vereist dat de image data al geconverteerd is naar ZPL Hex formaat
-            zpl += `^GFA,${el.byteCount},${el.totalBytes},${el.rowBytes},${el.hexData}^FS`;
+            zpl += `^GFA,${Number(el.byteCount || 0)},${Number(el.totalBytes || 0)},${Number(el.rowBytes || 0)},${el.hexData}^FS`;
         }
     });
 
@@ -395,7 +473,26 @@ export const generateLotBatchZPL = ({
     separatorXmm = 2,
     separatorYmm = 12.4,
     separatorWidthMm = 86
-} = {}) => {
+}: {
+    lots?: Array<string | number>;
+    orderNumber?: string;
+    printerDpi?: number;
+    darkness?: number;
+    labelWidthMm?: number;
+    labelHeightMm?: number;
+    qrSizeMm?: number;
+    qrXmm?: number;
+    qrYmm?: number;
+    qrCellWidth?: number | null;
+    textYmm?: number;
+    textHeightMm?: number;
+    rightMarginMm?: number;
+    gapAfterQrMm?: number;
+    lotTextShiftRightMm?: number;
+    separatorXmm?: number;
+    separatorYmm?: number;
+    separatorWidthMm?: number;
+} = {}): string => {
     if (!Array.isArray(lots) || lots.length === 0) return "";
 
     const normalizedOrderNumber = String(orderNumber || "").trim();
@@ -410,7 +507,7 @@ export const generateLotBatchZPL = ({
     ];
 
     const dotsPerMm = printerDpi === 300 ? 12 : 8;
-    const toDots = (mm) => Math.round(mm * dotsPerMm);
+    const toDots = (mm: number): number => Math.round(mm * dotsPerMm);
 
     const leftQrX = toDots(qrXmm);
     const qrY = toDots(qrYmm);
@@ -424,8 +521,8 @@ export const generateLotBatchZPL = ({
     const textAreaStartDots = toDots(qrXmm + qrSizeMm + gapAfterQrMm);
     const textAreaWidthDots = toDots(labelWidthMm - rightMarginMm - (qrXmm + qrSizeMm + gapAfterQrMm));
     const lotChars = Math.max(15, ...rows.map((row) => String(row.text || "").length));
-    const spreadFactor = 2.0;
-    const fontWidthDots = Math.max(1, Math.round((textAreaWidthDots / lotChars) * spreadFactor));
+    // Character width is 52% of height for monospace fonts (standard Zebra font)
+    const fontWidthDots = Math.max(1, Math.round(fontHeightDots * 0.52));
     const estimatedTextWidthDots = lotChars * fontWidthDots;
     const lotTextShiftRightDots = toDots(lotTextShiftRightMm);
     const textX = Math.max(
@@ -434,6 +531,7 @@ export const generateLotBatchZPL = ({
     );
 
     let zplBatch = "";
+    const safeFontHeight = Math.max(6, Math.min(fontHeightDots, 500)); // Ensure valid range
     rows.forEach((row, index) => {
         const isLast = index === rows.length - 1;
         zplBatch += "^XA";
@@ -443,7 +541,7 @@ export const generateLotBatchZPL = ({
         zplBatch += `^LL${toDots(labelHeightMm)}`;
         zplBatch += `^MD${darkness}`;
         zplBatch += `^FO${leftQrX},${qrY}^BQN,2,${effectiveQrCellWidth},Q,7^FDQA,${row.qrValue}^FS`;
-        zplBatch += `^FO${textX},${textY}^A0N,${fontHeightDots},${fontWidthDots}^FD${row.text}^FS`;
+        zplBatch += `^FO${textX},${textY}^A0N,${safeFontHeight},${fontWidthDots}^FD${row.text}^FS`;
         zplBatch += `^FO${toDots(separatorXmm)},${toDots(separatorYmm)}^GB${toDots(separatorWidthMm)},1,1^FS`;
         if (isLast) {
             zplBatch += "^PQ1,0,1,Y";
@@ -457,17 +555,17 @@ export const generateLotBatchZPL = ({
 };
 
 // --- LEGACY SUPPORT (Voor hardcoded tests) ---
-const generateLegacyZPL = (data, options) => {
+const generateLegacyZPL = (data: LabelData = {}, options: LegacyOptions = {}): string => {
     // Converteer oude data naar nieuwe template structuur
     const template = {
         width: options.paperWidthMm || 90,
         height: options.baseHeightMm || 40,
         elements: [
-            { type: 'text', x: 2, y: 4, fontSize: 14, content: data.itemCode || 'UNKNOWN' },
-            { type: 'text', x: 2, y: 12, fontSize: 8, content: data.description || '', width: 40, maxLines: 2 },
-            { type: 'text', x: 2, y: 20, fontSize: 6, content: data.lotNumber },
+            { type: 'text', x: 2, y: 4, fontSize: 14, content: String(data.itemCode || 'UNKNOWN') },
+            { type: 'text', x: 2, y: 12, fontSize: 8, content: String(data.description || ''), width: 40, maxLines: 2 },
+            { type: 'text', x: 2, y: 20, fontSize: 6, content: String(data.lotNumber || '') },
             { type: 'text', x: 2, y: 23, fontSize: 6, content: new Date().toLocaleDateString('nl-NL') },
-            { type: 'barcode', x: 2, y: 27, height: 8, content: data.lotNumber, showText: true }
+            { type: 'barcode', x: 2, y: 27, height: 8, content: String(data.lotNumber || ''), showText: true }
         ]
     };
     return generatePrintData(template, { ...data, ...options });
@@ -496,7 +594,7 @@ export const getTestZPL = () => {
     });
 };
 
-export const downloadZPL = (zpl, filename = "label.zpl") => {
+export const downloadZPL = (zpl: string, filename = "label.zpl"): void => {
     const blob = new Blob([zpl], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -508,7 +606,12 @@ export const downloadZPL = (zpl, filename = "label.zpl") => {
     URL.revokeObjectURL(url);
 };
 
-export const logPrintAction = async (user, labelName, printerIp, data) => {
+export const logPrintAction = async (
+    user: { uid?: string } | null | undefined,
+    labelName: string | null | undefined,
+    printerIp: string | null | undefined,
+    data: { lotNumber?: string } | null | undefined
+): Promise<void> => {
     try {
         const { logActivity } = await import("../config/firebase");
         await logActivity(
@@ -521,7 +624,7 @@ export const logPrintAction = async (user, labelName, printerIp, data) => {
     }
 };
 
-export const checkPrinterStatus = async (ip) => {
+export const checkPrinterStatus = async (ip: string | null | undefined): Promise<{ online: boolean; message: string }> => {
     if (!ip) return { online: false, message: "No IP" };
     try {
         const controller = new AbortController();

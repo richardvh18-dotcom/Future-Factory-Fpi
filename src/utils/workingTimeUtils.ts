@@ -15,11 +15,13 @@ const WORKING_SCHEDULES = {
   },
 };
 
-const normalizeDepartment = (value) => String(value || "").trim().toLowerCase();
+type ScheduleKey = keyof typeof WORKING_SCHEDULES;
 
-const includesAny = (value, tokens) => tokens.some((token) => value.includes(token));
+const normalizeDepartment = (value: unknown): string => String(value || "").trim().toLowerCase();
 
-const inferDepartmentFromMachine = (value) => {
+const includesAny = (value: string, tokens: string[]): boolean => tokens.some((token) => value.includes(token));
+
+const inferDepartmentFromMachine = (value: unknown): ScheduleKey | "" => {
   const machine = String(value || "").trim().toUpperCase();
   if (machine.startsWith("BH")) return "fittings";
   if (machine.startsWith("BA")) return "pipes";
@@ -27,7 +29,7 @@ const inferDepartmentFromMachine = (value) => {
   return "";
 };
 
-const easterSunday = (year) => {
+const easterSunday = (year: number): Date => {
   // Meeus/Jones/Butcher algorithm
   const a = year % 19;
   const b = Math.floor(year / 100);
@@ -46,20 +48,20 @@ const easterSunday = (year) => {
   return new Date(year, month - 1, day);
 };
 
-const addDays = (date, days) => {
+const addDays = (date: Date, days: number): Date => {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
   return d;
 };
 
-const dateKey = (date) => {
+const dateKey = (date: Date): string => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 };
 
-const dutchHolidayKeys = (year) => {
+const dutchHolidayKeys = (year: number): Set<string> => {
   const easter = easterSunday(year);
   const kingDay = new Date(year, 3, 27); // 27 april, behalve zondag -> 26 april
   if (kingDay.getDay() === 0) kingDay.setDate(26);
@@ -78,7 +80,7 @@ const dutchHolidayKeys = (year) => {
   return new Set(holidays.map(dateKey));
 };
 
-const resolveScheduleKey = (context: Record<string, any> = {}) => {
+const resolveScheduleKey = (context: Record<string, unknown> = {}): ScheduleKey | "" => {
   const phase = normalizeDepartment(context.phase || context.step || context.currentStep);
   if (includesAny(phase, ["nabewer", "post"])) return "spools";
 
@@ -95,29 +97,39 @@ const resolveScheduleKey = (context: Record<string, any> = {}) => {
   return "";
 };
 
-const toDate = (value) => {
+const toDate = (value: unknown): Date | null => {
   if (!value) return null;
-  if (value?.toDate) return value.toDate();
+  if (typeof value === "object" && value !== null && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function") {
+    return ((value as { toDate: () => Date }).toDate());
+  }
+  if (!(value instanceof Date) && typeof value !== "string" && typeof value !== "number") {
+    return null;
+  }
   const parsed = value instanceof Date ? value : new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const minutesBetween = (start, end) => Math.max(0, (end.getTime() - start.getTime()) / 60000);
+const minutesBetween = (start: Date, end: Date): number =>
+  Math.max(0, (end.getTime() - start.getTime()) / 60000);
 
-export const calculateWorkingMinutes = (startValue, endValue, context: Record<string, any> = {}) => {
+export const calculateWorkingMinutes = (
+  startValue: unknown,
+  endValue: unknown,
+  context: Record<string, unknown> = {}
+): number => {
   const start = toDate(startValue);
   const end = toDate(endValue);
   if (!start || !end || end <= start) return 0;
 
   const scheduleKey = resolveScheduleKey(context);
-  const schedule = WORKING_SCHEDULES[scheduleKey];
-  if (!schedule) {
+  if (!scheduleKey) {
     return Math.floor(minutesBetween(start, end));
   }
+  const schedule = WORKING_SCHEDULES[scheduleKey];
 
   let totalMinutes = 0;
   let currentHolidayYear = NaN;
-  let holidaySet = new Set();
+  let holidaySet = new Set<string>();
   let cursor = new Date(start);
   cursor.setHours(0, 0, 0, 0);
 
@@ -134,7 +146,7 @@ export const calculateWorkingMinutes = (startValue, endValue, context: Record<st
     const dayOfWeek = dayStart.getDay();
     const isHoliday = holidaySet.has(dateKey(dayStart));
     if (schedule.weekdays.includes(dayOfWeek) && !isHoliday) {
-      schedule.windows.forEach(([startMinute, endMinute]) => {
+      schedule.windows.forEach(([startMinute, endMinute]: number[]) => {
         const windowStart = new Date(dayStart.getTime() + startMinute * 60000);
         const windowEnd = new Date(dayStart.getTime() + Math.min(endMinute, MINUTES_PER_DAY) * 60000);
 

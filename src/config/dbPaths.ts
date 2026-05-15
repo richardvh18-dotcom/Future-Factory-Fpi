@@ -6,7 +6,7 @@ const PRODUCTION_EFFICIENCY_HOURS_PATH = [BASE, "production", "efficiency_hours"
 
 export const ACTIVE_SITE = BASE;
 
-export const PATHS = {
+export const PATHS: Record<string, string[]> = {
   // --- PRODUCTIE (Collecties: oneven segmenten) ---
   PRODUCTS: [BASE, "production", "products"],
   PLANNING: PRODUCTION_PLANNING_PATH,
@@ -81,14 +81,14 @@ export const PATHS = {
 /**
  * isValidPath - Controleert of een pad-sleutel geldig is
  */
-export const isValidPath = (key) => {
+export const isValidPath = (key: string): boolean => {
   return key in PATHS;
 };
 
 /**
  * getPath - Veilige helper om een pad op te vragen met foutcontrole.
  */
-export const getPath = (key) => {
+export const getPath = (key: string): string[] => {
   if (!PATHS[key]) {
     console.error(
       `❌ DATABASE PAD FOUT: Sleutel '${key}' niet gevonden in dbPaths.js`
@@ -98,14 +98,14 @@ export const getPath = (key) => {
   return PATHS[key];
 };
 
-export const getPathString = (pathArray) =>
+export const getPathString = (pathArray: string[] | undefined | null): string =>
   Array.isArray(pathArray) ? pathArray.join("/") : "";
 
 /**
  * getArchiveItemsPath - Genereert het pad voor gearchiveerde productie-items
  * @param {number|string} year - Het jaar van het archief
  */
-export const getArchiveItemsPath = (year) => {
+export const getArchiveItemsPath = (year: number | string): string[] => {
   return [BASE, "production", "archive", String(year), "items"];
 };
 
@@ -113,7 +113,7 @@ export const getArchiveItemsPath = (year) => {
  * getArchiveRejectedItemsPath - Genereert het pad voor gearchiveerde AFGEKEURDE productie-items
  * @param {number|string} year - Het jaar van het archief
  */
-export const getArchiveRejectedItemsPath = (year) => {
+export const getArchiveRejectedItemsPath = (year: number | string): string[] => {
   return [BASE, "production", "archive", String(year), "rejected"];
 };
 
@@ -122,7 +122,7 @@ export const getArchiveRejectedItemsPath = (year) => {
  * Alle orders (archive én rejected) gaan naar hetzelfde pad; reden staat in archiveReason veld.
  * @param {number|string} year - Het jaar van het archief
  */
-export const getPlanningArchivePath = (year) => {
+export const getPlanningArchivePath = (year: number | string): string[] => {
   return [BASE, "production", "archive", String(year), "planning"];
 };
 
@@ -130,11 +130,11 @@ export const getPlanningArchivePath = (year) => {
  * getEfficiencyArchivePath - Genereert het pad voor gearchiveerde efficiency data
  * @param {number|string} year - Het jaar van het archief
  */
-export const getEfficiencyArchivePath = (year) => {
+export const getEfficiencyArchivePath = (year: number | string): string[] => {
   return [BASE, "production", "archive", String(year), "efficiency"];
 };
 
-export const getArtifactsPath = (appId, ...segments) => {
+export const getArtifactsPath = (appId: string, ...segments: string[]): string[] => {
   return ["artifacts", appId, "public", "data", ...segments];
 };
 
@@ -143,7 +143,7 @@ export const ARTIFACTS_PATHS = {
    * Genereer dynamische artifact paden met appId
    * Gebruik: getArtifactsPath(appId, "digital_planning")
    */
-  getPlanningPath: (appId) => getArtifactsPath(appId, "digital_planning"),
-  getProductsPath: (appId) => getArtifactsPath(appId, "products"),
-  getConfigPath: (appId) => getArtifactsPath(appId, "config", "factory_config"),
+  getPlanningPath: (appId: string): string[] => getArtifactsPath(appId, "digital_planning"),
+  getProductsPath: (appId: string): string[] => getArtifactsPath(appId, "products"),
+  getConfigPath: (appId: string): string[] => getArtifactsPath(appId, "config", "factory_config"),
 };

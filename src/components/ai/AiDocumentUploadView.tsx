@@ -94,7 +94,19 @@ const AiDocumentUploadView = () => {
     return null;
   };
 
-  const analyzeDocument = async (text, fileName) => {
+  const analyzeDocument = async ({ text, fileName }: AnalyzeDocumentProps): Promise<{
+    title: string;
+    summary: string;
+    keyFacts: string[];
+    processes: string[];
+    partNumbers: string[];
+    tolerances: string[];
+    stations: string[];
+    dates: string[];
+    warnings: string[];
+    tags: string[];
+    fullContext: string;
+  }> => {
     const systemPrompt = `Je bent een AI die bedrijfsdocumenten analyseert voor een MES omgeving.
 
 RETURN ONLY VALID JSON.
@@ -595,3 +607,8 @@ IMPORTANT RULES:
 };
 
 export default AiDocumentUploadView;
+
+interface AnalyzeDocumentProps {
+  text: string;
+  fileName: string;
+}

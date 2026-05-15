@@ -13,6 +13,20 @@ import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import { PATHS, getPathString } from "./dbPaths";
 
+const getErrorCode = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    return String((error as { code?: unknown }).code || "");
+  }
+  return "";
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message?: unknown }).message || "");
+  }
+  return "";
+};
+
 /**
  * Firebase Configuratie - Project: future-factory-377ef
  */
@@ -35,8 +49,8 @@ const createFirestoreInstance = () => {
       }),
     });
   } catch (error) {
-    const code = String(error?.code || "").toLowerCase();
-    const message = String(error?.message || "");
+    const code = getErrorCode(error).toLowerCase();
+    const message = getErrorMessage(error);
 
     if (
       code !== "failed-precondition" &&
@@ -59,7 +73,7 @@ export const appId = firebaseConfig.projectId;
 /**
  * logActivity - Gecorrigeerd om gebruik te maken van de centrale PATHS
  */
-export const logActivity = async (userId, action, details) => {
+export const logActivity = async (userId: string, action: string, details: unknown) => {
   try {
     const now = new Date();
     const year = now.getUTCFullYear();
@@ -79,7 +93,7 @@ export const logActivity = async (userId, action, details) => {
       timestamp: serverTimestamp(),
     });
   } catch (e) {
-    const code = String(e?.code || "").toLowerCase();
+    const code = getErrorCode(e).toLowerCase();
     if (code.includes("permission-denied") || code.includes("insufficient-permission")) {
       return;
     }

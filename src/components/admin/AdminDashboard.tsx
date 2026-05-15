@@ -91,6 +91,37 @@ const AdminRefOpsImportScreen = ({ onNavigate }) => (
   />
 );
 
+const MTPresentationLauncher = () => (
+  <div className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-4">
+      <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight">
+        MT Presentatie (Tijdelijk)
+      </h3>
+      <p className="text-slate-600 text-sm leading-relaxed">
+        Open de presentatie in een nieuw tabblad. In de presentatie staat een vaste knop om direct terug de app in te gaan.
+      </p>
+      <div className="flex flex-wrap gap-3 pt-2">
+        <a
+          href="/presentation"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-blue-700 transition-colors"
+        >
+          Open Presentatie
+          <ArrowRight size={14} />
+        </a>
+        <a
+          href="/portal"
+          className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 text-slate-800 px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-slate-200 transition-colors"
+        >
+          Naar App Portaal
+          <ArrowRight size={14} />
+        </a>
+      </div>
+    </div>
+  </div>
+);
+
 /**
  * AdminDashboard V5.7 - Reference Hub Integration
  * Beheert alle MES-beheermodules inclusief de technische encyclopedie.
@@ -482,6 +513,15 @@ const AdminDashboard = () => {
           color: "bg-rose-50 border-rose-100",
           roles: ["admin"],
           component: PilotMigrationTool,
+        },
+        {
+          id: "mt_presentation",
+          title: "MT Presentatie",
+          desc: "Tijdelijke presentatiepagina met directe terugkoppeling naar de app.",
+          icon: <BookOpen size={24} className="text-blue-600" />,
+          color: "bg-blue-50 border-blue-100",
+          roles: ["admin", "engineer", "teamleader"],
+          component: MTPresentationLauncher,
         },
       ]
     }

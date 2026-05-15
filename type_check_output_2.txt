@@ -1,0 +1,542 @@
+
+> fpi-future-factory@0.1.7 type-check
+> tsc --noEmit
+
+src/services/planningContext.ts(15,25): error TS7006: Parameter 'status' implicitly has an 'any' type.
+src/services/planningContext.ts(20,21): error TS7006: Parameter 'val' implicitly has an 'any' type.
+src/services/planningContext.ts(42,31): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/services/planningContext.ts(50,30): error TS7006: Parameter 'lotNumber' implicitly has an 'any' type.
+src/services/planningContext.ts(55,10): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ "411": string; "412": string; "415": string; "416": string; "417": string; "418": string; "431": string; "405": string; "407": string; "408": string; "409": string; }'.
+  No index signature with a parameter of type 'string' was found on type '{ "411": string; "412": string; "415": string; "416": string; "417": string; "418": string; "431": string; "405": string; "407": string; "408": string; "409": string; }'.
+src/services/planningContext.ts(58,25): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/services/planningContext.ts(92,11): error TS7034: Variable 'allDocs' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/services/planningContext.ts(103,24): error TS7005: Variable 'allDocs' implicitly has an 'any[]' type.
+src/services/planningContext.ts(159,11): error TS7034: Variable 'completedToday' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/services/planningContext.ts(160,11): error TS7034: Variable 'activityToday' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/services/planningContext.ts(233,5): error TS7005: Variable 'completedToday' implicitly has an 'any[]' type.
+src/services/planningContext.ts(239,5): error TS7005: Variable 'completedToday' implicitly has an 'any[]' type.
+src/services/planningContext.ts(245,5): error TS7005: Variable 'activityToday' implicitly has an 'any[]' type.
+src/services/planningContext.ts(308,85): error TS18046: 'error' is of type 'unknown'.
+src/services/planningSecurityService.ts(6,30): error TS7006: Parameter 'callable' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(80,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(107,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(140,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(142,3): error TS7031: Binding element 'nextStep' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(143,3): error TS7031: Binding element 'nextStatus' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(179,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(204,3): error TS7031: Binding element 'productIds' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(229,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(230,3): error TS7031: Binding element 'lotStart' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(231,3): error TS7031: Binding element 'stringCount' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(232,3): error TS7031: Binding element 'stationId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(270,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(291,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(312,3): error TS7031: Binding element 'productOrLotId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(313,3): error TS7031: Binding element 'newStation' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(341,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(362,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(363,3): error TS7031: Binding element 'finishType' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(391,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(412,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(413,3): error TS7031: Binding element 'priority' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(440,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(441,3): error TS7031: Binding element 'targetType' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(442,3): error TS7031: Binding element 'targetId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(465,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(484,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(503,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(538,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(539,3): error TS7031: Binding element 'patch' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(563,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(588,3): error TS7031: Binding element 'targetOrderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(589,3): error TS7031: Binding element 'targetOrderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(590,3): error TS7031: Binding element 'productIds' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(591,3): error TS7031: Binding element 'routeStation' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(617,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(638,3): error TS7031: Binding element 'stationId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(639,3): error TS7031: Binding element 'operatorId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(642,3): error TS7031: Binding element 'date' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(671,3): error TS7031: Binding element 'assignmentId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(692,3): error TS7031: Binding element 'operatorNumber' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(694,3): error TS7031: Binding element 'targetDepartment' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(695,3): error TS7031: Binding element 'targetStation' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(696,3): error TS7031: Binding element 'date' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(735,3): error TS7031: Binding element 'records' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(757,3): error TS7031: Binding element 'assignmentId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(758,3): error TS7031: Binding element 'data' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(775,3): error TS7031: Binding element 'assignmentIds' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(797,3): error TS7031: Binding element 'assignmentId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(815,3): error TS7031: Binding element 'data' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(834,3): error TS7031: Binding element 'messages' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(853,3): error TS7031: Binding element 'jobId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(854,3): error TS7031: Binding element 'status' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(876,3): error TS7031: Binding element 'jobId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(895,3): error TS7031: Binding element 'jobId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(914,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(917,3): error TS7031: Binding element 'orderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(918,3): error TS7031: Binding element 'itemCode' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(920,3): error TS7031: Binding element 'lotStart' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(921,3): error TS7031: Binding element 'totalToProduce' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(922,3): error TS7031: Binding element 'stationId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(961,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(962,3): error TS7031: Binding element 'newLotNumber' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(963,3): error TS7031: Binding element 'reason' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(984,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(985,3): error TS7031: Binding element 'newOrderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(986,3): error TS7031: Binding element 'reason' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1007,3): error TS7031: Binding element 'orderDocId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1008,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1026,3): error TS7031: Binding element 'orderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1027,3): error TS7031: Binding element 'item' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1028,3): error TS7031: Binding element 'machine' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1029,3): error TS7031: Binding element 'plan' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1047,3): error TS7031: Binding element 'productIds' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1070,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1071,3): error TS7031: Binding element 'note' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1096,3): error TS7031: Binding element 'stationId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1115,44): error TS7031: Binding element 'orderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1115,53): error TS7031: Binding element 'dependencyId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1127,47): error TS7031: Binding element 'orderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1127,56): error TS7031: Binding element 'dependencyId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1139,48): error TS7031: Binding element 'orderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1139,57): error TS7031: Binding element 'plannedDate' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1149,49): error TS7031: Binding element 'orderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1149,58): error TS7031: Binding element 'status' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1161,46): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1170,51): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1183,3): error TS7031: Binding element 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1184,3): error TS7031: Binding element 'targetRoute' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1211,3): error TS7031: Binding element 'type' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1233,47): error TS7031: Binding element 'type' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1233,53): error TS7031: Binding element 'issueId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1243,46): error TS7031: Binding element 'orders' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1263,37): error TS7006: Parameter 'printerId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1263,48): error TS7006: Parameter 'zplData' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1282,41): error TS7006: Parameter 'profileData' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1310,44): error TS7006: Parameter 'requestData' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1328,42): error TS7006: Parameter 'language' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1341,45): error TS7006: Parameter 'rule' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1352,50): error TS7031: Binding element 'standardId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1352,62): error TS7031: Binding element 'standardMinutes' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1372,43): error TS7006: Parameter 'productId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1405,46): error TS7006: Parameter 'recordId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1449,43): error TS7006: Parameter 'systemPrompt' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1467,46): error TS7006: Parameter 'docId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1480,46): error TS7006: Parameter 'entryId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1509,42): error TS7031: Binding element 'mode' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1509,48): error TS7031: Binding element 'orderId' implicitly has an 'any' type.
+src/services/planningSecurityService.ts(1509,57): error TS7031: Binding element 'mismatches' implicitly has an 'any' type.
+src/services/printService.ts(14,7): error TS7023: 'sanitizeFirestoreValue' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/services/printService.ts(14,33): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/services/printService.ts(19,12): error TS7024: Function implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/services/printService.ts(25,14): error TS7024: Function implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/services/printService.ts(81,7): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/InternalQrImage.tsx(2,20): error TS7016: Could not find a declaration file for module 'qrcode'. '/workspaces/FPIFF-30-1/node_modules/qrcode/lib/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/qrcode` if it exists or add a new declaration (.d.ts) file containing `declare module 'qrcode';`
+src/utils/InternalQrImage.tsx(7,3): error TS7031: Binding element 'value' implicitly has an 'any' type.
+src/utils/InternalQrImage.tsx(41,14): error TS7006: Parameter 'dataUrl' implicitly has an 'any' type.
+src/utils/archiveService.ts(16,36): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/archiveService.ts(16,43): error TS7006: Parameter 'reason' implicitly has an 'any' type.
+src/utils/automationEngine.test.ts(36,18): error TS7006: Parameter 'key' implicitly has an 'any' type.
+src/utils/automationEngine.test.ts(36,23): error TS7006: Parameter 'options' implicitly has an 'any' type.
+src/utils/automationEngine.test.ts(51,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(58,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(73,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(76,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(89,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(103,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(123,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(140,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(156,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(173,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(205,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(215,21): error TS2339: Property 'actionResult' does not exist on type '{ triggered: boolean; message: string | null; severity: string; data: { totalCapacity: number; totalDemand: number; shortage: number; }; } | { triggered: boolean; message: string | null; severity: string; data: { ...; }; } | ... 14 more ... | { ...; }'.
+  Property 'actionResult' does not exist on type '{ triggered: boolean; message: string | null; severity: string; data: { totalCapacity: number; totalDemand: number; shortage: number; }; }'.
+src/utils/automationEngine.test.ts(221,15): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '<AppModelType, DbModelType extends DocumentData>(query: Query<AppModelType, DbModelType>) => Promise<QuerySnapshot<AppModelType, DbModelType>>'.
+src/utils/automationEngine.test.ts(238,29): error TS2339: Property 'mockResolvedValueOnce' does not exist on type '(rule: any) => Promise<{}>'.
+src/utils/calculations.ts(11,3): error TS7006: Parameter 'diameter' implicitly has an 'any' type.
+src/utils/calculations.ts(12,3): error TS7006: Parameter 'pressure' implicitly has an 'any' type.
+src/utils/calculations.ts(13,3): error TS7006: Parameter 'type' implicitly has an 'any' type.
+src/utils/calculations.ts(14,3): error TS7006: Parameter 'connection' implicitly has an 'any' type.
+src/utils/calculations.ts(15,3): error TS7006: Parameter 'standardFittingDims' implicitly has an 'any' type.
+src/utils/calculations.ts(16,3): error TS7006: Parameter 'bellDimensions' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(32,29): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(60,24): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(61,22): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(68,53): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(68,66): error TS7006: Parameter 'inputCode' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(79,23): error TS7006: Parameter 'snap' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(79,29): error TS7006: Parameter 'matchType' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(153,47): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(153,60): error TS7006: Parameter 'specs' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(183,3): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(221,40): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(221,53): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(227,21): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/conversionLogic.ts(230,40): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(230,53): error TS7006: Parameter 'id' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(230,57): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(235,21): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/conversionLogic.ts(238,40): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(238,53): error TS7006: Parameter 'id' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(240,21): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/conversionLogic.ts(248,45): error TS7006: Parameter 'items' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(248,52): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(248,65): error TS7006: Parameter 'onProgress' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(255,5): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/conversionLogic.ts(264,42): error TS7006: Parameter 'items' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(264,49): error TS7006: Parameter 'unusedAppId' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(264,62): error TS7006: Parameter 'onProgress' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(273,5): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/conversionLogic.ts(283,34): error TS7006: Parameter 'file' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(290,22): error TS18047: 'e.target' is possibly 'null'.
+src/utils/conversionLogic.ts(308,26): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(310,44): error TS7006: Parameter 'h' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(313,14): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(314,11): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(315,43): error TS7006: Parameter 'v' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(317,24): error TS7006: Parameter 'h' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(317,27): error TS7006: Parameter 'i' implicitly has an 'any' type.
+src/utils/conversionLogic.ts(318,9): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{}'.
+src/utils/dateUtils.ts(1,28): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/dateUtils.ts(34,3): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/dateUtils.ts(49,37): error TS7019: Rest parameter 'values' implicitly has an 'any[]' type.
+src/utils/dateUtils.ts(58,3): error TS7006: Parameter 'deliveryDate' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(8,24): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(9,22): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(15,27): error TS7006: Parameter 'code' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(26,26): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(51,43): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(68,23): error TS7006: Parameter 'k' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(100,28): error TS7006: Parameter 'src' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(137,40): error TS7006: Parameter 'orderId' implicitly has an 'any' type.
+src/utils/drawingLinker.ts(137,49): error TS7006: Parameter 'drawing' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.test.ts(34,39): error TS2345: Argument of type '{ toDate: () => Date; }' is not assignable to parameter of type 'Date'.
+  Type '{ toDate: () => Date; }' is missing the following properties from type 'Date': toDateString, toTimeString, toLocaleDateString, toLocaleTimeString, and 38 more.
+src/utils/efficiencyCalculator.ts(11,35): error TS7006: Parameter 'startTime' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(20,31): error TS7006: Parameter 'minutes' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(36,39): error TS7006: Parameter 'operatingTimeMinutes' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(36,61): error TS7006: Parameter 'plannedBusyTimeMinutes' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(48,38): error TS7006: Parameter 'actualOutput' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(48,52): error TS7006: Parameter 'targetOutput' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(60,34): error TS7006: Parameter 'goodCount' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(60,45): error TS7006: Parameter 'totalCount' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(73,30): error TS7006: Parameter 'availabilityPct' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(73,47): error TS7006: Parameter 'performancePct' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(73,63): error TS7006: Parameter 'qualityPct' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(85,37): error TS7006: Parameter 'actualMinutes' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(85,52): error TS7006: Parameter 'targetMinutes' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(90,36): error TS7006: Parameter 'efficiency' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(98,34): error TS7006: Parameter 'startTime' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(98,45): error TS7006: Parameter 'targetMinutes' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(108,40): error TS7006: Parameter 'startTime' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(108,51): error TS7006: Parameter 'targetMinutes' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(118,42): error TS7006: Parameter 'products' implicitly has an 'any' type.
+src/utils/efficiencyCalculator.ts(130,36): error TS7006: Parameter 'efficiency' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(5,39): error TS7006: Parameter 'path' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(14,40): error TS7006: Parameter 'path' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(14,46): error TS7006: Parameter 'year' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(24,3): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(41,17): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(41,27): error TS7006: Parameter 'options' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(43,14): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(44,11): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(52,3): error TS7031: Binding element 'db' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(54,3): error TS7031: Binding element 'year' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(55,3): error TS7031: Binding element 'onData' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(56,3): error TS7031: Binding element 'onError' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(71,3): error TS7031: Binding element 'db' implicitly has an 'any' type.
+src/utils/efficiencyScopedReader.ts(73,3): error TS7031: Binding element 'year' implicitly has an 'any' type.
+src/utils/errorHandler.ts(44,36): error TS7006: Parameter 'error' implicitly has an 'any' type.
+src/utils/errorHandler.ts(54,12): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ 'functions/unauthenticated': string; 'functions/permission-denied': string; 'functions/not-found': string; 'functions/already-exists': string; 'functions/invalid-argument': string; 'functions/failed-precondition': string; ... 8 more ...; unavailable: string; }'.
+src/utils/errorHandler.ts(58,22): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ 'functions/unauthenticated': string; 'functions/permission-denied': string; 'functions/not-found': string; 'functions/already-exists': string; 'functions/invalid-argument': string; 'functions/failed-precondition': string; ... 8 more ...; unavailable: string; }'.
+src/utils/errorHandler.ts(59,12): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ 'functions/unauthenticated': string; 'functions/permission-denied': string; 'functions/not-found': string; 'functions/already-exists': string; 'functions/invalid-argument': string; 'functions/failed-precondition': string; ... 8 more ...; unavailable: string; }'.
+src/utils/errorHandler.ts(78,34): error TS7006: Parameter 'context' implicitly has an 'any' type.
+src/utils/errorHandler.ts(78,43): error TS7006: Parameter 'error' implicitly has an 'any' type.
+src/utils/findDrawingForProduct.ts(11,45): error TS7006: Parameter 'manufacturedCode' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(1,24): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(8,24): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(14,23): error TS7006: Parameter 'rule' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(14,29): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(24,30): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(24,37): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(28,27): error TS7006: Parameter 'station' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(45,38): error TS7006: Parameter 'rawRules' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(53,33): error TS7006: Parameter 'rawEntries' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(60,22): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(60,28): error TS7006: Parameter 'matcher' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(71,25): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(71,32): error TS7006: Parameter 'stationId' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(78,35): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(84,34): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(91,23): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(100,3): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(101,3): error TS7006: Parameter 'rawRules' implicitly has an 'any' type.
+src/utils/flangeSeriesHelper.ts(137,16): error TS18047: 'entry' is possibly 'null'.
+src/utils/flangeSeriesHelper.ts(137,57): error TS18047: 'entry' is possibly 'null'.
+src/utils/flangeSeriesHelper.ts(140,16): error TS18047: 'entry' is possibly 'null'.
+src/utils/flangeSeriesHelper.ts(140,61): error TS18047: 'entry' is possibly 'null'.
+src/utils/flangeSeriesHelper.ts(145,72): error TS18047: 'rule' is possibly 'null'.
+src/utils/helpers.ts(9,34): error TS7006: Parameter 'userQuery' implicitly has an 'any' type.
+src/utils/helpers.ts(9,45): error TS7006: Parameter 'systemPrompt' implicitly has an 'any' type.
+src/utils/helpers.ts(17,7): error TS2345: Argument of type 'string' is not assignable to parameter of type 'null | undefined'.
+src/utils/hubHelpers.tsx(27,34): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/utils/hubHelpers.tsx(36,40): error TS7006: Parameter 'stationName' implicitly has an 'any' type.
+src/utils/hubHelpers.tsx(45,28): error TS7006: Parameter 'ts' implicitly has an 'any' type.
+src/utils/hubHelpers.tsx(57,32): error TS7006: Parameter 'date' implicitly has an 'any' type.
+src/utils/hubHelpers.tsx(69,33): error TS7006: Parameter 'itemString' implicitly has an 'any' type.
+src/utils/infor_sync_service.ts(21,26): error TS7006: Parameter 'headers' implicitly has an 'any' type.
+src/utils/infor_sync_service.ts(21,35): error TS7006: Parameter 'targetKey' implicitly has an 'any' type.
+src/utils/infor_sync_service.ts(24,12): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ orderId: string[]; status: string[]; minutes: string[]; quantity: string[]; operation: string[]; }'.
+src/utils/infor_sync_service.ts(41,25): error TS7006: Parameter 'val' implicitly has an 'any' type.
+src/utils/infor_sync_service.ts(47,42): error TS7006: Parameter 'db' implicitly has an 'any' type.
+src/utils/infor_sync_service.ts(47,46): error TS7006: Parameter 'appId' implicitly has an 'any' type.
+src/utils/infor_sync_service.ts(47,53): error TS7006: Parameter 'csvData' implicitly has an 'any' type.
+src/utils/inventoryPaths.ts(6,20): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/inventoryPaths.ts(6,27): error TS7006: Parameter 'fallback' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(7,20): error TS7016: Could not find a declaration file for module 'qrcode'. '/workspaces/FPIFF-30-1/node_modules/qrcode/lib/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/qrcode` if it exists or add a new declaration (.d.ts) file containing `declare module 'qrcode';`
+src/utils/labelHelpers.tsx(22,19): error TS7006: Parameter 'mm' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(33,19): error TS7006: Parameter 'bar' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(40,24): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(85,27): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(99,27): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(145,26): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(145,32): error TS7006: Parameter 'productType' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(178,7): error TS18047: 'val' is possibly 'null'.
+src/utils/labelHelpers.tsx(185,55): error TS7006: Parameter 'n' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(196,25): error TS7006: Parameter 'obj' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(196,30): error TS7006: Parameter 'path' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(198,34): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(198,39): error TS7006: Parameter 'part' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(204,34): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(297,36): error TS2531: Object is possibly 'null'.
+src/utils/labelHelpers.tsx(405,33): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(405,39): error TS7006: Parameter 'rules' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(412,33): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(415,34): error TS7006: Parameter 'variable' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(423,27): error TS7006: Parameter 'field' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(447,46): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(477,37): error TS7006: Parameter 'contentOrElement' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(477,55): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(536,39): error TS7006: Parameter 'labels' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(536,47): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(545,22): error TS7006: Parameter 'label' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(546,46): error TS7006: Parameter 't' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(608,30): error TS7006: Parameter 'label' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(609,48): error TS7006: Parameter 't' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(615,29): error TS7006: Parameter 'tag' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(628,48): error TS7006: Parameter 'labels' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(628,56): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(634,23): error TS7006: Parameter 'tag' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(644,27): error TS7006: Parameter 'label' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(644,60): error TS7006: Parameter 'tag' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(645,26): error TS7006: Parameter 'tags' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(647,36): error TS7006: Parameter 'label' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(652,46): error TS7006: Parameter 'label' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(654,28): error TS7006: Parameter 'label' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(684,40): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(703,30): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/labelHelpers.tsx(705,31): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/labelPreviewMetrics.ts(5,42): error TS7006: Parameter 'fontFamily' implicitly has an 'any' type.
+src/utils/labelPreviewMetrics.ts(17,38): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/labelPreviewMetrics.ts(22,37): error TS7006: Parameter 'element' implicitly has an 'any' type.
+src/utils/labelPreviewMetrics.ts(22,46): error TS7006: Parameter 'baseFontPx' implicitly has an 'any' type.
+src/utils/labelPreviewMetrics.ts(41,37): error TS7006: Parameter 'element' implicitly has an 'any' type.
+src/utils/labelPreviewMetrics.ts(41,46): error TS7006: Parameter 'content' implicitly has an 'any' type.
+src/utils/labelPreviewMetrics.ts(41,55): error TS7006: Parameter 'zoom' implicitly has an 'any' type.
+src/utils/lendingHelpers.ts(4,40): error TS7006: Parameter 'person' implicitly has an 'any' type.
+src/utils/lendingHelpers.ts(17,41): error TS7006: Parameter 'startDate' implicitly has an 'any' type.
+src/utils/lendingHelpers.ts(17,52): error TS7006: Parameter 'durationDays' implicitly has an 'any' type.
+src/utils/lendingHelpers.ts(23,33): error TS7006: Parameter 'lending' implicitly has an 'any' type.
+src/utils/lotLogic.ts(31,35): error TS7006: Parameter 'stationId' implicitly has an 'any' type.
+src/utils/lotLogic.ts(62,14): error TS2339: Property 'lotNumber' does not exist on type 'never'.
+src/utils/lotLogic.ts(62,29): error TS2339: Property 'lotNumber' does not exist on type 'never'.
+src/utils/lotLogic.ts(91,39): error TS7006: Parameter 'stationId' implicitly has an 'any' type.
+src/utils/lotLogic.ts(95,7): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ BH11: string; BH12: string; BH15: string; BH16: string; BH17: string; BH18: string; BH31: string; BH05: string; BH07: string; BH08: string; BH09: string; BA05: string; BA07: string; BA08: string; BA09: string; }'.
+  No index signature with a parameter of type 'string' was found on type '{ BH11: string; BH12: string; BH15: string; BH16: string; BH17: string; BH18: string; BH31: string; BH05: string; BH07: string; BH08: string; BH09: string; BA05: string; BA07: string; BA08: string; BA09: string; }'.
+src/utils/lotLogic.ts(95,41): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ BH11: string; BH12: string; BH15: string; BH16: string; BH17: string; BH18: string; BH31: string; BH05: string; BH07: string; BH08: string; BH09: string; BA05: string; BA07: string; BA08: string; BA09: string; }'.
+  No index signature with a parameter of type 'string' was found on type '{ BH11: string; BH12: string; BH15: string; BH16: string; BH17: string; BH18: string; BH31: string; BH05: string; BH07: string; BH08: string; BH09: string; BA05: string; BA07: string; BA08: string; BA09: string; }'.
+src/utils/lotLogic.ts(105,35): error TS7006: Parameter 'stationId' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(6,24): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(7,22): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(9,28): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(25,27): error TS7006: Parameter 'code' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(33,26): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(68,42): error TS7006: Parameter 'onProgress' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(119,28): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(145,27): error TS7006: Parameter 'key' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(179,34): error TS7006: Parameter 'source' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(214,34): error TS7006: Parameter 'keys' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(259,31): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(283,57): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(290,35): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/utils/manualSyncDrawings.ts(312,13): error TS2322: Type 'unknown' is not assignable to type 'null | undefined'.
+src/utils/pdfUtils.ts(11,42): error TS7006: Parameter 'file' implicitly has an 'any' type.
+src/utils/planningProgress.ts(1,21): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/planningProgress.ts(20,37): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/planningProgress.ts(27,34): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/planningProgress.ts(29,41): error TS7006: Parameter 'record' implicitly has an 'any' type.
+src/utils/planningProgress.ts(39,39): error TS7006: Parameter 'record' implicitly has an 'any' type.
+src/utils/planningProgress.ts(50,41): error TS7006: Parameter 'record' implicitly has an 'any' type.
+src/utils/planningProgress.ts(73,23): error TS2339: Property 'isVirtualLot' does not exist on type 'never'.
+src/utils/planningProgress.ts(83,39): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/planningProgress.ts(109,39): error TS2345: Argument of type 'any[]' is not assignable to parameter of type 'never[]'.
+  Type 'any' is not assignable to type 'never'.
+src/utils/planningSyncLogic.ts(19,43): error TS7006: Parameter 'appId' implicitly has an 'any' type.
+src/utils/planningSyncLogic.ts(19,50): error TS7006: Parameter 'onProgress' implicitly has an 'any' type.
+src/utils/printerDrivers.ts(92,17): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ 'zebra-zm400-203': { id: string; label: string; nativeDpi: number; dotsPerMm: number; defaultDarkness: number; defaultSpeed: number; labelLanguage: string; cutCommand: string; suppressBackfeed: boolean; utf8Encoding: boolean; mediaMode: string; }; 'zebra-zm400-300': { ...; }; 'zebra-epl2-203': { ...; }; 'lighthous...'.
+src/utils/printerDrivers.ts(92,49): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ 'zebra-zm400-203': { id: string; label: string; nativeDpi: number; dotsPerMm: number; defaultDarkness: number; defaultSpeed: number; labelLanguage: string; cutCommand: string; suppressBackfeed: boolean; utf8Encoding: boolean; mediaMode: string; }; 'zebra-zm400-300': { ...; }; 'zebra-epl2-203': { ...; }; 'lighthous...'.
+src/utils/printerDrivers.ts(146,32): error TS7006: Parameter 'mm' implicitly has an 'any' type.
+src/utils/printerDrivers.ts(146,36): error TS7006: Parameter 'driver' implicitly has an 'any' type.
+src/utils/printerDrivers.ts(173,19): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/printerDrivers.ts(190,34): error TS7006: Parameter 'zplContent' implicitly has an 'any' type.
+src/utils/productHelpers.ts(32,34): error TS7006: Parameter 'productData' implicitly has an 'any' type.
+src/utils/productHelpers.ts(34,21): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/productHelpers.ts(38,37): error TS7006: Parameter 'productId' implicitly has an 'any' type.
+src/utils/productHelpers.ts(38,48): error TS7006: Parameter 'productData' implicitly has an 'any' type.
+src/utils/productHelpers.ts(40,21): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/productHelpers.ts(43,37): error TS7006: Parameter 'productId' implicitly has an 'any' type.
+src/utils/productHelpers.ts(45,21): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/utils/productHelpers.ts(49,3): error TS7006: Parameter 'productId' implicitly has an 'any' type.
+src/utils/productHelpers.ts(50,3): error TS7006: Parameter 'currentUser' implicitly has an 'any' type.
+src/utils/productHelpers.ts(51,3): error TS7006: Parameter 'currentProductData' implicitly has an 'any' type.
+src/utils/qrAuth.ts(4,32): error TS7006: Parameter 'email' implicitly has an 'any' type.
+src/utils/qrAuth.ts(4,39): error TS7006: Parameter 'password' implicitly has an 'any' type.
+src/utils/qrAuth.ts(19,29): error TS7006: Parameter 'qrString' implicitly has an 'any' type.
+src/utils/specLogic.ts(8,36): error TS7006: Parameter 'type' implicitly has an 'any' type.
+src/utils/specLogic.ts(8,42): error TS7006: Parameter 'specConfig' implicitly has an 'any' type.
+src/utils/specLogic.ts(28,38): error TS7006: Parameter 'fieldKey' implicitly has an 'any' type.
+src/utils/specLogic.ts(28,48): error TS7006: Parameter 'toleranceConfig' implicitly has an 'any' type.
+src/utils/specLogic.ts(38,44): error TS7006: Parameter 'type' implicitly has an 'any' type.
+src/utils/specLogic.ts(42,5): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{}'.
+src/utils/teamleaderDerived.ts(25,38): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(30,43): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(43,41): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(59,50): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(67,52): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(70,10): error TS18047: 'deliveredQty' is possibly 'null'.
+src/utils/teamleaderDerived.ts(73,38): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(73,47): error TS7031: Binding element 'currentWeek' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(73,60): error TS7031: Binding element 'currentYear' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(81,3): error TS7031: Binding element 'rawOrders' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(82,3): error TS7031: Binding element 'rawProducts' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(83,3): error TS7031: Binding element 'getOrderIdFromTrackedRecord' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(84,3): error TS7031: Binding element 'getFinishedQtyForOrder' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(85,3): error TS7031: Binding element 'isInactiveTrackedProduct' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(89,38): error TS7006: Parameter 'orderId' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(93,30): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(99,28): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(124,45): error TS7031: Binding element 'rawProducts' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(124,58): error TS7031: Binding element 'getLotFromTrackedRecord' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(125,42): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(131,23): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/terminalOrderFilters.ts(2,3): error TS7031: Binding element 'remainingAtOrder' implicitly has an 'any' type.
+src/utils/terminalOrderFilters.ts(3,3): error TS7031: Binding element 'startedAtStation' implicitly has an 'any' type.
+src/utils/terminalOrderFilters.ts(4,3): error TS7031: Binding element 'stationPlan' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(15,26): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(17,19): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(32,38): error TS2339: Property 'updatedAt' does not exist on type 'never'.
+src/utils/trackedProducts.ts(32,62): error TS2339: Property 'createdAt' does not exist on type 'never'.
+src/utils/trackedProducts.ts(33,38): error TS2339: Property 'updatedAt' does not exist on type 'never'.
+src/utils/trackedProducts.ts(33,62): error TS2339: Property 'createdAt' does not exist on type 'never'.
+src/utils/trackedProducts.ts(39,46): error TS2339: Property 'id' does not exist on type 'never'.
+src/utils/trackedProducts.ts(40,48): error TS2339: Property 'id' does not exist on type 'never'.
+src/utils/trackedProducts.ts(44,33): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(51,39): error TS7031: Binding element 'departments' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(51,52): error TS7031: Binding element 'machines' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(55,9): error TS7034: Variable 'targets' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/utils/trackedProducts.ts(61,10): error TS7005: Variable 'targets' implicitly has an 'any[]' type.
+src/utils/trackedProducts.ts(65,3): error TS7031: Binding element 'db' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(66,3): error TS7031: Binding element 'onData' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(67,3): error TS7031: Binding element 'onError' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(73,7): error TS7034: Variable 'rootDocs' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/utils/trackedProducts.ts(79,34): error TS2345: Argument of type 'any[]' is not assignable to parameter of type 'never[]'.
+  Type 'any' is not assignable to type 'never'.
+src/utils/trackedProducts.ts(79,34): error TS7005: Variable 'rootDocs' implicitly has an 'any[]' type.
+src/utils/trackedProducts.ts(83,25): error TS2345: Argument of type 'any[]' is not assignable to parameter of type 'never[]'.
+  Type 'any' is not assignable to type 'never'.
+src/utils/trackedProducts.ts(84,38): error TS18047: 'maxItems' is possibly 'null'.
+src/utils/trackedProducts.ts(85,28): error TS2345: Argument of type 'null' is not assignable to parameter of type 'number | undefined'.
+src/utils/trackedProducts.ts(130,48): error TS7031: Binding element 'db' implicitly has an 'any' type.
+src/utils/trackedProducts.ts(130,52): error TS7031: Binding element 'lotNumber' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(3,38): error TS7006: Parameter 'status' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(10,34): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(13,32): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(16,43): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(19,35): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(26,35): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(34,42): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(55,39): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(60,37): error TS7006: Parameter 'fromDate' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(60,47): error TS7006: Parameter 'days' implicitly has an 'any' type.
+src/utils/trackingHelpers.ts(71,42): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(18,30): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(20,22): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(20,29): error TS7006: Parameter 'tokens' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(20,53): error TS7006: Parameter 'token' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(22,37): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(30,23): error TS7006: Parameter 'year' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(49,18): error TS7006: Parameter 'date' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(49,24): error TS7006: Parameter 'days' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(55,18): error TS7006: Parameter 'date' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(62,27): error TS7006: Parameter 'year' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(98,17): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(105,25): error TS7006: Parameter 'start' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(105,32): error TS7006: Parameter 'end' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(107,41): error TS7006: Parameter 'startValue' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(107,53): error TS7006: Parameter 'endValue' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(113,20): error TS7053: Element implicitly has an 'any' type because expression of type '"" | "fittings" | "pipes" | "spools"' can't be used to index type '{ fittings: { weekdays: number[]; windows: number[][]; }; pipes: { weekdays: number[]; windows: number[][]; }; spools: { weekdays: number[]; windows: number[][]; }; }'.
+  Property '' does not exist on type '{ fittings: { weekdays: number[]; windows: number[][]; }; pipes: { weekdays: number[]; windows: number[][]; }; spools: { weekdays: number[]; windows: number[][]; }; }'.
+src/utils/workingTimeUtils.ts(137,34): error TS7031: Binding element 'startMinute' implicitly has an 'any' type.
+src/utils/workingTimeUtils.ts(137,47): error TS7031: Binding element 'endMinute' implicitly has an 'any' type.
+src/utils/workstationLogic.ts(46,32): error TS7006: Parameter 'date' implicitly has an 'any' type.
+src/utils/workstationLogic.ts(60,36): error TS7006: Parameter 'name' implicitly has an 'any' type.
+src/utils/workstationLogic.ts(72,37): error TS7006: Parameter 'timestampString' implicitly has an 'any' type.
+src/utils/workstationLogic.ts(90,33): error TS7006: Parameter 'itemCode' implicitly has an 'any' type.
+src/utils/workstationLogic.ts(196,35): error TS7006: Parameter 'stationName' implicitly has an 'any' type.
+src/utils/workstationLogic.ts(231,42): error TS7006: Parameter 'itemText' implicitly has an 'any' type.
+src/utils/workstationLogic.ts(231,52): error TS7006: Parameter 'originMachine' implicitly has an 'any' type.
+src/utils/zplHelper.ts(17,19): error TS7006: Parameter 'mm' implicitly has an 'any' type.
+src/utils/zplHelper.ts(20,31): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/zplHelper.ts(25,26): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/zplHelper.ts(29,11): error TS7034: Variable 'wrapped' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/utils/zplHelper.ts(31,23): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/utils/zplHelper.ts(83,30): error TS7005: Variable 'wrapped' implicitly has an 'any[]' type.
+src/utils/zplHelper.ts(89,34): error TS7006: Parameter 'el' implicitly has an 'any' type.
+src/utils/zplHelper.ts(89,38): error TS7006: Parameter 'requestedHeight' implicitly has an 'any' type.
+src/utils/zplHelper.ts(105,25): error TS7006: Parameter 'el' implicitly has an 'any' type.
+src/utils/zplHelper.ts(105,29): error TS7006: Parameter 'content' implicitly has an 'any' type.
+src/utils/zplHelper.ts(159,23): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/zplHelper.ts(159,29): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(161,40): error TS7006: Parameter '_' implicitly has an 'any' type.
+src/utils/zplHelper.ts(161,43): error TS7006: Parameter 'key' implicitly has an 'any' type.
+src/utils/zplHelper.ts(171,14): error TS7023: 'generatePrintData' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/utils/zplHelper.ts(171,35): error TS7006: Parameter 'template' implicitly has an 'any' type.
+src/utils/zplHelper.ts(171,45): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(219,22): error TS7006: Parameter 'el' implicitly has an 'any' type.
+src/utils/zplHelper.ts(224,18): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/utils/zplHelper.ts(226,32): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/utils/zplHelper.ts(234,21): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ 0: string; 90: string; 180: string; 270: string; }'.
+src/utils/zplHelper.ts(274,31): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ left: string; center: string; right: string; justify: string; }'.
+src/utils/zplHelper.ts(413,21): error TS7006: Parameter 'mm' implicitly has an 'any' type.
+src/utils/zplHelper.ts(460,7): error TS7023: 'generateLegacyZPL' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/utils/zplHelper.ts(460,28): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(460,34): error TS7006: Parameter 'options' implicitly has an 'any' type.
+src/utils/zplHelper.ts(499,29): error TS7006: Parameter 'zpl' implicitly has an 'any' type.
+src/utils/zplHelper.ts(511,38): error TS7006: Parameter 'user' implicitly has an 'any' type.
+src/utils/zplHelper.ts(511,44): error TS7006: Parameter 'labelName' implicitly has an 'any' type.
+src/utils/zplHelper.ts(511,55): error TS7006: Parameter 'printerIp' implicitly has an 'any' type.
+src/utils/zplHelper.ts(511,66): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(524,42): error TS7006: Parameter 'ip' implicitly has an 'any' type.

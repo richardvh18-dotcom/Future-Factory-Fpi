@@ -18,6 +18,26 @@ import {
   upsertConversionBatch,
 } from "../services/planningSecurityService";
 
+type ConversionPayload = Record<string, unknown>;
+
+type ConversionItem = {
+  id: string;
+  manufacturedId: string;
+  targetProductId: string;
+  description?: string;
+  [key: string]: unknown;
+};
+
+type ConversionSpecs = {
+  type?: string;
+  dn?: string | number;
+  pn?: string | number;
+  serie?: string;
+  label?: string;
+};
+
+type ProgressCallback = (value: number) => void;
+
 /**
  * Conversie Logica V5.0 - Volledig Herstel Functionaliteit
  * Beheert de koppeling tussen ERP (Infor-LN) codes en technische tekeningen.
@@ -29,9 +49,9 @@ import {
 /**
  * Bereidt data voor op opslag met gestandaardiseerde velden en zoektermen.
  */
-const prepareDataForSave = (data) => {
-  const cleanDn = parseInt(data.dn) || 0;
-  const cleanPn = parseFloat(data.pn) || 0;
+const prepareDataForSave = (data: ConversionPayload) => {
+  const cleanDn = parseInt(String(data.dn || "0"), 10) || 0;
+  const cleanPn = parseFloat(String(data.pn || "0")) || 0;
 
   return {
     manufacturedId: String(data.manufacturedId || "").trim(),
@@ -57,15 +77,16 @@ const prepareDataForSave = (data) => {
   };
 };
 
-const normalizeCode = (value) => String(value || "").trim().toUpperCase();
-const compactCode = (value) => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+const normalizeCode = (value: unknown) => String(value || "").trim().toUpperCase();
+const compactCode = (value: unknown) => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+const getActorId = () => auth.currentUser?.uid ?? "SYSTEM";
 
 // --- CORE LOGICA VOOR DASHBOARD & TOOLS ---
 
 /**
  * Zoekt een product op basis van de oude (manufacturedId) of nieuwe code (targetProductId).
  */
-export const lookupProductByManufacturedId = async (unusedAppId, inputCode) => {
+export const lookupProductByManufacturedId = async (unusedAppId: unknown, inputCode: unknown) => {
   if (!inputCode) return null;
   const rawCode = String(inputCode).trim();
   const normalizedCode = normalizeCode(rawCode);
@@ -76,7 +97,10 @@ export const lookupProductByManufacturedId = async (unusedAppId, inputCode) => {
   try {
     const recordsRef = collection(db, getPathString(PATHS.CONVERSION_MATRIX));
 
-    const toResult = (snap, matchType) => ({
+    const toResult = (
+      snap: { data: () => Record<string, unknown>; id: string },
+      matchType: string
+    ) => ({
       ...snap.data(),
       matchType,
       id: snap.id,
@@ -150,24 +174,33 @@ export const lookupProductByManufacturedId = async (unusedAppId, inputCode) => {
 /**
  * Wordt gebruikt in ProductForm om automatisch een match te vinden op basis van specs.
  */
-export const findConversionCandidate = async (unusedAppId, specs) => {
+export const findConversionCandidate = async (unusedAppId: unknown, specs: ConversionSpecs) => {
   try {
     const recordsRef = collection(db, getPathString(PATHS.CONVERSION_MATRIX));
     // We zoeken op type, DN en PN
     const q = query(
       recordsRef,
-      where("type", "==", specs.type),
-      where("dn", "==", parseInt(specs.dn)),
-      where("pn", "==", parseFloat(specs.pn))
+      where("type", "==", String(specs.type || "")),
+      where("dn", "==", parseInt(String(specs.dn || "0"), 10)),
+      where("pn", "==", parseFloat(String(specs.pn || "0")))
     );
 
     const snap = await getDocs(q);
     if (snap.empty) return null;
 
     // Filter lokaal op label/serie voor de beste match
-    const results = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, any>));
+    const results: ConversionItem[] = snap.docs.map((d) => {
+      const raw = d.data() as ConversionPayload;
+      return {
+        id: d.id,
+        ...raw,
+        manufacturedId: String(raw.manufacturedId || ""),
+        targetProductId: String(raw.targetProductId || ""),
+        description: String(raw.description || ""),
+      };
+    });
     const bestMatch = results.find(
-      (r) => r.serie === specs.serie || r.description?.includes(specs.label)
+      (r) => String(r.serie || "") === String(specs.serie || "") || r.description?.includes(String(specs.label || ""))
     );
 
     return bestMatch || results[0];
@@ -180,8 +213,8 @@ export const findConversionCandidate = async (unusedAppId, specs) => {
 // --- DATABASE BEHEER (CRUD) ---
 
 export const fetchConversions = async (
-  unusedAppId,
-  lastDoc = null,
+  unusedAppId: unknown,
+  lastDoc: any = null,
   pageSize = 50,
   searchTerm = ""
 ) => {
@@ -198,7 +231,16 @@ export const fetchConversions = async (
   }
 
   const snapshot = await getDocs(q);
-  const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Record<string, any>));
+  const data: ConversionItem[] = snapshot.docs.map((doc) => {
+    const raw = doc.data() as ConversionPayload;
+    return {
+      id: doc.id,
+      ...raw,
+      manufacturedId: String(raw.manufacturedId || ""),
+      targetProductId: String(raw.targetProductId || ""),
+      description: String(raw.description || ""),
+    };
+  });
 
   // Als er een zoekterm is, filteren we lokaal (voor snelheid in beheer)
   let filteredData = data;
@@ -218,26 +260,26 @@ export const fetchConversions = async (
   };
 };
 
-export const createConversion = async (unusedAppId, data) => {
+export const createConversion = async (unusedAppId: unknown, data: ConversionPayload) => {
   const docId = String(data.manufacturedId).trim();
   await upsertConversionRecord({
     recordId: docId,
     recordData: prepareDataForSave(data),
   });
-  await logActivity(auth.currentUser?.uid, "CONVERSION_CREATE", `Conversie aangemaakt: ${docId}`);
+  await logActivity(getActorId(), "CONVERSION_CREATE", `Conversie aangemaakt: ${docId}`);
 };
 
-export const updateConversion = async (unusedAppId, id, data) => {
+export const updateConversion = async (unusedAppId: unknown, id: string, data: ConversionPayload) => {
   await upsertConversionRecord({
     recordId: id,
     recordData: prepareDataForSave(data),
   });
-  await logActivity(auth.currentUser?.uid, "CONVERSION_UPDATE", `Conversie bijgewerkt: ${id}`);
+  await logActivity(getActorId(), "CONVERSION_UPDATE", `Conversie bijgewerkt: ${id}`);
 };
 
-export const deleteConversion = async (unusedAppId, id) => {
+export const deleteConversion = async (unusedAppId: unknown, id: string) => {
   await deleteConversionRecord(id);
-  await logActivity(auth.currentUser?.uid, "CONVERSION_DELETE", `Conversie verwijderd: ${id}`);
+  await logActivity(getActorId(), "CONVERSION_DELETE", `Conversie verwijderd: ${id}`);
 };
 
 // --- BATCH UPLOAD & PARSING ---
@@ -245,14 +287,18 @@ export const deleteConversion = async (unusedAppId, id) => {
 /**
  * Importeert alle items en overschrijft bestaande records met dezelfde Manufactured ID.
  */
-export const uploadConversionBatch = async (items, unusedAppId, onProgress) => {
+export const uploadConversionBatch = async (
+  items: ConversionPayload[],
+  unusedAppId: unknown,
+  onProgress?: ProgressCallback
+) => {
   const total = items.length;
   if (onProgress) onProgress(10);
   await upsertConversionBatch({ items, mode: "merge" });
   if (onProgress) onProgress(100);
 
   await logActivity(
-    auth.currentUser?.uid,
+    getActorId(),
     "CONVERSION_BATCH_UPLOAD",
     `Conversie batch-upload voltooid: ${total} records verwerkt`
   );
@@ -261,7 +307,11 @@ export const uploadConversionBatch = async (items, unusedAppId, onProgress) => {
 /**
  * Voegt alleen items toe die nog niet in de database staan.
  */
-export const uploadNewItemsOnly = async (items, unusedAppId, onProgress) => {
+export const uploadNewItemsOnly = async (
+  items: ConversionPayload[],
+  unusedAppId: unknown,
+  onProgress?: ProgressCallback
+) => {
   if (onProgress) onProgress(10);
   const result = await upsertConversionBatch({ items, mode: "new_only" }) as Record<string, unknown> | null;
   if (onProgress) onProgress(100);
@@ -270,7 +320,7 @@ export const uploadNewItemsOnly = async (items, unusedAppId, onProgress) => {
   const skipped = Number(result?.skipped || 0);
 
   await logActivity(
-    auth.currentUser?.uid,
+    getActorId(),
     "CONVERSION_NEWITEMS_UPLOAD",
     `Nieuwe conversie-items upload: toegevoegd ${added}, overgeslagen ${skipped}`
   );
@@ -280,18 +330,28 @@ export const uploadNewItemsOnly = async (items, unusedAppId, onProgress) => {
 /**
  * Verwerkt een Excel bestand naar JSON.
  */
-export const parseExcel = async (file) => {
+export const parseExcel = async (file: Blob): Promise<unknown[]> => {
   const XLSX = await import("xlsx");
 
-  return new Promise((resolve, reject) => {
+  return new Promise<unknown[]>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = e.target.result;
+        const target = e.target;
+        if (!target) {
+          reject(new Error("Bestandslezer gaf geen data terug"));
+          return;
+        }
+
+        const data = target.result;
         const workbook = XLSX.read(data, { type: "binary" });
         const sheetName = workbook.SheetNames[0];
+        if (!sheetName) {
+          resolve([]);
+          return;
+        }
         const sheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(sheet);
+        const json = XLSX.utils.sheet_to_json(sheet) as unknown[];
         resolve(json);
       } catch (err) {
         reject(err);
@@ -305,17 +365,17 @@ export const parseExcel = async (file) => {
 /**
  * Verwerkt een CSV string naar JSON.
  */
-export const parseCSV = (text) => {
+export const parseCSV = (text: string): Record<string, string>[] => {
   const lines = text.split("\n");
-  const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
+  const headers = (lines[0] || "").split(",").map((h) => h.trim().replace(/"/g, ""));
   return lines
     .slice(1)
     .filter((l) => l.trim())
     .map((line) => {
       const values = line.split(",").map((v) => v.trim().replace(/"/g, ""));
-      const obj = {};
+      const obj: Record<string, string> = {};
       headers.forEach((h, i) => {
-        obj[h] = values[i];
+        obj[h] = values[i] || "";
       });
       return obj;
     });

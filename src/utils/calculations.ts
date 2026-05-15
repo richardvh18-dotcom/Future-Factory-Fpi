@@ -7,17 +7,27 @@
  * Berekent de Z-maat, Totale Lengte (L) en Insteekdiepte (B1)
  * op basis van de geselecteerde parameters en dimensie-tabellen.
  */
+type FittingRow = {
+  L?: number | string;
+};
+
+type BellRow = {
+  B1?: number | string;
+};
+
+type MatrixTable<T> = Record<string, Record<string, Record<string, T | undefined> | undefined> | undefined>;
+
 export const calculateZDimension = (
-  diameter,
-  pressure,
-  type,
-  connection,
-  standardFittingDims,
-  bellDimensions
-) => {
+  diameter: string | number,
+  pressure: string | number,
+  type: string,
+  connection: string,
+  standardFittingDims: MatrixTable<FittingRow> | null | undefined,
+  bellDimensions: Record<string, Record<string, Record<string, BellRow | undefined> | undefined> | undefined> | null | undefined,
+): { zMaat: string; L: string; B1: string } | null => {
   // 1. Inputs parsen
-  const pDia = parseInt(diameter);
-  const pPress = parseFloat(pressure);
+  const pDia = parseInt(String(diameter), 10);
+  const pPress = parseFloat(String(pressure));
   const connType = connection.split("/")[0] || "TB";
 
   if (!standardFittingDims || !bellDimensions) {
@@ -28,18 +38,17 @@ export const calculateZDimension = (
   // Probeer specifieke sleutel (bijv. "elbow_tb") of generieke sleutel ("elbow")
   const fitting =
     standardFittingDims?.[`${type.toLowerCase()}_${connType.toLowerCase()}`]?.[
-      pPress
-    ]?.[pDia] || standardFittingDims?.[type.toLowerCase()]?.[pPress]?.[pDia];
+      String(pPress)
+    ]?.[String(pDia)] || standardFittingDims?.[type.toLowerCase()]?.[String(pPress)]?.[String(pDia)];
 
   // Probeer lookup met nummer of string key voor pressure
   const bell =
-    bellDimensions?.[connType]?.[pPress]?.[pDia] ||
-    bellDimensions?.[connType]?.[String(pPress)]?.[pDia];
+    bellDimensions?.[connType]?.[String(pPress)]?.[String(pDia)];
 
   // 3. Berekening uitvoeren
   if (fitting && bell) {
-    const L = parseFloat(fitting.L || 0);
-    const B1 = parseFloat(bell.B1 || 0);
+    const L = parseFloat(String(fitting.L || 0));
+    const B1 = parseFloat(String(bell.B1 || 0));
     const z = L - B1;
 
     // 4. Resultaat teruggeven

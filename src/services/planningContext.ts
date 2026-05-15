@@ -1,7 +1,38 @@
 import { collection, getDocs, query, limit } from "firebase/firestore";
+import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { PATHS, getPathString } from "../config/dbPaths";
 import { getISOWeek } from "date-fns";
+
+type PlanningDoc = QueryDocumentSnapshot<DocumentData>;
+
+type PlanningRow = {
+  Ordernummer: string;
+  Product: string;
+  Artikelcode: string;
+  Machine: string;
+  Week: string;
+  Deadline: string;
+  Status: string;
+  Gepland: number;
+  Gemaakt: number;
+  Nog_te_maken: number;
+  Prioriteit: string;
+};
+
+type ProductionRow = {
+  orderId: string;
+  lot: string;
+  machine: string;
+  item: string;
+};
+
+const toErrorMessage = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message?: unknown }).message || "Onbekende fout");
+  }
+  return "Onbekende fout";
+};
 
 // Status waarden die als "actief / te plannen" gelden
 const ACTIVE_STATUSES = new Set([
@@ -12,20 +43,27 @@ const ACTIVE_STATUSES = new Set([
   "on_hold", "delegated",
 ]);
 
-const isActiveStatus = (status) => {
+const isActiveStatus = (status: unknown): boolean => {
   if (!status) return true; // geen status = toon altijd
   return ACTIVE_STATUSES.has(String(status).toLowerCase().trim().replace(/[\s-]+/g, "_"));
 };
 
-const toDateSafe = (val) => {
+const toDateSafe = (val: unknown): Date | null => {
   if (!val) return null;
-  if (typeof val?.toDate === "function") return val.toDate();
-  if (typeof val?.toMillis === "function") return new Date(val.toMillis());
+  if (typeof (val as { toDate?: unknown })?.toDate === "function") {
+    return (val as { toDate: () => Date }).toDate();
+  }
+  if (typeof (val as { toMillis?: unknown })?.toMillis === "function") {
+    return new Date((val as { toMillis: () => number }).toMillis());
+  }
+  if (!(typeof val === "string" || typeof val === "number" || val instanceof Date)) {
+    return null;
+  }
   const d = new Date(val);
   return Number.isFinite(d.getTime()) ? d : null;
 };
 
-const MACHINE_CODE_TO_STATION = {
+const MACHINE_CODE_TO_STATION: Record<string, string> = {
   "411": "BH11",
   "412": "BH12",
   "415": "BH15",
@@ -39,7 +77,7 @@ const MACHINE_CODE_TO_STATION = {
   "409": "BH09",
 };
 
-const normalizeMachineName = (value) => {
+const normalizeMachineName = (value: unknown): string => {
   const v = String(value || "").toUpperCase().trim();
   if (!v) return "?";
   if (v === "BM18") return "BH18";
@@ -47,7 +85,7 @@ const normalizeMachineName = (value) => {
   return v;
 };
 
-const inferMachineFromLot = (lotNumber) => {
+const inferMachineFromLot = (lotNumber: unknown): string => {
   const lot = String(lotNumber || "").replace(/\s+/g, "");
   // Lot-formaat uit backend: 40 + YY + WW + MMM + 40 + SEQ
   if (lot.length < 9) return "";
@@ -55,7 +93,7 @@ const inferMachineFromLot = (lotNumber) => {
   return MACHINE_CODE_TO_STATION[code] || "";
 };
 
-const resolveMachine = (data, fallbackId = "") => {
+const resolveMachine = (data: Record<string, unknown>, fallbackId = ""): string => {
   const fromFields =
     data.currentMachineId ||
     data.machineId ||
@@ -74,7 +112,7 @@ const resolveMachine = (data, fallbackId = "") => {
  * Haalt de ruwe planningsdata op, geschoond en gestructureerd.
  * Bevraagt zowel het actuele als het legacy planning-pad.
  */
-export const getRawPlanningData = async (limitCount = 50) => {
+export const getRawPlanningData = async (limitCount = 50): Promise<PlanningRow[]> => {
   try {
     const paths = [
       PATHS?.PLANNING || ["future-factory", "production", "digital_planning"],
@@ -88,10 +126,10 @@ export const getRawPlanningData = async (limitCount = 50) => {
       )
     );
 
-    const seenIds = new Set();
-    const allDocs = [];
+    const seenIds = new Set<string>();
+    const allDocs: PlanningDoc[] = [];
     snapshots.forEach((snap) => {
-      snap.docs.forEach((d) => {
+      snap.docs.forEach((d: PlanningDoc) => {
         if (!seenIds.has(d.id)) {
           seenIds.add(d.id);
           allDocs.push(d);
@@ -156,10 +194,10 @@ export const getTodayProductionContext = async () => {
       )
     ).catch(() => ({ docs: [] }));
 
-    const completedToday = [];
-    const activityToday = [];
-    const seenLots = new Set();
-    trackSnap.docs.forEach((d) => {
+    const completedToday: ProductionRow[] = [];
+    const activityToday: ProductionRow[] = [];
+    const seenLots = new Set<string>();
+    trackSnap.docs.forEach((d: PlanningDoc) => {
       const data = d.data();
       const status = String(data.status || "").toLowerCase();
       const step = String(data.currentStep || "").toLowerCase();
@@ -172,8 +210,8 @@ export const getTodayProductionContext = async () => {
         step.includes("gereed") ||
         station === "gereed";
 
-      const machine = resolveMachine(data, d.id);
-      const lot = data.lotNumber || d.id;
+      const machine = resolveMachine(data as Record<string, unknown>, d.id);
+      const lot = String(data.lotNumber || d.id);
       const updatedTs = toDateSafe(data.updatedAt || data.archivedAt || data.completedAt);
       const startTs = toDateSafe(
         data.timestamps?.station_start ||
@@ -212,7 +250,7 @@ export const getTodayProductionContext = async () => {
       query(collection(db, getPathString(archivePath as string[])), limit(500))
     ).catch(() => ({ docs: [] }));
 
-    archSnap.docs.forEach((d) => {
+    archSnap.docs.forEach((d: PlanningDoc) => {
       const data = d.data();
       const ts = toDateSafe(data.archivedAt || data.completedAt || data.updatedAt);
       if (ts && ts >= todayStart) {
@@ -222,26 +260,27 @@ export const getTodayProductionContext = async () => {
         completedToday.push({
           orderId: data.orderId || "?",
           lot,
-          machine: resolveMachine(data, d.id),
+          machine: resolveMachine(data as Record<string, unknown>, d.id),
           item: data.item || data.itemDescription || "?",
         });
       }
     });
 
     // Groepeer per order
-    const byOrder = new Map();
+    const byOrder = new Map<string, { item: string; machine: string; lots: string[] }>();
     completedToday.forEach(({ orderId, lot, machine, item }) => {
       if (!byOrder.has(orderId)) byOrder.set(orderId, { item, machine, lots: [] });
-      byOrder.get(orderId).lots.push(lot);
+      const bucket = byOrder.get(orderId);
+      if (bucket) bucket.lots.push(lot);
     });
 
-    const completedByMachine = new Map();
+    const completedByMachine = new Map<string, number>();
     completedToday.forEach((row) => {
       const key = row.machine || "?";
       completedByMachine.set(key, (completedByMachine.get(key) || 0) + 1);
     });
 
-    const activityByMachine = new Map();
+    const activityByMachine = new Map<string, number>();
     activityToday.forEach((row) => {
       const key = row.machine || "?";
       activityByMachine.set(key, (activityByMachine.get(key) || 0) + 1);
@@ -305,7 +344,7 @@ export const getLivePlanningContext = async () => {
     return ctx;
   } catch (error) {
     console.error("Fout bij ophalen planning context:", error);
-    return `CONTEXT WAARSCHUWING: Kon de live planning niet ophalen. Foutmelding: ${error.message}`;
+    return `CONTEXT WAARSCHUWING: Kon de live planning niet ophalen. Foutmelding: ${toErrorMessage(error)}`;
   }
 };
 

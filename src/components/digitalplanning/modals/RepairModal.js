@@ -1,0 +1,31 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState } from "react";
+import { X, Wrench, Save, Loader2, CheckSquare } from "lucide-react";
+import { useTranslation } from "react-i18next";
+const getRepairActions = (t) => [
+    t("digitalplanning.repair.action_new_label", "Nieuw etiket/volgnummer"),
+    t("digitalplanning.repair.action_thickened", "Opgedikt"),
+    t("digitalplanning.repair.action_inner_repair", "Binnenkant gerepareerd"),
+    t("digitalplanning.repair.action_cosmetic", "Cosmetische reparatie"),
+    t("digitalplanning.repair.action_flange_flat", "Flens vlakken"),
+    t("digitalplanning.repair.action_leaktest", "Lektest herhaald"),
+];
+const RepairModal = ({ product, onClose, onConfirm }) => {
+    const { t } = useTranslation();
+    const [selectedActions, setSelectedActions] = useState([]);
+    const [notes, setNotes] = useState("");
+    const [isSaving, setIsSaving] = useState(false);
+    const repairActions = getRepairActions(t);
+    const toggleAction = (action) => {
+        setSelectedActions(prev => prev.includes(action) ? prev.filter(a => a !== action) : [...prev, action]);
+    };
+    const handleSave = async () => {
+        setIsSaving(true);
+        await onConfirm({ actions: selectedActions, notes });
+        setIsSaving(false);
+    };
+    return (_jsx("div", { className: "fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in", children: _jsxs("div", { className: "bg-white w-full max-w-lg rounded-[30px] shadow-2xl overflow-hidden flex flex-col", children: [_jsxs("div", { className: "p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50", children: [_jsxs("div", { className: "flex items-center gap-3", children: [_jsx("div", { className: "p-3 bg-orange-100 text-orange-600 rounded-xl", children: _jsx(Wrench, { size: 24 }) }), _jsxs("div", { children: [_jsx("h3", { className: "font-black text-slate-800 uppercase text-lg italic tracking-tight", children: t("digitalplanning.repair.title", "Reparatie Uitvoeren") }), _jsx("p", { className: "text-xs font-bold text-slate-400 uppercase tracking-widest", children: product.lotNumber })] })] }), _jsx("button", { onClick: onClose, className: "p-2 hover:bg-slate-200 rounded-full transition-colors", children: _jsx(X, { size: 20, className: "text-slate-400" }) })] }), _jsxs("div", { className: "p-6 space-y-6", children: [_jsxs("div", { children: [_jsx("label", { className: "text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block", children: t("digitalplanning.repair.actions_label", "Uitgevoerde Acties") }), _jsx("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3", children: repairActions.map(action => (_jsxs("button", { onClick: () => toggleAction(action), className: `p-3 rounded-xl text-xs font-bold text-left flex items-center gap-3 transition-all border-2 ${selectedActions.includes(action)
+                                            ? "bg-orange-50 border-orange-500 text-orange-700"
+                                            : "bg-white border-slate-100 text-slate-600 hover:border-orange-200"}`, children: [_jsx("div", { className: `w-5 h-5 rounded flex items-center justify-center border ${selectedActions.includes(action) ? "bg-orange-500 border-orange-500 text-white" : "border-slate-300 bg-white"}`, children: selectedActions.includes(action) && _jsx(CheckSquare, { size: 12 }) }), action] }, action))) })] }), _jsxs("div", { children: [_jsx("label", { className: "text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block", children: t("digitalplanning.repair.notes_label", "Toelichting") }), _jsx("textarea", { value: notes, onChange: (e) => setNotes(e.target.value), className: "w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-medium text-slate-700 outline-none focus:border-orange-500 transition-all min-h-[100px]", placeholder: t("digitalplanning.repair.notes_placeholder", "Beschrijf de reparatie...") })] })] }), _jsxs("div", { className: "p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3", children: [_jsx("button", { onClick: onClose, className: "px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition-colors text-xs uppercase tracking-wider", children: t("digitalplanning.repair.cancel", "Annuleren") }), _jsxs("button", { onClick: handleSave, disabled: isSaving, className: "px-8 py-3 bg-slate-900 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50", children: [isSaving ? _jsx(Loader2, { className: "animate-spin", size: 16 }) : _jsx(Save, { size: 16 }), t("digitalplanning.repair.ready_bm01", "Gereed & Naar BM01")] })] })] }) }));
+};
+export default RepairModal;

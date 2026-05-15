@@ -11,7 +11,13 @@ type PrintMetadata = Record<string, unknown> & {
   copies?: number | string;
 };
 
-const sanitizeFirestoreValue = (value) => {
+type FirestorePrimitive = string | number | boolean | null;
+type FirestoreValue =
+  | FirestorePrimitive
+  | FirestoreValue[]
+  | { [key: string]: FirestoreValue | undefined };
+
+const sanitizeFirestoreValue = (value: unknown): FirestoreValue | undefined => {
   if (value === undefined) return undefined;
   if (value === null) return null;
   if (Array.isArray(value)) {
@@ -21,12 +27,15 @@ const sanitizeFirestoreValue = (value) => {
   }
   if (typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value)
+      Object.entries(value as Record<string, unknown>)
         .map(([key, nestedValue]) => [key, sanitizeFirestoreValue(nestedValue)])
         .filter(([, nestedValue]) => nestedValue !== undefined)
-    );
+    ) as { [key: string]: FirestoreValue | undefined };
   }
-  return value;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  return String(value);
 };
 
 /**
@@ -39,6 +48,7 @@ const sanitizeFirestoreValue = (value) => {
  */
 export const queuePrintJob = async (printerId: string, zplData: string, metadata: PrintMetadata = {}) => {
   try {
+    const currentUserId = auth.currentUser?.uid || "unknown";
     const normalizedPrinterId = String(printerId || "").trim();
     const normalizedZpl = String(zplData || "");
 
@@ -71,14 +81,14 @@ export const queuePrintJob = async (printerId: string, zplData: string, metadata
       zpl: normalizedZpl,
       status: "pending", // pending -> printing -> completed
       createdAt: serverTimestamp(),
-      createdBy: auth.currentUser?.uid || "unknown",
+      createdBy: currentUserId,
       metadata: sanitizedMetadata,
       retryCount: 0
     };
 
     const docRef = await addDoc(queueRef, jobData);
     await logActivity(
-      auth.currentUser?.uid,
+      currentUserId,
       "PRINT_QUEUE_ADD",
       `Printjob in wachtrij gezet: ${docRef.id} (${printerId})`
     );

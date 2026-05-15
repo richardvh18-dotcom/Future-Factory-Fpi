@@ -964,11 +964,13 @@ const updatePlanningOrderDetails = withAudit('UPDATE_ORDER_DETAILS', async (data
   const orderDocId = clean(data?.orderDocId);
   const notes = clampText(data?.notes, 2000);
   const rawPlan = data?.plan;
+  const rawPlanDelta = data?.planDelta;
   const rawStarted = data?.started;
   const rawManualTodo = data?.manualTodo;
   const source = clampText(data?.source, 80);
   const actorLabel = clampText(data?.actorLabel, 120);
   const plan = rawPlan === null || rawPlan === undefined || rawPlan === '' ? null : Number(rawPlan);
+  const planDelta = rawPlanDelta === null || rawPlanDelta === undefined || rawPlanDelta === '' ? null : Number(rawPlanDelta);
   const started = rawStarted === null || rawStarted === undefined || rawStarted === '' ? null : Number(rawStarted);
   const manualTodo = rawManualTodo === null || rawManualTodo === undefined || rawManualTodo === '' ? null : Number(rawManualTodo);
 
@@ -978,6 +980,10 @@ const updatePlanningOrderDetails = withAudit('UPDATE_ORDER_DETAILS', async (data
 
   if (plan !== null && (!Number.isFinite(plan) || plan < 0 || plan > 1000000)) {
     throw new functions.https.HttpsError('invalid-argument', 'plan moet een geldig getal van 0 of hoger zijn.');
+  }
+
+  if (planDelta !== null && (!Number.isFinite(planDelta) || planDelta < -1000000 || planDelta > 1000000)) {
+    throw new functions.https.HttpsError('invalid-argument', 'planDelta moet een geldig getal zijn.');
   }
 
   if (started !== null && (!Number.isFinite(started) || started < 0 || started > 1000000)) {
@@ -993,6 +999,7 @@ const updatePlanningOrderDetails = withAudit('UPDATE_ORDER_DETAILS', async (data
       orderDocId,
       notes,
       plan,
+      planDelta,
       started,
       manualTodo,
       source,

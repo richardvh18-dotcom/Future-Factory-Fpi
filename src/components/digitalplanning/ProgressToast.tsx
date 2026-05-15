@@ -1,22 +1,18 @@
 import React from "react";
 import { Loader, CheckCircle } from "lucide-react";
-import { useProgressOperations } from "../../contexts/ProgressOperationContext";
 
-interface ProgressOperation {
+interface Operation {
   id: string;
-  lotNumber?: string;
   status: string;
+  lotNumber: string;
 }
 
-interface ProgressOperationsContextValue {
+interface Props {
   operationCount: number;
-  getOperations: () => ProgressOperation[];
+  getOperations: () => Operation[];
 }
 
-export const ProgressToast = () => {
-  const { operationCount, getOperations } =
-    useProgressOperations() as ProgressOperationsContextValue;
-
+const ProgressToast: React.FC<Props> = ({ operationCount, getOperations }) => {
   if (operationCount === 0) return null;
 
   const operations = getOperations();
@@ -46,11 +42,23 @@ export const ProgressToast = () => {
                 return (
                   <div key={operation.id}>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={isDone ? "text-emerald-400" : isError ? "text-rose-400" : "text-slate-300"}>
+                      <span
+                        className={
+                          isDone
+                            ? "text-emerald-400"
+                            : isError
+                            ? "text-rose-400"
+                            : "text-slate-300"
+                        }
+                      >
                         {isDone ? "✓" : isError ? "✗" : "◌"}
                       </span>
-                      <span className="text-slate-200 truncate font-medium">{operation.lotNumber}</span>
-                      <span className="text-slate-400 ml-auto whitespace-nowrap">{operation.status}</span>
+                      <span className="text-slate-200 truncate font-medium">
+                        {operation.lotNumber}
+                      </span>
+                      <span className="text-slate-400 ml-auto whitespace-nowrap">
+                        {operation.status}
+                      </span>
                     </div>
                     {isBusy && (
                       <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
@@ -58,7 +66,6 @@ export const ProgressToast = () => {
                       </div>
                     )}
                     {isDone && <div className="w-full h-1 bg-emerald-500 rounded-full" />}
-                    {isError && <div className="w-full h-1 bg-rose-500 rounded-full" />}
                   </div>
                 );
               })}
@@ -69,3 +76,5 @@ export const ProgressToast = () => {
     </div>
   );
 };
+
+export default ProgressToast;

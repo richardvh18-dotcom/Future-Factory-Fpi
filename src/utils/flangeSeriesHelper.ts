@@ -1,17 +1,44 @@
-const normalizeText = (value) =>
+type FlangeRuleInput = Record<string, unknown> | null | undefined;
+
+type FlangeRule = {
+  id: string;
+  matcher: string;
+  cavityCount: number;
+};
+
+type ToolingMold = {
+  id: string;
+  name: string;
+  itemCode: string;
+  matcher: string;
+  application: string;
+  stations: string[];
+  active: boolean;
+  cavityCount: number;
+};
+
+type FlangeSeriesInfo = {
+  isFlange: boolean;
+  cavityCount: number;
+  matchedTooling: ToolingMold | null;
+  matchedRule: FlangeRule | null;
+  searchableText: string;
+};
+
+const normalizeText = (value: unknown): string =>
   String(value || "")
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, " ")
     .trim()
     .replace(/\s+/g, " ");
 
-const sanitizeCount = (value, fallback = 1) => {
+const sanitizeCount = (value: unknown, fallback = 1): number => {
   const parsed = Number.parseInt(String(value || ""), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.min(parsed, 100);
 };
 
-const sanitizeRule = (rule, index) => {
+const sanitizeRule = (rule: FlangeRuleInput, index: number): FlangeRule | null => {
   const matcher = normalizeText(rule?.matcher || rule?.pattern || "");
   if (!matcher) return null;
   return {
@@ -21,7 +48,7 @@ const sanitizeRule = (rule, index) => {
   };
 };
 
-const sanitizeToolingMold = (entry, index) => {
+const sanitizeToolingMold = (entry: FlangeRuleInput, index: number): ToolingMold | null => {
   const itemCode = normalizeText(entry?.itemCode || entry?.item || "");
   const matcher = normalizeText(entry?.matcher || entry?.pattern || entry?.name || "");
   const stations = Array.isArray(entry?.stations)
@@ -42,22 +69,22 @@ const sanitizeToolingMold = (entry, index) => {
   };
 };
 
-export const getFlangeSeriesRules = (rawRules) => {
+export const getFlangeSeriesRules = (rawRules: unknown): FlangeRule[] => {
   const source = Array.isArray(rawRules) ? rawRules : [];
   const sanitized = source
     .map((rule, index) => sanitizeRule(rule, index))
     .filter(Boolean);
-  return sanitized;
+  return sanitized as FlangeRule[];
 };
 
-export const getToolingMolds = (rawEntries) => {
+export const getToolingMolds = (rawEntries: unknown): ToolingMold[] => {
   if (!Array.isArray(rawEntries)) return [];
   return rawEntries
     .map((entry, index) => sanitizeToolingMold(entry, index))
-    .filter((entry) => entry && entry.active);
+    .filter((entry): entry is ToolingMold => Boolean(entry && entry.active));
 };
 
-const matchesRule = (text, matcher) => {
+const matchesRule = (text: unknown, matcher: unknown): boolean => {
   const normalizedText = normalizeText(text);
   const normalizedMatcher = normalizeText(matcher);
   if (!normalizedText || !normalizedMatcher) return false;
@@ -68,27 +95,30 @@ const matchesRule = (text, matcher) => {
   return tokens.every((token) => normalizedText.includes(token));
 };
 
-const stationMatches = (entry, stationId) => {
+const stationMatches = (entry: { stations?: string[] } | null | undefined, stationId: unknown): boolean => {
   const normalizedStation = normalizeText(stationId);
   if (!Array.isArray(entry?.stations) || entry.stations.length === 0) return true;
   if (!normalizedStation) return true;
   return entry.stations.includes(normalizedStation);
 };
 
-const applicationMatchesFlange = (entry) => {
+const applicationMatchesFlange = (entry: { application?: unknown } | null | undefined): boolean => {
   const application = String(entry?.application || "").trim().toLowerCase();
   if (!application) return true;
   return application === "flange_series" || application === "flange";
 };
 
-const buildItemCodeCandidates = (order, relatedItemCodes = []) => {
+const buildItemCodeCandidates = (
+  order: Record<string, unknown> | null | undefined,
+  relatedItemCodes: unknown[] = []
+): Set<string> => {
   const candidates = [order?.itemCode, order?.item, ...relatedItemCodes]
     .map((value) => normalizeText(value))
     .filter(Boolean);
   return new Set(candidates);
 };
 
-const isFlangeText = (text) => {
+const isFlangeText = (text: unknown): boolean => {
   const normalizedText = normalizeText(text);
   if (!normalizedText) return false;
   if (normalizedText.startsWith("FL ") || normalizedText === "FL") return true;
@@ -97,12 +127,12 @@ const isFlangeText = (text) => {
 };
 
 export const getFlangeSeriesInfo = (
-  order,
-  rawRules,
-  rawToolingMolds = [],
+  order: Record<string, unknown> | null | undefined,
+  rawRules: unknown,
+  rawToolingMolds: unknown[] = [],
   stationId = "",
-  relatedItemCodes = []
-) => {
+  relatedItemCodes: unknown[] = []
+): FlangeSeriesInfo => {
   const rules = getFlangeSeriesRules(rawRules);
   const toolingMolds = getToolingMolds(rawToolingMolds);
   const searchableText = normalizeText(

@@ -315,6 +315,7 @@ const TeamleaderHub = React.memo(({
     handleAssignOverproduction,
     handleSidebarSelect,
     handleOpenArchivedLotDossier,
+    handleReopenArchivedOrderWithIncrease,
     handleKpiClick,
     handleDrawingSync,
     handleExport,
@@ -580,6 +581,7 @@ const TeamleaderHub = React.memo(({
                     rawProducts={rawProducts}
                     archivedHistoryProducts={archivedHistoryProducts}
                     handleOpenArchivedLotDossier={handleOpenArchivedLotDossier}
+                    handleReopenArchivedOrderWithIncrease={handleReopenArchivedOrderWithIncrease}
                   />
                 </div>
               </div>

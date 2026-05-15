@@ -1,4 +1,30 @@
-const getNumeric = (value) => {
+type PlanningOrderLike = {
+  id?: string;
+  orderId?: string;
+  quantity?: number | string;
+  qty?: number | string;
+  plannedQuantity?: number | string;
+  plan?: number | string;
+  produced?: number | string;
+  finishedCount?: number | string;
+  finishValue?: number | string;
+  wrapped?: number | string;
+  completed?: number | string;
+};
+
+type TrackedRecordLike = {
+  id?: string;
+  orderId?: string;
+  lotNumber?: string;
+  activeLot?: string;
+  status?: string;
+  currentStep?: string;
+  currentStation?: string;
+  archivedAt?: unknown;
+  isVirtualLot?: boolean;
+};
+
+const getNumeric = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
@@ -17,16 +43,17 @@ const getNumeric = (value) => {
  * @param {import('../types').PlanningOrder} order
  * @returns {number}
  */
-export const getEffectivePlanQty = (order) => {
+export const getEffectivePlanQty = (order: PlanningOrderLike | null | undefined) => {
   const qty = getNumeric(order?.quantity || order?.qty || order?.plannedQuantity);
   const plan = getNumeric(order?.plan);
   if (plan > 0 && plan < qty) return plan;
   return qty || plan || 0;
 };
 
-export const getOrderIdentity = (order) => String(order?.orderId || order?.id || "").trim();
+export const getOrderIdentity = (order: PlanningOrderLike | null | undefined) =>
+  String(order?.orderId || order?.id || "").trim();
 
-export const getTrackedRecordOrderId = (record) => {
+export const getTrackedRecordOrderId = (record: TrackedRecordLike | null | undefined) => {
   const directOrderId = String(record?.orderId || "").trim();
   if (directOrderId) return directOrderId;
 
@@ -36,7 +63,7 @@ export const getTrackedRecordOrderId = (record) => {
   return rawId.replace(/_\d{6,}$/, "");
 };
 
-export const getTrackedRecordLotId = (record) => {
+export const getTrackedRecordLotId = (record: TrackedRecordLike | null | undefined) => {
   const directLot = String(record?.lotNumber || record?.activeLot || "").trim();
   if (directLot) return directLot;
 
@@ -47,7 +74,7 @@ export const getTrackedRecordLotId = (record) => {
   return lotFromId ? lotFromId[1] : "";
 };
 
-export const isTrackedRecordFinished = (record) => {
+export const isTrackedRecordFinished = (record: TrackedRecordLike | null | undefined) => {
   const statusUpper = String(record?.status || "").trim().toUpperCase();
   const stepUpper = String(record?.currentStep || "").trim().toUpperCase();
   const stationUpper = String(record?.currentStation || "").trim().toUpperCase();
@@ -61,14 +88,20 @@ export const isTrackedRecordFinished = (record) => {
 };
 
 export const countFinishedTrackedLots = (
-  records = [],
-  { orderId = "", getOrderIdFromRecord = getTrackedRecordOrderId } = {}
+  records: TrackedRecordLike[] = [],
+  {
+    orderId = "",
+    getOrderIdFromRecord = getTrackedRecordOrderId,
+  }: {
+    orderId?: string;
+    getOrderIdFromRecord?: (record: TrackedRecordLike | null | undefined) => string;
+  } = {}
 ) => {
   const normalizedOrderId = String(orderId || "").trim();
 
   return Array.from(
     new Set(
-      (Array.isArray(records) ? records : [])
+      (Array.isArray(records) ? records : ([] as TrackedRecordLike[]))
         .filter((record) => {
           if (record?.isVirtualLot) return false;
           if (normalizedOrderId && getOrderIdFromRecord(record) !== normalizedOrderId) return false;
@@ -80,13 +113,16 @@ export const countFinishedTrackedLots = (
   ).length;
 };
 
-export const getOrderFinishedUnits = (order, options = {}) => {
-  const typedOptions = options as {
+export const getOrderFinishedUnits = (
+  order: PlanningOrderLike | null | undefined,
+  options: {
     trackedFinishedCount?: number;
     trackedFinishedCountByOrder?: Map<string, number>;
-    trackedRecords?: Array<any>;
-    getOrderIdFromRecord?: (record: any) => string;
-  };
+    trackedRecords?: TrackedRecordLike[];
+    getOrderIdFromRecord?: (record: TrackedRecordLike | null | undefined) => string;
+  } = {}
+) => {
+  const typedOptions = options;
 
   const orderFinishedQty = Math.max(
     getNumeric(order?.produced),

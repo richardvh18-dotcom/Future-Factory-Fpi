@@ -1,7 +1,13 @@
 /**
  * Genereert een beveiligde string voor de QR code
  */
-export const generateAuthQR = (email, password, redirectPath = "/planning") => {
+type ParsedAuthQR = {
+  email: string;
+  password: string;
+  redirectPath?: string;
+};
+
+export const generateAuthQR = (email: string, password: string, redirectPath = "/planning"): string => {
   const payload = JSON.stringify({
     e: email,
     p: password,
@@ -16,16 +22,20 @@ export const generateAuthQR = (email, password, redirectPath = "/planning") => {
 /**
  * Parseert de QR code string terug naar credentials
  */
-export const parseAuthQR = (qrString) => {
+export const parseAuthQR = (qrString: string): ParsedAuthQR | null => {
   try {
     const jsonString = atob(qrString);
-    const data = JSON.parse(jsonString);
+    const data = JSON.parse(jsonString) as { type?: unknown; e?: unknown; p?: unknown; r?: unknown };
     
     if (data.type !== 'FPI_AUTH' || !data.e || !data.p) {
       throw new Error('Ongeldige FPi QR Code');
     }
     
-    return { email: data.e, password: data.p, redirectPath: data.r };
+    return {
+      email: String(data.e),
+      password: String(data.p),
+      redirectPath: typeof data.r === "string" ? data.r : undefined,
+    };
   } catch (error) {
     console.error("QR Parse Error:", error);
     return null;
