@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import {
@@ -21,18 +20,54 @@ import { PATHS } from "../../../config/dbPaths";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { assignPersonnelToStation, removePersonnelAssignment } from "../../../services/planningSecurityService";
 
+type StationAssignmentModalProps = {
+  stationId: string;
+  onClose: () => void;
+  department?: string;
+};
+
+type PersonnelItem = {
+  id: string;
+  name?: string;
+  employeeNumber?: string;
+  [key: string]: unknown;
+};
+
+type AssignmentItem = {
+  id: string;
+  operatorNumber?: string;
+  operatorName?: string;
+  machineId?: string;
+  date?: string;
+  hoursWorked?: number;
+  [key: string]: unknown;
+};
+
+type StatusMessage = {
+  type: "success" | "error";
+  message: string;
+};
+
 /**
  * StationAssignmentModal
  * Toewijzen van personeel aan werkstations
  */
-const StationAssignmentModal = ({ stationId, onClose, department }) => {
-  const { showConfirm } = useNotifications();
-  const [personnel, setPersonnel] = useState([]);
-  const [assignments, setAssignments] = useState([]);
+const StationAssignmentModal = ({ stationId, onClose, department }: StationAssignmentModalProps) => {
+  const { showConfirm } = useNotifications() as {
+    showConfirm: (options: {
+      title: string;
+      message: string;
+      confirmText: string;
+      cancelText: string;
+      tone: "danger" | "warning" | "default";
+    }) => Promise<boolean>;
+  };
+  const [personnel, setPersonnel] = useState<PersonnelItem[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
   const [selectedOperator, setSelectedOperator] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState<StatusMessage | null>(null);
   const location = useLocation();
   const auth = getAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(!!auth.currentUser);
@@ -52,9 +87,9 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
       try {
         // Load personeel
         const personelSnapshot = await getDocs(collection(db, ...PATHS.PERSONNEL));
-        setPersonnel(personelSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        const personnelItems = personelSnapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) })) as PersonnelItem[];
         if (isMounted) {
-          setPersonnel(personelSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+          setPersonnel(personnelItems);
         }
 
         // Load huidige toewijzingen voor dit station vandaag
@@ -65,18 +100,14 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
           where("date", "==", today)
         );
         const assignSnapshot = await getDocs(assignQuery);
-        setAssignments(assignSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        setLoading(false);
+        const assignmentItems = assignSnapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) })) as AssignmentItem[];
         if (isMounted) {
-          setAssignments(assignSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+          setAssignments(assignmentItems);
           setLoading(false);
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error("Error loading data:", error);
-        setStatus({ type: "error", message: "Fout bij laden van gegevens" });
-        setLoading(false);
         if (isMounted) {
-          console.error("Error loading data:", error);
           setStatus({ type: "error", message: "Fout bij laden van gegevens" });
           setLoading(false);
         }
@@ -96,7 +127,6 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
     setSaving(true);
     try {
       const today = new Date().toISOString().split('T')[0];
-      const currentWeek = new Date().getISOWeek ? new Date().getISOWeek() : 1;
       const operator = personnel.find(p => p.id === selectedOperator);
       await assignPersonnelToStation({
         stationId,
@@ -126,7 +156,7 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
       setSelectedOperator("");
       setStatus({ type: "success", message: "Personeelslid toegewezen" });
       setTimeout(() => setStatus(null), 3000);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error assigning operator:", error);
       setStatus({ type: "error", message: "Fout bij toewijzing" });
     } finally {
@@ -134,7 +164,7 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
     }
   };
 
-  const handleRemove = async (assignmentId) => {
+  const handleRemove = async (assignmentId: string) => {
     const confirmed = await showConfirm({
       title: "Toewijzing verwijderen",
       message: "Verwijderen?",
@@ -154,7 +184,7 @@ const StationAssignmentModal = ({ stationId, onClose, department }) => {
       setAssignments(assignments.filter(a => a.id !== assignmentId));
       setStatus({ type: "success", message: "Toewijzing verwijderd" });
       setTimeout(() => setStatus(null), 3000);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error removing assignment:", error);
       setStatus({ type: "error", message: "Fout bij verwijdering" });
     }

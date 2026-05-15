@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import {
   ChevronLeft,
@@ -14,14 +13,33 @@ import {
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 
+type Flashcard = {
+  front: { text: string };
+  back: { text: string };
+};
+
+type FlashcardData = {
+  flashcards?: Flashcard[];
+};
+
+type FlashcardViewerProps = {
+  data?: FlashcardData | null;
+  onClose: () => void;
+};
+
+type Stats = {
+  correct: number;
+  incorrect: number;
+};
+
 /**
  * FlashcardViewer V3.0 - AI Training Interface met Results Tracking
  * Biedt een interactieve 3D interface voor het leren van technische termen en processen.
  */
-const FlashcardViewer = ({ data, onClose }) => {
+const FlashcardViewer = ({ data, onClose }: FlashcardViewerProps) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [stats, setStats] = useState({ correct: 0, incorrect: 0 });
+  const [stats, setStats] = useState<Stats>({ correct: 0, incorrect: 0 });
 
   // Injecteer 3D CSS effecten bij mount
   useEffect(() => {
@@ -44,7 +62,7 @@ const FlashcardViewer = ({ data, onClose }) => {
   const cards = data.flashcards;
   const currentCard = cards[currentIndex];
 
-  const saveResult = async (correct) => {
+  const saveResult = async (correct: boolean) => {
     try {
       const resultsRef = collection(db, "future-factory", "settings", "flashcard_results");
       await addDoc(resultsRef, {
@@ -61,16 +79,16 @@ const FlashcardViewer = ({ data, onClose }) => {
       );
       
       // Update local stats
-      setStats(prev => ({
+      setStats((prev) => ({
         correct: prev.correct + (correct ? 1 : 0),
         incorrect: prev.incorrect + (correct ? 0 : 1),
       }));
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error saving flashcard result:", error);
     }
   };
 
-  const handleAnswer = (correct) => {
+  const handleAnswer = (correct: boolean) => {
     saveResult(correct);
     handleNext();
   };
@@ -251,7 +269,7 @@ const FlashcardViewer = ({ data, onClose }) => {
 };
 
 // Interne ChevronDown helper
-const ChevronDown = ({ className, size }) => (
+const ChevronDown = ({ className, size }: { className?: string; size?: number }) => (
   <svg
     width={size}
     height={size}

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import {
   AlertTriangle,
@@ -23,14 +22,28 @@ import {
 } from "firebase/firestore";
 import { db, appId, auth, logActivity } from "../../../config/firebase";
 
+type TimestampLike = {
+  seconds?: number;
+  toDate?: () => Date;
+};
+
+type TrainingLogItem = {
+  id: string;
+  question?: string;
+  answer?: string;
+  feedback?: string;
+  verified?: boolean;
+  timestamp?: TimestampLike;
+};
+
 /**
  * AiTrainingView: Module voor kwaliteitsborging van AI antwoorden.
  * Slaat interacties op en staat correcties toe door Teamleaders/QC.
  */
 const AiTrainingView = () => {
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState<TrainingLogItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [correction, setCorrection] = useState("");
 
   useEffect(() => {
@@ -40,15 +53,15 @@ const AiTrainingView = () => {
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) })) as TrainingLogItem[];
         const sorted = data.sort(
           (a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)
         );
         setLogs(sorted);
         setLoading(false);
       },
-      (err) => {
-        console.error("Fout bij laden AI logs:", err);
+      (error: unknown) => {
+        console.error("Fout bij laden AI logs:", error);
         setLoading(false);
       }
     );
@@ -56,7 +69,7 @@ const AiTrainingView = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleVerify = async (id, correctedText = null) => {
+  const handleVerify = async (id: string, correctedText: string | null = null) => {
     try {
       const docRef = doc(
         db,
@@ -79,12 +92,12 @@ const AiTrainingView = () => {
       );
       setEditingId(null);
       setCorrection("");
-    } catch (e) {
-      console.error("Fout bij verifiëren:", e);
+    } catch (error: unknown) {
+      console.error("Fout bij verifiëren:", error);
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm("Deze interactie verwijderen uit de kennisbank?"))
       return;
     try {
@@ -96,8 +109,8 @@ const AiTrainingView = () => {
         "AI_TRAINING_DELETE",
         `AI kennisitem verwijderd: ${id}`
       );
-    } catch (e) {
-      console.error("Fout bij verwijderen:", e);
+    } catch (error: unknown) {
+      console.error("Fout bij verwijderen:", error);
     }
   };
 
@@ -203,7 +216,7 @@ const AiTrainingView = () => {
                     <button
                       onClick={() => {
                         setEditingId(log.id);
-                        setCorrection(log.answer);
+                        setCorrection(String(log.answer || ""));
                       }}
                       className="mt-6 w-full bg-slate-900 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all shadow-md"
                     >

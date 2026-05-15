@@ -1,11 +1,87 @@
-// @ts-nocheck
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { PATHS } from '../config/dbPaths';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 
-const NotificationContext = createContext<any>(undefined as any);
+type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+type ToastPayload = {
+  id?: number;
+  title?: string;
+  message?: string;
+  type?: ToastType;
+  duration?: number;
+  count?: number;
+  createdAt?: number;
+  meta?: 'summary';
+};
+
+type ToastItem = {
+  id: number;
+  title: string;
+  message: string;
+  type: ToastType;
+  duration: number;
+  count: number;
+  createdAt: number;
+  meta?: 'summary';
+};
+
+type ConfirmTone = 'warning' | 'danger' | 'default';
+
+type ConfirmDialog = {
+  title: string;
+  message: string;
+  confirmText: string;
+  cancelText: string;
+  tone: ConfirmTone;
+};
+
+type ConfirmOptions = {
+  title?: string;
+  message?: string;
+  confirmText?: string;
+  cancelText?: string;
+  tone?: ConfirmTone;
+};
+
+type NotificationContextValue = {
+  activeToast: ToastItem | null;
+  queuedCount: number;
+  toasts: ToastItem[];
+  unreadCount: number;
+  hasPermission: boolean;
+  showToast: (toast: ToastPayload | string) => number;
+  showPopup: (payload: ToastPayload | string) => number;
+  notify: (payload: ToastPayload | string) => number;
+  confirmDialog: ConfirmDialog | null;
+  showConfirm: (options?: ConfirmOptions | string) => Promise<boolean>;
+  confirm: (options?: ConfirmOptions | string) => Promise<boolean>;
+  resolveConfirm: (accepted: boolean) => void;
+  removeToast: (id: number) => void;
+  showSuccess: (message: string, title?: string) => number;
+  showError: (message: string, title?: string) => number;
+  showInfo: (message: string, title?: string) => number;
+  showWarning: (message: string, title?: string) => number;
+  requestBrowserPermission: () => Promise<boolean>;
+};
+
+type AuthUser = {
+  uid?: string;
+  email?: string;
+  role?: string;
+};
+
+declare global {
+  interface Window {
+    notify?: (message: string) => void;
+    appAlert?: (message: string) => void;
+    __APP_ALERT__?: (message: string) => void;
+  }
+}
+
+const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
 
 const TYPE_LABELS = {
   success: 'Succes',
@@ -14,7 +90,7 @@ const TYPE_LABELS = {
   info: 'Melding',
 };
 
-const getDefaultDuration = (type) => {
+const getDefaultDuration = (type?: ToastType) => {
   switch (type) {
     case 'success':
       return 3600;
@@ -28,19 +104,19 @@ const getDefaultDuration = (type) => {
   }
 };
 
-const isSameToast = (left, right) => {
+const isSameToast = (left?: ToastPayload | null, right?: ToastPayload | null) => {
   if (!left || !right) return false;
   return left.type === right.type && left.title === right.title && left.message === right.message;
 };
 
-const mergeToast = (existingToast, incomingToast) => ({
+const mergeToast = (existingToast: ToastItem, incomingToast: ToastPayload): ToastItem => ({
   ...existingToast,
   count: (existingToast.count || 1) + (incomingToast.count || 1),
-  duration: incomingToast.duration,
-  createdAt: incomingToast.createdAt,
+  duration: incomingToast.duration || existingToast.duration,
+  createdAt: incomingToast.createdAt || Date.now(),
 });
 
-const inferAlertType = (message) => {
+const inferAlertType = (message: string): ToastType => {
   const value = String(message || '').trim();
   if (/^(❌|error|fout|mislukt|kon .* niet|kan .* niet)/iu.test(value)) return 'error';
   if (/^(⚠️|waarschuwing|let op)/iu.test(value)) return 'warning';
@@ -48,7 +124,7 @@ const inferAlertType = (message) => {
   return 'info';
 };
 
-const normalizeAlertPayload = (message) => {
+const normalizeAlertPayload = (message: unknown): ToastPayload => {
   const raw = String(message ?? '').trim();
   const cleaned = raw.replace(/^(✅|❌|⚠️|ℹ️)\s*/u, '').trim();
   const type = inferAlertType(raw);
@@ -79,21 +155,21 @@ export const useNotifications = () => {
   return context;
 };
 
-export const NotificationProvider = ({ children }) => {
-  const { user } = useAdminAuth();
-  const [activeToast, setActiveToast] = useState(null);
-  const [toastQueue, setToastQueue] = useState([]);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+export const NotificationProvider = ({ children }: { children: React.ReactNode }) => {
+  const { user } = useAdminAuth() as { user: AuthUser | null };
+  const [activeToast, setActiveToast] = useState<ToastItem | null>(null);
+  const [toastQueue, setToastQueue] = useState<ToastItem[]>([]);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPermission, setHasPermission] = useState(
     typeof window !== 'undefined' && 'Notification' in window
       ? Notification.permission === 'granted'
       : false
   );
-  const activeToastRef = useRef(null);
-  const toastQueueRef = useRef([]);
-  const originalAlertRef = useRef(null);
-  const confirmResolverRef = useRef(null);
+  const activeToastRef = useRef<ToastItem | null>(null);
+  const toastQueueRef = useRef<ToastItem[]>([]);
+  const originalAlertRef = useRef<((message?: unknown) => void) | null>(null);
+  const confirmResolverRef = useRef<((accepted: boolean) => void) | null>(null);
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -109,12 +185,12 @@ export const NotificationProvider = ({ children }) => {
     toastQueueRef.current = toastQueue;
   }, [toastQueue]);
 
-  const showToast = useCallback((toast) => {
+  const showToast = useCallback((toast: ToastPayload | string): number => {
     const safeToast = typeof toast === 'string'
       ? normalizeAlertPayload(toast)
-      : (toast || {});
+      : (toast || {} as ToastPayload);
 
-    const nextToast = {
+    const nextToast: ToastItem = {
       id: Date.now() + Math.random(),
       title: safeToast.title || TYPE_LABELS[safeToast.type] || TYPE_LABELS.info,
       message: safeToast.message || '',
@@ -182,7 +258,7 @@ export const NotificationProvider = ({ children }) => {
     return nextToast.id;
   }, []);
 
-  const removeToast = useCallback((id) => {
+  const removeToast = useCallback((id: number) => {
     if (activeToastRef.current?.id === id) {
       setActiveToast(null);
       return;
@@ -237,7 +313,7 @@ export const NotificationProvider = ({ children }) => {
     return granted;
   }, [showToast]);
 
-  const showConfirm = useCallback((options = {}) => {
+  const showConfirm = useCallback((options: ConfirmOptions | string = {}) => {
     const payload = typeof options === 'string' ? { message: options } : options;
 
     return new Promise((resolve) => {
@@ -252,7 +328,7 @@ export const NotificationProvider = ({ children }) => {
     });
   }, []);
 
-  const resolveConfirm = useCallback((accepted) => {
+  const resolveConfirm = useCallback((accepted: boolean) => {
     const resolver = confirmResolverRef.current;
     confirmResolverRef.current = null;
     setConfirmDialog(null);
@@ -284,7 +360,7 @@ export const NotificationProvider = ({ children }) => {
       originalAlertRef.current = window.alert;
     }
 
-    const appAlertHandler = (message) => {
+    const appAlertHandler = (message: string) => {
       const normalizedAlert = normalizeAlertPayload(message);
       if (!normalizedAlert.message) return;
       showToast(normalizedAlert);
@@ -335,11 +411,11 @@ export const NotificationProvider = ({ children }) => {
       q,
       (snapshot) => {
         // Count unread messages
-        const unread = snapshot.docs.filter(doc => !doc.data().read).length;
+        const unread = snapshot.docs.filter((docSnap) => !docSnap.data().read).length;
         setUnreadCount(unread);
 
         // Show toast for new messages
-        snapshot.docChanges().forEach(change => {
+        snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
             const data = change.doc.data();
             const isNew = data.timestamp?.toDate 
@@ -367,8 +443,9 @@ export const NotificationProvider = ({ children }) => {
           }
         });
       },
-      (err) => {
-        console.warn('Notification messages listener blocked:', err?.code || err?.message || err);
+      (err: unknown) => {
+        const warningText = err instanceof Error ? err.message : String(err);
+        console.warn('Notification messages listener blocked:', warningText);
         setUnreadCount(0);
       }
     );
@@ -376,28 +453,28 @@ export const NotificationProvider = ({ children }) => {
     return () => unsubscribe();
   }, [user, hasPermission, showToast]);
 
-  const showSuccess = useCallback((message, title = 'Succes') => {
+  const showSuccess = useCallback((message: string, title = 'Succes') => {
     return showToast({ title, message, type: 'success' });
   }, [showToast]);
 
-  const showError = useCallback((message, title = 'Fout') => {
+  const showError = useCallback((message: string, title = 'Fout') => {
     return showToast({ title, message, type: 'error', duration: 6000 });
   }, [showToast]);
 
-  const showInfo = useCallback((message, title = 'Info') => {
+  const showInfo = useCallback((message: string, title = 'Info') => {
     return showToast({ title, message, type: 'info' });
   }, [showToast]);
 
-  const showWarning = useCallback((message, title = 'Waarschuwing') => {
+  const showWarning = useCallback((message: string, title = 'Waarschuwing') => {
     return showToast({ title, message, type: 'warning' });
   }, [showToast]);
 
   // Universele API alias voor in-app popups.
-  const showPopup = useCallback((payload) => {
+  const showPopup = useCallback((payload: ToastPayload | string) => {
     return showToast(payload);
   }, [showToast]);
 
-  const value = {
+  const value: NotificationContextValue = {
     activeToast,
     queuedCount: toastQueue.length,
     toasts: activeToast ? [activeToast, ...toastQueue] : toastQueue,

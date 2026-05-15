@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import {
   Grid,
@@ -17,6 +16,13 @@ import {
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, logActivity } from "../../../config/firebase";
 import { PATHS } from "../../../config/dbPaths";
+
+type StatusState = {
+  type: string;
+  msg: string;
+};
+
+type GenericMap = Record<string, unknown>;
 
 // Nieuw pad voor site config
 const SITE_CONFIG_PATH = ["future-factory", "settings", "site_config", "app"];
@@ -39,17 +45,17 @@ import AdminDrillingView from "./AdminDrillingView"; // NIEUW: Boorpatronen behe
 const AdminMatrixManager = () => {
   const [activeTab, setActiveTab] = useState("matrix");
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState({ type: "", msg: "" });
+  const [status, setStatus] = useState<StatusState>({ type: "", msg: "" });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Data States
-  const [matrixData, setMatrixData] = useState({});
-  const [libraryData, setLibraryData] = useState({});
-  const [, setSiteConfig] = useState({});
-  const [blueprints, setBlueprints] = useState({});
+  const [matrixData, setMatrixData] = useState<GenericMap>({});
+  const [libraryData, setLibraryData] = useState<GenericMap>({});
+  const [, setSiteConfig] = useState<GenericMap>({});
+  const [blueprints, setBlueprints] = useState<GenericMap>({});
 
   // Helper function for logging
-  const addLog = (type, msg) => setStatus({ type, msg });
+  const addLog = (type: string, msg: string) => setStatus({ type, msg });
 
   useEffect(() => {
     const fetchData = async () => {
@@ -89,8 +95,9 @@ const AdminMatrixManager = () => {
         }
 
         console.log("✅ Matrix Hub: Alle data gesynchroniseerd.");
-      } catch (err) {
-        addLog("error", `Sync fout: ${err.message}`);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          addLog("error", `Sync fout: ${message}`);
       } finally {
         setLoading(false);
       }
@@ -122,7 +129,16 @@ const AdminMatrixManager = () => {
         "productLabels"
       ]; // Voeg hier extra keys toe als je meer bibliotheekvelden wilt ondersteunen
       // Haal site config velden uit libraryData (en bewaar ze apart)
-      const { logo, siteName, color, logoUrl, themeColor, uploadedLogos, appName, ...filtered } = libraryData;
+      const {
+        logo,
+        siteName,
+        color,
+        logoUrl,
+        themeColor,
+        uploadedLogos,
+        appName,
+        ...filtered
+      } = libraryData as Record<string, unknown>;
       data = Object.fromEntries(
         Object.entries(filtered).filter(([key]) => allowedKeys.includes(key))
       );
@@ -179,8 +195,9 @@ const AdminMatrixManager = () => {
 
       addLog("success", "Wijzigingen live gepubliceerd!");
       setHasUnsavedChanges(false);
-    } catch (e) {
-      addLog("error", `Opslaan mislukt: ${e.message}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      addLog("error", `Opslaan mislukt: ${message}`);
     } finally {
       setLoading(false);
       setTimeout(() => setStatus({ type: "", msg: "" }), 4000);

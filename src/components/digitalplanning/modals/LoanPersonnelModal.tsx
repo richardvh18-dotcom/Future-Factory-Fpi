@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { X, ArrowRight, Users, Building2, Clock } from "lucide-react";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -8,17 +7,61 @@ import { format, parse } from "date-fns";
 import { useNotifications } from '../../../contexts/NotificationContext';
 import { loanPersonnelToDepartment } from "../../../services/planningSecurityService";
 
+type PersonnelRecord = {
+  operatorNumber?: string;
+  operatorName?: string;
+  machineId?: string;
+  shift?: string;
+  shiftStart?: string;
+  shiftEnd?: string;
+};
+
+type DepartmentRecord = {
+  id?: string;
+  name?: string;
+};
+
+type ShiftRecord = {
+  id: string;
+  label?: string;
+  start: string;
+  end: string;
+};
+
+type StationRecord = {
+  id?: string;
+  name?: string;
+};
+
+type FactoryDepartment = {
+  id?: string;
+  name?: string;
+  stations?: StationRecord[];
+  shifts?: ShiftRecord[];
+};
+
+type FactoryConfig = {
+  departments?: FactoryDepartment[];
+};
+
+type LoanPersonnelModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  person?: PersonnelRecord | null;
+  currentDepartment: DepartmentRecord;
+};
+
 /**
  * LoanPersonnelModal - Personeel uitlenen aan andere afdelingen (V2)
  * - Teamleaders kunnen tijdelijk personeel aan een andere afdeling uitlenen
  * - Uitgeleende persoon krijgt de shift-tijden van de doelafdeling
  */
-const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
-  const { notify } = useNotifications();
+const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }: LoanPersonnelModalProps) => {
+  const { notify } = useNotifications() as { notify: (message: string) => void };
   const [targetDepartment, setTargetDepartment] = useState("");
   const [targetStation, setTargetStation] = useState("");
   const [targetShift, setTargetShift] = useState("");
-  const [departments, setDepartments] = useState([]);
+  const [departments, setDepartments] = useState<FactoryDepartment[]>([]);
   const [saving, setSaving] = useState(false);
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
@@ -31,10 +74,10 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
       doc(db, ...PATHS.FACTORY_CONFIG),
       (snap) => {
         if (snap.exists()) {
-          const config = snap.data();
+          const config = snap.data() as FactoryConfig;
           // Filter huidige afdeling uit
           const otherDepts = (config.departments || []).filter(
-            d => d.id !== currentDepartment.id
+            (d) => d.id !== currentDepartment.id
           );
           setDepartments(otherDepts);
         }
@@ -44,12 +87,12 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
     return () => unsubscribe();
   }, [isOpen, currentDepartment]);
 
-  const selectedDept = departments.find(d => d.id === targetDepartment);
+  const selectedDept = departments.find((d) => d.id === targetDepartment);
   const availableStations = selectedDept ? selectedDept.stations || [] : [];
   const availableShifts = selectedDept ? selectedDept.shifts || [] : [];
 
   // Bereken shift uren
-  const calculateShiftHours = (shiftObj) => {
+  const calculateShiftHours = (shiftObj: ShiftRecord) => {
     try {
       const start = parse(shiftObj.start, 'HH:mm', new Date());
       const end = parse(shiftObj.end, 'HH:mm', new Date());
@@ -70,7 +113,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
 
     setSaving(true);
     try {
-      const selectedShiftData = availableShifts.find(s => s.id === targetShift);
+      const selectedShiftData = availableShifts.find((s) => s.id === targetShift);
       if (!selectedShiftData) {
         notify("Selecteer een geldige shift.");
         setSaving(false);
@@ -96,7 +139,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }) => {
       });
 
       onClose();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Fout bij uitlenen personeel:", error);
       notify("Er is een fout opgetreden bij het uitlenen van personeel.");
     } finally {

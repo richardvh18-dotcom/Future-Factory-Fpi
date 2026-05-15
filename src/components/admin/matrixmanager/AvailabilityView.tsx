@@ -1,7 +1,21 @@
-// @ts-nocheck
 import React, { useState } from "react";
 import { Check, Layers, Activity, Hash, Info, AlertCircle, Copy, ArrowRight } from "lucide-react";
 import { useNotifications } from "../../../contexts/NotificationContext";
+
+type LibraryData = {
+  connections?: string[];
+  pns?: Array<string | number>;
+  diameters?: Array<string | number>;
+};
+
+type MatrixData = Record<string, Record<string, number[]>>;
+
+type AvailabilityViewProps = {
+  libraryData?: LibraryData;
+  matrixData: MatrixData;
+  setMatrixData: React.Dispatch<React.SetStateAction<MatrixData>>;
+  setHasUnsavedChanges?: (hasChanges: boolean) => void;
+};
 
 /**
  * AvailabilityView V6.0 - Matrix Validation Core
@@ -13,8 +27,16 @@ const AvailabilityView = ({
   matrixData,
   setMatrixData,
   setHasUnsavedChanges,
-}) => {
-  const { showConfirm } = useNotifications();
+}: AvailabilityViewProps) => {
+  const { showConfirm } = useNotifications() as {
+    showConfirm: (options: {
+      title: string;
+      message: string;
+      confirmText: string;
+      cancelText: string;
+      tone: "warning" | "danger" | "default";
+    }) => Promise<boolean>;
+  };
   // Selecteer standaard de eerste verbinding uit de bibliotheek
   const [selectedConn, setSelectedConn] = useState(
     libraryData?.connections?.[0] || ""
@@ -24,11 +46,11 @@ const AvailabilityView = ({
   const pns = libraryData?.pns || [];
   const diameters = libraryData?.diameters || [];
 
-  const toggleCell = (pn, id) => {
+  const toggleCell = (pn: string | number, id: string | number) => {
     if (!selectedConn) return;
 
     setMatrixData((prev) => {
-      const current = JSON.parse(JSON.stringify(prev));
+      const current = JSON.parse(JSON.stringify(prev)) as MatrixData;
       if (!current[selectedConn]) current[selectedConn] = {};
 
       const pnStr = String(pn);
@@ -51,7 +73,7 @@ const AvailabilityView = ({
     if (setHasUnsavedChanges) setHasUnsavedChanges(true);
   };
 
-  const isChecked = (pn, id) => {
+  const isChecked = (pn: string | number, id: string | number) => {
     if (!selectedConn || !matrixData[selectedConn]) return false;
     const currentIds = matrixData[selectedConn][String(pn)] || [];
     return currentIds.includes(Number(id));
@@ -70,7 +92,7 @@ const AvailabilityView = ({
     if (!confirmed) return;
 
     setMatrixData((prev) => {
-      const newData = JSON.parse(JSON.stringify(prev));
+      const newData = JSON.parse(JSON.stringify(prev)) as MatrixData;
       const sourceData = newData[copySourceConn] || {};
       newData[selectedConn] = JSON.parse(JSON.stringify(sourceData));
       return newData;
@@ -79,16 +101,16 @@ const AvailabilityView = ({
     if (setHasUnsavedChanges) setHasUnsavedChanges(true);
   };
 
-  const toggleRow = (pn) => {
+  const toggleRow = (pn: string | number) => {
     if (!selectedConn) return;
     setMatrixData((prev) => {
-      const newData = JSON.parse(JSON.stringify(prev));
+      const newData = JSON.parse(JSON.stringify(prev)) as MatrixData;
       if (!newData[selectedConn]) newData[selectedConn] = {};
       
       const pnStr = String(pn);
       const currentIds = newData[selectedConn][pnStr] || [];
       const allIds = diameters.map(Number);
-      const allSelected = allIds.every(id => currentIds.includes(id));
+      const allSelected = allIds.every((diameterId) => currentIds.includes(diameterId));
       
       newData[selectedConn][pnStr] = allSelected ? [] : [...allIds];
       return newData;
@@ -96,20 +118,20 @@ const AvailabilityView = ({
     if (setHasUnsavedChanges) setHasUnsavedChanges(true);
   };
 
-  const toggleCol = (id) => {
+  const toggleCol = (id: string | number) => {
     if (!selectedConn) return;
     const idNum = Number(id);
     setMatrixData((prev) => {
-      const newData = JSON.parse(JSON.stringify(prev));
+      const newData = JSON.parse(JSON.stringify(prev)) as MatrixData;
       if (!newData[selectedConn]) newData[selectedConn] = {};
       
-      const allSelected = pns.every(pn => (newData[selectedConn][String(pn)] || []).includes(idNum));
+      const allSelected = pns.every((pn) => (newData[selectedConn][String(pn)] || []).includes(idNum));
       
-      pns.forEach(pn => {
+      pns.forEach((pn) => {
         const pnStr = String(pn);
         let currentIds = newData[selectedConn][pnStr] || [];
         if (allSelected) {
-          currentIds = currentIds.filter(i => i !== idNum);
+          currentIds = currentIds.filter((existingId) => existingId !== idNum);
         } else {
           if (!currentIds.includes(idNum)) currentIds.push(idNum);
         }

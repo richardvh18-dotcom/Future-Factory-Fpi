@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from "react";
 import {
   Layers,
@@ -13,8 +12,48 @@ import {
   Activity,
 } from "lucide-react";
 
-const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
-  const [planningKpiMode, setPlanningKpiMode] = useState("products");
+type MachineGridItem = {
+  id: string;
+  operatorNames?: string;
+  isAlgemeen?: boolean;
+  isDownstream?: boolean;
+  planned?: number;
+  active?: number;
+  finished?: number;
+  plannedHours?: number;
+  workedHoursThisWeek?: number;
+};
+
+type DashboardMetrics = {
+  totalPlanned?: number;
+  plannedOrdersCount?: number;
+  activeCount?: number;
+  finishedCount?: number;
+  rejectedCount?: number;
+  tempRejectedCount?: number;
+  priorityCount?: number;
+  deliveryInspectionMismatchCount?: number;
+  deliveryInspectionOverCount?: number;
+  deliveryInspectionUnderCount?: number;
+  bezettingAantal?: number;
+  weeklyTotalHours?: number;
+  productionHours?: number;
+  weeklyProductionHours?: number;
+  supportHours?: number;
+  weeklySupportHours?: number;
+  efficiency?: number;
+  weeklyEfficiency?: number;
+  machineGridData: MachineGridItem[];
+};
+
+type TeamleaderDashboardProps = {
+  metrics: DashboardMetrics;
+  onKpiClick: (id: string, label: string) => void;
+  onStationSelect: (stationId: string) => void;
+};
+
+const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }: TeamleaderDashboardProps) => {
+  const [planningKpiMode, setPlanningKpiMode] = useState<"products" | "orders">("products");
 
   const planningProducts = Number(metrics.totalPlanned || 0);
   const planningOrders = Number(metrics.plannedOrdersCount || 0);
@@ -40,21 +79,21 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }) => {
             {
               id: "in_proces",
               label: "Lopend",
-              val: metrics.activeCount,
+              val: metrics.activeCount || 0,
               icon: Zap,
               color: "text-purple-600",
             },
             {
               id: "gereed",
               label: "Gereed",
-              val: metrics.finishedCount,
+              val: metrics.finishedCount || 0,
               icon: CheckCircle2,
               color: "text-emerald-500",
             },
             {
               id: "afkeur",
               label: "Afkeur",
-              val: metrics.rejectedCount,
+              val: metrics.rejectedCount || 0,
               icon: AlertOctagon,
               color: "text-rose-500",
             },

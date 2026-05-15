@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from 'react';
 import {
   DatabaseZap,
@@ -17,7 +16,36 @@ import {
 import { runMigrationTool } from '../../services/planningSecurityService';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
 
-const StatusBadge = ({ status }) => {
+type MigrationStatus = 'FIXED' | 'SKIPPED' | 'ERROR';
+
+type MigrationMismatch = {
+  collection: string;
+  oldDocId: string;
+  newDocId: string;
+  orderId?: string;
+  lotNumber?: string;
+  machine?: string;
+  staleFieldsId?: string;
+};
+
+type ScanResult = {
+  mismatches: MigrationMismatch[];
+};
+
+type ApplyResultItem = {
+  status: MigrationStatus;
+  oldDocId: string;
+  newDocId?: string;
+  collection: string;
+  reason?: string;
+};
+
+type ApplyResult = {
+  results: ApplyResultItem[];
+  totalFixed: number;
+};
+
+const StatusBadge = ({ status }: { status: MigrationStatus }) => {
   if (status === 'FIXED') return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest">
       <CheckCircle2 size={11} /> Hersteld
@@ -36,7 +64,7 @@ const StatusBadge = ({ status }) => {
   return null;
 };
 
-const CollectionLabel = ({ collection }) => {
+const CollectionLabel = ({ collection }: { collection: string }) => {
   const isArchive = /\/archive\//.test(collection);
   return (
     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isArchive ? 'bg-violet-50 text-violet-600' : 'bg-blue-50 text-blue-600'}`}>
@@ -56,15 +84,15 @@ const CollectionLabel = ({ collection }) => {
  *   5. See results per row + rollback info (old IDs that were deleted).
  */
 const PilotMigrationTool = () => {
-  const { role } = useAdminAuth();
+  const { role } = useAdminAuth() as { role?: string };
 
   const [orderIdInput, setOrderIdInput] = useState('');
-  const [scanResult, setScanResult] = useState(null); // { mismatches: [] }
-  const [applyResult, setApplyResult] = useState(null); // { results: [], totalFixed }
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null); // { mismatches: [] }
+  const [applyResult, setApplyResult] = useState<ApplyResult | null>(null); // { results: [], totalFixed }
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [error, setError] = useState(null);
-  const [expandedRows, setExpandedRows] = useState(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const isAdmin = role === 'admin';
 
@@ -78,9 +106,10 @@ const PilotMigrationTool = () => {
         mode: 'scan',
         orderId: orderIdInput.trim().toUpperCase() || undefined,
       });
-      setScanResult(result);
-    } catch (err) {
-      setError(err?.message || 'Scan mislukt.');
+      setScanResult(result as ScanResult);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Scan mislukt.';
+      setError(message);
     } finally {
       setScanning(false);
     }
@@ -95,16 +124,17 @@ const PilotMigrationTool = () => {
         mode: 'apply',
         mismatches: scanResult.mismatches,
       });
-      setApplyResult(result);
+      setApplyResult(result as ApplyResult);
       setScanResult(null);
-    } catch (err) {
-      setError(err?.message || 'Reparatie mislukt.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Reparatie mislukt.';
+      setError(message);
     } finally {
       setApplying(false);
     }
   };
 
-  const toggleRow = (idx) => {
+  const toggleRow = (idx: number) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
       next.has(idx) ? next.delete(idx) : next.add(idx);

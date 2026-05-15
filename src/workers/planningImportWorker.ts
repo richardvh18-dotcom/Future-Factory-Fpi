@@ -1,8 +1,61 @@
-// @ts-nocheck
 import * as XLSX from "xlsx";
 import { subWeeks, isValid, parseISO, parse, getISOWeek } from "date-fns";
 
-const normalizeMachine = (val) => {
+type DateCandidate = {
+  date: Date;
+  priority: "preferred" | "fallback";
+};
+
+type ProcessedDates = {
+  delivery: Date | null;
+  planned: Date | null;
+};
+
+type ParsedImportRow = {
+  id: string;
+  orderId: string;
+  machine: string;
+  deliveryDate: string | null;
+  plannedDate: string | null;
+  weekNumber: number | null;
+  itemCode: string;
+  item: string;
+  itemDescription: string;
+  extraCode: string;
+  plan: number;
+  totalPlannedHours: number;
+  deliveredQty: number | null;
+  produced: number;
+  notes: string;
+  project: string;
+  projectDesc: string;
+  drawing: string;
+  status: string;
+  sourceSheet: string;
+  [key: string]: string | number | null;
+};
+
+type WorkerInput = {
+  arrayBuffer?: ArrayBuffer;
+};
+
+type WorkerSuccessMessage =
+  | { type: "success"; payload: ParsedImportRow[] }
+  | {
+      type: "success";
+      payload: ParsedImportRow[];
+      isChunk: true;
+      chunkIndex: number;
+      totalRows: number;
+    };
+
+type WorkerErrorMessage = {
+  type: "error";
+  error: string;
+  stack?: string;
+};
+
+const normalizeMachine = (val: unknown): string => {
   if (!val) return "-";
   let str = String(val).toUpperCase().trim();
 
@@ -12,7 +65,7 @@ const normalizeMachine = (val) => {
   return str.startsWith("40") ? str.substring(2) : str;
 };
 
-const buildImportDocId = (orderId, ...suffixCandidates) => {
+const buildImportDocId = (orderId: unknown, ...suffixCandidates: unknown[]): string => {
   const safeOrderId = String(orderId || "").trim();
   const suffix = suffixCandidates
     .map((value) => String(value || "").trim())
@@ -21,7 +74,7 @@ const buildImportDocId = (orderId, ...suffixCandidates) => {
   return raw.replace(/[^a-zA-Z0-9]/g, "_");
 };
 
-const pickBestDateCandidate = (candidates, expectedWeekNumber = null) => {
+const pickBestDateCandidate = (candidates: DateCandidate[], expectedWeekNumber: number | null = null): Date | null => {
   const parsedExpectedWeek = Number(expectedWeekNumber);
   const hasExpectedWeek = Number.isFinite(parsedExpectedWeek) && parsedExpectedWeek > 0;
 
@@ -40,7 +93,7 @@ const pickBestDateCandidate = (candidates, expectedWeekNumber = null) => {
   return ranked[0]?.date || null;
 };
 
-const processDates = (rawDate, expectedWeekNumber = null) => {
+const processDates = (rawDate: unknown, expectedWeekNumber: number | null = null): ProcessedDates => {
   if (!rawDate) return { delivery: null, planned: null };
 
   const rawStr = String(rawDate || "").trim();
@@ -121,14 +174,14 @@ const processDates = (rawDate, expectedWeekNumber = null) => {
   };
 };
 
-const normalizeHeader = (value) =>
+const normalizeHeader = (value: unknown) =>
   String(value || "")
     .toLowerCase()
     .trim()
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ");
 
-const firstIndex = (headers, candidates) => {
+const firstIndex = (headers: string[], candidates: string[]) => {
   const normalizedHeaders = headers.map(normalizeHeader);
   for (const name of candidates) {
     const idx = normalizedHeaders.findIndex((h) => h === normalizeHeader(name));
@@ -137,7 +190,7 @@ const firstIndex = (headers, candidates) => {
   return -1;
 };
 
-const getSheetPriority = (sheetName) => {
+const getSheetPriority = (sheetName: unknown): number => {
   const s = String(sheetName || "").toLowerCase();
   if (s.includes("format fabriek")) return 100;
   if (s.includes("format mazak")) return 90;
@@ -149,7 +202,7 @@ const getSheetPriority = (sheetName) => {
   return 10;
 };
 
-const parseWorkbook = (arrayBuffer) => {
+const parseWorkbook = (arrayBuffer: ArrayBuffer): ParsedImportRow[] => {
   // Stap 1: haal alleen sheetnamen op — geen sheetdata geladen in geheugen
   const wbMeta = XLSX.read(arrayBuffer, { type: "array", bookSheets: true });
   const sheetNames = wbMeta.SheetNames;
@@ -182,14 +235,14 @@ const parseWorkbook = (arrayBuffer) => {
     const wsScan = wbScan.Sheets[sheetName];
     if (!wsScan) continue;
 
-    const filterMachineRaw = wsScan.E6?.v;
+    const filterMachineRaw = (wsScan as { E6?: { v?: unknown } }).E6?.v;
     const filterMachine = filterMachineRaw ? String(filterMachineRaw).trim() : "";
     const sourceSheetLabel =
       sheetName.toLowerCase().includes("format") && filterMachine
         ? `${sheetName} (${filterMachine})`
         : sheetName;
 
-    const scanRows = XLSX.utils.sheet_to_json(wsScan, { header: 1, defval: "" });
+    const scanRows = XLSX.utils.sheet_to_json(wsScan, { header: 1, defval: "" }) as unknown[][];
     const headerIndex = scanRows.findIndex((row) => {
       const rowStr = row.map((c) => normalizeHeader(c));
       return rowStr.includes("machine") && rowStr.includes("order");
@@ -206,7 +259,7 @@ const parseWorkbook = (arrayBuffer) => {
       sheets: sheetName,
     });
     const ws = wbFull.Sheets[sheetName];
-    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
 
     const headers = rawRows[headerIndex].map((h) => String(h || "").trim());
     const dataRows = rawRows.slice(headerIndex + 1);
@@ -277,7 +330,7 @@ const parseWorkbook = (arrayBuffer) => {
           if (Number.isFinite(deliveredQty)) deliveredQty = deliveredQty / 10;
         }
 
-        return {
+        const result: ParsedImportRow = {
           id: docId,
           orderId,
           machine,
@@ -300,6 +353,7 @@ const parseWorkbook = (arrayBuffer) => {
           status: "pending",
           sourceSheet: sourceSheetLabel,
         };
+        return result;
       });
 
     allData = allData.concat(sheetData);
@@ -320,7 +374,10 @@ const parseWorkbook = (arrayBuffer) => {
   return Array.from(byId.values()).map((entry) => entry.item);
 };
 
-const workerScope = globalThis;
+const workerScope = globalThis as unknown as {
+  onmessage: (event: MessageEvent<WorkerInput>) => void;
+  postMessage: (message: WorkerSuccessMessage | WorkerErrorMessage) => void;
+};
 
 workerScope.onmessage = (event) => {
   try {
@@ -356,12 +413,14 @@ workerScope.onmessage = (event) => {
     } else {
       workerScope.postMessage({ type: "success", payload: rows });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("[Worker] Error:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error || "Excel parsing mislukt");
+    const stack = error instanceof Error ? error.stack : undefined;
     workerScope.postMessage({
       type: "error",
-      error: error?.message || "Excel parsing mislukt",
-      stack: error?.stack,
+      error: errorMessage,
+      stack,
     });
   }
 };
