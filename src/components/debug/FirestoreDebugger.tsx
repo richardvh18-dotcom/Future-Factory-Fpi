@@ -1,5 +1,4 @@
-// @ts-nocheck
-import React, { useState } from "react";
+import React, { useState, FC } from "react";
 import { db } from "../../config/firebase";
 import { collection, getDocs, limit, query } from "firebase/firestore";
 import {
@@ -15,38 +14,47 @@ import { PATHS } from "../../config/dbPaths";
  * FirestoreDebugger V4.2 - Path Integrity Hub
  * Dynamically validates the application's connection to the new root structure.
  */
-const FirestoreDebugger = () => {
-  const [logs, setLogs] = useState([]);
-  const [isScanning, setIsScanning] = useState(false);
-  const activeAppId =
+
+declare const __app_id: string | undefined;
+
+interface LogEntry {
+  message: string;
+  type: 'success' | 'warning' | 'error' | 'info';
+}
+
+const FirestoreDebugger: FC = () => {
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const activeAppId: string =
     typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
-  const addLog = (msg) => {
+  const addLog = (msg: string, type: 'success' | 'warning' | 'error' | 'info' = 'info'): void => {
     setLogs((prev) =>
-      [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 15)
+      [{ message: `[${new Date().toLocaleTimeString()}] ${msg}`, type }, ...prev].slice(0, 15)
     );
   };
 
-  const testPath = async (label, pathArray) => {
+  const testPath = async (label: string, pathArray: string[]): Promise<void> => {
     const pathStr = pathArray.join("/");
     try {
       // We perform a light read (limit 1) to verify connectivity
-      const snap = await getDocs(query(collection(db, ...pathArray), limit(1)));
+      const snap = await getDocs(query(collection(db, ...(pathArray as [string, ...string[]])), limit(1)));
       if (!snap.empty) {
         addLog(`✅ ${label}: Data gevonden op /${pathStr}`, "success");
       } else {
         addLog(`⚠️ ${label}: Pad bereikbaar, maar map is leeg.`, "warning");
       }
-    } catch (e) {
-      addLog(`❌ ${label}: FOUT (${e.code}) - /${pathStr}`, "error");
+    } catch (e: unknown) {
+      const errorCode = e instanceof Error && 'code' in e ? (e as any).code : 'UNKNOWN';
+      addLog(`❌ ${label}: FOUT (${errorCode}) - /${pathStr}`, "error");
     }
   };
 
-  const runDiagnostics = async () => {
+  const runDiagnostics = async (): Promise<void> => {
     setIsScanning(true);
     setLogs([]);
-    addLog(`Draaiend op Node ID: ${activeAppId}`);
-    addLog("Start integriteitscontrole...");
+    addLog(`Draaiend op Node ID: ${activeAppId}`, "info");
+    addLog("Start integriteitscontrole...", "info");
 
     // 1. Controleer de actieve productie paden uit PATHS
     await testPath("Producten", PATHS.PRODUCTS);
@@ -59,7 +67,7 @@ const FirestoreDebugger = () => {
     await testPath("Bore Matrix", PATHS.BORE_DIMENSIONS);
 
     setIsScanning(false);
-    addLog("Diagnostiek voltooid.");
+    addLog("Diagnostiek voltooid.", "success");
   };
 
   return (
@@ -110,17 +118,17 @@ const FirestoreDebugger = () => {
               className={`
                     px-4 py-2.5 rounded-xl border text-[10px] font-mono leading-tight transition-all animate-in slide-in-from-left-2
                     ${
-                      log.includes("✅")
+                      log.type === 'success'
                         ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                        : log.includes("❌")
+                        : log.type === 'error'
                         ? "bg-rose-500/10 border-rose-500/20 text-rose-400"
-                        : log.includes("⚠️")
+                        : log.type === 'warning'
                         ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
                         : "bg-white/5 border-white/5 text-slate-400"
                     }
                 `}
             >
-              {log}
+              {log.message}
             </div>
           ))
         )}
@@ -140,7 +148,7 @@ const FirestoreDebugger = () => {
           </span>
           <div
             className={`w-1.5 h-1.5 rounded-full ${
-              logs.some((l) => l.includes("❌"))
+              logs.some((l) => l.type === 'error')
                 ? "bg-rose-500 animate-pulse"
                 : "bg-emerald-500"
             }`}

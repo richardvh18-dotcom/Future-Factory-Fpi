@@ -1,5 +1,4 @@
-// @ts-nocheck
-import React from "react";
+import React, { FC } from "react";
 import { useTranslation } from "react-i18next";
 import { Zap, Layers, Clock, Disc } from "lucide-react";
 
@@ -19,8 +18,23 @@ const FITTING_MACHINES = [
 const PIPE_MACHINES = ["BH05", "BH07", "BH08", "BH09"];
 // Alles wat niet in bovenstaande lijsten staat, valt onder 'Spools' of 'Overig'
 
+interface MachineMetric {
+  id: string;
+  running: number;
+  plan: number;
+  fin: number;
+  [key: string]: any;
+}
 
-const DashboardView = ({ metrics, onStationSelect }) => {
+interface DashboardViewProps {
+  metrics: {
+    machineMetrics: MachineMetric[];
+    [key: string]: any;
+  } | null;
+  onStationSelect?: (stationId: string) => void;
+}
+
+const DashboardView: FC<DashboardViewProps> = ({ metrics, onStationSelect }) => {
   const { t } = useTranslation();
   if (!metrics || !metrics.machineMetrics) return null;
 
@@ -32,13 +46,13 @@ const DashboardView = ({ metrics, onStationSelect }) => {
       m.id === "Station BM01"
   );
 
-  const pipeGroup = metrics.machineMetrics.filter((m) =>
+  const pipeGroup = metrics.machineMetrics.filter((m: MachineMetric) =>
     PIPE_MACHINES.includes(m.id)
   );
 
   // De rest beschouwen we als Spools / Specials
   const spoolGroup = metrics.machineMetrics.filter(
-    (m) =>
+    (m: MachineMetric) =>
       !FITTING_MACHINES.includes(m.id) &&
       !m.id.toUpperCase().startsWith("BM") &&
       m.id !== "Station BM01" &&
@@ -46,7 +60,7 @@ const DashboardView = ({ metrics, onStationSelect }) => {
   );
 
   // Herbruikbare kaart renderer
-  const renderMachineCard = (machine) => (
+  const renderMachineCard = (machine: MachineMetric) => (
     <div
       key={machine.id}
       onClick={() => onStationSelect && onStationSelect(machine.id)}

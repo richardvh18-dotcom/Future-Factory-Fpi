@@ -1,16 +1,15 @@
-// @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, FC } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { Loader2, Hash, Calendar, Server } from 'lucide-react';
 
 // Machine naar FPI code mapping (Consistent met ProductionStartModal)
-const getMachineCode = (station) => {
+const getMachineCode = (station: string | undefined): string => {
   if (!station) return "999";
   const normalized = String(station).toUpperCase().trim();
   const baseStation = normalized.startsWith('40') ? normalized.substring(2) : normalized;
   
-  const map = {
+  const map: Record<string, string> = {
     'BH11': '411',
     'BH12': '412',
     'BH15': '415',
@@ -36,9 +35,18 @@ const getMachineCode = (station) => {
   return `4${digits.slice(-2).padStart(2, "0")}`;
 };
 
-const AdminLotCounters = () => {
-  const [counters, setCounters] = useState([]);
-  const [loading, setLoading] = useState(true);
+interface Counter {
+  id: string;
+  station: string;
+  year: string;
+  week: number;
+  lastSequence: number;
+  updatedAt: any;
+}
+
+const AdminLotCounters: FC = () => {
+  const [counters, setCounters] = useState<Counter[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     // Luister live naar de counters collectie
@@ -55,8 +63,8 @@ const AdminLotCounters = () => {
           id: doc.id,
           station,
           year: dateCode.substring(0, 2),
-          week: dateCode.substring(2),
-          lastSequence: doc.data().lastSequence,
+          week: Number(dateCode.substring(2)) || 0,
+          lastSequence: doc.data().lastSequence || 0,
           updatedAt: doc.data().updatedAt
         };
       });
