@@ -9,50 +9,103 @@ import {
 import { PATHS, getPathString } from "../config/dbPaths";
 import { FITTING_MACHINES, PIPE_MACHINES, normalizeMachine } from "./hubHelpers";
 
+type TimestampLike = { toMillis?: () => number; seconds?: number };
+
+type TrackedProductDoc = Record<string, unknown> & {
+  id: string;
+  status?: string;
+  updatedAt?: TimestampLike | string | number | Date | null;
+  createdAt?: TimestampLike | string | number | Date | null;
+};
+
+type ScopedTarget = {
+  department: string;
+  machine: string;
+  key: string;
+};
+
+type SubscribeTrackedProductsParams = {
+  db: any;
+  onData: (items: TrackedProductDoc[]) => void;
+  onError?: (error: unknown) => void;
+  statusExclusions?: string[];
+  maxItems?: number | null;
+  departments?: string[];
+  machines?: string[];
+};
+
 const DEFAULT_TRACKING_DEPARTMENTS = ["Fittings", "Pipes"];
 const DEFAULT_TRACKING_MACHINES = [...FITTING_MACHINES, ...PIPE_MACHINES];
 
-const normalizeStatus = (value) => String(value || "").trim().toLowerCase();
+const normalizeStatus = (value: unknown) => String(value || "").trim().toLowerCase();
 
-const toMillis = (value) => {
+const toMillis = (
+  value: TimestampLike | string | number | Date | null | undefined
+): number => {
   if (!value) return 0;
-  if (typeof value?.toMillis === "function") {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toMillis" in value &&
+    typeof value.toMillis === "function"
+  ) {
     const ms = value.toMillis();
     return Number.isFinite(ms) ? ms : 0;
   }
-  if (typeof value?.seconds === "number") {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "seconds" in value &&
+    typeof value.seconds === "number"
+  ) {
     return value.seconds * 1000;
   }
-  const ms = new Date(value).getTime();
+  const ms =
+    value instanceof Date
+      ? value.getTime()
+      : new Date(
+          typeof value === "string" || typeof value === "number"
+            ? value
+            : String(value)
+        ).getTime();
   return Number.isFinite(ms) ? ms : 0;
 };
 
-const sortByNewest = (items = []) =>
+const sortByNewest = (items: TrackedProductDoc[] = []): TrackedProductDoc[] =>
   [...items].sort((a, b) => {
     const bMs = Math.max(toMillis(b?.updatedAt), toMillis(b?.createdAt));
     const aMs = Math.max(toMillis(a?.updatedAt), toMillis(a?.createdAt));
     return bMs - aMs;
   });
 
-const mergeTrackingDocs = (rootDocs = [], scopedDocs = []) => {
-  const merged = new Map();
+const mergeTrackingDocs = (
+  rootDocs: TrackedProductDoc[] = [],
+  scopedDocs: TrackedProductDoc[] = []
+): TrackedProductDoc[] => {
+  const merged = new Map<string, TrackedProductDoc>();
   rootDocs.forEach((item) => merged.set(item.id, item));
   scopedDocs.forEach((item) => merged.set(item.id, item));
   return Array.from(merged.values());
 };
 
-const toScopedMachineSegment = (machine) => {
+const toScopedMachineSegment = (machine: string | null | undefined) => {
   const normalized = normalizeMachine(machine || "");
   if (!normalized) return "";
   if (/^(BH|BM|BA)\d+$/.test(normalized)) return `40${normalized}`;
   return normalized;
 };
 
-const buildScopedTrackingTargets = ({ departments, machines }) => {
+const buildScopedTrackingTargets = ({
+  departments,
+  machines,
+}: {
+  departments?: string[];
+  machines?: string[];
+}) => {
   const departmentList = Array.from(new Set((departments || DEFAULT_TRACKING_DEPARTMENTS).filter(Boolean)));
   const machineList = Array.from(new Set((machines || DEFAULT_TRACKING_MACHINES).map(toScopedMachineSegment).filter(Boolean)));
 
-  const targets = [];
+  const targets: ScopedTarget[] = [];
   departmentList.forEach((department) => {
     machineList.forEach((machine) => {
       targets.push({ department, machine, key: `${department}__${machine}` });
@@ -69,20 +122,21 @@ export const subscribeTrackedProducts = ({
   maxItems = null,
   departments = DEFAULT_TRACKING_DEPARTMENTS,
   machines = DEFAULT_TRACKING_MACHINES,
-}) => {
-  let rootDocs = [];
-  const scopedBuckets = new Map();
+}: SubscribeTrackedProductsParams) => {
+  let rootDocs: TrackedProductDoc[] = [];
+  const scopedBuckets = new Map<string, TrackedProductDoc[]>();
   const excluded = new Set(statusExclusions.map(normalizeStatus));
 
   const emit = () => {
-    const scopedDocs = Array.from(scopedBuckets.values()).flat();
+    const scopedDocs = Array.from(scopedBuckets.values()).flat() as TrackedProductDoc[];
     let next = mergeTrackingDocs(rootDocs, scopedDocs);
     if (excluded.size > 0) {
       next = next.filter((item) => !excluded.has(normalizeStatus(item?.status)));
     }
     next = sortByNewest(next);
-    if (Number.isFinite(maxItems) && maxItems > 0) {
-      next = next.slice(0, maxItems);
+    const cap = typeof maxItems === "number" && Number.isFinite(maxItems) && maxItems > 0 ? maxItems : null;
+    if (cap !== null) {
+      next = next.slice(0, cap);
     }
     onData(next);
   };
@@ -91,11 +145,11 @@ export const subscribeTrackedProducts = ({
     collection(db, getPathString(PATHS.TRACKING)),
     (snap) => {
       rootDocs = snap.docs.map((docSnap) => ({
-        ...docSnap.data(),
+        ...(docSnap.data() as Record<string, unknown>),
         id: docSnap.id,
         __docPath: docSnap.ref.path,
         sourcePath: docSnap.ref.path,
-      }));
+      })) as TrackedProductDoc[];
       emit();
     },
     (error) => onError?.(error)
@@ -109,11 +163,11 @@ export const subscribeTrackedProducts = ({
         scopedBuckets.set(
           key,
           snap.docs.map((docSnap) => ({
-            ...docSnap.data(),
+            ...(docSnap.data() as Record<string, unknown>),
             id: docSnap.id,
             __docPath: docSnap.ref.path,
             sourcePath: docSnap.ref.path,
-          }))
+          })) as TrackedProductDoc[]
         );
         emit();
       },
@@ -127,7 +181,15 @@ export const subscribeTrackedProducts = ({
   };
 };
 
-export const trackedLotExistsActive = async ({ db, lotNumber, excludeDocId = null }) => {
+export const trackedLotExistsActive = async ({
+  db,
+  lotNumber,
+  excludeDocId = null,
+}: {
+  db: any;
+  lotNumber: string;
+  excludeDocId?: string | null;
+}) => {
   const normalizedLot = String(lotNumber || "").trim().toUpperCase();
   if (!normalizedLot) return false;
 

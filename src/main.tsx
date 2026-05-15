@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -8,9 +7,17 @@ import { auth, logActivity } from "./config/firebase";
 import "./i18n"; // Import i18n configuratie
 import "./styles.css";
 
+declare global {
+  interface Window {
+    eruda?: {
+      init: () => void;
+    };
+  }
+}
+
 const recentRuntimeErrors = new Map();
 
-const reportRuntimeError = (type, details) => {
+const reportRuntimeError = (type: string, details: unknown): void => {
   try {
     const fingerprint = `${type}:${details}`.slice(0, 200);
     const now = Date.now();
@@ -67,8 +74,10 @@ if (window.location.search.includes('debug=true') || localStorage.getItem('eruda
   const script = document.createElement('script');
   script.src = 'https://cdn.jsdelivr.net/npm/eruda';
   script.onload = () => {
-    window.eruda.init();
-    console.log("✅ Eruda loaded");
+    if (window.eruda) {
+      window.eruda.init();
+      console.log("✅ Eruda loaded");
+    }
   };
   document.body.appendChild(script);
 }

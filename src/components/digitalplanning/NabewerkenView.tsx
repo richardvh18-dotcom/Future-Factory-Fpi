@@ -1,9 +1,24 @@
-// @ts-nocheck
 import React from "react";
 import { useTranslation } from "react-i18next";
 
+type ProductLike = {
+  id: string;
+  lotNumber?: string;
+  orderId?: string;
+  item?: string;
+  itemCode?: string;
+  productId?: string;
+  status?: string;
+  currentStep?: string;
+  updatedAt?: { toDate?: () => Date } | null;
+};
+
+type NabewerkenViewProps = {
+  producten: ProductLike[];
+};
+
 // Eenvoudige lijstweergave voor Nabewerking-producten
-const NabewerkenView = ({ producten }) => {
+const NabewerkenView = ({ producten }: NabewerkenViewProps) => {
   const { t } = useTranslation();
 
   if (!producten || producten.length === 0) {
@@ -27,7 +42,7 @@ const NabewerkenView = ({ producten }) => {
           </tr>
         </thead>
         <tbody>
-          {producten.map((p) => (
+          {producten.map((p: ProductLike) => (
             <tr key={p.id} className="border-b hover:bg-slate-50">
               <td className="px-2 py-1 border">{p.lotNumber}</td>
               <td className="px-2 py-1 border">{p.orderId}</td>

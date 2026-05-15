@@ -3,7 +3,7 @@ import { PATHS } from "../config/dbPaths";
 const DEFAULT_DEPARTMENT = "Fittings";
 const DEFAULT_MACHINE = "UNASSIGNED";
 
-const toSegment = (value, fallback) => {
+const toSegment = (value: unknown, fallback: string): string => {
   const normalized = String(value || "")
     .trim()
     .replace(/[/.#?$[\]]/g, "_")

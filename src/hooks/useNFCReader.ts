@@ -15,6 +15,29 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 
+type NDEFRecordLike = {
+  recordType?: string;
+  data?: ArrayBufferLike | null;
+};
+
+type NFCReadingEventLike = {
+  serialNumber?: string;
+  message?: {
+    records?: NDEFRecordLike[];
+  };
+};
+
+type NDEFReaderLike = {
+  scan: (options?: { signal?: AbortSignal }) => Promise<void>;
+  addEventListener: (
+    type: "reading" | "readingerror",
+    listener: ((event: NFCReadingEventLike) => void) | (() => void),
+    options?: { signal?: AbortSignal },
+  ) => void;
+};
+
+type NDEFReaderCtor = new () => NDEFReaderLike;
+
 export const NFC_STATUS = {
   IDLE:       "idle",       // Niet actief
   SCANNING:   "scanning",   // Bezig met scannen
@@ -25,7 +48,7 @@ export const NFC_STATUS = {
 
 const isNFCSupported = () => typeof window !== "undefined" && "NDEFReader" in window;
 
-const toHex = (bufferLike) => {
+const toHex = (bufferLike: ArrayBufferLike | null | undefined): string => {
   if (!bufferLike) return "";
   const bytes = new Uint8Array(bufferLike);
   return Array.from(bytes)
@@ -34,13 +57,13 @@ const toHex = (bufferLike) => {
     .toUpperCase();
 };
 
-const getTextDecoder = () => window.TextDecoder;
+const getTextDecoder = (): typeof TextDecoder => window.TextDecoder;
 
-const decodeNDEFTextRecord = (record) => {
+const decodeNDEFTextRecord = (record: NDEFRecordLike): string => {
   // NDEF text record layout: [status byte][language code][text bytes]
   // status bit 7: 0 = UTF-8, 1 = UTF-16
   // status bits 5..0: language code length
-  const bytes = new Uint8Array(record.data || []);
+  const bytes = new Uint8Array(record.data || new ArrayBuffer(0));
   if (bytes.length === 0) return "";
 
   const status = bytes[0];
@@ -53,7 +76,7 @@ const decodeNDEFTextRecord = (record) => {
   return decoder.decode(bytes.slice(start)).trim();
 };
 
-const extractTagValue = (event) => {
+const extractTagValue = (event: NFCReadingEventLike): string => {
   const serial = String(event?.serialNumber || "").trim();
 
   // serialNumber fallback helps with tags that are detected but do not expose usable text payload.
@@ -92,20 +115,21 @@ const extractTagValue = (event) => {
 /**
  * @param {function} onRead - Callback met de gelezen waarde (personeelsnummer string)
  */
-export function useNFCReader(onRead) {
+export function useNFCReader(onRead?: (value: string) => void) {
   const [status, setStatus] = useState(NFC_STATUS.IDLE);
   const [errorMessage, setErrorMessage] = useState("");
-  const readerRef = useRef(null);
-  const abortControllerRef = useRef(null);
+  const readerRef = useRef<NDEFReaderLike | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const onReadRef = useRef(onRead);
   onReadRef.current = onRead;
 
   // Luister naar postMessage van native ATPS wrapper (toekomstige koppeling).
   useEffect(() => {
-    const handleMessage = (event) => {
+    const handleMessage = (event: MessageEvent) => {
       // Verwacht formaat: { type: "NFC_TAG", payload: "12345" }
-      if (event?.data?.type === "NFC_TAG" && event?.data?.payload) {
-        const value = String(event.data.payload).trim();
+      const messageData = event.data as { type?: unknown; payload?: unknown } | null;
+      if (messageData?.type === "NFC_TAG" && messageData?.payload != null) {
+        const value = String(messageData.payload).trim();
         if (value) {
           setStatus(NFC_STATUS.SUCCESS);
           onReadRef.current?.(value);
@@ -132,15 +156,21 @@ export function useNFCReader(onRead) {
     setErrorMessage("");
 
     try {
-      const NDEFReaderCtor = (window as any).NDEFReader;
-      const reader = new NDEFReaderCtor();
+      const ReaderCtor = (window as unknown as { NDEFReader?: NDEFReaderCtor }).NDEFReader;
+      if (!ReaderCtor) {
+        setStatus(NFC_STATUS.UNSUPPORTED);
+        setErrorMessage("NFC wordt niet ondersteund door deze browser. Gebruik Chrome op Android.");
+        return;
+      }
+
+      const reader = new ReaderCtor();
       readerRef.current = reader;
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
       await reader.scan({ signal: abortController.signal });
 
-      reader.addEventListener("reading", (event) => {
+      reader.addEventListener("reading", (event: NFCReadingEventLike) => {
         const value = extractTagValue(event);
         if (!value) return;
         setStatus(NFC_STATUS.SUCCESS);
@@ -155,17 +185,24 @@ export function useNFCReader(onRead) {
         setTimeout(() => setStatus(NFC_STATUS.IDLE), 3000);
       }, { signal: abortController.signal });
 
-    } catch (err) {
-      if (err?.name === "AbortError") {
+    } catch (err: unknown) {
+      const errName = typeof err === "object" && err !== null && "name" in err
+        ? String((err as { name?: unknown }).name)
+        : "";
+      const errMessage = typeof err === "object" && err !== null && "message" in err
+        ? String((err as { message?: unknown }).message || "")
+        : "";
+
+      if (errName === "AbortError") {
         setStatus(NFC_STATUS.IDLE);
         return;
       }
-      if (err?.name === "NotAllowedError") {
+      if (errName === "NotAllowedError") {
         setStatus(NFC_STATUS.ERROR);
         setErrorMessage("NFC-toegang geweigerd. Geef toestemming via de browserinstellingen.");
       } else {
         setStatus(NFC_STATUS.ERROR);
-        setErrorMessage(err?.message || "NFC fout");
+        setErrorMessage(errMessage || "NFC fout");
       }
       setTimeout(() => setStatus(NFC_STATUS.IDLE), 3000);
     }

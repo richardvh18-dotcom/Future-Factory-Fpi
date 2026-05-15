@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { 
   evaluateCapacityShortage, 
@@ -34,12 +33,19 @@ vi.mock("../config/dbPaths", () => ({
 }));
 
 vi.mock("../i18n", () => ({
-  default: { t: (key, options) => options?.defaultValue || key }
+  default: { t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue || key }
 }));
 
 vi.mock("../services/planningSecurityService", () => ({
   executeAutomationRule: vi.fn()
 }));
+
+const mockedGetDocs = vi.mocked(getDocs) as unknown as {
+  mockResolvedValueOnce: (value: unknown) => unknown;
+};
+const mockedExecuteAutomationRule = vi.mocked(executeAutomationRule) as unknown as {
+  mockResolvedValueOnce: (value: unknown) => unknown;
+};
 
 describe("automationEngine", () => {
   beforeEach(() => {
@@ -49,14 +55,14 @@ describe("automationEngine", () => {
   describe("evaluateCapacityShortage", () => {
     it("should trigger when shortage > threshold", async () => {
       // Mock occupancy
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           { data: () => ({ hoursPerWeek: 40 }) },
           { data: () => ({ hoursPerWeek: 40 }) }
         ]
       });
       // Mock planning
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           { data: () => ({ estimatedHours: 50 }) },
           { data: () => ({ estimatedHours: 40 }) }
@@ -71,10 +77,10 @@ describe("automationEngine", () => {
     });
 
     it("should not trigger when shortage <= threshold", async () => {
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [{ data: () => ({ hoursPerWeek: 80 }) }]
       });
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [{ data: () => ({ estimatedHours: 85 }) }]
       });
 
@@ -87,7 +93,7 @@ describe("automationEngine", () => {
 
   describe("evaluateLowEfficiency", () => {
     it("should trigger when efficiency < threshold", async () => {
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           { data: () => ({ productionHours: 10, actualHours: 7 }) }, // 70%
           { data: () => ({ productionHours: 10, actualHours: 8 }) }  // 80%
@@ -101,7 +107,7 @@ describe("automationEngine", () => {
     });
 
     it("should not trigger when efficiency >= threshold", async () => {
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           { data: () => ({ productionHours: 10, actualHours: 9 }) } // 90%
         ]
@@ -121,7 +127,7 @@ describe("automationEngine", () => {
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + 1);
 
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           { id: "1", data: () => ({ status: "in_production", plannedDate: pastDate, orderId: "O1" }) },
           { id: "2", data: () => ({ status: "in_production", plannedDate: futureDate, orderId: "O2" }) },
@@ -138,7 +144,7 @@ describe("automationEngine", () => {
 
   describe("evaluateMissingOperator", () => {
     it("should trigger when machines without operators exceed threshold", async () => {
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           { data: () => ({ station: "40BH18", operatorName: "" }) },
           { data: () => ({ station: "40BH17", operatorName: null }) },
@@ -154,7 +160,7 @@ describe("automationEngine", () => {
 
   describe("evaluateDependencyBlocked", () => {
     it("should trigger for orders with incomplete dependencies", async () => {
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           { id: "dep-1", data: () => ({ orderId: "DEP-1", status: "in_production" }) },
           { id: "main-1", data: () => ({ orderId: "MAIN-1", status: "planned", dependencies: ["dep-1"] }) },
@@ -171,7 +177,7 @@ describe("automationEngine", () => {
   describe("evaluateInspectionOverdue", () => {
     it("should trigger for overdue temporary rejections without reminder", async () => {
       const oldDate = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString();
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           {
             id: "p-1",
@@ -203,7 +209,7 @@ describe("automationEngine", () => {
     });
 
     it("executes action when trigger fires", async () => {
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [{ data: () => ({ productionHours: 10, actualHours: 5 }) }],
       });
 
@@ -213,13 +219,13 @@ describe("automationEngine", () => {
       });
 
       expect(result.triggered).toBe(true);
-      expect(result.actionResult.success).toBe(true);
+      expect("actionResult" in result && result.actionResult?.success === true).toBe(true);
     });
   });
 
   describe("checkDebounce", () => {
     it("returns true when a recent execution exists", async () => {
-      getDocs.mockResolvedValueOnce({
+      mockedGetDocs.mockResolvedValueOnce({
         docs: [
           {
             data: () => ({
@@ -236,7 +242,7 @@ describe("automationEngine", () => {
 
   describe("executeRuleWithLogging", () => {
     it("delegates execution to backend callable wrapper", async () => {
-      executeAutomationRule.mockResolvedValueOnce({ ok: true });
+      mockedExecuteAutomationRule.mockResolvedValueOnce({ ok: true });
       const rule = { id: "rule-42" };
 
       const result = await executeRuleWithLogging(rule);

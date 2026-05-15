@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from "react";
 import { X, Wrench, Save, Loader2, CheckSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";

@@ -2,7 +2,7 @@
 import React, { useState, Suspense, lazy, useEffect, useRef } from "react";
 import { listenToAppVersion } from "./services/versionService";
 import { Loader2 } from "lucide-react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth, db, logActivity } from "./config/firebase";
 import { addDoc, collection, doc, getDoc, serverTimestamp, query, collectionGroup, where, limit, getDocs } from "firebase/firestore";
@@ -18,6 +18,7 @@ import ProductSearchView from "./components/products/ProductSearchView";
 import ForcePasswordChangeView from "./components/ForcePasswordChangeView";
 import GodModeBootstrap from "./components/admin/GodModeBootstrap";
 import AutoLogoutWarning from "./components/AutoLogoutWarning";
+import { MTPresentation } from "./components/MTPresentation";
 
 // Notification System
 import { NotificationProvider } from "./contexts/NotificationContext";
@@ -66,6 +67,7 @@ const TeamleaderOrderDetailModal = lazy(() => import("./components/digitalplanni
  */
 const App = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [loginError, setLoginError] = useState(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
@@ -367,6 +369,14 @@ const App = () => {
         onComplete={() => setRequiresPasswordChange(false)} 
       />
     );
+  } else if (location.pathname === "/presentation") {
+    // Presentatie zonder Header/Sidebar
+    content = (
+      <Routes>
+        <Route path="/presentation" element={<MTPresentation />} />
+        <Route path="*" element={<Navigate to="/presentation" replace />} />
+      </Routes>
+    );
   } else {
     content = (
       <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
@@ -407,6 +417,7 @@ const App = () => {
               <Routes>
                 <Route path="/" element={<PortalView />} />
                 <Route path="/portal" element={<PortalView />} />
+                <Route path="/presentation" element={<MTPresentation />} />
                 <Route path="/profile" element={<ProfileView />} />
                 <Route path="/products" element={<ProductSearchView products={products} />} />
                 <Route path="/planning/*" element={<DigitalPlanningHub />} />

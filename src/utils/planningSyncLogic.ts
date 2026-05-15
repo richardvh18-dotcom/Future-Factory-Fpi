@@ -12,12 +12,34 @@ import { PATHS, getPathString } from "../config/dbPaths";
 import { patchPlanningOrderMetadata } from "../services/planningSecurityService";
 import i18n from "../i18n";
 
+type SyncStats = {
+  checked: number;
+  updated: number;
+  errors: number;
+};
+
+type SyncProgressCallback = (progress: number) => void;
+
+type ConversionLookupResult = {
+  targetProductId?: string;
+  description?: string;
+};
+
+type ProductPdfEntry = string | { url?: string | null } | null;
+
+type ProductDocLike = {
+  sourcePdfs?: ProductPdfEntry[];
+};
+
 /**
  * Zoekt door alle actieve orders en probeert tekeningen te koppelen
  * op basis van de Conversie Matrix.
  */
-export const syncMissingDrawings = async (appId, onProgress) => {
-  let stats = { checked: 0, updated: 0, errors: 0 };
+export const syncMissingDrawings = async (
+  appId: unknown,
+  onProgress?: SyncProgressCallback
+): Promise<SyncStats> => {
+  let stats: SyncStats = { checked: 0, updated: 0, errors: 0 };
 
   try {
     const planningRef = collection(db, getPathString(PATHS.PLANNING));
@@ -43,10 +65,10 @@ export const syncMissingDrawings = async (appId, onProgress) => {
         .find(Boolean);
 
       if (planningCode) {
-        const conversion = await lookupProductByManufacturedId(
+        const conversion = (await lookupProductByManufacturedId(
           appId,
           planningCode
-        );
+        )) as ConversionLookupResult | null;
 
         const resolvedCode = conversion?.targetProductId
           ? String(conversion.targetProductId).trim()
@@ -55,22 +77,22 @@ export const syncMissingDrawings = async (appId, onProgress) => {
         if (resolvedCode) {
           const newCode = resolvedCode;
 
-          let pdfUrl = null;
-          let productDoc = null;
+          let pdfUrl: string | null = null;
+          let productDoc: ProductDocLike | null = null;
 
           // 1. Zoek Product
           const prodRef = doc(db, `${getPathString(PATHS.PRODUCTS)}/${newCode}`);
           const prodSnap = await getDoc(prodRef);
 
           if (prodSnap.exists()) {
-            productDoc = prodSnap.data();
+            productDoc = prodSnap.data() as ProductDocLike;
           } else {
             const qProd = query(
               collection(db, getPathString(PATHS.PRODUCTS)),
               where("articleCode", "==", newCode)
             );
             const qSnap = await getDocs(qProd);
-            if (!qSnap.empty) productDoc = qSnap.docs[0].data();
+            if (!qSnap.empty) productDoc = qSnap.docs[0].data() as ProductDocLike;
           }
 
           if (
@@ -95,7 +117,7 @@ export const syncMissingDrawings = async (appId, onProgress) => {
             updateData.hasDrawing = true;
           }
 
-          if (!order.description && conversion.description)
+          if (!order.description && conversion?.description)
             updateData.description = conversion.description;
 
           if (Object.keys(updateData).length > 0) {

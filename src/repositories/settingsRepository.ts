@@ -15,6 +15,23 @@ import {
 import { db } from '../config/firebase';
 import { PATHS, isValidPath, getPathString } from '../config/dbPaths';
 
+type SettingsRecord = Record<string, unknown>;
+type RepoRecord = { id: string } & SettingsRecord;
+type DimensionsPathKey =
+  | 'BORE_DIMENSIONS'
+  | 'CB_DIMENSIONS'
+  | 'TB_DIMENSIONS'
+  | 'FITTING_SPECS'
+  | 'SOCKET_SPECS';
+
+const DIMENSIONS_PATHS: Record<DimensionsPathKey, string[]> = {
+  BORE_DIMENSIONS: PATHS.BORE_DIMENSIONS,
+  CB_DIMENSIONS: PATHS.CB_DIMENSIONS,
+  TB_DIMENSIONS: PATHS.TB_DIMENSIONS,
+  FITTING_SPECS: PATHS.FITTING_SPECS,
+  SOCKET_SPECS: PATHS.SOCKET_SPECS,
+};
+
 /**
  * Haalt de algemene factory-instellingen op.
  *
@@ -31,7 +48,7 @@ export const fetchGeneralConfig = async () => {
  *
  * @returns {Promise<object>}
  */
-export const fetchMatrixConfig = async () => {
+export const fetchMatrixConfig = async (): Promise<SettingsRecord> => {
   if (!isValidPath('MATRIX_CONFIG')) return {};
   const snap = await getDoc(doc(db, getPathString(PATHS.MATRIX_CONFIG)));
   return snap.exists() ? snap.data() : {};
@@ -43,9 +60,9 @@ export const fetchMatrixConfig = async () => {
  * @param {'BORE_DIMENSIONS'|'CB_DIMENSIONS'|'TB_DIMENSIONS'|'FITTING_SPECS'|'SOCKET_SPECS'} pathKey
  * @returns {Promise<Array<{id: string, [key: string]: any}>>}
  */
-export const fetchDimensions = async (pathKey) => {
+export const fetchDimensions = async (pathKey: DimensionsPathKey): Promise<RepoRecord[]> => {
   if (!isValidPath(pathKey)) return [];
-  const snap = await getDocs(collection(db, getPathString((PATHS as any)[pathKey])));
+  const snap = await getDocs(collection(db, getPathString(DIMENSIONS_PATHS[pathKey])));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 };
 

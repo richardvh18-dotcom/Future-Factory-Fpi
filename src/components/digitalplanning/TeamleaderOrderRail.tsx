@@ -44,10 +44,10 @@ const TeamleaderOrderRail = ({
       )}
       <div className="min-h-0 flex-1">
         <PlanningSidebar
-          orders={orders}
-          trackedProducts={trackedProducts}
-          archivedProducts={archivedProducts}
-          archivedHistoryProducts={archivedHistoryProducts}
+          orders={orders as never[]}
+          trackedProducts={trackedProducts as never[]}
+          archivedProducts={archivedProducts as never[]}
+          archivedHistoryProducts={archivedHistoryProducts as never[]}
           enableRejectionScopes={true}
           selectedOrderId={selectedSidebarEntryId}
           onSelect={handleSidebarSelect}

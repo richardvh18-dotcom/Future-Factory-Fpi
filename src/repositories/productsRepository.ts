@@ -16,9 +16,12 @@ import {
   getDocs,
   getDoc,
   doc,
+  type WhereFilterOp,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { PATHS, getPathString } from '../config/dbPaths';
+
+type RepoRecord = { id: string } & Record<string, unknown>;
 
 /**
  * Haalt alle actieve producten op, gesorteerd op meest recent bijgewerkt.
@@ -40,7 +43,7 @@ export const fetchAllProducts = async () => {
  * @param {string} productId
  * @returns {Promise<{id: string, [key: string]: any} | null>}
  */
-export const fetchProduct = async (productId) => {
+export const fetchProduct = async (productId: string | null | undefined): Promise<RepoRecord | null> => {
   if (!productId) return null;
   const snap = await getDoc(doc(db, getPathString([...PATHS.PRODUCTS, String(productId)])));
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
@@ -54,7 +57,11 @@ export const fetchProduct = async (productId) => {
  * @param {*}      value
  * @returns {Promise<Array<{id: string, [key: string]: any}>>}
  */
-export const fetchProductsWhere = async (field, op, value) => {
+export const fetchProductsWhere = async (
+  field: string,
+  op: WhereFilterOp,
+  value: unknown,
+): Promise<RepoRecord[]> => {
   const q = query(
     collection(db, getPathString(PATHS.PRODUCTS)),
     where(field, op, value),

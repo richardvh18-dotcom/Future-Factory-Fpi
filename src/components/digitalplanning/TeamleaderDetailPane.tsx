@@ -18,6 +18,7 @@ const TeamleaderDetailPane = React.memo(function TeamleaderDetailPane({
   rawProducts,
   archivedHistoryProducts,
   handleOpenArchivedLotDossier,
+  handleReopenArchivedOrderWithIncrease,
 }: any) {
   const { selectedOrder, selectedSidebarEntry, selectedDetailEntry, clearSelection } = useTeamleaderSelection() as any;
 
@@ -40,6 +41,7 @@ const TeamleaderDetailPane = React.memo(function TeamleaderDetailPane({
           selectedSidebarEntry={selectedSidebarEntry}
           onClose={clearSelection}
           onOpenArchivedLotDossier={handleOpenArchivedLotDossier}
+          onReopenArchivedOrderWithIncrease={handleReopenArchivedOrderWithIncrease}
         />
       ) : (
         <OrderDetailPlaceholder />

@@ -15,6 +15,18 @@ import {
   verifyProductRecord,
 } from "../services/planningSecurityService";
 
+type ProductData = Record<string, unknown> & {
+  name?: string;
+  lastModifiedBy?: string;
+};
+
+type ProductUser = {
+  uid?: string;
+  role?: string;
+  displayName?: string;
+  name?: string;
+};
+
 /**
  * Product Helpers V8.0
  * Hersteld: deleteProduct functie toegevoegd.
@@ -29,27 +41,30 @@ export const fetchProducts = async () => {
   return snap.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 };
 
-export const addProduct = async (productData) => {
+export const addProduct = async (productData: ProductData): Promise<string | null> => {
+  const currentUserId = auth.currentUser?.uid || "unknown";
   const result = await saveProductRecord({ productData }) as Record<string, unknown> | null;
-  await logActivity(auth.currentUser?.uid, "PRODUCT_CREATE", `Product created: ${productData.name || "Unknown"}`);
+  await logActivity(currentUserId, "PRODUCT_CREATE", `Product created: ${productData.name || "Unknown"}`);
   return (result?.productId as string) || null;
 };
 
-export const updateProduct = async (productId, productData) => {
+export const updateProduct = async (productId: string, productData: ProductData): Promise<void> => {
+  const currentUserId = auth.currentUser?.uid || "unknown";
   await saveProductRecord({ productId, productData });
-  await logActivity(auth.currentUser?.uid, "PRODUCT_UPDATE", `Product updated: ${productId}`);
+  await logActivity(currentUserId, "PRODUCT_UPDATE", `Product updated: ${productId}`);
 };
 
-export const deleteProduct = async (productId) => {
+export const deleteProduct = async (productId: string): Promise<void> => {
+  const currentUserId = auth.currentUser?.uid || "unknown";
   await deleteProductRecord(productId);
-  await logActivity(auth.currentUser?.uid, "PRODUCT_DELETE", `Product deleted: ${productId}`);
+  await logActivity(currentUserId, "PRODUCT_DELETE", `Product deleted: ${productId}`);
 };
 
 export const verifyProduct = async (
-  productId,
-  currentUser,
-  currentProductData
-) => {
+  productId: string,
+  currentUser: ProductUser,
+  currentProductData: ProductData,
+): Promise<{ success: boolean; message?: string }> => {
   const isAdmin = String(currentUser?.role || "").toLowerCase() === "admin";
 
   if (currentProductData.lastModifiedBy === currentUser?.uid && !isAdmin) {

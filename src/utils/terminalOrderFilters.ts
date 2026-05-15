@@ -1,9 +1,18 @@
+type NumericLike = number | string | null | undefined;
+
+interface ShouldHidePlanningOrderArgs {
+  remainingAtOrder: NumericLike;
+  startedAtStation: NumericLike;
+  stationPlan: NumericLike;
+  hasStationActivity?: boolean;
+}
+
 export const shouldHidePlanningOrder = ({
   remainingAtOrder,
   startedAtStation,
   stationPlan,
   hasStationActivity = false,
-}) => {
+}: ShouldHidePlanningOrderArgs): boolean => {
   if (hasStationActivity) {
     return false;
   }

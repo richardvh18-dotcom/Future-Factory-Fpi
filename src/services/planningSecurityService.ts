@@ -3,7 +3,8 @@ import app from "../config/firebase";
 
 const functions = getFunctions(app);
 
-const callableWithRuntime = (callable) => async (payload = {}) => callable(payload);
+type CallableFn = (payload?: unknown) => Promise<{ data?: unknown }>;
+const callableWithRuntime = (callable: CallableFn) => async (payload: unknown = {}) => callable(payload);
 
 const rejectTrackedProductFinalCallable = callableWithRuntime(httpsCallable(functions, "rejectTrackedProductFinal"));
 const tempRejectTrackedProductCallable = callableWithRuntime(httpsCallable(functions, "tempRejectTrackedProduct"));
@@ -82,7 +83,7 @@ export const rejectTrackedProductFinal = async ({
   note = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     reasons: Array.isArray(reasons) ? reasons : [],
@@ -112,7 +113,7 @@ export const tempRejectTrackedProduct = async ({
   previousStep = "",
   previousStatus = "",
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     reasons: Array.isArray(reasons) ? reasons : [],
@@ -150,7 +151,7 @@ export const advanceTrackedProduct = async ({
   clearManualMove = false,
   measurements = null,
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     nextStation: String(nextStation || "").trim(),
@@ -182,7 +183,7 @@ export const completeTrackedProductRepair = async ({
   note = "",
   actorLabel = "",
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     station: String(station || "").trim(),
@@ -207,7 +208,7 @@ export const routeTrackedProductsToLossen = async ({
   centralOperators = [],
   actorLabel = "",
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productIds: Array.isArray(productIds) ? productIds.map((entry) => String(entry || "").trim()).filter(Boolean) : [],
     originStation: String(originStation || "").trim(),
@@ -239,7 +240,7 @@ export const startWorkstationProductionRun = async ({
   isFlangeSeries = false,
   stationOperators = [],
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     lotStart: String(lotStart || "").trim(),
@@ -271,7 +272,7 @@ export const toggleTrackedProductPause = async ({
   note = "",
   actorLabel = "",
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     note: String(note || "").trim(),
@@ -292,7 +293,7 @@ export const markTrackedProductReminder = async ({
   reminderSent = true,
   actorLabel = "",
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     reminderSent: reminderSent !== false,
@@ -315,7 +316,7 @@ export const moveTrackedProductManual = async ({
   repairInstruction = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productOrLotId: String(productOrLotId || "").trim(),
     newStation: String(newStation || "").trim(),
@@ -341,7 +342,7 @@ export const archiveRejectedTrackedProduct = async ({
   productId,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     source: String(source || "").trim(),
@@ -365,7 +366,7 @@ export const completeTrackedProduct = async ({
   note = "",
   actorLabel = "",
   source = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     finishType: String(finishType || "").trim(),
@@ -392,7 +393,7 @@ export const cancelTrackedProduction = async ({
   selectedStation = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     selectedStation: String(selectedStation || "").trim(),
@@ -414,7 +415,7 @@ export const updatePlanningOrderPriority = async ({
   productDocId = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const normalizedPriority = priority === false ? false : String(priority || "").trim().toLowerCase();
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
@@ -443,7 +444,7 @@ export const movePlanningOrder = async ({
   currentDepartment = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     targetType: String(targetType || "").trim().toLowerCase(),
@@ -465,7 +466,7 @@ export const retrievePlanningOrder = async ({
   orderDocId,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     source: String(source || "").trim(),
@@ -484,7 +485,7 @@ export const togglePlanningOrderHold = async ({
   orderDocId,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     source: String(source || "").trim(),
@@ -503,16 +504,19 @@ export const updatePlanningOrderDetails = async ({
   orderDocId,
   notes = "",
   plan = null,
+  planDelta = null,
   started = null,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const normalizedPlan = plan === null || plan === undefined || plan === "" ? null : Number(plan);
+  const normalizedPlanDelta = planDelta === null || planDelta === undefined || planDelta === "" ? null : Number(planDelta);
   const normalizedStarted = started === null || started === undefined || started === "" ? null : Number(started);
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     notes: String(notes || "").trim(),
     plan: normalizedPlan,
+    planDelta: normalizedPlanDelta,
     started: normalizedStarted,
     source: String(source || "").trim(),
     actorLabel: String(actorLabel || "").trim(),
@@ -524,6 +528,10 @@ export const updatePlanningOrderDetails = async ({
 
   if (payload.plan !== null && (!Number.isFinite(payload.plan) || payload.plan < 0)) {
     throw new Error("plan moet een geldig getal van 0 of hoger zijn.");
+  }
+
+  if (payload.planDelta !== null && !Number.isFinite(payload.planDelta)) {
+    throw new Error("planDelta moet een geldig getal zijn.");
   }
 
   if (payload.started !== null && (!Number.isFinite(payload.started) || payload.started < 0)) {
@@ -539,7 +547,7 @@ export const patchPlanningOrderMetadata = async ({
   patch,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const safeOrderDocId = String(orderDocId || "").trim();
   if (!safeOrderDocId) {
     throw new Error("orderDocId is verplicht.");
@@ -564,7 +572,7 @@ export const archivePlanningOrder = async ({
   reason = "completed",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     reason: String(reason || "").trim().toLowerCase(),
@@ -593,7 +601,7 @@ export const assignOverproduction = async ({
   originMachine = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     targetOrderDocId: String(targetOrderDocId || "").trim(),
     targetOrderId: String(targetOrderId || "").trim(),
@@ -618,7 +626,7 @@ export const cancelPlanningOrder = async ({
   reason = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     reason: String(reason || "").trim(),
@@ -645,7 +653,7 @@ export const assignPersonnelToStation = async ({
   shiftType = "DAG",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     stationId: String(stationId || "").trim(),
     operatorId: String(operatorId || "").trim(),
@@ -672,7 +680,7 @@ export const removePersonnelAssignment = async ({
   stationId = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     assignmentId: String(assignmentId || "").trim(),
     stationId: String(stationId || "").trim(),
@@ -704,7 +712,7 @@ export const loanPersonnelToDepartment = async ({
   originalShift = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     operatorNumber: String(operatorNumber || "").trim(),
     operatorName: String(operatorName || "").trim(),
@@ -735,7 +743,7 @@ export const saveOccupancyAssignments = async ({
   records,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const safeRecords = Array.isArray(records)
     ? records.filter((entry) => entry && typeof entry === "object")
     : [];
@@ -758,7 +766,7 @@ export const saveOccupancyAssignment = async ({
   data,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const safeAssignmentId = String(assignmentId || "").trim();
   if (!safeAssignmentId || !data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("assignmentId en data zijn verplicht.");
@@ -775,7 +783,7 @@ export const deleteOccupancyAssignments = async ({
   assignmentIds,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const safeIds = Array.isArray(assignmentIds)
     ? assignmentIds.map((entry) => String(entry || "").trim()).filter(Boolean)
     : [];
@@ -797,7 +805,7 @@ export const deleteOccupancyAssignment = async ({
   assignmentId,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const safeAssignmentId = String(assignmentId || "").trim();
   if (!safeAssignmentId) {
     throw new Error("assignmentId is verplicht.");
@@ -815,7 +823,7 @@ export const savePersonnelRecord = async ({
   data,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("data is verplicht.");
   }
@@ -834,7 +842,7 @@ export const createProductionMessages = async ({
   messages,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     messages: Array.isArray(messages) ? messages : [],
     source: String(source || "").trim(),
@@ -855,7 +863,7 @@ export const transitionPrintQueueJobStatus = async ({
   error = "",
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     jobId: String(jobId || "").trim(),
     status: String(status || "").trim(),
@@ -876,7 +884,7 @@ export const requeuePrintQueueJob = async ({
   jobId,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     jobId: String(jobId || "").trim(),
     source: String(source || "").trim(),
@@ -895,7 +903,7 @@ export const deletePrintQueueJob = async ({
   jobId,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     jobId: String(jobId || "").trim(),
     source: String(source || "").trim(),
@@ -928,7 +936,7 @@ export const startProductionLots = async ({
   isFlangeSeries = false,
   isVirtualLot = false,
   virtualReason = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     orderDocPath: String(orderDocPath || "").trim(),
@@ -963,7 +971,7 @@ export const editTrackedProductLotNumber = async ({
   reason,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     newLotNumber: String(newLotNumber || "").trim(),
@@ -986,7 +994,7 @@ export const reassignTrackedProductOrder = async ({
   reason,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     newOrderId: String(newOrderId || "").trim(),
@@ -1007,7 +1015,7 @@ export const linkPlanningOrderProduct = async ({
   orderDocId,
   productId,
   productImage = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderDocId: String(orderDocId || "").trim(),
     productId: String(productId || "").trim(),
@@ -1027,7 +1035,7 @@ export const createPlanningOrderManual = async ({
   item,
   machine,
   plan,
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     orderId: String(orderId || "").trim(),
     item: String(item || "").trim(),
@@ -1049,7 +1057,7 @@ export const markMazakLabelsPrinted = async ({
   isReprint = false,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const payload = {
     productIds: Array.isArray(productIds) ? productIds.map((id) => String(id || "").trim()).filter(Boolean) : [],
     stationId: String(stationId || "").trim(),
@@ -1072,7 +1080,7 @@ export const appendQcNote = async ({
   archivedYear = null,
   source = "",
   actorLabel = "",
-}) => {
+}: Record<string, unknown>) => {
   const parsedYear = archivedYear === null || archivedYear === undefined || archivedYear === ""
     ? null
     : Number(archivedYear);
@@ -1096,7 +1104,7 @@ export const reserveAutoLotNumberRange = async ({
   stationId,
   count = 1,
   reserve = true,
-}) => {
+}: Record<string, unknown>) => {
   const parsedCount = Number(count);
   const payload = {
     stationId: String(stationId || "").trim(),
@@ -1112,7 +1120,7 @@ export const reserveAutoLotNumberRange = async ({
   return result?.data || { ok: false };
 };
 
-export const addOrderDependency = async ({ orderId, dependencyId }) => {
+export const addOrderDependency = async ({ orderId, dependencyId }: Record<string, unknown>) => {
   const payload = {
     orderId: String(orderId || "").trim(),
     dependencyId: String(dependencyId || "").trim(),
@@ -1124,7 +1132,7 @@ export const addOrderDependency = async ({ orderId, dependencyId }) => {
   return result?.data || { ok: false };
 };
 
-export const removeOrderDependency = async ({ orderId, dependencyId }) => {
+export const removeOrderDependency = async ({ orderId, dependencyId }: Record<string, unknown>) => {
   const payload = {
     orderId: String(orderId || "").trim(),
     dependencyId: String(dependencyId || "").trim(),
@@ -1136,7 +1144,7 @@ export const removeOrderDependency = async ({ orderId, dependencyId }) => {
   return result?.data || { ok: false };
 };
 
-export const updateOrderPlannedDate = async ({ orderId, plannedDate }) => {
+export const updateOrderPlannedDate = async ({ orderId, plannedDate }: Record<string, unknown>) => {
   const safeOrderId = String(orderId || "").trim();
   if (!safeOrderId || !plannedDate) {
     throw new Error("orderId en plannedDate zijn verplicht.");
@@ -1146,7 +1154,7 @@ export const updateOrderPlannedDate = async ({ orderId, plannedDate }) => {
   return result?.data || { ok: false };
 };
 
-export const updateOrderKanbanStatus = async ({ orderId, status }) => {
+export const updateOrderKanbanStatus = async ({ orderId, status }: Record<string, unknown>) => {
   const payload = {
     orderId: String(orderId || "").trim(),
     status: String(status || "").trim(),
@@ -1158,7 +1166,7 @@ export const updateOrderKanbanStatus = async ({ orderId, status }) => {
   return result?.data || { ok: false };
 };
 
-export const markReadyForNextStep = async ({ productId }) => {
+export const markReadyForNextStep = async ({ productId }: Record<string, unknown>) => {
   const safeProductId = String(productId || "").trim();
   if (!safeProductId) {
     throw new Error("productId is verplicht.");
@@ -1167,7 +1175,7 @@ export const markReadyForNextStep = async ({ productId }) => {
   return result?.data || { ok: false };
 };
 
-export const startTrackedProductRepair = async ({ productId, repairReason = "" }) => {
+export const startTrackedProductRepair = async ({ productId, repairReason = "" }: Record<string, unknown>) => {
   const safeProductId = String(productId || "").trim();
   if (!safeProductId) {
     throw new Error("productId is verplicht.");
@@ -1184,7 +1192,7 @@ export const restoreArchivedTrackedProduct = async ({
   targetRoute,
   note = "",
   sourceContext = "TEAMLEADER_FULL_LIST",
-}) => {
+}: Record<string, unknown>) => {
   const safeProductId = String(productId || "").trim();
   const safeTargetRoute = String(targetRoute || "").trim().toUpperCase();
   const safeSourceContext = String(sourceContext || "").trim().toUpperCase();
@@ -1214,7 +1222,7 @@ export const reportShopFloorIssue = async ({
   lotNumber = null,
   description = "",
   operatorName = "",
-}) => {
+}: Record<string, unknown>) => {
   const safeType = String(type || "").trim();
   if (!["downtime", "defect"].includes(safeType)) {
     throw new Error('type moet "downtime" of "defect" zijn.');
@@ -1230,7 +1238,7 @@ export const reportShopFloorIssue = async ({
   return result?.data || { ok: false };
 };
 
-export const resolveShopFloorIssue = async ({ type, issueId }) => {
+export const resolveShopFloorIssue = async ({ type, issueId }: Record<string, unknown>) => {
   const safeType = String(type || "").trim();
   const safeIssueId = String(issueId || "").trim();
   if (!["downtime", "defect"].includes(safeType) || !safeIssueId) {
@@ -1240,7 +1248,7 @@ export const resolveShopFloorIssue = async ({ type, issueId }) => {
   return result?.data || { ok: false };
 };
 
-export const importPlanningOrders = async ({ orders, importMode = "new_only", hoursOnlyMode = false }) => {
+export const importPlanningOrders = async ({ orders, importMode = "new_only", hoursOnlyMode = false }: Record<string, unknown>) => {
   const safeMode = String(importMode || "new_only").trim().toLowerCase();
   if (!["new_only", "overwrite", "smart_update"].includes(safeMode)) {
     throw new Error("Ongeldige importMode.");
@@ -1260,7 +1268,7 @@ export const importPlanningOrders = async ({ orders, importMode = "new_only", ho
   return result?.data || { ok: false };
 };
 
-export const queuePrintJob = async (printerId, zplData, metadata = {}) => {
+export const queuePrintJob = async (printerId: unknown, zplData: unknown, metadata: Record<string, unknown> = {}) => {
   const payload = {
     printerId: String(printerId || "").trim(),
     zplData: String(zplData || "").trim(),
@@ -1279,7 +1287,7 @@ export const queuePrintJob = async (printerId, zplData, metadata = {}) => {
   return result?.data || null; // Returns document ID
 };
 
-export const updateUserProfile = async (profileData) => {
+export const updateUserProfile = async (profileData: Record<string, unknown>) => {
   if (!profileData?.name || !profileData?.language) {
     throw new Error("Naam en taal zijn verplicht.");
   }
@@ -1307,7 +1315,7 @@ export const clearPasswordChangeFlag = async () => {
   return result?.data || { ok: false };
 };
 
-export const submitAccountRequest = async (requestData) => {
+export const submitAccountRequest = async (requestData: Record<string, unknown>) => {
   if (!requestData?.name || !requestData?.email) {
     throw new Error("Naam en e-mailadres zijn verplicht.");
   }
@@ -1325,7 +1333,7 @@ export const submitAccountRequest = async (requestData) => {
   return result?.data || { ok: false };
 };
 
-export const updateUserLanguage = async (language) => {
+export const updateUserLanguage = async (language: unknown) => {
   if (!language) {
     throw new Error("Taalcode is verplicht.");
   }
@@ -1338,7 +1346,7 @@ export const updateUserLanguage = async (language) => {
   return result?.data || { ok: false };
 };
 
-export const executeAutomationRule = async (rule) => {
+export const executeAutomationRule = async (rule: unknown) => {
   if (!rule || typeof rule !== "object") {
     throw new Error("rule is verplicht.");
   }
@@ -1349,7 +1357,7 @@ export const executeAutomationRule = async (rule) => {
 
 const updateProductionStandardCallable = callableWithRuntime(httpsCallable(functions, "updateProductionStandard"));
 
-export const updateProductionStandard = async ({ standardId, standardMinutes, autoLearning = null }) => {
+export const updateProductionStandard = async ({ standardId, standardMinutes, autoLearning = null }: Record<string, unknown>) => {
   const result = await updateProductionStandardCallable({
     standardId: String(standardId || "").trim(),
     standardMinutes: Number(standardMinutes),
@@ -1358,7 +1366,7 @@ export const updateProductionStandard = async ({ standardId, standardMinutes, au
   return result?.data || { ok: false };
 };
 
-export const saveProductRecord = async ({ productId = "", productData = {}, clearVerification = false }) => {
+export const saveProductRecord = async ({ productId = "", productData = {}, clearVerification = false }: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     productData: (typeof productData === "object" && productData) || {},
@@ -1369,7 +1377,7 @@ export const saveProductRecord = async ({ productId = "", productData = {}, clea
   return result?.data || { ok: false };
 };
 
-export const deleteProductRecord = async (productId) => {
+export const deleteProductRecord = async (productId: unknown) => {
   const payload = { productId: String(productId || "").trim() };
   if (!payload.productId) {
     throw new Error("productId is verplicht.");
@@ -1379,7 +1387,7 @@ export const deleteProductRecord = async (productId) => {
   return result?.data || { ok: false };
 };
 
-export const verifyProductRecord = async ({ productId = "", actorName = "" }) => {
+export const verifyProductRecord = async ({ productId = "", actorName = "" }: Record<string, unknown>) => {
   const payload = {
     productId: String(productId || "").trim(),
     actorName: String(actorName || "").trim(),
@@ -1392,7 +1400,7 @@ export const verifyProductRecord = async ({ productId = "", actorName = "" }) =>
   return result?.data || { ok: false };
 };
 
-export const upsertConversionRecord = async ({ recordId = "", recordData = {} }) => {
+export const upsertConversionRecord = async ({ recordId = "", recordData = {} }: Record<string, unknown>) => {
   const payload = {
     recordId: String(recordId || "").trim(),
     recordData: (typeof recordData === "object" && recordData) || {},
@@ -1402,7 +1410,7 @@ export const upsertConversionRecord = async ({ recordId = "", recordData = {} })
   return result?.data || { ok: false };
 };
 
-export const deleteConversionRecord = async (recordId) => {
+export const deleteConversionRecord = async (recordId: unknown) => {
   const payload = { recordId: String(recordId || "").trim() };
   if (!payload.recordId) {
     throw new Error("recordId is verplicht.");
@@ -1417,7 +1425,7 @@ export const deleteAllConversionRecords = async () => {
   return result?.data || { ok: false, deleted: 0 };
 };
 
-export const upsertConversionBatch = async ({ items = [], mode = "merge" }) => {
+export const upsertConversionBatch = async ({ items = [], mode = "merge" }: Record<string, unknown>) => {
   const payload = {
     items: Array.isArray(items) ? items : [],
     mode: String(mode || "merge").trim().toLowerCase(),
@@ -1431,7 +1439,7 @@ export const upsertConversionBatch = async ({ items = [], mode = "merge" }) => {
   return result?.data || { ok: false };
 };
 
-export const processInforUpdate = async (csvData = []) => {
+export const processInforUpdate = async (csvData: unknown[] = []) => {
   if (!Array.isArray(csvData) || !csvData.length) {
     throw new Error("csvData is verplicht.");
   }
@@ -1446,7 +1454,7 @@ export const processInforUpdate = async (csvData = []) => {
   };
 };
 
-export const saveAiContextConfig = async (systemPrompt) => {
+export const saveAiContextConfig = async (systemPrompt: unknown) => {
   if (!systemPrompt) {
     throw new Error("systemPrompt is verplicht.");
   }
@@ -1459,17 +1467,17 @@ export const createAiDocumentRecord = async (payload = {}) => {
   return result?.data || { ok: false };
 };
 
-export const updateAiDocumentRecord = async ({ docId = "", patch = {} }) => {
+export const updateAiDocumentRecord = async ({ docId = "", patch = {} }: Record<string, unknown>) => {
   const result = await updateAiDocumentRecordCallable({ docId: String(docId || ""), patch });
   return result?.data || { ok: false };
 };
 
-export const deleteAiDocumentRecord = async (docId) => {
+export const deleteAiDocumentRecord = async (docId: unknown) => {
   const result = await deleteAiDocumentRecordCallable({ docId: String(docId || "") });
   return result?.data || { ok: false };
 };
 
-export const verifyAiKnowledgeEntry = async ({ entryId = "", correctedAnswer = null }) => {
+export const verifyAiKnowledgeEntry = async ({ entryId = "", correctedAnswer = null }: Record<string, unknown>) => {
   const result = await verifyAiKnowledgeEntryCallable({
     entryId: String(entryId || ""),
     correctedAnswer,
@@ -1477,7 +1485,7 @@ export const verifyAiKnowledgeEntry = async ({ entryId = "", correctedAnswer = n
   return result?.data || { ok: false };
 };
 
-export const deleteAiKnowledgeEntry = async (entryId) => {
+export const deleteAiKnowledgeEntry = async (entryId: unknown) => {
   const result = await deleteAiKnowledgeEntryCallable({ entryId: String(entryId || "") });
   return result?.data || { ok: false };
 };
@@ -1506,7 +1514,7 @@ export const migrateAiKnowledgeFields = async () => {
  * Output (apply):
  *  - { mode: 'apply', results: Array<{ status: 'FIXED'|'SKIPPED'|'ERROR', reason?: string }>, totalFixed: number }
  */
-export const runMigrationTool = async ({ mode, orderId, mismatches }) => {
+export const runMigrationTool = async ({ mode, orderId, mismatches }: Record<string, unknown>) => {
   const result = await runMigrationToolCallable({ mode, orderId: orderId || null, mismatches: mismatches || null });
   return result?.data;
 };

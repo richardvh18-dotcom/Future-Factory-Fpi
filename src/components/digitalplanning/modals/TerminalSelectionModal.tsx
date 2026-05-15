@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Layers, Monitor, Clock, Tv } from "lucide-react";

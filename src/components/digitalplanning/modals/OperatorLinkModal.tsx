@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from "react";
 import { Loader2, X, ImageIcon } from "lucide-react";
 import { collection, query, where, limit, getDocs } from "firebase/firestore";

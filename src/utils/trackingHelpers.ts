@@ -1,29 +1,76 @@
 import { toDateSafe } from "./dateUtils";
 
-export const normalizeOrderStatus = (status) =>
+type DateLikeCompat =
+  | Date
+  | string
+  | number
+  | {
+      toDate?: () => Date;
+      toMillis?: () => number;
+      seconds?: number;
+      _seconds?: number;
+      nanoseconds?: number;
+      _nanoseconds?: number;
+    }
+  | null
+  | undefined;
+
+type StatusLike = { status?: unknown; currentStep?: unknown } | null | undefined;
+type OrderLike = { status?: unknown } | null | undefined;
+type DateCarrier = {
+  timestamps?: {
+    finished?: unknown;
+    completed?: unknown;
+    lossen_start?: unknown;
+    wikkelen_end?: unknown;
+    station_end?: unknown;
+  };
+  archivedAt?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+} | null | undefined;
+
+const toDateLike = (value: unknown): DateLikeCompat => {
+  if (
+    value == null ||
+    value instanceof Date ||
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+
+  if (typeof value === "object") {
+    return value as DateLikeCompat;
+  }
+
+  return null;
+};
+
+export const normalizeOrderStatus = (status: unknown): string =>
   String(status || "")
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
 
 /** @param {import('../types').TrackedProduct} product */
-export const getTrackedStatus = (product) => String(product?.status || "").trim().toLowerCase();
+export const getTrackedStatus = (product: StatusLike): string => String(product?.status || "").trim().toLowerCase();
 
 /** @param {import('../types').TrackedProduct} product */
-export const getTrackedStep = (product) => String(product?.currentStep || "").trim().toLowerCase();
+export const getTrackedStep = (product: StatusLike): string => String(product?.currentStep || "").trim().toLowerCase();
 
 /** @param {import('../types').TrackedProduct} product */
-export const isArchivedRejectedProduct = (product) => getTrackedStatus(product) === "archived_rejected";
+export const isArchivedRejectedProduct = (product: StatusLike): boolean => getTrackedStatus(product) === "archived_rejected";
 
 /** @param {import('../types').TrackedProduct} product */
-export const isFinishedProduct = (product) => {
+export const isFinishedProduct = (product: StatusLike): boolean => {
   const status = getTrackedStatus(product);
   const step = getTrackedStep(product);
   return ["finished", "completed", "gereed"].includes(status) || step === "finished";
 };
 
 /** @param {import('../types').TrackedProduct} product */
-export const isRejectedProduct = (product) => {
+export const isRejectedProduct = (product: StatusLike): boolean => {
   if (isArchivedRejectedProduct(product)) return false;
   const status = getTrackedStatus(product);
   const step = getTrackedStep(product);
@@ -31,7 +78,7 @@ export const isRejectedProduct = (product) => {
 };
 
 /** @param {import('../types').TrackedProduct} product */
-export const isInactiveTrackedProduct = (product) => {
+export const isInactiveTrackedProduct = (product: StatusLike): boolean => {
   return isArchivedRejectedProduct(product) || isFinishedProduct(product) || isRejectedProduct(product);
 };
 
@@ -52,12 +99,12 @@ export const ACTIVE_PLANNING_STATUSES = new Set([
   "delegated",
 ]);
 
-export const isActivePlanningOrder = (order) => {
+export const isActivePlanningOrder = (order: OrderLike): boolean => {
   const s = normalizeOrderStatus(order?.status);
   return ACTIVE_PLANNING_STATUSES.has(s);
 };
 
-export const subtractWorkingDays = (fromDate, days) => {
+export const subtractWorkingDays = (fromDate: Date | string | number, days: number): Date => {
   const d = new Date(fromDate);
   let counted = 0;
   while (counted < days) {
@@ -68,15 +115,15 @@ export const subtractWorkingDays = (fromDate, days) => {
   return d;
 };
 
-export const getTrackedCompletionDate = (item) => {
+export const getTrackedCompletionDate = (item: DateCarrier): Date | null => {
   return (
-    toDateSafe(item?.timestamps?.finished) ||
-    toDateSafe(item?.timestamps?.completed) ||
-    toDateSafe(item?.archivedAt) ||
-    toDateSafe(item?.updatedAt) ||
-    toDateSafe(item?.timestamps?.lossen_start) ||
-    toDateSafe(item?.timestamps?.wikkelen_end) ||
-    toDateSafe(item?.timestamps?.station_end) ||
-    toDateSafe(item?.createdAt)
+    toDateSafe(toDateLike(item?.timestamps?.finished)) ||
+    toDateSafe(toDateLike(item?.timestamps?.completed)) ||
+    toDateSafe(toDateLike(item?.archivedAt)) ||
+    toDateSafe(toDateLike(item?.updatedAt)) ||
+    toDateSafe(toDateLike(item?.timestamps?.lossen_start)) ||
+    toDateSafe(toDateLike(item?.timestamps?.wikkelen_end)) ||
+    toDateSafe(toDateLike(item?.timestamps?.station_end)) ||
+    toDateSafe(toDateLike(item?.createdAt))
   );
 };

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * AI Service Test Utility
  * 
@@ -8,16 +7,15 @@
  * await testAI();
  */
 
-import { aiService, AI_PROVIDERS } from './aiService';
+import { aiService } from './aiService';
 
-export async function testAI() {
+export async function testAI(): Promise<void> {
   console.log('🤖 AI Service Test Started');
   console.log('==========================\n');
 
-  // Check available providers
-  const providers = aiService.getAvailableProviders();
-  console.log('✅ Available Providers:', providers);
-  console.log('Current Provider:', aiService.provider);
+  // Check available model
+  const model = await aiService.getAvailableModel();
+  console.log('✅ Available Model:', model);
   console.log('');
 
   // Test Chat
@@ -25,12 +23,12 @@ export async function testAI() {
   try {
     const response = await aiService.chat([
       { role: 'user', content: 'Hallo! Wat is FPi Future Factory?' }
-    ], 'Je bent een hulpzame assistent voor FPi Future Factory.');
+    ]);
     
     console.log('✅ Chat Response:', response);
     console.log('');
-  } catch (error) {
-    console.error('❌ Chat Error:', error.message);
+  } catch (error: unknown) {
+    console.error('❌ Chat Error:', error instanceof Error ? error.message : error);
     console.log('');
   }
 
@@ -39,21 +37,13 @@ export async function testAI() {
   try {
     const flashcards = await aiService.generateFlashcards(
       'GRE specificaties',
-      `Return ONLY valid JSON with this structure:
-      {
-        "flashcards": [
-          {
-            "front": {"text": "Vraag", "language": "nl-NL"},
-            "back": {"text": "Antwoord", "language": "nl-NL"}
-          }
-        ]
-      }`
+      undefined
     );
-    
+
     console.log('✅ Flashcards Generated:', flashcards);
     console.log('Number of cards:', flashcards.flashcards?.length || 0);
-  } catch (error) {
-    console.error('❌ Flashcard Error:', error.message);
+  } catch (error: unknown) {
+    console.error('❌ Flashcard Error:', error instanceof Error ? error.message : error);
   }
 
   console.log('\n==========================');
@@ -61,27 +51,27 @@ export async function testAI() {
 }
 
 // Quick test function
-export async function quickChat(message) {
+export async function quickChat(message: string): Promise<unknown> {
   try {
     const response = await aiService.chat([
       { role: 'user', content: message }
     ]);
     console.log('💬 Response:', response);
     return response;
-  } catch (error) {
-    console.error('❌ Error:', error.message);
+  } catch (error: unknown) {
+    console.error('❌ Error:', error instanceof Error ? error.message : error);
     throw error;
   }
 }
 
-// Switch provider helper
-export function switchProvider(providerName) {
-  const upperName = providerName.toUpperCase();
-  if (AI_PROVIDERS[upperName]) {
-    aiService.setProvider(upperName);
-    console.log(`✅ Switched to: ${providerName}`);
-  } else {
-    console.error(`❌ Unknown provider: ${providerName}`);
-    console.log('Available:', Object.keys(AI_PROVIDERS));
+// Switch model helper
+export function switchProvider(providerName: string): void {
+  const nextModel = providerName.trim();
+  if (!nextModel) {
+    console.error('❌ Unknown provider: empty value');
+    return;
   }
+
+  (aiService as { availableModel?: string }).availableModel = nextModel;
+  console.log(`✅ Switched to model: ${providerName}`);
 }

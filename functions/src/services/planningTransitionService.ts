@@ -448,6 +448,35 @@ const getArchiveSearchYears = () => {
   return years;
 };
 
+const findArchivedPlanningOrderDoc = async ({ ctx, orderDocId, orderId }) => {
+  const years = getArchiveSearchYears();
+  const lookupDocId = clean(orderDocId);
+  const lookupOrderId = clean(orderId);
+
+  for (const year of years) {
+    const archiveCollection = db.collection(ctx.archivePlanningPath(year));
+
+    if (lookupDocId) {
+      const byDocId = await archiveCollection.doc(lookupDocId).get();
+      if (byDocId.exists) {
+        return { doc: byDocId, year };
+      }
+    }
+
+    if (lookupOrderId) {
+      const byOrderId = await archiveCollection
+        .where('orderId', '==', lookupOrderId)
+        .limit(1)
+        .get();
+      if (!byOrderId.empty) {
+        return { doc: byOrderId.docs[0], year };
+      }
+    }
+  }
+
+  return null;
+};
+
 const findArchivedTrackedProductDocByIdOrLot = async ({ ctx, productId }) => {
   const safeProductId = clean(productId);
   if (!safeProductId) return null;
@@ -2098,6 +2127,7 @@ const updatePlanningOrderDetailsService = async ({
   orderDocId,
   notes,
   plan,
+  planDelta,
   started,
   manualTodo,
   actorLabel,
@@ -2106,9 +2136,122 @@ const updatePlanningOrderDetailsService = async ({
   dbCtx = null,
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
-  const { orderDoc } = await resolvePlanningOrderLocator({ ctx, orderDocId });
+  let { orderDoc } = await resolvePlanningOrderLocator({
+    ctx,
+    orderDocId,
+    orderId: orderDocId,
+  });
+
+  let restoredFromArchive = false;
+  let archivedOrderData = null;
+
+  if (!orderDoc) {
+    const archivedLookup = await findArchivedPlanningOrderDoc({
+      ctx,
+      orderDocId,
+      orderId: orderDocId,
+    });
+
+    if (archivedLookup?.doc?.exists) {
+      const archivedDoc = archivedLookup.doc;
+      archivedOrderData = archivedDoc.data() || {};
+
+      const basePlan = Number(archivedOrderData.plan || archivedOrderData.quantity || 0);
+      const normalizedPlanDelta = Number.isFinite(planDelta) ? planDelta : null;
+      const normalizedPlan = Number.isFinite(plan)
+        ? plan
+        : (normalizedPlanDelta !== null ? Math.max(0, basePlan + normalizedPlanDelta) : basePlan);
+
+      const machine =
+        clean(archivedOrderData.machine) ||
+        clean(archivedOrderData.originalMachine) ||
+        clean(archivedOrderData.returnStation) ||
+        DEFAULT_SCOPED_MACHINE;
+
+      const department = resolveScopedDepartment(
+        archivedOrderData.department,
+        archivedOrderData.departmentName,
+        archivedOrderData.departmentId,
+        inferDepartmentFromMachine(machine),
+      );
+
+      const scopedDocRef = getScopedPlanningDocRef({
+        ctx,
+        department,
+        machine,
+        docId: archivedDoc.id,
+      });
+
+      if (!scopedDocRef) {
+        throw new Error('NOT_FOUND_ORDER');
+      }
+
+      const now = new Date();
+      const { week, year } = getISOWeekInfoServer(now);
+      const produced = Number(archivedOrderData.produced || 0);
+      const nextPlan = Number.isFinite(normalizedPlan) ? normalizedPlan : basePlan;
+      const currentQuantity = Number(archivedOrderData.quantity || 0);
+      const nextQuantity = Math.max(currentQuantity, nextPlan);
+      const autoTodo = Math.max(0, nextPlan - produced);
+
+      const restoreUpdates = {
+        ...archivedOrderData,
+        plan: nextPlan,
+        quantity: nextQuantity,
+        machine: normalizeMachineForPlanningServer(machine),
+        normMachine: normalizeMachineForPlanningServer(machine),
+        department,
+        departmentId: department,
+        status: 'planned',
+        archivedAt: admin.firestore.FieldValue.delete(),
+        archiveReason: admin.firestore.FieldValue.delete(),
+        archiveYear: admin.firestore.FieldValue.delete(),
+        originalStatus: admin.firestore.FieldValue.delete(),
+        archivedFrom: admin.firestore.FieldValue.delete(),
+        archivedBy: admin.firestore.FieldValue.delete(),
+        archivedByRole: admin.firestore.FieldValue.delete(),
+        archiveSource: admin.firestore.FieldValue.delete(),
+        todoAmount: autoTodo,
+        toDoQty: autoTodo,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        retrievedFromArchiveAt: admin.firestore.FieldValue.serverTimestamp(),
+        retrievedFromArchiveBy: getActorLabel(auth, actorLabel),
+        weekNumber: week,
+        weekYear: year,
+      };
+
+      const batch = db.batch();
+      batch.set(scopedDocRef, restoreUpdates, { merge: true });
+      batch.delete(archivedDoc.ref);
+      await batch.commit();
+
+      await writeActivityLog({
+        auth,
+        action: 'PLANNING_REOPEN_FROM_ARCHIVE',
+        details: `Order ${clean(archivedOrderData.orderId) || archivedDoc.id} heropend uit archief met plan ${nextPlan}.`,
+        source: source || 'updatePlanningOrderDetails',
+        actorLabel: getActorLabel(auth, actorLabel),
+        orderId: clean(archivedOrderData.orderId) || null,
+        orderDocId: archivedDoc.id,
+      });
+
+      const reopenedSnap = await scopedDocRef.get();
+      if (reopenedSnap.exists) {
+        orderDoc = reopenedSnap;
+        restoredFromArchive = true;
+      }
+    }
+  }
+
   if (!orderDoc) {
     throw new Error('NOT_FOUND_ORDER');
+  }
+
+  const orderData = orderDoc.data() || {};
+  let resolvedPlan = Number.isFinite(plan) ? plan : null;
+  if (resolvedPlan === null && Number.isFinite(planDelta)) {
+    const currentPlan = Number(orderData.plan || orderData.quantity || 0);
+    resolvedPlan = Math.max(0, currentPlan + planDelta);
   }
 
   const updates = {
@@ -2117,18 +2260,28 @@ const updatePlanningOrderDetailsService = async ({
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  if (Number.isFinite(plan)) {
-    updates.plan = plan;
+  if (Number.isFinite(resolvedPlan)) {
+    updates.plan = resolvedPlan;
+    const currentQuantity = Number(orderData?.quantity || 0);
+    if (resolvedPlan > currentQuantity) {
+      updates.quantity = resolvedPlan;
+    }
   }
 
   if (Number.isFinite(manualTodo)) {
     updates.todoAmountManual = manualTodo;
     updates.todoAmount = manualTodo;
     updates.toDoQty = manualTodo;
+  } else if (restoredFromArchive && Number.isFinite(resolvedPlan)) {
+    const produced = Number(orderData?.produced || archivedOrderData?.produced || 0);
+    const autoTodo = Math.max(0, resolvedPlan - produced);
+    updates.todoAmount = autoTodo;
+    updates.toDoQty = autoTodo;
+    updates.todoAmountManual = admin.firestore.FieldValue.delete();
+    updates.status = 'planned';
   }
 
   if (Number.isFinite(started) && started >= 0) {
-    const orderData = orderDoc.data() || {};
     const machine = clean(orderData.machine || orderData.machineId || '');
     const stationField = getStartedCounterFieldServer(machine);
     if (stationField) {
@@ -2138,15 +2291,15 @@ const updatePlanningOrderDetailsService = async ({
 
   await orderDoc.ref.set(updates, { merge: true });
 
-  const orderData = orderDoc.data() || {};
   return {
     ok: true,
     orderDocId: orderDoc.id,
     orderId: clean(orderData.orderId) || orderDoc.id,
     notes: updates.notes,
-    plan: Number.isFinite(plan) ? plan : Number(orderData.plan || 0),
+    plan: Number.isFinite(resolvedPlan) ? resolvedPlan : Number(orderData.plan || 0),
     actorLabel: getActorLabel(auth, actorLabel),
     source: source || null,
+    restoredFromArchive,
     before: orderData,
     after: { ...orderData, ...updates },
   };

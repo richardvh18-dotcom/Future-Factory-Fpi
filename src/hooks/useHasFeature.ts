@@ -18,6 +18,12 @@
 // Kern-modules zijn standaard AAN voor alle gebruikers (geen permission check nodig)
 export const CORE_MODULES = ["planning", "catalog", "inbox"];
 
+type FeatureUser = {
+  role?: string;
+  isGodMode?: boolean;
+  permissions?: Record<string, string[] | undefined>;
+};
+
 /**
  * Controleer of een gebruiker toegang heeft tot een module of specifieke feature.
  * @param {object} user - gebruikersobject uit useAdminAuth
@@ -25,7 +31,7 @@ export const CORE_MODULES = ["planning", "catalog", "inbox"];
  * @param {string} [featureId] - optioneel: bijv. "capacity_planning"
  * @returns {boolean}
  */
-export function checkFeature(user, moduleId, featureId = null) {
+export function checkFeature(user: FeatureUser | null | undefined, moduleId: string, featureId: string | null = null): boolean {
   // Admins hebben altijd volledige toegang
   if (user?.role === "admin" || user?.isGodMode) return true;
 
@@ -57,8 +63,8 @@ export function checkFeature(user, moduleId, featureId = null) {
  * @param {object} user - gebruikersobject uit useAdminAuth
  * @returns {Function} hasFeature(moduleId, featureId?)
  */
-export function useHasFeature(user) {
-  return (moduleId, featureId = null) => checkFeature(user, moduleId, featureId);
+export function useHasFeature(user: FeatureUser | null | undefined) {
+  return (moduleId: string, featureId: string | null = null): boolean => checkFeature(user, moduleId, featureId);
 }
 
 export default useHasFeature;

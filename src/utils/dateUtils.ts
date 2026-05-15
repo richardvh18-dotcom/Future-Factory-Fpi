@@ -1,29 +1,56 @@
-export const toDateSafe = (value) => {
+type DateLike =
+  | Date
+  | string
+  | number
+  | {
+      toDate?: () => Date;
+      toMillis?: () => number;
+      seconds?: number;
+      _seconds?: number;
+      nanoseconds?: number;
+      _nanoseconds?: number;
+    }
+  | null
+  | undefined;
+
+type DeliveryPlanningStateArgs = {
+  now?: DateLike;
+  productionLeadDays?: number;
+  finishBufferDays?: number;
+};
+
+export const toDateSafe = (value: DateLike): Date | null => {
   if (!value) return null;
 
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value;
   }
 
-  if (typeof value?.toDate === "function") {
-    const date = value.toDate();
+  const valueObject = typeof value === "object" ? (value as Record<string, unknown>) : null;
+
+  if (valueObject && typeof valueObject.toDate === "function") {
+    const date = (valueObject.toDate as () => Date)();
     return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
   }
 
-  if (typeof value?.toMillis === "function") {
-    const millis = value.toMillis();
+  if (valueObject && typeof valueObject.toMillis === "function") {
+    const millis = (valueObject.toMillis as () => number)();
     if (Number.isFinite(millis)) {
       const date = new Date(millis);
       return Number.isNaN(date.getTime()) ? null : date;
     }
   }
 
-  const seconds = value?.seconds ?? value?._seconds;
+  const seconds = valueObject?.seconds ?? valueObject?._seconds;
   if (typeof seconds === "number") {
-    const nanoseconds = value?.nanoseconds ?? value?._nanoseconds ?? 0;
+    const nanoseconds = valueObject?.nanoseconds ?? valueObject?._nanoseconds ?? 0;
     const millis = seconds * 1000 + Math.floor(Number(nanoseconds) / 1000000);
     const date = new Date(millis);
     return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (!(typeof value === "string" || typeof value === "number")) {
+    return null;
   }
 
   const date = new Date(value);
@@ -31,7 +58,7 @@ export const toDateSafe = (value) => {
 };
 
 export const formatDateTimeSafe = (
-  value,
+  value: DateLike,
   locale = "nl-NL",
   options: Intl.DateTimeFormatOptions = {
     day: "2-digit",
@@ -46,7 +73,7 @@ export const formatDateTimeSafe = (
   return date ? date.toLocaleString(locale, options) : fallback;
 };
 
-export const resolveDeliveryDate = (...values) => {
+export const resolveDeliveryDate = (...values: DateLike[]): Date | null => {
   for (const value of values) {
     const date = toDateSafe(value);
     if (date) return date;
@@ -55,12 +82,12 @@ export const resolveDeliveryDate = (...values) => {
 };
 
 export const getDeliveryPlanningState = (
-  deliveryDate,
+  deliveryDate: DateLike,
   {
     now = new Date(),
     productionLeadDays = 21,
     finishBufferDays = 3,
-  } = {}
+  }: DeliveryPlanningStateArgs = {}
 ) => {
   const delivery = toDateSafe(deliveryDate);
   if (!delivery) {

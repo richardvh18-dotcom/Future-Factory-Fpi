@@ -1,9 +1,35 @@
-// @ts-nocheck
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { getTrackedCompletionDate } from "../../../utils/trackingHelpers";
 
-const TerminalGereedItemCard = ({ item }) => {
+type TerminalTrackedItem = {
+  id?: string;
+  lotNumber?: string;
+  orderId?: string;
+  item?: string;
+  itemDescription?: string;
+  description?: string;
+  itemCode?: string;
+  currentStation?: string;
+  currentStep?: string;
+  timestamps?: {
+    finished?: unknown;
+    completed?: unknown;
+    lossen_start?: unknown;
+    wikkelen_end?: unknown;
+    station_end?: unknown;
+  };
+  archivedAt?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+  [key: string]: unknown;
+};
+
+type TerminalGereedItemCardProps = {
+  item: TerminalTrackedItem;
+};
+
+const TerminalGereedItemCard = ({ item }: TerminalGereedItemCardProps) => {
   const { t } = useTranslation();
 
   const productName =

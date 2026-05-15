@@ -96,6 +96,9 @@ const ProfileView = () => {
   const [pwSuccess, setPwSuccess] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
+  const roleLabel = typeof user?.role === "string" && user.role.trim()
+    ? user.role
+    : t("profile.prefs.guest", "Guest");
 
   // 1. Laad Profiel & Voorkeuren
   useEffect(() => {
@@ -340,8 +343,8 @@ const ProfileView = () => {
                   preferences.darkMode ? "text-emerald-400" : "text-emerald-600"
                 }`}
               >
-                <ShieldCheck size={16} /> {t('profile.prefs.permissions_title')} ({t('profile.prefs.role', 'Rol')}: {user?.role || t('profile.prefs.guest', 'Guest')})
-                {user?.isImpersonating && (
+                <ShieldCheck size={16} /> {t('profile.prefs.permissions_title')} ({t('profile.prefs.role', 'Rol')}: {roleLabel})
+                {Boolean(user?.isImpersonating) && (
                   <span className="ml-2 bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[8px] border border-amber-200 animate-pulse">
                     VIEW MODE
                   </span>

@@ -9,7 +9,7 @@ interface GereedViewProps {
 const GereedView = ({ stationId, products = [] }: GereedViewProps) => {
   return (
     <TerminalGereedTab
-      allTracked={products}
+      allTracked={products as never[]}
       stationId={stationId}
       effectiveStationId={stationId}
     />

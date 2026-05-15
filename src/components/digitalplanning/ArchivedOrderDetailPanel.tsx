@@ -1,13 +1,32 @@
 // @ts-nocheck
-import React from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const ArchivedOrderDetailPanel = ({
   selectedSidebarEntry,
   onClose,
   onOpenArchivedLotDossier,
+  onReopenArchivedOrderWithIncrease,
 }) => {
   const { t } = useTranslation();
+  const [increaseBy, setIncreaseBy] = useState("2");
+  const [isReopening, setIsReopening] = useState(false);
+
+  const handleReopen = async () => {
+    if (!onReopenArchivedOrderWithIncrease || isReopening) return;
+    const safeIncrease = Math.floor(Number(increaseBy));
+    if (!Number.isFinite(safeIncrease) || safeIncrease <= 0) return;
+
+    try {
+      setIsReopening(true);
+      await onReopenArchivedOrderWithIncrease({
+        entry: selectedSidebarEntry,
+        increaseBy: safeIncrease,
+      });
+    } finally {
+      setIsReopening(false);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col p-8 lg:p-10 text-left overflow-y-auto">
@@ -48,6 +67,35 @@ const ArchivedOrderDetailPanel = ({
             {selectedSidebarEntry.machine || selectedSidebarEntry.originMachine || "-"}
           </p>
         </div>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 md:col-span-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            Archief correctie
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              Ophogen met
+            </label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={increaseBy}
+              onChange={(e) => setIncreaseBy(e.target.value)}
+              className="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-bold text-slate-800"
+            />
+            <button
+              onClick={handleReopen}
+              disabled={isReopening || !onReopenArchivedOrderWithIncrease}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isReopening ? "Bezig..." : "Terug naar planning"}
+            </button>
+          </div>
+          <p className="mt-2 text-xs font-semibold text-slate-500">
+            Hiermee wordt de order opgehoogd en direct opnieuw actief in de planning gezet.
+          </p>
+        </div>
+
         <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 md:col-span-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
             {t("bm01.lot_number", "Lotnummer")}s

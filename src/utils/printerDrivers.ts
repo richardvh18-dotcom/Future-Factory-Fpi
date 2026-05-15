@@ -12,7 +12,35 @@
  *  - lighthouse-cjpro2: Lighthouse CJ-PRO II 300 DPI, TSPL/Windows-driver
  */
 
-export const PRINTER_DRIVERS = {
+type PrinterDriver = {
+  id: string;
+  label: string;
+  nativeDpi: number;
+  dotsPerMm: number;
+  defaultDarkness: number;
+  defaultSpeed: number;
+  labelLanguage: string;
+  cutCommand: string | null;
+  suppressBackfeed: boolean;
+  utf8Encoding: boolean;
+  mediaMode: string | null;
+};
+
+type PrinterProfile = Record<string, unknown> & {
+  driverModel?: string;
+  name?: string;
+  deviceName?: string;
+  model?: string;
+  productName?: string;
+  dpi?: string | number;
+  rollWidthMm?: string | number;
+  width?: string | number;
+  rollType?: string;
+  calibrationOffsetXMm?: string | number;
+  calibrationOffsetYMm?: string | number;
+};
+
+export const PRINTER_DRIVERS: Record<string, PrinterDriver> = {
   'zebra-zm400-203': {
     id: 'zebra-zm400-203',
     label: 'Zebra ZM400 (203 DPI)',
@@ -72,6 +100,9 @@ export const PRINTER_DRIVERS = {
 /** Standaard driver als geen profiel beschikbaar is. */
 export const DEFAULT_DRIVER_ID = 'zebra-zm400-300';
 
+const isDriverId = (value: unknown): value is keyof typeof PRINTER_DRIVERS =>
+  typeof value === 'string' && value in PRINTER_DRIVERS;
+
 /**
  * Resolve een driver uit een Firestore printer-profiel.
  *
@@ -84,12 +115,12 @@ export const DEFAULT_DRIVER_ID = 'zebra-zm400-300';
  * @param {Object|null} printerProfile  – Firestore printer document
  * @returns {Object}  Driver config object
  */
-export const getDriver = (printerProfile: Record<string, any> | null) => {
+export const getDriver = (printerProfile: PrinterProfile | null): PrinterDriver => {
   if (!printerProfile) return PRINTER_DRIVERS[DEFAULT_DRIVER_ID];
 
   // 1. Expliciete driver-ID opgeslagen door beheerder
   const stored = printerProfile.driverModel;
-  if (stored && PRINTER_DRIVERS[stored]) return PRINTER_DRIVERS[stored];
+  if (isDriverId(stored)) return PRINTER_DRIVERS[stored];
 
   // 2. Naamhint (legacy / nog niet gemigreerde profielen)
   const hint = [
@@ -109,14 +140,14 @@ export const getDriver = (printerProfile: Record<string, any> | null) => {
     return PRINTER_DRIVERS['zebra-epl2-203'];
   }
   if (hint.includes('ZM400') || hint.includes('ZEBRA')) {
-    const dpi = Number.parseInt(printerProfile.dpi, 10);
+    const dpi = Number.parseInt(String(printerProfile.dpi ?? ''), 10);
     return dpi === 203
       ? PRINTER_DRIVERS['zebra-zm400-203']
       : PRINTER_DRIVERS['zebra-zm400-300'];
   }
 
   // 3. Numerieke DPI als fallback (onbekend merk)
-  const dpi = Number.parseInt(printerProfile.dpi, 10);
+  const dpi = Number.parseInt(String(printerProfile.dpi ?? ''), 10);
   if (Number.isFinite(dpi) && dpi > 0) {
     return {
       id: 'custom',
@@ -143,7 +174,10 @@ export const getDriver = (printerProfile: Record<string, any> | null) => {
  * @param {Object} driver  – driver object van getDriver()
  * @returns {number} dots (integer)
  */
-export const mmToDriverDots = (mm, driver) => {
+export const mmToDriverDots = (
+  mm: number | string | null | undefined,
+  driver?: Pick<PrinterDriver, 'dotsPerMm'> | null
+): number => {
   const dotsPerMm = driver?.dotsPerMm ?? PRINTER_DRIVERS[DEFAULT_DRIVER_ID].dotsPerMm;
   return Math.round((Number(mm) || 0) * dotsPerMm);
 };
@@ -170,7 +204,7 @@ export const getPrinterRollSettings = (printer: Record<string, any> = {}) => {
 };
 
 // --- Interne helper (niet geëxporteerd) ---
-const _parseMm = (value) => {
+const _parseMm = (value: unknown): number => {
   const parsed = Number.parseFloat(String(value ?? '').replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : 0;
 };
@@ -187,7 +221,11 @@ const _parseMm = (value) => {
  * @param {Object|null} driver  – optioneel driver object; wordt afgeleid als null
  * @returns {string} ZPL met kalibratie-offsets ingevoegd na elke ^XA
  */
-export const applyCalibration = (zplContent, printer: Record<string, any> = {}, driver = null) => {
+export const applyCalibration = (
+  zplContent: string,
+  printer: PrinterProfile = {},
+  driver: PrinterDriver | null = null
+): string => {
   const resolvedDriver = driver ?? getDriver(printer);
   const dotsPerMm = resolvedDriver.dotsPerMm;
   const rollSettings = getPrinterRollSettings(printer);

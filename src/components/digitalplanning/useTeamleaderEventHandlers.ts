@@ -12,6 +12,7 @@ import {
   archiveRejectedTrackedProduct,
   assignOverproduction,
   createPlanningOrderManual,
+  updatePlanningOrderDetails,
   saveOccupancyAssignments,
   deleteOccupancyAssignments,
 } from "../../services/planningSecurityService";
@@ -410,6 +411,83 @@ export const useTeamleaderEventHandlers = ({
       });
     },
     [selectedSidebarEntry, setViewingDossier]
+  );
+
+  const handleReopenArchivedOrderWithIncrease = useCallback(
+    async ({ entry, increaseBy }) => {
+      const targetEntry = entry || selectedSidebarEntry;
+      if (!targetEntry?.isArchivedOrder) {
+        notify("Selecteer eerst een gearchiveerde order.");
+        return { ok: false };
+      }
+
+      const safeIncrease = Math.floor(Number(increaseBy));
+      if (!Number.isFinite(safeIncrease) || safeIncrease <= 0) {
+        notify("Verhoging moet minimaal 1 zijn.");
+        return { ok: false };
+      }
+
+      const orderRef = String(
+        targetEntry.__docPath ||
+          targetEntry.orderDocPath ||
+          targetEntry.id ||
+          targetEntry.orderId ||
+          ""
+      ).trim();
+
+      if (!orderRef) {
+        notify("Order referentie ontbreekt; kan archieforder niet heropenen.");
+        return { ok: false };
+      }
+
+      const orderLabel = String(targetEntry.orderId || targetEntry.id || orderRef).trim();
+      const confirmed = await showConfirm({
+        title: "Order uit archief heropenen",
+        message: `Wil je order ${orderLabel} ophogen met ${safeIncrease} en terugzetten naar planning?`,
+        confirmText: "Ja, heropenen",
+        cancelText: "Annuleren",
+        tone: "warning",
+      });
+
+      if (!confirmed) {
+        return { ok: false, cancelled: true };
+      }
+
+      try {
+        const result = await updatePlanningOrderDetails({
+          orderDocId: orderRef,
+          planDelta: safeIncrease,
+          source: "ArchivedOrderDetailPanel",
+          actorLabel: user?.email || "Teamleader",
+        });
+
+        await logActivity(
+          user?.uid || "system",
+          "PLANNING_REOPEN_FROM_ARCHIVE",
+          `Order ${orderLabel} heropend uit archief en opgehoogd met ${safeIncrease}`
+        );
+
+        setActiveTab("planning");
+        setSelectedSidebarEntry(null);
+        setSelectedOrderId(result?.orderId || orderLabel);
+        showSuccess(`Order ${orderLabel} is opgehoogd en teruggezet naar planning.`);
+        return { ok: true, result };
+      } catch (error) {
+        console.error("Heropenen archieforder mislukt:", error);
+        notify("Heropenen mislukt: " + (error?.message || "Onbekende fout"));
+        return { ok: false, error };
+      }
+    },
+    [
+      selectedSidebarEntry,
+      notify,
+      showConfirm,
+      user,
+      setActiveTab,
+      setSelectedSidebarEntry,
+      setSelectedOrderId,
+      showSuccess,
+    ]
   );
 
   // KPI modal handler
@@ -892,6 +970,7 @@ export const useTeamleaderEventHandlers = ({
     handleAssignOverproduction,
     handleSidebarSelect,
     handleOpenArchivedLotDossier,
+    handleReopenArchivedOrderWithIncrease,
     handleKpiClick,
     handleDrawingSync,
     handleExport,

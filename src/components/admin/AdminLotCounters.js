@@ -1,0 +1,79 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState, useEffect } from 'react';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { Loader2, Hash, Calendar, Server } from 'lucide-react';
+// Machine naar FPI code mapping (Consistent met ProductionStartModal)
+const getMachineCode = (station) => {
+    if (!station)
+        return "999";
+    const normalized = String(station).toUpperCase().trim();
+    const baseStation = normalized.startsWith('40') ? normalized.substring(2) : normalized;
+    const map = {
+        'BH11': '411',
+        'BH12': '412',
+        'BH15': '415',
+        'BH16': '416',
+        'BH17': '417',
+        'BH18': '418',
+        'BH31': '431',
+        'BH05': '405',
+        'BH07': '407',
+        'BH08': '408',
+        'BH09': '409',
+        'BA05': '405',
+        'BA07': '417'
+    };
+    if (map[baseStation])
+        return map[baseStation];
+    const digits = baseStation.replace(/\D/g, "");
+    if (!digits)
+        return "999";
+    if (digits.length === 3)
+        return digits;
+    if (digits.length === 1)
+        return `40${digits}`;
+    return `4${digits.slice(-2).padStart(2, "0")}`;
+};
+const AdminLotCounters = () => {
+    const [counters, setCounters] = useState([]);
+    const [loading, setLoading] = useState(true);
+    useEffect(() => {
+        // Luister live naar de counters collectie
+        const ref = collection(db, 'future-factory', 'production', 'counters');
+        // We halen alles op (het zijn er niet veel door de auto-cleanup)
+        const unsub = onSnapshot(ref, (snap) => {
+            const data = snap.docs.map(doc => {
+                // ID formaat is: STATION_YYWW (bijv. BH18_2609)
+                const parts = doc.id.split('_');
+                const station = parts[0];
+                const dateCode = parts[1] || "????";
+                return {
+                    id: doc.id,
+                    station,
+                    year: dateCode.substring(0, 2),
+                    week: dateCode.substring(2),
+                    lastSequence: doc.data().lastSequence,
+                    updatedAt: doc.data().updatedAt
+                };
+            });
+            // Sorteer op Station -> Jaar -> Week
+            setCounters(data.sort((a, b) => {
+                if (a.station !== b.station)
+                    return a.station.localeCompare(b.station);
+                return b.week - a.week; // Nieuwste week eerst
+            }));
+            setLoading(false);
+        });
+        return () => unsub();
+    }, []);
+    if (loading)
+        return (_jsxs("div", { className: "p-8 flex justify-center items-center text-slate-400", children: [_jsx(Loader2, { className: "animate-spin mr-2" }), " Tellers laden..."] }));
+    return (_jsxs("div", { className: "p-6 bg-white rounded-2xl shadow-sm border border-slate-100", children: [_jsxs("div", { className: "flex justify-between items-center mb-6", children: [_jsxs("h2", { className: "text-xl font-black text-slate-800 flex items-center gap-2 uppercase italic", children: [_jsx(Hash, { className: "text-blue-600" }), " Lotnummer Tellers"] }), _jsx("span", { className: "text-xs font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-full", children: "Live Database: /production/counters" })] }), _jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4", children: [counters.map(c => {
+                        const machineCode = getMachineCode(c.station);
+                        // Formaat: Bedrijf(40) + Jaar + Week + Machine + Land(40) + Volgnummer
+                        const fullLot = `40${c.year}${c.week}${machineCode}40${String(c.lastSequence).padStart(4, '0')}`;
+                        return (_jsxs("div", { className: "p-5 border-2 border-slate-100 rounded-2xl bg-slate-50/50 hover:border-blue-200 transition-all group", children: [_jsxs("div", { className: "flex justify-between items-start mb-2", children: [_jsxs("span", { className: "font-black text-slate-700 flex items-center gap-2 uppercase", children: [_jsx(Server, { size: 16, className: "text-slate-400" }), " ", c.station] }), _jsxs("span", { className: "text-[10px] font-black bg-white text-slate-500 px-2 py-1 rounded border border-slate-200 uppercase tracking-wider", children: ["Week ", c.week, " '", c.year] })] }), _jsxs("div", { className: "flex flex-col gap-1 my-3", children: [_jsx("span", { className: "text-[10px] font-bold text-slate-400 uppercase tracking-widest", children: "Laatst Gebruikt" }), _jsx("span", { className: "text-xl font-black text-blue-600 tracking-tight font-mono select-all", children: fullLot })] }), _jsxs("div", { className: "text-[10px] text-slate-400 flex items-center gap-1.5 pt-3 border-t border-slate-200/60", children: [_jsx(Calendar, { size: 12 }), "Update: ", c.updatedAt?.toDate ? c.updatedAt.toDate().toLocaleString('nl-NL') : 'Onbekend'] })] }, c.id));
+                    }), counters.length === 0 && (_jsx("div", { className: "col-span-full py-12 text-center text-slate-400 italic text-sm border-2 border-dashed border-slate-100 rounded-2xl", children: "Nog geen lotnummers gegenereerd deze week." }))] }), _jsx("p", { className: "text-[10px] text-slate-400 mt-6 italic text-center", children: "* Tellers ouder dan 2 weken worden automatisch verwijderd bij een nieuwe productiestart. Voor volledige historie, raadpleeg het productdossier archief." })] }));
+};
+export default AdminLotCounters;

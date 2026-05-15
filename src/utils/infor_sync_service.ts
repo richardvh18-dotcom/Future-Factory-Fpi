@@ -6,8 +6,20 @@
 
 import { processInforUpdate as processInforUpdateCallable } from '../services/planningSecurityService';
 
+type InforColumnKey = 'orderId' | 'status' | 'minutes' | 'quantity' | 'operation';
+
+type InforCsvValue = string | number | null | undefined;
+
+type InforSyncResult = {
+  countCreated: number;
+  countUpdated: number;
+  countDeleted: number;
+  countMatched: number;
+  unmatchedOrders: unknown[];
+};
+
 // Aliassen voor kolomherkenning (flexibiliteit voor export variaties)
-const ALIASES = {
+const ALIASES: Record<InforColumnKey, string[]> = {
   orderId: ['order', 'ordernummer', 'productieorder', 'tisfc010.pdno', 'fo'],
   status: ['status', 'orderstatus', 'tisfc010.stts', 'ap'],
   minutes: ['productietijd', 'minuten', 'tijd (min)', 'tisfc140.prtm', 'bc'],
@@ -18,7 +30,7 @@ const ALIASES = {
 /**
  * Vindt de index van een kolom op basis van aliassen of fallback
  */
-const findColumnIndex = (headers, targetKey) => {
+const findColumnIndex = (headers: unknown, targetKey: InforColumnKey): number => {
   if (headers && Array.isArray(headers)) {
     const index = headers.findIndex(h => 
       h && ALIASES[targetKey].includes(String(h).toLowerCase().trim())
@@ -38,13 +50,17 @@ const findColumnIndex = (headers, targetKey) => {
 /**
  * Veilige nummer parsing (handelt komma's af voor NL formaat)
  */
-const parseFloatSafe = (val) => {
+const parseFloatSafe = (val: InforCsvValue): number => {
   if (typeof val === 'number') return val;
   if (typeof val === 'string') return parseFloat(val.replace(',', '.'));
   return 0;
 };
 
-export const processInforUpdate = async (db, appId, csvData) => {
+export const processInforUpdate = async (
+  db: unknown,
+  appId: unknown,
+  csvData: unknown[] | null | undefined
+): Promise<InforSyncResult> => {
   if (!csvData || csvData.length < 1) {
     return {
       countCreated: 0,
@@ -56,5 +72,5 @@ export const processInforUpdate = async (db, appId, csvData) => {
   }
 
   // db/appId params blijven voor backward compatibility met bestaande callsites.
-  return processInforUpdateCallable(csvData);
+  return processInforUpdateCallable(csvData) as Promise<InforSyncResult>;
 };

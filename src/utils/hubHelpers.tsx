@@ -2,9 +2,32 @@ import React from "react";
 import { Zap, Droplets } from "lucide-react";
 import i18n from "../i18n";
 
+type AppWindow = Window & {
+  __app_id?: string;
+};
+
+type FirestoreDateLike = {
+  toDate: () => Date;
+};
+
+type DateInput = FirestoreDateLike | Date | string | number | null | undefined;
+
+type MaterialInfo = {
+  type: "CST" | "EWT" | "EST";
+  label: string;
+  shortLabel: string;
+  colorClasses: string;
+  warning: string | null;
+  icon: React.ReactNode;
+};
+
+const isFirestoreDateLike = (value: DateInput): value is FirestoreDateLike =>
+  typeof value === "object" && value !== null && "toDate" in value;
+
 // --- CONFIGURATIE ---
-export const getAppId = () => {
-  if (typeof window !== "undefined" && (window as any).__app_id) return (window as any).__app_id;
+export const getAppId = (): string => {
+  const appWindow = typeof window !== "undefined" ? (window as AppWindow) : undefined;
+  if (appWindow?.__app_id) return appWindow.__app_id;
   return "fittings-app-v1";
 };
 
@@ -24,7 +47,7 @@ export const FITTING_MACHINES = [
 export const PIPE_MACHINES = ["BH05", "BH07", "BH08", "BH09"];
 
 // --- HULPFUNCTIES ---
-export const normalizeMachine = (m) => {
+export const normalizeMachine = (m: unknown): string => {
   if (!m) return "";
   const normalized = String(m).trim().replace(/\s+/g, "").toUpperCase();
   if (/^40(BH|BM|BA)\d+/.test(normalized)) {
@@ -33,7 +56,7 @@ export const normalizeMachine = (m) => {
   return normalized;
 };
 
-export const getStartedCounterField = (stationName) => {
+export const getStartedCounterField = (stationName: unknown): string => {
   const normalized = normalizeMachine(stationName || "");
   const fallback = String(stationName || "").trim().replace(/\s+/g, "");
   const keySource = normalized || fallback;
@@ -42,9 +65,9 @@ export const getStartedCounterField = (stationName) => {
   return `started_${safeKey}`;
 };
 
-export const formatDate = (ts) => {
+export const formatDate = (ts: DateInput): string => {
   if (!ts) return "-";
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const d = isFirestoreDateLike(ts) ? ts.toDate() : new Date(ts);
   if (isNaN(d.getTime())) return String(ts);
   return d.toLocaleString(i18n.language, {
     day: "2-digit",
@@ -54,7 +77,7 @@ export const formatDate = (ts) => {
   });
 };
 
-export const getISOWeekInfo = (date) => {
+export const getISOWeekInfo = (date: Date): { week: number; year: number } => {
   const d = new Date(
     Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
   );
@@ -66,8 +89,8 @@ export const getISOWeekInfo = (date) => {
   return { week: weekNo, year: year };
 };
 
-export const getMaterialInfo = (itemString) => {
-  const upperItem = (itemString || "").toUpperCase();
+export const getMaterialInfo = (itemString: unknown): MaterialInfo => {
+  const upperItem = String(itemString || "").toUpperCase();
 
   if (upperItem.includes("CST")) {
     return {

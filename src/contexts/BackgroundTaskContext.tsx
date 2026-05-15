@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { db, auth } from '../config/firebase';
 import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';

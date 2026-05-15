@@ -11,7 +11,7 @@
  */
 
 /** Firebase HttpsError code → standaard gebruikersbericht */
-const HTTPS_CODE_MESSAGES = {
+const HTTPS_CODE_MESSAGES: Record<string, string> = {
   'functions/unauthenticated':    'Je bent niet ingelogd. Log opnieuw in en probeer het opnieuw.',
   'functions/permission-denied':  'Je hebt geen rechten voor deze actie.',
   'functions/not-found':          'Het gevraagde item is niet gevonden.',
@@ -41,8 +41,20 @@ const HTTPS_CODE_MESSAGES = {
  * @param {unknown} error - De gevangen fout (FirebaseError, Error, of iets anders).
  * @returns {string} Gebruiksvriendelijk bericht.
  */
-export const parseCallableError = (error) => {
+type CallableErrorLike = {
+  code?: string;
+  message?: string;
+} | null | undefined;
+
+const isCallableErrorLike = (error: unknown): error is NonNullable<CallableErrorLike> =>
+  typeof error === 'object' && error !== null;
+
+export const parseCallableError = (error: unknown): string => {
   if (!error) return 'Er is een onbekende fout opgetreden.';
+
+  if (!isCallableErrorLike(error)) {
+    return 'Er is een onbekende fout opgetreden.';
+  }
 
   // Firebase HttpsError via httpsCallable: error.message bevat het server-bericht
   // error.code is bijv. 'functions/not-found'
@@ -75,7 +87,7 @@ export const parseCallableError = (error) => {
  * @param {unknown} error - De gevangen fout.
  * @returns {string} Gebruiksvriendelijk bericht.
  */
-export const logAndParseError = (context, error) => {
+export const logAndParseError = (context: string, error: unknown): string => {
   console.error(`[${context}]`, error);
   return parseCallableError(error);
 };

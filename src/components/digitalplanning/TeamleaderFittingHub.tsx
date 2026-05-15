@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
@@ -7,27 +6,43 @@ import TeamleaderHub from "./TeamleaderHub";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+type StationConfig = {
+  name: string;
+};
+
+type DepartmentConfig = {
+  slug?: string;
+  id?: string;
+  stations?: StationConfig[];
+};
+
+type FactoryConfigDoc = {
+  departments?: DepartmentConfig[];
+};
+
+const TeamleaderHubAny = TeamleaderHub as React.ComponentType<any>;
+
 /**
  * TeamleaderFittingHub - V2 (Future Factory Path)
  */
-const TeamleaderFittingHub = (props) => {
+const TeamleaderFittingHub = (props: Record<string, unknown>) => {
   const { t } = useTranslation();
-  const [stations, setStations] = useState([]);
+  const [stations, setStations] = useState<StationConfig[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     console.log('[TeamleaderFittingHub] Initializing, path:', PATHS.FACTORY_CONFIG.join('/'));
-    const docRef = doc(db, ...PATHS.FACTORY_CONFIG);
+    const docRef = (doc as any)(db, ...(PATHS.FACTORY_CONFIG as string[]));
 
     const unsubscribe = onSnapshot(
       docRef,
-      (docSnap) => {
+      (docSnap: any) => {
         console.log('[TeamleaderFittingHub] Factory config exists:', docSnap.exists());
         if (docSnap.exists()) {
-          const data = docSnap.data();
+          const data = docSnap.data() as FactoryConfigDoc;
           console.log('[TeamleaderFittingHub] Departments:', data.departments?.length || 0);
           const myDept = (data.departments || []).find(
-            (d) => d.slug === "fittings" || d.id === "fittings"
+            (d: DepartmentConfig) => d.slug === "fittings" || d.id === "fittings"
           );
           if (myDept) {
             console.log('[TeamleaderFittingHub] Found fittings dept with', myDept.stations?.length || 0, 'stations');
@@ -40,7 +55,7 @@ const TeamleaderFittingHub = (props) => {
         }
         setLoading(false);
       },
-      (err) => {
+      (err: unknown) => {
         console.error("[TeamleaderFittingHub] Factory config error:", err);
         setLoading(false);
       }
@@ -59,10 +74,10 @@ const TeamleaderFittingHub = (props) => {
       </div>
     );
 
-  const machineIds = stations.map((s) => s.name);
+  const machineIds = stations.map((s: StationConfig) => s.name).filter(Boolean);
 
   return (
-    <TeamleaderHub
+    <TeamleaderHubAny
       {...props}
       fixedScope="fittings"
       departmentName={t('teamleader.fitting_productions', 'Fitting Producties')}

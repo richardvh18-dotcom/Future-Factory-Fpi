@@ -1,12 +1,34 @@
-import { collection, getDocs, writeBatch } from "firebase/firestore";
+import { collection, getDocs, writeBatch, type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { PATHS, getPathString } from "../config/dbPaths";
 import i18n from "../i18n";
 
-const normalizeCode = (value) => String(value || "").trim().toUpperCase();
-const compactCode = (value) => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+type PlanningDoc = QueryDocumentSnapshot<DocumentData, DocumentData>;
 
-const isLikelyCodeValue = (value) => {
+type ProductMatch = {
+  id: string;
+  name?: string;
+  [key: string]: unknown;
+};
+
+type SyncResultItem = {
+  code: string;
+  found: boolean;
+  product?: string;
+  saved?: boolean;
+  fullProduct?: ProductMatch;
+  sourceFields: string[];
+  viaConversion?: boolean;
+  removed?: boolean;
+  conversionTarget?: string | null;
+};
+
+type SyncProgressCallback = (current: number, total: number, results: SyncResultItem[]) => void;
+
+const normalizeCode = (value: unknown): string => String(value || "").trim().toUpperCase();
+const compactCode = (value: unknown): string => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+
+const isLikelyCodeValue = (value: unknown): boolean => {
   const raw = String(value || "").trim();
   if (!raw) return false;
   if (raw.length < 6) return false;
@@ -22,7 +44,7 @@ const isLikelyCodeValue = (value) => {
  * Genereer materiaalvarianten: CST (C) ↔ EST (E) op positie 6.
  * Tekeningen maken geen onderscheid tussen materiaaltype.
  */
-const materialVariants = (code) => {
+const materialVariants = (code: string): string[] => {
   if (!code || code.length < 8) return [];
   const c = code.toUpperCase();
   if (c[6] === "C") return [c.slice(0, 6) + "E" + c.slice(7)];
@@ -30,7 +52,7 @@ const materialVariants = (code) => {
   return [];
 };
 
-const buildLookupKeys = (value) => {
+const buildLookupKeys = (value: unknown): string[] => {
   const raw = String(value || "").trim();
   const normalized = normalizeCode(raw);
   const compact = compactCode(raw);
@@ -65,7 +87,7 @@ const buildLookupKeys = (value) => {
  * Zoekt naar overeenkomsten tussen Planning items en Product Catalogus
  * en slaat deze op in de Conversion Matrix zodat ze direct vindbaar zijn.
  */
-export const manualSyncDrawings = async (onProgress) => {
+export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Promise<SyncResultItem[]> => {
   try {
     console.log(i18n.t("manualsync.start", "Start manual sync..."));
 
@@ -73,11 +95,11 @@ export const manualSyncDrawings = async (onProgress) => {
     const planningRef = collection(db, getPathString(PATHS.PLANNING));
     const planningSnap = await getDocs(planningRef);
     
-    const uniqueItems = new Set();
-    const planningDocsByCode = new Map();
-    const codeSources = new Map();
+    const uniqueItems = new Set<string>();
+    const planningDocsByCode = new Map<string, PlanningDoc[]>();
+    const codeSources = new Map<string, Set<string>>();
 
-    planningSnap.docs.forEach(doc => {
+    planningSnap.docs.forEach((doc) => {
       const data = doc.data();
       
       // NIEUW: Parse document ID voor codes zoals N20024040_EL9ACSS0JR02A0BCCBB0
@@ -112,11 +134,14 @@ export const manualSyncDrawings = async (onProgress) => {
             
             // Houd bij uit welk veld deze code kwam
             if (!codeSources.has(codeStr)) codeSources.set(codeStr, new Set());
-            codeSources.get(codeStr).add(field);
+            const sourceSet = codeSources.get(codeStr);
+            if (sourceSet) {
+              sourceSet.add(field);
+            }
 
             // Voorkom dubbele docs in de lijst voor deze code
             const list = planningDocsByCode.get(codeStr);
-            if (!list.some(d => d.id === doc.id)) {
+            if (list && !list.some((d) => d.id === doc.id)) {
                 list.push(doc);
             }
           }
@@ -128,7 +153,7 @@ export const manualSyncDrawings = async (onProgress) => {
     console.log(i18n.t("manualsync.planning_count", "Planning bevat {count} unieke items om te checken.", { count: total }));
 
     let current = 0;
-    const results = [];
+    const results: SyncResultItem[] = [];
     let savedCount = 0;
 
     // 2. Haal alle producten op uit de catalogus
@@ -136,13 +161,13 @@ export const manualSyncDrawings = async (onProgress) => {
     const productsSnap = await getDocs(productsRef);
     
     // Indexeer producten op articleCode EN id voor snelle lookup
-    const productsByCode = new Map();
-    productsSnap.docs.forEach(doc => {
+    const productsByCode = new Map<string, ProductMatch>();
+    productsSnap.docs.forEach((doc) => {
       const p = doc.data();
-      const productData = { id: doc.id, ...p };
+      const productData: ProductMatch = { id: doc.id, ...p };
       
       // Helper om te indexeren met normalisatie (fuzzy match support)
-      const addToIndex = (key) => {
+      const addToIndex = (key: unknown) => {
           if(!key) return;
           buildLookupKeys(key).forEach((lookupKey) => {
             if (lookupKey) {
@@ -167,16 +192,16 @@ export const manualSyncDrawings = async (onProgress) => {
     // 2b. Haal conversies op voor fallback (Old Code -> New Code)
     const conversionsRef = collection(db, getPathString(PATHS.CONVERSION_MATRIX));
     const conversionsSnap = await getDocs(conversionsRef);
-    const conversionsByOldCode = new Map();
+    const conversionsByOldCode = new Map<string, Set<string>>();
 
-    conversionsSnap.docs.forEach(doc => {
+    conversionsSnap.docs.forEach((doc) => {
         const c = doc.data();
         if (c.targetProductId) {
             const target = normalizeCode(c.targetProductId);
             const targetCompact = compactCode(c.targetProductId);
             const targetKeys = [target, targetCompact].filter(Boolean);
 
-            const indexSource = (source) => {
+            const indexSource = (source: unknown) => {
               buildLookupKeys(source).forEach((sourceKey) => {
                 if (sourceKey && targetKeys.length > 0) {
                   if (!conversionsByOldCode.has(sourceKey)) {
@@ -184,7 +209,7 @@ export const manualSyncDrawings = async (onProgress) => {
                   }
                   const targetSet = conversionsByOldCode.get(sourceKey);
                   targetKeys.forEach((targetKey) => {
-                    if (targetKey) targetSet.add(targetKey);
+                    if (targetKey && targetSet) targetSet.add(targetKey);
                   });
                 }
               });
@@ -194,7 +219,7 @@ export const manualSyncDrawings = async (onProgress) => {
             if (c.manufacturedId) indexSource(c.manufacturedId);
             indexSource(doc.id);
             if (Array.isArray(c.searchTerms)) {
-              c.searchTerms.forEach(indexSource);
+              c.searchTerms.forEach((entry) => indexSource(entry));
             }
         }
     });
@@ -211,7 +236,7 @@ export const manualSyncDrawings = async (onProgress) => {
       const cleanCode = normalizeCode(itemCode);
       const lookupKeys = buildLookupKeys(itemCode);
 
-      const findProductByKeys = (keys) => {
+      const findProductByKeys = (keys: string[]): ProductMatch | null => {
         for (const key of keys) {
           const hit = productsByCode.get(key);
           if (hit) return hit;
@@ -256,7 +281,7 @@ export const manualSyncDrawings = async (onProgress) => {
             for (let i = 0; i < docsToUpdate.length; i += chunkSize) {
                 const batch = writeBatch(db);
                 const chunk = docsToUpdate.slice(i, i + chunkSize);
-                chunk.forEach(docSnap => {
+                chunk.forEach((docSnap) => {
                     batch.update(docSnap.ref, { drawing: match.id });
                 });
                 await batch.commit();
@@ -287,7 +312,7 @@ export const manualSyncDrawings = async (onProgress) => {
                 for (let i = 0; i < docsWithDrawing.length; i += chunkSize) {
                     const batch = writeBatch(db);
                     const chunk = docsWithDrawing.slice(i, i + chunkSize);
-                    chunk.forEach(docSnap => {
+                    chunk.forEach((docSnap) => {
                         batch.update(docSnap.ref, { drawing: null });
                     });
                     await batch.commit();

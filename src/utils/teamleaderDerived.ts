@@ -2,6 +2,61 @@ import { getISOWeek, startOfISOWeek } from "date-fns";
 import { normalizeMachine, getStartedCounterField } from "./hubHelpers";
 import { normalizeOrderStatus } from "./trackingHelpers";
 
+type AnyRecord = Record<string, unknown>;
+
+type DateValueLike =
+  | Date
+  | string
+  | number
+  | { toDate?: () => Date; toMillis?: () => number }
+  | null
+  | undefined;
+
+type TrackedProduct = {
+  isOverproduction?: boolean;
+  orderId?: string;
+  originalOrderId?: string;
+  originMachine?: string;
+  currentStation?: string;
+  item?: string;
+  id?: string;
+  createdAt?: DateValueLike;
+  updatedAt?: DateValueLike;
+};
+
+const toValidDate = (value: DateValueLike): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null;
+
+  if (typeof value === "object" && value !== null && "toDate" in value) {
+    const dateFactory = (value as { toDate?: () => Date }).toDate;
+    if (typeof dateFactory === "function") {
+      const parsed = dateFactory();
+      return parsed instanceof Date && Number.isFinite(parsed.getTime()) ? parsed : null;
+    }
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+
+  return null;
+};
+
+const toMillisSafe = (value: DateValueLike): number => {
+  if (typeof value === "object" && value !== null && "toMillis" in value) {
+    const millisFactory = (value as { toMillis?: () => number }).toMillis;
+    if (typeof millisFactory === "function") {
+      const millis = millisFactory();
+      return Number.isFinite(millis) ? millis : 0;
+    }
+  }
+
+  const parsedDate = toValidDate(value);
+  return parsedDate ? parsedDate.getTime() : 0;
+};
+
 const OPEN_OR_RUNNING_STATUSES = [
   "open",
   "planned",
@@ -22,12 +77,12 @@ const OPEN_OR_RUNNING_STATUSES = [
   "lopend",
 ];
 
-export const isOpenOrRunningOrder = (order) => {
+export const isOpenOrRunningOrder = (order: AnyRecord): boolean => {
   const normalized = normalizeOrderStatus(order?.status || order?.orderStatus);
   return OPEN_OR_RUNNING_STATUSES.includes(normalized);
 };
 
-export const getOrderRemainingQueueQty = (order) => {
+export const getOrderRemainingQueueQty = (order: AnyRecord): number => {
   // Altijd dynamisch berekenen: plan - started_<machine>.
   // Nooit de opgeslagen toDoQty-teller gebruiken; die kan stale zijn als plan handmatig of via LN wijzigt.
   const planQty = Number(order?.plan ?? order?.quantity ?? 0);
@@ -40,7 +95,7 @@ export const getOrderRemainingQueueQty = (order) => {
   return Math.max(planQty - startedQty, 0);
 };
 
-export const getDeliveredQtyForOrder = (order) => {
+export const getDeliveredQtyForOrder = (order: AnyRecord): number | null => {
   const candidates = [
     order?.lnDeliveredQty,
     order?.deliveredQty,
@@ -56,7 +111,7 @@ export const getDeliveredQtyForOrder = (order) => {
   return null;
 };
 
-export const getInspectionApprovedQtyForOrder = (order) => {
+export const getInspectionApprovedQtyForOrder = (order: AnyRecord): number => {
   const explicitApproved = Number(order?.inspectionApprovedQty);
   if (Number.isFinite(explicitApproved)) return explicitApproved;
   const produced = Number(order?.produced);
@@ -64,16 +119,18 @@ export const getInspectionApprovedQtyForOrder = (order) => {
   return 0;
 };
 
-export const getDeliveryInspectionDeltaForOrder = (order) => {
+export const getDeliveryInspectionDeltaForOrder = (order: AnyRecord): number | null => {
   const deliveredQty = getDeliveredQtyForOrder(order);
-  if (!Number.isFinite(deliveredQty)) return null;
+  if (deliveredQty == null) return null;
   return deliveredQty - getInspectionApprovedQtyForOrder(order);
 };
 
-export const isEventInCurrentWeek = (value, { currentWeek, currentYear }) => {
-  if (!value) return false;
-  const eventDate = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
-  if (!Number.isFinite(eventDate?.getTime?.())) return false;
+export const isEventInCurrentWeek = (
+  value: DateValueLike,
+  { currentWeek, currentYear }: { currentWeek: number; currentYear: number }
+): boolean => {
+  const eventDate = toValidDate(value);
+  if (!eventDate) return false;
   return getISOWeek(eventDate) === currentWeek && eventDate.getFullYear() === currentYear;
 };
 
@@ -83,31 +140,34 @@ export const getLegacyRejectedOrders = ({
   getOrderIdFromTrackedRecord,
   getFinishedQtyForOrder,
   isInactiveTrackedProduct,
-}) => {
+}: {
+  rawOrders: AnyRecord[];
+  rawProducts: AnyRecord[];
+  getOrderIdFromTrackedRecord: (product: AnyRecord) => string | null;
+  getFinishedQtyForOrder: (order: AnyRecord) => number;
+  isInactiveTrackedProduct: (product: AnyRecord) => boolean;
+}): AnyRecord[] => {
   const currentWeekStart = startOfISOWeek(new Date());
 
-  const hasActiveProductsForOrder = (orderId) => {
+  const hasActiveProductsForOrder = (orderId: unknown): boolean => {
     const normalizedOrderId = String(orderId || "").trim();
     if (!normalizedOrderId) return false;
 
-    return rawProducts.some((product) => {
+    return rawProducts.some((product: AnyRecord) => {
       if (getOrderIdFromTrackedRecord(product) !== normalizedOrderId) return false;
       return !isInactiveTrackedProduct(product);
     });
   };
 
-  return rawOrders.filter((order) => {
+  return rawOrders.filter((order: AnyRecord) => {
     const status = String(order?.status || order?.orderStatus || "").toLowerCase().trim();
     const archiveReason = String(order?.archiveReason || order?.archivedReason || "").toLowerCase().trim();
     const rejectedCount = Number(order?.rejectedCount || 0);
     const planCount = Number(order?.plan ?? order?.quantity ?? 0);
     const finishedCount = getFinishedQtyForOrder(order);
     const orderDate = (() => {
-      const value = order?.plannedDate || order?.date || order?.deliveryDate || null;
-      if (!value) return null;
-      if (value?.toDate) return value.toDate();
-      const parsed = new Date(value);
-      return Number.isFinite(parsed.getTime()) ? parsed : null;
+      const value = (order?.plannedDate || order?.date || order?.deliveryDate || null) as DateValueLike;
+      return toValidDate(value);
     })();
 
     const explicitRejected = ["rejected", "afkeur", "definitieve afkeur"].includes(status) || archiveReason === "rejected";
@@ -121,14 +181,26 @@ export const getLegacyRejectedOrders = ({
   });
 };
 
-export const buildOverproductionGroups = ({ rawProducts, getLotFromTrackedRecord }) => {
-  const unresolved = rawProducts.filter((product) => {
+export const buildOverproductionGroups = ({ rawProducts, getLotFromTrackedRecord }: {
+  rawProducts: TrackedProduct[];
+  getLotFromTrackedRecord: (product: TrackedProduct) => string | null;
+}) => {
+  const unresolved = rawProducts.filter((product: TrackedProduct) => {
     if (!product?.isOverproduction) return false;
     return String(product.orderId || "").trim().toUpperCase() === "NOG_TE_BEPALEN";
   });
 
-  const grouped = new Map();
-  unresolved.forEach((product) => {
+  const grouped = new Map<string, {
+    key: string;
+    originalOrderId: string;
+    originMachine: string;
+    item: string;
+    products: TrackedProduct[];
+    lotNumbers: string[];
+    count: number;
+    createdAtMs: number;
+  }>();
+  unresolved.forEach((product: TrackedProduct) => {
     const originalOrderId = String(product.originalOrderId || "ONBEKEND").trim();
     const originMachine = String(product.originMachine || product.currentStation || "ONBEKEND").trim();
     const item = String(product.item || "").trim();
@@ -148,20 +220,14 @@ export const buildOverproductionGroups = ({ rawProducts, getLotFromTrackedRecord
     }
 
     const entry = grouped.get(key);
+    if (!entry) return;
     entry.products.push(product);
     entry.lotNumbers.push(getLotFromTrackedRecord(product) || String(product.id || "").trim());
     entry.count += 1;
 
-    const createdAtMs = product.createdAt?.toMillis
-      ? product.createdAt.toMillis()
-      : new Date(product.createdAt || product.updatedAt || 0).getTime();
+    const createdAtMs = toMillisSafe(product.createdAt || product.updatedAt);
     entry.createdAtMs = Math.max(entry.createdAtMs || 0, Number.isFinite(createdAtMs) ? createdAtMs : 0);
   });
 
-  return Array.from(grouped.values())
-    .map((group) => ({
-      ...group,
-      lotNumbers: Array.from(new Set(group.lotNumbers.filter(Boolean))),
-    }))
-    .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+  return Array.from(grouped.values());
 };

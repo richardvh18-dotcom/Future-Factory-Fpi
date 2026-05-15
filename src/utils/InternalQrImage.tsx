@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 
-const qrDataUrlCache = new Map();
+const qrDataUrlCache = new Map<string, string>();
+
+type InternalQrImageProps = Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt'> & {
+  value: unknown;
+  size?: number;
+  alt?: string;
+};
 
 const InternalQrImage = ({
   value,
@@ -9,9 +15,9 @@ const InternalQrImage = ({
   className = '',
   alt = 'QR',
   ...imgProps
-}) => {
+}: InternalQrImageProps) => {
   const qrValue = useMemo(() => String(value || '').trim(), [value]);
-  const [src, setSrc] = useState('');
+  const [src, setSrc] = useState<string>('');
 
   useEffect(() => {
     let mounted = true;
@@ -38,7 +44,7 @@ const InternalQrImage = ({
       width: Math.max(64, Number(size) || 128),
       color: { dark: '#000000', light: '#FFFFFF' },
     })
-      .then((dataUrl) => {
+      .then((dataUrl: string) => {
         if (!mounted) return;
         qrDataUrlCache.set(cacheKey, dataUrl);
         setSrc(dataUrl);
@@ -54,7 +60,7 @@ const InternalQrImage = ({
   }, [qrValue, size]);
 
   if (!src) {
-    return <div className={className} aria-label={alt} {...imgProps} />;
+    return <div className={className} aria-label={alt} />;
   }
 
   return <img src={src} alt={alt} className={className} {...imgProps} />;

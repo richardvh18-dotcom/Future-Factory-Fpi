@@ -1,15 +1,31 @@
-// @ts-nocheck
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useTerminalGereedData } from "./useTerminalGereedData";
 import TerminalGereedItemCard from "./TerminalGereedItemCard";
 
-const TerminalGereedTab = ({ allTracked = [], stationId, effectiveStationId }) => {
+type TerminalTrackedItem = {
+  id?: string;
+  lotNumber?: string;
+  [key: string]: unknown;
+};
+
+type TerminalGereedTabProps = {
+  allTracked?: TerminalTrackedItem[];
+  stationId?: string;
+  effectiveStationId?: string;
+};
+
+const TerminalGereedTab = ({ allTracked = [], stationId, effectiveStationId }: TerminalGereedTabProps) => {
   const { t } = useTranslation();
   const { gereedSearch, setGereedSearch, needle, filtered } = useTerminalGereedData({
-    allTracked,
+    allTracked: allTracked as never[],
     stationId,
-  });
+  }) as {
+    gereedSearch: string;
+    setGereedSearch: (value: string) => void;
+    needle: string;
+    filtered: TerminalTrackedItem[];
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden text-left">
@@ -19,7 +35,7 @@ const TerminalGereedTab = ({ allTracked = [], stationId, effectiveStationId }) =
           <input
             type="text"
             value={gereedSearch}
-            onChange={(e) => setGereedSearch(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGereedSearch(e.target.value)}
             placeholder={t("digitalplanning.terminal.search_product_order_lot", "Zoek op product, order of lotnummer...")}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
           />
@@ -46,7 +62,7 @@ const TerminalGereedTab = ({ allTracked = [], stationId, effectiveStationId }) =
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.slice(0, 200).map((item) => (
+            {filtered.slice(0, 200).map((item: TerminalTrackedItem) => (
               <TerminalGereedItemCard key={item.id || item.lotNumber} item={item} />
             ))}
           </div>

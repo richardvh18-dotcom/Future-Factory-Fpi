@@ -1,3 +1,210 @@
+## Update sessie 14 mei 2026 (Any-Killer samengevat, 1 stuk)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Kernsamenvatting
+- De Any-Killer lijn is op 14 mei in meerdere kleine batches doorgezet met steeds dezelfde werkwijze: `@ts-nocheck` verwijderen, lokale types toevoegen, strict-narrowing toepassen en direct globaal valideren.
+- Focus lag op low-risk, incrementele opschoning van utilities, componentgrenzen en enkele service/test-randen, zonder brede functionele refactors.
+
+### Afgeronde werkpakketten (geconsolideerd)
+- Utility batches rond working time, manual sync, workstation/infor en planning/tracking helpers.
+- Verdere strict-typing fixes op o.a. pdf/error/inventory/hub/printer gerelateerde bestanden.
+- Vervolg-mini-batches op Teamleader hubs/panels/helpers plus `aiServiceTest.ts` met API-afstemming op de actuele `aiService`-interface.
+
+### Technische aanpak
+- Lokale shape-types en expliciete functie-signatures toegevoegd.
+- Null/unknown/date narrowing en index-guards toegepast waar strict mode daarom vroeg.
+- Compatibiliteitscasts behouden op legacy-randen waar upstream nog `unknown`-gebaseerde signatures gebruikt.
+
+### Validatiestatus
+- Tijdens alle batches herhaald globale validatie uitgevoerd met `npm run type-check -- --pretty false`.
+- Eindstatus van deze samengevoegde 14-mei run: **EXIT_CODE: 0**.
+- Resterende `@ts-nocheck` in `src`: **150**.
+
+### Hervatpunt
+- Volgende stap blijft: opnieuw de 3 kleinste resterende `@ts-nocheck` bestanden in `src` selecteren, lokaal typeren en direct globaal valideren.
+
+### Vervolgcheckpoint (14 mei 2026, later in dezelfde run)
+- Extra mini-batches uitgevoerd met dezelfde low-risk aanpak (alleen `@ts-nocheck` verwijderd, geen functionele wijzigingen).
+- In totaal **6 extra bestanden** opgeschoond:
+    - `src/components/products/ProductCard.tsx`
+    - `src/main.js`
+    - `src/components/digitalplanning/modals/DrillDownModal.js`
+    - `src/components/admin/matrixmanager/LibrarySection.tsx`
+    - `src/components/digitalplanning/modals/RepairModal.tsx`
+    - `src/contexts/BackgroundTaskContext.tsx`
+- Validatie na elke batch met `get_errors` op exact de aangepaste bestanden: **geen errors**.
+- Nieuwe kleinste vervolgtargets (klaar voor eerstvolgende sessie):
+    - `src/components/teamleader/TeamleaderGanttView.tsx`
+    - `src/components/digitalplanning/modals/LoanPersonnelModal.js`
+    - `src/components/admin/UserStationManager.js`
+- Actuele momentopname resterende `@ts-nocheck` in `src`: **239**.
+
+---
+
+## Update sessie 12 mei 2026 (MT Presentatie optimalisaties & nieuwe slides)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Gebruikersverzoeken & Doelen:
+- Optimalisatie van de MT Presentatie code (performance & toegankelijkheid).
+- Verduidelijken van de datastroom (Gatekeeper Cloud Functions).
+- Kosten-slide updaten: lay-out verbeteren, GitHub kosten verhogen naar €50-75, en een voetnoot toevoegen.
+- Nieuwe slide "Optionele Extra's" (Google Workspace & fpi-future-factory.com domein) toevoegen.
+- Overdracht-slide (SSO) tekst aanpassen en beter leesbaar maken.
+
+### Uitgevoerde acties:
+**1. Code & Performance Optimalisaties (`MTPresentation.tsx`)**
+- `changeSlide` functie gememoized met `useCallback` en de event listener voor toetsenbordnavigatie geoptimaliseerd (bindt nu slechts 1 keer i.p.v. bij elke slidedraai).
+- `aria-label`s toegevoegd aan de navigatieknoppen voor betere toegankelijkheid.
+
+**2. Inhoudelijke aanpassingen Presentatie**
+- **Datastroom:** "(Cloud Functions)" toegevoegd achter Gatekeeper in de diagramuitleg.
+- **Kosten:** Tegels voorzien van extra beschrijvende teksten, GitHub kosten aangepast, totaalbedrag bijgewerkt naar ± EUR 135,- en verduidelijkende voetnoot toegevoegd.
+- **Optionele Extra's:** Nieuwe slide ingevoegd met uitleg over Google Workspace (MDM/Kiosk-modus) en Eigen Domeinnaam (`fpi-future-factory.com`). Paginatotaal correct opgehoogd naar `15` en index-gaten gedicht zodat de laatste slide "Vragen?" weer bereikbaar is.
+- **Overdracht:** Headers en teksten vergroot voor betere leesbaarheid op afstand. Microsoft SSO tekst specifiek aangepast naar: "Hoofdgebruikers kunnen inloggen met hun eigen @futurepipe.com mail en account."
+
+### Gewijzigde bestanden:
+- `src/components/MTPresentation.tsx`
+
+---
+
+## Update sessie 12 mei 2026 (Archieforder ophogen + terug naar planning)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Gebruikersverzoek
+- Een order die al volledig in archief staat moet alsnog opgehoogd kunnen worden en direct terugkomen in de planning.
+
+### Uitgevoerd in deze sessie
+- Backend uitgebreid zodat `updatePlanningOrderDetails` nu ook archieforders kan vinden en heropenen:
+    - Als order niet actief gevonden wordt, zoekt de service nu in `archivePlanningPath`.
+    - Bij een ophoging wordt de order automatisch teruggezet naar de actieve planningcollectie.
+    - Status wordt naar `planned` gezet, archiefvelden worden opgeschoond, en `toDo` wordt herberekend.
+    - `planDelta` ondersteuning toegevoegd zodat ophogen met `+X` direct mogelijk is.
+- Frontend call-chain uitgebreid:
+    - `planDelta` toegevoegd aan `planningSecurityService.updatePlanningOrderDetails`.
+    - Callable-validatie uitgebreid in `planningCallables.ts`.
+- Teamleader UI uitgebreid:
+    - In `ArchivedOrderDetailPanel` is een nieuwe actie toegevoegd: **Ophogen met X → Terug naar planning**.
+    - Deze actie is gekoppeld via `TeamleaderDetailPane` en `TeamleaderHub` naar de event handler.
+
+### Validatie
+- `get_errors` op alle aangepaste bestanden: geen errors.
+- Volledige `npm run type-check` is uitgevoerd en faalt op bestaande projectbrede Any-Killer fouten buiten deze wijziging (ongewijzigde utility-bestanden).
+
+### Gewijzigde bestanden
+- `functions/src/services/planningTransitionService.ts`
+- `functions/src/callables/planningCallables.ts`
+- `src/services/planningSecurityService.ts`
+- `src/components/digitalplanning/useTeamleaderEventHandlers.ts`
+- `src/components/digitalplanning/TeamleaderHub.tsx`
+- `src/components/digitalplanning/TeamleaderDetailPane.tsx`
+- `src/components/digitalplanning/ArchivedOrderDetailPanel.tsx`
+
+---
+
+## Update sessie 12 mei 2026 (Any-Killer vervolgcheckpoint opgeslagen)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Doel van deze vervolgstap
+- Verdergaan op pijler 4 (strict TypeScript) met kleine, veilige fixes per bestand.
+- Nieuwe actuele blockers direct valideren met gerichte type-checks.
+
+### In deze vervolgstap afgerond
+- `src/components/CalculatorView.tsx`
+    - TS2345 blocker opgelost door prop-typen gelijk te trekken met de matrix-typen van `calculateZDimension`.
+- `src/utils/conversionLogic.ts`
+    - Grote cluster aangepakt: nullable/string-narrowing + implicit-any issues opgeschoond.
+    - Logging calls gestabiliseerd met veilige actor-id fallback (`SYSTEM`) waar nodig.
+- `src/utils/helpers.ts`
+    - Typing rond `callGemini` aangescherpt en chat-call signature expliciet gemaakt.
+- `src/utils/planningProgress.ts`
+    - Strict typing toegevoegd voor order/record helpers (o.a. `never[]`/implicit-any issues weggenomen).
+- `src/utils/trackedProducts.ts`
+    - Typing en timestamp/date narrowing verbeterd voor strict mode.
+- `src/utils/efficiencyCalculator.ts`
+    - Time input typing uitgebreid (Date/string/number/Firestore-like timestamp).
+    - Functie-annotaties toegevoegd om strict-fouten te elimineren.
+
+### Validatie (gericht)
+- Type-check herhaald op de aangepaste bestanden:
+    - `CalculatorView.tsx`
+    - `conversionLogic.ts`
+    - `helpers.ts`
+    - `planningProgress.ts`
+    - `trackedProducts.ts`
+    - `efficiencyCalculator.ts`
+    - `efficiencyCalculator.test.ts`
+- Resultaat: geen actuele matches meer voor deze set.
+
+### Actuele vervolgstap
+- Volgende Any-Killer target: `src/utils/automationEngine.test.ts` (mock-typing + resterende implicit-any).
+
+---
+
+## Update sessie 11 mei 2026 (Any-Killer voortgang + actuele status)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Doel van deze run
+- Doorgaan op pijler 4: strikte TypeScript opschoning ("Any-Killer") in kleine, veilige batches.
+- Per bestand valideren met gerichte type-checks om regressies te beperken.
+
+### In deze run afgerond
+- Eerder in deze keten strict-clean gemaakt en gevalideerd:
+    - `src/services/planningContext.ts`
+    - `src/services/planningSecurityService.ts`
+    - `src/services/printService.ts`
+    - `src/utils/InternalQrImage.tsx` (+ `@types/qrcode` toegevoegd)
+    - `src/utils/archiveService.ts`
+    - `src/utils/qrAuth.ts`
+    - `src/utils/productHelpers.ts`
+    - `src/utils/calculations.ts`
+- Actuele hercontrole uitgevoerd op:
+    - `src/repositories/planningRepository.ts`
+    - `src/hooks/useLabelPreview.ts`
+    - `src/hooks/useNFCReader.ts`
+    - Resultaat: geen actuele matches meer in de type-check voor deze drie bestanden.
+
+### Actuele topfouten (nu)
+- Eerste actuele blocker in de nieuwste run:
+    - `src/components/CalculatorView.tsx` (TS2345, type mismatch rond matrixdata)
+- Grootste foutcluster daarna:
+    - `src/utils/automationEngine.test.ts` (mock-typing + implicit any)
+    - `src/utils/conversionLogic.ts` (veel implicit any + nullable/string narrowing)
+
+### Notities
+- In de workspace staan diagnostische outputbestanden van eerdere runs (`type_check_output*.txt`, `type_check_report.txt`); deze bevatten historische snapshots en zijn niet leidend voor de actuele status.
+
+### Eerstvolgende stap (bij vervolg)
+- Starten met `src/components/CalculatorView.tsx` (single-error quick win), daarna gefaseerd `src/utils/conversionLogic.ts` in kleine type-batches.
+
+---
+
+## Update sessie 11 mei 2026 (Strategische Roadmap & Volgende Aanbevelingen)
+
+**Branch:** `FPiFF-18-12-May`
+
+### Strategisch Actieplan voor Enterprise-Readiness (Vastgelegd)
+Nu de fundering staat en de pilot draait, ligt de focus voor de komende periode op vijf strategische pijlers:
+
+1. **Van Context API naar Zustand (Performance):** 
+   Vervangen van zware, diep-geneste React Contexts door Zustand om onnodige re-renders (bijv. in de Workstation/Teamleader Hubs) te voorkomen en de UI razendsnel te houden op tablets.
+2. **Firebase Offline Persistentie (Betrouwbaarheid):** 
+   Activeren van Firestore offline persistentie zodat operators ongestoord kunnen doorwerken, scannen en gereedmelden wanneer het Wi-Fi-netwerk op de fabrieksvloer tijdelijk wegvalt.
+3. **End-to-End (E2E) Testing toevoegen:** 
+   Implementatie van Playwright voor het simuleren van virtuele operators en het automatisch testen van het *Critical Path* (inloggen, scannen, produceren, gereedmelden).
+4. **Strikte TypeScript & "The Any Killer" (Code Kwaliteit):** 
+   Activeren van `"strict": true` in `tsconfig.json` en het iteratief vervangen van `any` types door DTO's en interfaces voor maximale betrouwbaarheid en V8 engine optimalisatie.
+5. **Firebase App Check & Cost Management (Beveiliging):** 
+   Beveiliging van cloud resources via reCAPTCHA/App Check om te garanderen dat alleen legitiem Vercel-frontend verkeer met Firestore/Functions communiceert.
+
+*Eerstvolgende stap:* Bepalen welke van deze 5 pijlers als eerste wordt opgepakt en hier technisch mee starten.
+
+---
+
 ## Update sessie 11 mei 2026 (Voorbereiding QR & Export optimalisaties)
 
 **Branch:** `FPiFF-18-12-May`
