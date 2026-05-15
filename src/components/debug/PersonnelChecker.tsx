@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { db } from '../../config/firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -8,19 +7,37 @@ import { Database, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 /**
  * PersonnelChecker - Debug component om te controleren of personeel correct wordt opgeslagen
  */
-const PersonnelChecker = () => {
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
 
-  const checkData = async () => {
+interface PersonnelData {
+  path: string;
+  count: number;
+  items: Array<{
+    id: string;
+    name?: string;
+    employeeNumber?: string;
+    rotationSchedule?: {
+      enabled?: boolean;
+      shifts?: string[];
+    };
+    shiftId?: string;
+    [key: string]: any;
+  }>;
+  exists: boolean;
+}
+
+const PersonnelChecker: React.FC = () => {
+  const [loading, setLoading] = useState<boolean>(true);
+  const [data, setData] = useState<PersonnelData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkData = async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
       const path = PATHS.PERSONNEL.join('/');
       console.log('🔍 Checking path:', path);
       
-      const snap = await getDocs(collection(db, ...PATHS.PERSONNEL));
+      const snap = await getDocs(collection(db, ...(PATHS.PERSONNEL as [string, ...string[]])));
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       
       console.log('✅ Found personnel:', items.length);
@@ -32,9 +49,10 @@ const PersonnelChecker = () => {
         items,
         exists: snap.size > 0
       });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('❌ Error:', err);
-      setError(err.message);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

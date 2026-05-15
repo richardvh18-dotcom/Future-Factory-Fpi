@@ -1,5 +1,4 @@
-// @ts-nocheck
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, FC } from "react";
 import { useTranslation } from "react-i18next";
 import { Save, RotateCcw, Loader2, FileText, AlertCircle } from "lucide-react";
 import { doc, getDoc } from "firebase/firestore";
@@ -9,24 +8,26 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { DEFAULT_CONTEXT } from "./AiChatView";
 import { saveAiContextConfig } from "../../services/planningSecurityService";
 
-const AiContextManager = () => {
+const AiContextManager: FC = () => {
   const { t } = useTranslation();
   const { showSuccess, showError } = useNotifications();
-  const [context, setContext] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [context, setContext] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
 
   useEffect(() => {
-    const loadContext = async () => {
+    const loadContext = async (): Promise<void> => {
       try {
-        const docRef = doc(db, ...(PATHS?.AI_CONFIG || ['future-factory', 'settings', 'ai_config', 'main']));
+        const aiConfigPath = PATHS?.AI_CONFIG || ['future-factory', 'settings', 'ai_config', 'main'];
+        const docRef = doc(db, ...(aiConfigPath as [string, ...string[]]));
         const snap = await getDoc(docRef);
-        if (snap.exists() && snap.data().systemPrompt) {
-          setContext(snap.data().systemPrompt);
+        if (snap.exists()) {
+          const data = snap.data();
+          setContext(data?.systemPrompt || DEFAULT_CONTEXT);
         } else {
           setContext(DEFAULT_CONTEXT);
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error(t('ai.context.load_error'), err);
         showError(t('ai.context.load_error'));
       } finally {
@@ -34,15 +35,15 @@ const AiContextManager = () => {
       }
     };
     loadContext();
-  }, []);
+  }, [t, showError]);
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<void> => {
     setSaving(true);
     try {
       await saveAiContextConfig(context);
-      await logActivity(auth.currentUser?.uid, "AI_CONTEXT_UPDATE", "AI System Prompt updated");
+      await logActivity(auth.currentUser?.uid || "system", "AI_CONTEXT_UPDATE", "AI System Prompt updated");
       showSuccess(t('ai.context.save_success'));
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(t('ai.context.save_error'), err);
       showError(t('ai.context.save_error'));
     } finally {

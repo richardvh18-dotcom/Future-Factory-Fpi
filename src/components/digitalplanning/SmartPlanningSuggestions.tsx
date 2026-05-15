@@ -1,9 +1,10 @@
-// @ts-nocheck
-import React, { useState } from "react";
+import React, { useState, FC } from "react";
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { BrainCircuit, Loader2, Sparkles, ArrowRight } from "lucide-react";
 import { aiService } from "../../services/aiService";
 
 interface PlanningOrder {
+  id?: string;
   orderId: string;
   score: number;
   deliveryDate?: string;
@@ -15,22 +16,21 @@ interface Props {
   onOrderClick?: (order: PlanningOrder) => void;
 }
 
-export const SmartPlanningSuggestions: React.FC<Props> = ({ orders, onOrderClick }) => {
-  const [loading, setLoading] = useState(false);
+export const SmartPlanningSuggestions: FC<Props> = ({ orders, onOrderClick }) => {
+  const [loading, setLoading] = useState<boolean>(false);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<PlanningOrder[]>([]);
 
-  const handleGenerateSuggestions = async () => {
+  const handleGenerateSuggestions = async (): Promise<void> => {
     if (!orders || orders.length === 0) return;
 
     setLoading(true);
     try {
       // 1. Schaalbare wiskunde: laat de Cloud Function de top orders berekenen
-      const functions = getFunctions();
+      const functions = getFunctions(undefined, "europe-west1");
       const calculateSuggestions = httpsCallable<{ orders: PlanningOrder[] }, { topOrders: PlanningOrder[] }>(
         functions,
-        "calculateSmartSuggestions",
-        { region: "europe-west1" }
+        "calculateSmartSuggestions"
       );
 
       const result = await calculateSuggestions({ orders });
@@ -54,7 +54,7 @@ Geef een korte, professionele en menselijke verklaring (maximaal 2 of 3 zinnen) 
 
       const aiResponse = await aiService.chat([{ role: "user", content: prompt }]);
       setExplanation(aiResponse);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Fout bij het genereren van AI suggesties:", error);
     } finally {
       setLoading(false);
