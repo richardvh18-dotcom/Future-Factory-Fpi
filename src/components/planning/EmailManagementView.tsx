@@ -1,23 +1,44 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { collection, onSnapshot, doc, addDoc, deleteDoc, updateDoc, serverTimestamp, query, orderBy, limit } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { PATHS } from "../../config/dbPaths";
-import { Mail, Plus, Edit, Trash2, CheckCircle, XCircle, Search, LayoutTemplate, History } from "lucide-react";
+import { Mail, Plus, Edit, Trash2, CheckCircle, XCircle, LayoutTemplate, History } from "lucide-react";
 import { useNotifications } from "../../contexts/NotificationContext";
+
+interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  html: string;
+}
+
+interface EmailLog {
+  id: string;
+  status?: string;
+  createdAt?: { seconds: number };
+  to?: string | string[];
+  subject?: string;
+  templateName?: string;
+}
+
+interface EmailFormData {
+  name: string;
+  subject: string;
+  html: string;
+}
 
 const EmailManagementView = () => {
   const { t } = useTranslation();
   const { showConfirm, notify } = useNotifications();
   const [activeTab, setActiveTab] = useState("templates"); // "templates" or "logs"
-  const [templates, setTemplates] = useState([]);
-  const [logs, setLogs] = useState([]);
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [logs, setLogs] = useState<EmailLog[]>([]);
   
   // Editor state
   const [showEditor, setShowEditor] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState(null);
-  const [formData, setFormData] = useState({
+  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
+  const [formData, setFormData] = useState<EmailFormData>({
     name: "",
     subject: "",
     html: "",
@@ -26,14 +47,14 @@ const EmailManagementView = () => {
   useEffect(() => {
     // Load Templates
     const unsubTemplates = onSnapshot(collection(db, ...PATHS.EMAIL_TEMPLATES), (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as EmailTemplate));
       setTemplates(data);
     });
 
     // Load Logs (limit to 100)
     const logsQuery = query(collection(db, ...PATHS.EMAIL_LOGS), orderBy("createdAt", "desc"), limit(100));
     const unsubLogs = onSnapshot(logsQuery, (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as EmailLog));
       setLogs(data);
     });
 
@@ -148,7 +169,7 @@ const EmailManagementView = () => {
                     <div className="flex justify-between items-start mb-2">
                       <h3 className="font-bold text-slate-800">{tpl.name}</h3>
                       <div className="flex gap-2">
-                        <button onClick={() => { setEditingTemplate(tpl); setFormData(tpl); setShowEditor(true); }} className="text-slate-400 hover:text-blue-600"><Edit size={16}/></button>
+                        <button onClick={() => { setEditingTemplate(tpl); setFormData({ name: tpl.name, subject: tpl.subject, html: tpl.html }); setShowEditor(true); }} className="text-slate-400 hover:text-blue-600"><Edit size={16}/></button>
                         <button onClick={() => handleDelete(tpl.id, tpl.name)} className="text-slate-400 hover:text-red-600"><Trash2 size={16}/></button>
                       </div>
                     </div>
@@ -254,7 +275,7 @@ const EmailManagementView = () => {
               ))}
               {logs.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="p-8 text-center text-slate-500">
+                  <td colSpan={5} className="p-8 text-center text-slate-500">
                     Nog geen e-mails verstuurd.
                   </td>
                 </tr>

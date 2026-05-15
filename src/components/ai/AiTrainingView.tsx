@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -22,13 +21,24 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import { PATHS, getPathString } from "../../config/dbPaths";
 import { useNotifications } from '../../contexts/NotificationContext';
 import {
   verifyAiKnowledgeEntry,
   deleteAiKnowledgeEntry,
   migrateAiKnowledgeFields,
 } from "../../services/planningSecurityService";
+
+interface AiKnowledgeLog {
+  id: string;
+  feedback?: string;
+  type?: string;
+  verified?: boolean;
+  timestamp?: { toDate: () => Date };
+  question?: string;
+  userInput?: string;
+  answer?: string;
+}
 
 /**
  * AiTrainingView V6.1 - Root Path Edition
@@ -37,21 +47,21 @@ import {
 const AiTrainingView = () => {
   const { t } = useTranslation();
   const { notify } = useNotifications();
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState<AiKnowledgeLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [correction, setCorrection] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     // Gebruik het nieuwe root pad uit dbPaths.js
-    const colRef = collection(db, ...(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']));
+    const colRef = collection(db, getPathString(PATHS.AI_KNOWLEDGE_BASE));
     const q = query(colRef, orderBy("timestamp", "desc"));
 
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
-        setLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as AiKnowledgeLog)));
         setLoading(false);
       },
       (err) => {
@@ -63,7 +73,7 @@ const AiTrainingView = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleVerify = async (id, correctedText = null) => {
+  const handleVerify = async (id: string, correctedText: string | null = null) => {
     setSaving(true);
     try {
       await verifyAiKnowledgeEntry({
@@ -71,7 +81,7 @@ const AiTrainingView = () => {
         correctedAnswer: correctedText || null,
       });
       setEditingId(null);
-      await logActivity(auth.currentUser?.uid, 'AI_VERIFY', `Training verified for ID: ${id}. Correction: ${correctedText ? 'Yes' : 'No'}`);
+      await logActivity(auth.currentUser?.uid ?? "", 'AI_VERIFY', `Training verified for ID: ${id}. Correction: ${correctedText ? 'Yes' : 'No'}`);
       setCorrection("");
     } catch (e) {
       console.error(t('ai.training.verify_error'), e);
@@ -80,7 +90,7 @@ const AiTrainingView = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm(t('ai.training.delete_confirm')))
       return;
     try {
@@ -95,10 +105,10 @@ const AiTrainingView = () => {
     
     try {
       const result = await migrateAiKnowledgeFields();
-      notify(t('ai.training.migrate_done', { count: result?.updated || 0 }));
+      notify(t('ai.training.migrate_done', { count: (result as { updated?: number })?.updated || 0 }));
     } catch (e) {
       console.error(e);
-      notify(t('ai.training.migrate_error', { message: e.message }));
+      notify(t('ai.training.migrate_error', { message: (e as Error).message }));
     }
   };
 
@@ -135,7 +145,7 @@ const AiTrainingView = () => {
               <ShieldCheck size={10} /> Root Protected
             </span>
             <span className="text-[9px] font-mono text-slate-500 italic">
-              /{(PATHS?.AI_KNOWLEDGE_BASE || ['future-factory', 'settings', 'ai_knowledge_base']).join("/")}
+              /{PATHS.AI_KNOWLEDGE_BASE.join("/")}
             </span>
           </div>
         </div>
@@ -250,7 +260,7 @@ const AiTrainingView = () => {
                     <button
                       onClick={() => {
                         setEditingId(log.id);
-                        setCorrection(log.answer);
+                        setCorrection(log.answer ?? "");
                       }}
                       className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black text-[10px] uppercase tracking-[0.3em] hover:bg-blue-600 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-3"
                     >

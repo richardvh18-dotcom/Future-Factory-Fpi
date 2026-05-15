@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useNotifications } from '../../../contexts/NotificationContext';
 import React, { useState, useEffect } from "react";
 import {
@@ -14,6 +13,22 @@ import {
   Zap,
 } from "lucide-react";
 
+type MatrixDataType = Record<string, Record<string, Record<string, string[]>>>;
+
+interface LibraryData {
+  connections: string[];
+  product_names: string[];
+  pns: (string | number)[];
+  diameters: (string | number)[];
+}
+
+interface MatrixViewProps {
+  libraryData: LibraryData;
+  matrixData?: MatrixDataType;
+  setMatrixData: React.Dispatch<React.SetStateAction<MatrixDataType>>;
+  setHasUnsavedChanges?: (v: boolean) => void;
+}
+
 /**
  * MatrixView V4.0 - Production Availability Grid
  * Beheert welke PN/ID combinaties per producttype beschikbaar zijn.
@@ -24,7 +39,7 @@ const MatrixView = ({
   matrixData = {},
   setMatrixData,
   setHasUnsavedChanges,
-}) => {
+}: MatrixViewProps) => {
   const { notify } = useNotifications();
   const [selectedConnection, setSelectedConnection] = useState("");
   const [selectedType, setSelectedType] = useState("");
@@ -43,7 +58,7 @@ const MatrixView = ({
     }
   }, [libraryData, selectedConnection, selectedType]);
 
-  const normalizeConnection = (conn) => {
+  const normalizeConnection = (conn: string | null | undefined): string => {
     if (!conn) return "";
     const c = conn.toUpperCase();
     // Normaliseer TB/TB naar TB, etc. voor consistente opslag-sleutels
@@ -51,14 +66,14 @@ const MatrixView = ({
     return c;
   };
 
-  const toggleMatrixItem = (connection, pressure, category, id) => {
+  const toggleMatrixItem = (connection: string, pressure: string | number, category: string, id: string | number): void => {
     const storageKey = normalizeConnection(connection);
     const pnKey = String(pressure);
     const idStr = String(id);
 
     setMatrixData((prev) => {
       // Diepe kopie voor veiligheid
-      const newData = JSON.parse(JSON.stringify(prev));
+      const newData = JSON.parse(JSON.stringify(prev)) as MatrixDataType;
       if (!newData[storageKey]) newData[storageKey] = {};
       if (!newData[storageKey][pnKey]) newData[storageKey][pnKey] = {};
 
@@ -84,7 +99,7 @@ const MatrixView = ({
     const storageKey = normalizeConnection(selectedConnection);
 
     setMatrixData((prev) => {
-      const newData = JSON.parse(JSON.stringify(prev));
+      const newData = JSON.parse(JSON.stringify(prev)) as MatrixDataType;
       const connectionData = newData[storageKey] || {};
       let copiedCount = 0;
 
