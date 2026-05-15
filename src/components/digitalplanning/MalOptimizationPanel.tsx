@@ -1,18 +1,42 @@
-// @ts-nocheck
-import React, { useMemo } from 'react';
+import React, { useMemo, FC } from 'react';
 import StatusBadge from './common/StatusBadge';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import { toDateSafe } from '../../utils/dateUtils';
 
-const MalOptimizationPanel = ({ currentOrder, allOrders, onSelectOrder }) => {
+interface Order {
+  id?: string;
+  itemCode?: string;
+  productId?: string;
+  week?: string | number;
+  weekNumber?: string | number;
+  deliveryDate?: any;
+  plannedDate?: any;
+  produced?: number;
+  plan?: number;
+  quantity?: number;
+  status?: string;
+  orderId?: string;
+  orderNumber?: string;
+  labels?: string[];
+  project?: string;
+  [key: string]: any;
+}
+
+interface MalOptimizationPanelProps {
+  currentOrder: Order | null;
+  allOrders: Order[];
+  onSelectOrder?: (id?: string) => void;
+}
+
+const MalOptimizationPanel: FC<MalOptimizationPanelProps> = ({ currentOrder, allOrders, onSelectOrder }) => {
   const { t } = useTranslation();
 
-  const parseDateSafe = (dateInput) => {
+  const parseDateSafe = (dateInput: any): Date | null => {
     return toDateSafe(dateInput);
   };
 
-  const getPlanningInfo = (order) => {
+  const getPlanningInfo = (order: Order): string => {
     const weekRaw = String(order.week || order.weekNumber || '').trim();
     const deliveryDate = parseDateSafe(order.deliveryDate || order.plannedDate);
 
@@ -43,9 +67,9 @@ const MalOptimizationPanel = ({ currentOrder, allOrders, onSelectOrder }) => {
 
     const currentCode = currentOrder.itemCode || currentOrder.productId;
 
-    return allOrders.filter(order => 
+    return allOrders.filter((order: Order) => 
       (order.itemCode || order.productId) === currentCode && // Zelfde product
-      order.id !== currentOrder.id && // Niet de huidige order
+      order.id !== currentOrder.id && // Niet de huide order
       (order.produced || 0) < (order.plan || order.quantity || 0) && // Nog niet klaar
       order.status !== 'completed' && 
       order.status !== 'shipped'
@@ -64,17 +88,17 @@ const MalOptimizationPanel = ({ currentOrder, allOrders, onSelectOrder }) => {
         <p className="text-xs text-slate-900 dark:text-slate-200 mt-1 font-medium">
           {t('digitalplanning.optimization.orders_count', {
             count: relatedOrders.length,
-            product: currentOrder.itemCode || currentOrder.productId,
+            product: currentOrder?.itemCode || currentOrder?.productId,
             defaultValue: 'Nog {{count}} orders voor {{product}}.',
           })}
         </p>
       </div>
 
       <div className="divide-y divide-blue-100 dark:divide-blue-800 max-h-48 overflow-y-auto">
-        {relatedOrders.map(order => (
+        {relatedOrders.map((order: Order) => (
           <button
             key={order.id}
-            onClick={() => onSelectOrder(order.id)}
+            onClick={() => onSelectOrder && onSelectOrder(order.id)}
             className="w-full text-left p-2 hover:bg-white dark:hover:bg-gray-800 transition-colors flex justify-between items-center group"
           >
             <div>

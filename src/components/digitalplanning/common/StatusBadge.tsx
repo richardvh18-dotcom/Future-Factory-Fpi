@@ -1,5 +1,4 @@
-// @ts-nocheck
-import React from "react";
+import React, { FC } from "react";
 import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
@@ -19,12 +18,24 @@ import {
  * Ondersteunt zowel productie-statussen als kwaliteitslabels.
  * Design: font-black, uppercase, italic, tracking-widest.
  */
-const StatusBadge = React.memo(({ status, showIcon = true }) => {
+
+interface StatusConfig {
+  label: string;
+  style: string;
+  icon?: JSX.Element;
+}
+
+interface StatusBadgeProps {
+  status?: string;
+  showIcon?: boolean;
+}
+
+const StatusBadge: FC<StatusBadgeProps> = React.memo(({ status, showIcon = true }) => {
   if (!status) return null;
 
   // Mapping van statussen naar stijlen, labels en iconen
   const { t } = useTranslation();
-  const getStatusConfig = (s) => {
+  const getStatusConfig = (s: string): StatusConfig => {
     const cleanStatus = String(s).toLowerCase();
 
     // 1. KWALITEITS LABELS (QC)

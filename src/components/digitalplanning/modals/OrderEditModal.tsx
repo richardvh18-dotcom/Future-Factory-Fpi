@@ -1,12 +1,37 @@
-// @ts-nocheck
-import React from "react";
+import React, { FC } from "react";
 import { useLocation } from "react-router-dom";
 import { X, Settings2, Loader2, Save, Trash2 } from "lucide-react";
 
 /**
  * Modal voor het aanpassen of verwijderen van orders door Admins/Teamleaders.
  */
-const OrderEditModal = ({
+
+interface Station {
+  id: string;
+  type?: string;
+  [key: string]: any;
+}
+
+interface FormData {
+  id?: string;
+  machine?: string;
+  plan?: string | number;
+  activeLot?: string;
+  [key: string]: any;
+}
+
+interface OrderEditModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  formData: FormData;
+  setFormData: (data: FormData) => void;
+  onSave: () => void;
+  onDelete: (id?: string) => void;
+  loading: boolean;
+  stations: Station[];
+}
+
+const OrderEditModal: FC<OrderEditModalProps> = ({
   isOpen,
   onClose,
   formData,
@@ -52,14 +77,14 @@ const OrderEditModal = ({
               </label>
               <select
                 className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 transition-all"
-                value={formData.machine}
+                value={formData.machine || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, machine: e.target.value })
                 }
               >
                 {stations
-                  .filter((s) => s.type === "machine")
-                  .map((stationItem) => (
+                  .filter((s: Station) => s.type === "machine")
+                  .map((stationItem: Station) => (
                     <option key={stationItem.id} value={stationItem.id}>
                       {stationItem.id}
                     </option>
@@ -73,7 +98,7 @@ const OrderEditModal = ({
               <input
                 type="number"
                 className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 transition-all"
-                value={formData.plan}
+                value={formData.plan || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, plan: e.target.value })
                 }
