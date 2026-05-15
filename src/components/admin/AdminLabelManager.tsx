@@ -1,10 +1,9 @@
-// @ts-nocheck
 import React, { useMemo, useState, useEffect } from "react";
 import { useTranslation } from 'react-i18next';
 import { BoxSelect, PenTool, Settings, LayoutGrid, Edit2, Search, Trash2 } from "lucide-react";
 import { collection, onSnapshot, deleteDoc, doc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
-import { PATHS } from "../../config/dbPaths";
+import { PATHS, getPathString } from "../../config/dbPaths";
 import { useNotifications } from "../../contexts/NotificationContext";
 import AdminLabelDesigner from "./AdminLabelDesigner";
 import AdminLabelLogic from "./AdminLabelLogic";
@@ -21,26 +20,40 @@ const LABEL_FOLDER_OPTIONS = [
   "Flenzen",
 ];
 
-const AdminLabelManager = ({ onNavigate }) => {
+interface LabelTemplate {
+  id: string;
+  name?: string;
+  width?: number | string;
+  height?: number | string;
+  folder?: string;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
+interface AdminLabelManagerProps {
+  onNavigate?: (id: string | null) => void;
+}
+
+const AdminLabelManager = ({ onNavigate }: AdminLabelManagerProps) => {
   const { t } = useTranslation();
   const { showConfirm , notify} = useNotifications();
   const genericFolderLabel = t('common.generic', 'Generiek');
   const [activeTab, setActiveTab] = useState("designer");
-  const [savedLabels, setSavedLabels] = useState([]);
+  const [savedLabels, setSavedLabels] = useState<LabelTemplate[]>([]);
   const [templateSearch, setTemplateSearch] = useState("");
   const [designerOpenLabelId, setDesignerOpenLabelId] = useState(null);
-  const [collapsedGroups, setCollapsedGroups] = useState({});
-  const [deletingTemplateId, setDeletingTemplateId] = useState(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
-    const colRef = collection(db, ...PATHS.LABEL_TEMPLATES);
+    const colRef = collection(db, getPathString(PATHS.LABEL_TEMPLATES));
     const unsub = onSnapshot(colRef, (snap) => {
       setSavedLabels(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return () => unsub();
   }, []);
 
-  const inferFolderFromTags = (tags = []) => {
+  const inferFolderFromTags = (tags: string[] = []): string => {
     const upperTags = tags.map(t => String(t).toUpperCase());
     const isTemp = upperTags.includes("TIJDELIJK") || upperTags.includes("TEMP");
     const hasWavi = upperTags.includes("WAVISTRONG");
@@ -113,7 +126,7 @@ const AdminLabelManager = ({ onNavigate }) => {
     setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
-  const deleteTemplate = async (label) => {
+  const deleteTemplate = async (label: LabelTemplate) => {
     if (!label?.id) return;
 
     const confirmMessage = label?.name
@@ -131,9 +144,9 @@ const AdminLabelManager = ({ onNavigate }) => {
 
     setDeletingTemplateId(label.id);
     try {
-      await deleteDoc(doc(db, ...PATHS.LABEL_TEMPLATES, label.id));
+      await deleteDoc(doc(db, getPathString(PATHS.LABEL_TEMPLATES), label.id));
       await logActivity(
-        auth.currentUser?.uid,
+        auth.currentUser?.uid ?? "",
         "LABEL_TEMPLATE_DELETE",
         `Label template verwijderd: ${label.name || label.id}`
       );
@@ -301,7 +314,7 @@ const AdminLabelManager = ({ onNavigate }) => {
   );
 };
 
-const AdminLabelDesignerPreviewWrapper = ({ label }) => {
+const AdminLabelDesignerPreviewWrapper = ({ label }: { label: LabelTemplate }) => {
   const rawWidth = Number(label?.width) || 90;
   const rawHeight = Number(label?.height) || 55;
   const safeWidth = Math.max(1, rawWidth);

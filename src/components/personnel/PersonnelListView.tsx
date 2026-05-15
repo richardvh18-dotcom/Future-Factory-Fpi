@@ -1,8 +1,49 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { Grid } from "react-window";
 import { Search, UserCircle, Edit3, Trash2, Plus, ChevronDown, ChevronUp, Layers, Filter, RotateCcw, ArrowRight, Nfc } from "lucide-react";
 import { getISOWeek } from "date-fns";
+
+interface RotationSchedule {
+  enabled?: boolean;
+  shifts?: string[];
+  startWeek?: number;
+}
+
+interface PersonnelPerson {
+  id: string;
+  name?: string;
+  employeeNumber?: string;
+  departmentId?: string;
+  shiftId?: string;
+  isActive?: boolean;
+  currentMachineId?: string;
+  rotationSchedule?: RotationSchedule;
+  loan?: { active?: boolean };
+}
+
+interface Shift {
+  id: string;
+  label: string;
+  start?: string;
+}
+
+interface Department {
+  id: string;
+  name: string;
+  shifts?: Shift[];
+  minPersonnel?: number;
+}
+
+interface PersonnelListViewProps {
+  personnel?: PersonnelPerson[];
+  departments?: Department[];
+  onEdit?: (p: PersonnelPerson) => void;
+  onDelete?: (id: string) => void;
+  onAdd?: () => void;
+  linkedTagEmployeeKeys?: Set<string>;
+  expandedDepts?: Record<string, boolean>;
+  onToggleDept?: (deptId: string) => void;
+}
 
 const PersonnelListView = React.memo(({
   personnel = [],
@@ -13,10 +54,10 @@ const PersonnelListView = React.memo(({
   linkedTagEmployeeKeys = new Set(),
   expandedDepts: propExpandedDepts,
   onToggleDept
-}) => {
+}: PersonnelListViewProps) => {
   const [searchTerm, setSearchTerm] = useState("");
-  const [localExpandedDepts, setLocalExpandedDepts] = useState({});
-  const [deptFilters, setDeptFilters] = useState({});
+  const [localExpandedDepts, setLocalExpandedDepts] = useState<Record<string, boolean>>({});
+  const [deptFilters, setDeptFilters] = useState<Record<string, string>>({});
 
   const isControlled = propExpandedDepts !== undefined;
   const expandedDepts = isControlled ? propExpandedDepts : localExpandedDepts;
@@ -31,7 +72,7 @@ const PersonnelListView = React.memo(({
     }
   }, [departments, isControlled]);
 
-  const toggleDept = (deptId) => {
+  const toggleDept = (deptId: string) => {
     if (isControlled && onToggleDept) {
       onToggleDept(deptId);
     } else {
@@ -53,7 +94,7 @@ const PersonnelListView = React.memo(({
 
   const isGrouped = departments.length > 0;
 
-  const getEffectiveShift = (p) => {
+  const getEffectiveShift = (p: PersonnelPerson): string | undefined => {
     if (p.rotationSchedule?.enabled && p.rotationSchedule.shifts?.length > 0) {
       const startWeekNum = p.rotationSchedule.startWeek || 1;
       const rotationShifts = p.rotationSchedule.shifts;
@@ -64,7 +105,7 @@ const PersonnelListView = React.memo(({
     return p.shiftId;
   };
 
-  const resolveShiftLabel = (shiftId, deptId) => {
+  const resolveShiftLabel = (shiftId: string | undefined, deptId: string | undefined): string | undefined => {
     if (!shiftId || shiftId === "Overig") return shiftId;
     const dept = departments.find(d => d.id === deptId);
     if (!dept || !dept.shifts) return shiftId;
@@ -72,7 +113,7 @@ const PersonnelListView = React.memo(({
     return shift ? shift.label : shiftId;
   };
 
-  const resolveDepartmentMeta = (deptId) => {
+  const resolveDepartmentMeta = (deptId: string | undefined) => {
     const dept = departments.find((entry) => entry.id === deptId);
     if (dept) {
       return {
@@ -89,7 +130,7 @@ const PersonnelListView = React.memo(({
     };
   };
 
-  const renderCard = React.useCallback((p) => {
+  const renderCard = React.useCallback((p: PersonnelPerson) => {
     const displayShiftId = getEffectiveShift(p);
     const displayLabel = resolveShiftLabel(displayShiftId, p.departmentId);
     const departmentMeta = resolveDepartmentMeta(p.departmentId);
@@ -319,6 +360,7 @@ const PersonnelListView = React.memo(({
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {/* @ts-ignore react-window v1 children API, incompatible with v2 types */}
             <Grid
               columnCount={4}
               rowCount={Math.ceil(filteredPersonnel.length / 4)}

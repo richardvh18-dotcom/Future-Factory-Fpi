@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import { useTranslation } from "react-i18next";
@@ -10,15 +9,49 @@ import { useNotifications } from "../../contexts/NotificationContext";
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
 
+type FinishStatus = "completed" | "rejected" | "temp_reject";
+
+interface PostProcessingData {
+  note?: string;
+  reasons?: string[];
+}
+
+interface NabewerkingProduct {
+  id?: string;
+  lotNumber?: string;
+  orderId?: string;
+  orderNumber?: string;
+  deliveryDate?: unknown;
+  plannedDeliveryDate?: unknown;
+  plannedDate?: unknown;
+  date?: unknown;
+  deadline?: unknown;
+  status?: string;
+  currentStep?: string;
+  currentStation?: string;
+  item?: string;
+  itemCode?: string;
+}
+
+interface Order {
+  orderId?: string;
+  orderNumber?: string;
+  deliveryDate?: unknown;
+  plannedDeliveryDate?: unknown;
+  plannedDate?: unknown;
+  date?: unknown;
+  deadline?: unknown;
+}
+
 /**
  * Nabewerken Component
  * Toont alle producten die op Nabewerking staan (currentStation/currentStep)
  */
-const Nabewerken = ({ products = [], orders = [] }) => {
+const Nabewerken = ({ products = [], orders = [] }: { products?: NabewerkingProduct[]; orders?: Order[] }) => {
   const { t } = useTranslation();
   const { showError, showSuccess } = useNotifications();
 
-  const getDeliveryDate = (product) => {
+  const getDeliveryDate = (product: NabewerkingProduct): Date | null => {
     if (!product || typeof product !== "object") return null;
 
     const orderId = String(product.orderId || product.orderNumber || "").trim().toUpperCase();
@@ -68,14 +101,14 @@ const Nabewerken = ({ products = [], orders = [] }) => {
         // Sorteer op leverdatum: eerst wat eerder af moet
         const dateA = getDeliveryDate(a) || new Date(8640000000000000);
         const dateB = getDeliveryDate(b) || new Date(8640000000000000);
-        return dateA - dateB;
+        return dateA.getTime() - dateB.getTime();
       });
       return filtered;
     }, [products, orders]);
 
   // Scan functionaliteit
   const [scanInput, setScanInput] = useState("");
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState<NabewerkingProduct | null>(null);
   const [showModal, setShowModal] = useState(false);
   const scanInputRef = useRef(null);
 
@@ -103,7 +136,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
 
   // Focus scanveld bij click buiten input
   useEffect(() => {
-    const handleClick = (e) => {
+    const handleClick = (e: MouseEvent) => {
       const target = e?.target;
       if (!target) return;
       if (target.closest?.('input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-scan-ignore]')) return;
@@ -120,7 +153,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
     };
   }, [showModal, scheduleScanFocus]);
 
-  const handlePostProcessingFinish = async (product, status, data = {}) => {
+  const handlePostProcessingFinish = async (product: NabewerkingProduct, status: FinishStatus, data: PostProcessingData = {}): Promise<void> => {
     const productId = product.id || product.lotNumber;
     const station = product.currentStation || "Nabewerking";
 
@@ -133,7 +166,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
         actorLabel: auth.currentUser?.email || "Operator",
         source: "Nabewerken",
       });
-      await logActivity(auth.currentUser?.uid || "system", "POST_PROCESS_COMPLETE", `Nabewerken gereedgemeld: lot ${product.lotNumber || productId}`);
+      await logActivity(auth.currentUser?.uid ?? "", "POST_PROCESS_COMPLETE", `Nabewerken gereedgemeld: lot ${product.lotNumber || productId}`);
       showSuccess(
         t("nabewerking.sent_to_end_inspection", "Product {{lot}} is naar Eindinspectie gestuurd.", { lot: product.lotNumber || productId }),
         t("nabewerking.completed", "Gereed")
@@ -149,7 +182,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
         source: "Nabewerken",
         actorLabel: auth.currentUser?.email || "Operator",
       });
-      await logActivity(auth.currentUser?.uid || "system", "QUALITY_REJECT_FINAL", `Nabewerken definitieve afkeur: lot ${product.lotNumber || productId}`);
+      await logActivity(auth.currentUser?.uid ?? "", "QUALITY_REJECT_FINAL", `Nabewerken definitieve afkeur: lot ${product.lotNumber || productId}`);
       return;
     }
 
@@ -163,10 +196,10 @@ const Nabewerken = ({ products = [], orders = [] }) => {
       previousStatus: product.status || "",
       source: "Nabewerken",
     });
-    await logActivity(auth.currentUser?.uid || "system", "QUALITY_TEMP_REJECT", `Nabewerken tijdelijke afkeur: lot ${product.lotNumber || productId}`);
+    await logActivity(auth.currentUser?.uid ?? "", "QUALITY_TEMP_REJECT", `Nabewerken tijdelijke afkeur: lot ${product.lotNumber || productId}`);
   };
 
-  const handleScan = async (e) => {
+  const handleScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const code = scanInput.trim().toUpperCase();
       if (!code) return;
@@ -183,7 +216,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
           await handlePostProcessingFinish(productToProcess, "completed", { note: "Goedgekeurd via QR Scan" });
         } catch (err) {
           console.error("Fout bij OK-QR afronden Nabewerken:", err);
-          showError(err.message || "Kon OK QR actie niet verwerken", "Fout");
+          showError((err as Error).message || "Kon OK QR actie niet verwerken", "Fout");
         } finally {
           setShowModal(false);
           setSelectedProduct(null);
@@ -323,7 +356,7 @@ const Nabewerken = ({ products = [], orders = [] }) => {
                 await handlePostProcessingFinish(selectedProduct, status, data);
               } catch (err) {
                 console.error("Fout bij afronden Nabewerken:", err);
-                showError(err.message || "Kon wijziging niet opslaan", "Fout");
+                showError((err as Error).message || "Kon wijziging niet opslaan", "Fout");
               } finally {
                 setShowModal(false);
                 setSelectedProduct(null);
