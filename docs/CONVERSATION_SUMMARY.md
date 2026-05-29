@@ -1,3 +1,97 @@
+## Update sessie 29 mei 2026 (Externe review verwerkt naar actiepunten)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Samenvatting van de externe beoordeling
+- Nieuwe versie is duidelijk volwassener: van modern pilot-prototype naar semi-enterprise manufacturing platform.
+- Sterke vooruitgang op TypeScript-adoptie, modulariteit, CI/CD governance en frontend-architectuur.
+- Geconstateerde score-inschatting uit review: **8.6/10** enterprise-readiness (met vooral winst op maintainability en developer maturity).
+
+### Bevestigde sterke punten om te behouden
+1. TypeScript-first ontwikkelrichting en typed component/service lagen vasthouden.
+2. Modulaire React-architectuur en scheiding van verantwoordelijkheden verder doorzetten.
+3. DevOps-discipline behouden: hooks, tests, CI-workflows en kwaliteitsgates actief houden.
+4. Focus op kernwaarde blijven benutten: productieplanning, operations workflows, dashboards en cloud deployment.
+
+### Geprioriteerde actiepunten (critical)
+1. **Role-based security hardening afronden**
+- Rechtenmodel eenduidig maken voor alle kritieke paden (admin, teamleader, operator, QC).
+- Security-regels en callable-authorisatie systematisch toetsen met regressietests per rol.
+
+2. **Audit logging/compliance trail implementeren**
+- Immutable audit-events toevoegen voor kritieke domeinacties (start/stop productie, QC edits, label/print events, statusovergangen).
+- Uniform event-schema invoeren (wie, wat, wanneer, oude/nieuwe waarde, bronflow).
+
+3. **Backend API/service-laag verder centraliseren**
+- Directe frontend-database interacties verder reduceren ten gunste van callables/service-endpoints.
+- Domeinlogica consolideren in backend services voor betere schaalbaarheid, policy enforcement en traceability.
+
+4. **Machine connectivity roadmap starten**
+- Verkenning en pilot opzetten voor OPC UA / MQTT / PLC-koppelingen via een gecontroleerde adapterlaag.
+- Bepalen welke shopfloor-signalen eerst nodig zijn voor operationele waarde (status, output, downtime, quality flags).
+
+### Geprioriteerde actiepunten (enterprise+)
+1. ERP-integratiepad definiëren (orders, masterdata, terugkoppeling productie/QC).
+2. Offline/poor-connectivity strategie uitwerken voor shopfloor continuiteit.
+3. Edge computing patroon definiëren voor latency-kritische of machine-nabije verwerking.
+4. Productie-analytics engine plannen (KPI-model, historisering, trend- en afwijkingsdetectie).
+
+### Concreet vervolgschema (uitvoerbaar)
+1. **Sprint 1:** security hardening + audit event model + testmatrix per rol.
+2. **Sprint 2:** backend-centralisatie van resterende kritieke writes + API contracten.
+3. **Sprint 3:** machine-connectivity pilot (1 protocol, 1 lijn, 1 use-case) + evaluatie.
+4. **Sprint 4:** ERP-koppeling scope + analytics fundament + offline/edge design-besluit.
+
+### Doelstatus na uitvoering
+- Positionering blijft: modern cloud manufacturing platform met sterke SaaS-architectuur.
+- Verschuiving richting volwaardige enterprise-MES kenmerken door security, auditability, integraties en industriële connectiviteit structureel af te dekken.
+
+## Update sessie 29 mei 2026 (Monday/VPlan-richting verwerkt naar productactiepunten)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Strategische verschuiving
+- Bevestigd productinzicht: de volgende groeifase zit vooral in **UX + workflow intelligence + collaboration**.
+- Richtingdoel: van puur MES-functionaliteit naar een modern manufacturing operations platform met sterke menselijke workflow-ondersteuning.
+
+### Topprioriteiten (hoogste impact)
+1. **Drag-drop planning board (timeline/Gantt)**
+- Interactieve planning met slepen tussen machines/lijnen.
+- Live rescheduling met conflict-detectie en capaciteitsvisualisatie.
+- Timeline zoom (shift/dag/week) voor planners.
+
+2. **Collaboration per order**
+- Comments, mentions (`@planner`, `@supervisor`) en gedeelde context op orderniveau.
+- Activiteitsoverzicht met statushistorie direct in de orderflow.
+
+3. **Realtime notification engine**
+- Eventgedreven alerts (downtime, vertraging, SLA risico) met escalatielogica.
+- Role-based notificatiekanalen per persona (planner, operator, QC, leidinggevende).
+
+4. **Workflow automation laag**
+- Rule-engine voor `if-this-then-that` procesautomatisering.
+- Voorbeelden: order gereed -> QC taak aanmaken; downtime > X -> maintenance ticket starten.
+
+5. **Modern analytics dashboards**
+- KPI-lagen voor OEE, throughput, bottleneck, lead time en delay heatmaps.
+- Persona-specifieke dashboards met bruikbare operationele inzichten.
+
+### Aanvullende verbeteringen (sterk aanbevolen)
+1. Smart filtering en opgeslagen views per rol (planner/machine/QC/maintenance).
+2. Visual production board (kanban + swimlanes + drag/drop + machine-occupancy).
+3. UX-hiërarchie verbeteren (minder modals, meer inline editing, rustiger informatiearchitectuur).
+4. No-code configuratiepad voor workflows, velden, dashboards en automatiseringsregels.
+
+### Uitvoeringsvolgorde (praktisch)
+1. Eerst planning board + collaboration fundament (grootste zichtbare productwaarde).
+2. Daarna notification engine + workflow automation (operationele versnelling).
+3. Vervolgens analytics dashboards + slimme views (sturing en schaalbaarheid).
+4. Tot slot no-code configuratie en UX-polish (adoptie en differentiatie).
+
+### Verwachte marktimpact
+- Positionering verschuift van “nog een MES” naar “modern manufacturing operations platform”.
+- Sterkere concurrentiepositie tegenover workflow-first platforms door combinatie van shopfloor diepgang en SaaS-gebruiksgemak.
+
 ## Update sessie 28 mei 2026 (Print nog afwijkend na bitmap-only hardening)
 
 **Branch:** `FPiFF-18-12-May` (actuele werkbranch)
