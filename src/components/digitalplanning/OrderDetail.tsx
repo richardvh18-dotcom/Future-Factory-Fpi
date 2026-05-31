@@ -938,7 +938,7 @@ const OrderDetail = React.memo(({
             <span className="text-sm font-black text-slate-800">{formatExcelDate(order.deliveryDate)}</span>
           </div>
           <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight block mb-0.5" title={order.predictedReadyDate ? "Gevoed door dynamisch AI algoritme" : "Statische datum uit LN"}>
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight block mb-0.5" title={order.predictedReadyDate ? t('digitalplanning.order_detail.predictedReadyTooltip', 'Gevoed door dynamisch AI algoritme') : t('digitalplanning.order_detail.staticLnDateTooltip', 'Statische datum uit LN')}>
               {order.predictedReadyDate ? t("digitalplanning.order_detail.predicted_ready", "Voorspelde gereeddatum") : t("digitalplanning.order_detail.expected_delivery", "Verwachte leverdatum")}
             </span>
             <div className="flex items-center gap-2">
@@ -948,18 +948,18 @@ const OrderDetail = React.memo(({
                   daysDiff > 0 ? "bg-rose-100 text-rose-700" :
                   daysDiff < 0 ? "bg-emerald-100 text-emerald-700" :
                   "bg-slate-200 text-slate-600"
-                }`} title={daysDiff > 0 ? "Achter op schema" : daysDiff < 0 ? "Voor op schema" : "Op schema"}>
+                }`} title={daysDiff > 0 ? t('digitalplanning.order_detail.behindSchedule', 'Achter op schema') : daysDiff < 0 ? t('digitalplanning.order_detail.aheadSchedule', 'Voor op schema') : t('digitalplanning.order_detail.onSchedule', 'Op schema')}>
                   {daysDiff > 0 ? `+${daysDiff}d` : `${daysDiff}d`}
                 </span>
               )}
             </div>
           </div>
           <div className="p-2 bg-blue-50 rounded-lg border border-blue-100">
-            <span className="text-[9px] font-black text-blue-600 uppercase tracking-tight block mb-0.5">LN import</span>
+            <span className="text-[9px] font-black text-blue-600 uppercase tracking-tight block mb-0.5">{t("orderDetail.lnImport", "LN import")}</span>
             <span className="font-bold text-xs text-blue-900">{formatExcelDate(order.importDate || order.importedAt || order.createdAt || order.date)}</span>
           </div>
           <div className="p-2 bg-purple-50 rounded-lg border border-purple-100">
-            <span className="text-[9px] font-black text-purple-600 uppercase tracking-tight block mb-0.5">Gewijzigd</span>
+            <span className="text-[9px] font-black text-purple-600 uppercase tracking-tight block mb-0.5">{t("orderDetail.modified", "Gewijzigd")}</span>
             <span className="font-bold text-xs text-purple-900">{formatExcelDate(order.updatedAt || order.lastSync || order.syncedAt || order.importDate || order.createdAt || order.date)}</span>
           </div>
           <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
@@ -1030,7 +1030,7 @@ const OrderDetail = React.memo(({
             )}
           </div>
           <div className="p-2 bg-amber-50 rounded-lg border border-amber-200">
-            <span className="text-[9px] font-black text-amber-700 uppercase tracking-tight block mb-0.5">In behandeling</span>
+            <span className="text-[9px] font-black text-amber-700 uppercase tracking-tight block mb-0.5">{t("orderDetail.inProgress", "In behandeling")}</span>
             <span className="font-black text-xs text-amber-900">{inProcessAmount}</span>
           </div>
           <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
@@ -1042,7 +1042,7 @@ const OrderDetail = React.memo(({
         {/* Smart Sync Opties */}
         {canEditOrderPlan && (
           <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight block mb-1.5">Slimme Sync Controle</span>
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight block mb-1.5">{t("orderDetail.smartSyncControl", "Slimme Sync Controle")}</span>
             <div className="flex gap-1.5">
               <button
                 onClick={() => handleToggleSyncExclusion(false)}
@@ -1122,7 +1122,7 @@ const OrderDetail = React.memo(({
               : "bg-slate-50 border-slate-100 hover:bg-slate-100"
           }`}
         >
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight block mb-0.5">Tekening</span>
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight block mb-0.5">{t("orderDetail.drawing", "Tekening")}</span>
           <div className="flex items-center gap-2">
             <FileImage size={14} className={
               order.drawing && order.drawing !== "-" && order.drawing !== ""
@@ -1143,7 +1143,7 @@ const OrderDetail = React.memo(({
           <textarea
             value={noteDraft}
             onChange={(e) => setNoteDraft(e.target.value)}
-            placeholder="Voeg opmerking toe voor operator/teamleader..."
+            placeholder={t("placeholders.dpOperatorNote", "Voeg opmerking toe voor operator/teamleader...")}
             className="w-full min-h-[64px] p-2.5 bg-white border border-amber-200 rounded-xl text-sm text-slate-700 font-medium outline-none focus:border-amber-500"
           />
         ) : (
@@ -1609,7 +1609,7 @@ const OrderDetail = React.memo(({
           <div className="bg-white rounded-[24px] sm:rounded-[30px] shadow-2xl w-full max-w-lg p-5 sm:p-8 max-h-[95vh] sm:max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h3 className="text-2xl font-black text-slate-800 uppercase italic">Lotnummer aanpassen</h3>
+                <h3 className="text-2xl font-black text-slate-800 uppercase italic">{t("orderDetail.adjustLotNumber", "Lotnummer aanpassen")}</h3>
                 <p className="text-sm text-slate-500 font-bold mt-1">
                   Huidig: {String(lotEditTarget.lotNumber || lotEditTarget.id || "-")}
                 </p>
@@ -1625,7 +1625,7 @@ const OrderDetail = React.memo(({
 
             <div className="space-y-4">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nieuw lotnummer</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t("orderDetail.newLotNumber", "Nieuw lotnummer")}</label>
                 <input
                   type="text"
                   value={lotEditNewValue}
@@ -1634,14 +1634,14 @@ const OrderDetail = React.memo(({
                     if (lotEditError) setLotEditError("");
                   }}
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-500"
-                  placeholder="Bijv. 402614418400004"
+                  placeholder={t("placeholders.dpLotReassignExample", "Bijv. 402614418400004")}
                   autoFocus
                   disabled={isSavingLotEdit}
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Reden (verplicht)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t("orderDetail.reasonRequired", "Reden (verplicht)")}</label>
                 <textarea
                   value={lotEditReason}
                   onChange={(e) => {
@@ -1649,7 +1649,7 @@ const OrderDetail = React.memo(({
                     if (lotEditError) setLotEditError("");
                   }}
                   className="w-full min-h-[90px] p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-500"
-                  placeholder="Bijv. foutief gescand label of administratieve correctie"
+                  placeholder={t("placeholders.dpLotReassignReason", "Bijv. foutief gescand label of administratieve correctie")}
                   disabled={isSavingLotEdit}
                 />
               </div>
@@ -1686,7 +1686,7 @@ const OrderDetail = React.memo(({
           <div className="bg-white rounded-[24px] sm:rounded-[30px] shadow-2xl w-full max-w-lg p-5 sm:p-8 max-h-[95vh] sm:max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h3 className="text-2xl font-black text-slate-800 uppercase italic">Ordernummer aanpassen</h3>
+                <h3 className="text-2xl font-black text-slate-800 uppercase italic">{t("orderDetail.adjustOrderNumber", "Ordernummer aanpassen")}</h3>
                 <p className="text-sm text-slate-500 font-bold mt-1">
                   Huidig: {String(orderEditTarget.orderId || order.orderId || "-")}
                 </p>
@@ -1702,7 +1702,7 @@ const OrderDetail = React.memo(({
 
             <div className="space-y-4">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nieuw ordernummer</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t("orderDetail.newOrderNumber", "Nieuw ordernummer")}</label>
                 <input
                   type="text"
                   value={orderEditNewValue}
@@ -1711,14 +1711,14 @@ const OrderDetail = React.memo(({
                     if (orderEditError) setOrderEditError("");
                   }}
                   className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-cyan-500"
-                  placeholder="Bijv. N2501234"
+                  placeholder={t("placeholders.dpOrderReassignExample", "Bijv. N2501234")}
                   autoFocus
                   disabled={isSavingOrderEdit}
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Reden (verplicht)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t("orderDetail.reasonRequired", "Reden (verplicht)")}</label>
                 <textarea
                   value={orderEditReason}
                   onChange={(e) => {
@@ -1726,7 +1726,7 @@ const OrderDetail = React.memo(({
                     if (orderEditError) setOrderEditError("");
                   }}
                   className="w-full min-h-[90px] p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-700 outline-none focus:border-cyan-500"
-                  placeholder="Bijv. product is op verkeerd ordernummer geboekt"
+                  placeholder={t("placeholders.dpOrderReassignReason", "Bijv. product is op verkeerd ordernummer geboekt")}
                   disabled={isSavingOrderEdit}
                 />
               </div>

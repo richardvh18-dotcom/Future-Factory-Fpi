@@ -276,7 +276,7 @@ const NFCTagRegistrationModal = ({ isOpen, onClose, personnel = [], preselectedE
                 type="text"
                 value={scannedTagId}
                 onChange={(e) => setScannedTagId(normalizeTagId(e.target.value))}
-                placeholder="Bijv. F1D4A2B9..."
+                placeholder={t("placeholders.adminNfcTagHexExample", "Bijv. F1D4A2B9...")}
                 className="w-full p-3 rounded-xl border-2 border-blue-200 font-mono text-sm text-blue-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
               />
               <p className="text-[10px] text-blue-600 mt-1">
@@ -297,7 +297,7 @@ const NFCTagRegistrationModal = ({ isOpen, onClose, personnel = [], preselectedE
                 }}
                 className="w-full p-3 rounded-xl border-2 border-blue-200 font-bold text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
               >
-                <option value="">— Selecteer personeelslid —</option>
+                <option value="">{t('nfc.selectEmployee', '— Selecteer personeelslid —')}</option>
                 {personnel.map((p) => (
                   <option key={p.id} value={p.employeeNumber}>
                     {p.name} ({p.employeeNumber})
@@ -315,7 +315,7 @@ const NFCTagRegistrationModal = ({ isOpen, onClose, personnel = [], preselectedE
                     setManualEmployeeNumber(e.target.value);
                     if (e.target.value.trim()) setSelectedEmployeeNumber("");
                   }}
-                  placeholder="Bijv. 12345"
+                  placeholder={t("placeholders.adminNfcOperatorExample", "Bijv. 12345")}
                   className="w-full p-3 rounded-xl border-2 border-blue-200 font-bold text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                 />
               </div>

@@ -404,17 +404,17 @@ const RoadmapViewer = () => {
       {activeTab === "pilot" && (
         <div className="space-y-6 animate-in fade-in">
             <div>
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Optimalisatieplan: Fittings Pilot</h2>
-                <p className="text-slate-600">Technische en functionele optimalisaties voor de 4-weekse pilot.</p>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">{t('roadmap.optimizationPlanPilot', 'Optimalisatieplan: Fittings Pilot')}</h2>
+            <p className="text-slate-600">{t('roadmap.pilotDescription', 'Technische en functionele optimalisaties voor de 4-weekse pilot.')}</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Editable Plan */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[600px]">
                     <div className="flex items-center justify-between mb-4 shrink-0">
-                        <h3 className="font-bold flex items-center gap-2 text-slate-800"><FileText size={20} className="text-blue-500"/> Plan Document</h3>
+                        <h3 className="font-bold flex items-center gap-2 text-slate-800"><FileText size={20} className="text-blue-500"/> {t('roadmap.planDocument', 'Plan Document')}</h3>
                         <button className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-1 transition-colors">
-                          <Save size={14} /> Opslaan
+                          <Save size={14} /> {t('common.save', 'Opslaan')}
                         </button>
                     </div>
                     <textarea
@@ -426,7 +426,7 @@ const RoadmapViewer = () => {
 
                 {/* Task List */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[600px]">
-                    <h3 className="font-bold flex items-center gap-2 mb-4 shrink-0 text-slate-800"><ListChecks size={20} className="text-emerald-500"/> Actiepunten</h3>
+                  <h3 className="font-bold flex items-center gap-2 mb-4 shrink-0 text-slate-800"><ListChecks size={20} className="text-emerald-500"/> {t('roadmap.actionPoints', 'Actiepunten')}</h3>
                     <div className="space-y-2 overflow-y-auto custom-scrollbar pr-2 flex-1">
                         {pilotTasks.map(task => (
                             <div key={task.id} className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-slate-100" onClick={() => toggleTask(task.id)}>

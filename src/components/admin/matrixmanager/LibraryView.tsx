@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Layers,
   Hash,
@@ -41,6 +42,7 @@ const LibraryView = ({
   setHasUnsavedChanges,
   blueprints = {},
 }: LibraryViewProps) => {
+  const { t } = useTranslation();
     // State voor selectie van blauwdruk en targetveld
     const [targetField, setTargetField] = useState("product_names");
   // Helper om een item toe te voegen aan een specifieke lijst in de state
@@ -183,25 +185,25 @@ const LibraryView = ({
         </div>
         <div className="p-5 flex flex-col gap-4">
           <div className="flex flex-wrap gap-2 items-center mb-2">
-            <span className="text-xs font-bold text-blue-900">Kies veld:</span>
+            <span className="text-xs font-bold text-blue-900">{t("libraryView.chooseField", "Kies veld:")}</span>
             <select
               className="border border-blue-200 rounded-lg px-2 py-1 text-xs font-bold"
               value={targetField}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTargetField(e.target.value)}
             >
-              <option value="product_names">Product Types</option>
-              <option value="borings">Boring Types</option>
-              <option value="connections">Mof Verbindingen</option>
-              <option value="diameters">Diameters (ID)</option>
-              <option value="pns">Drukklassen (PN)</option>
-              <option value="codes">Extra Codes</option>
-              <option value="angles">Graden (Hoeken)</option>
-              <option value="productLabels">Product Labels</option>
+              <option value="product_names">{t("libraryView.productTypes", "Product Types")}</option>
+              <option value="borings">{t("libraryView.boringTypes", "Boring Types")}</option>
+              <option value="connections">{t("libraryView.socketConnections", "Mof Verbindingen")}</option>
+              <option value="diameters">{t("libraryView.diametersId", "Diameters (ID)")}</option>
+              <option value="pns">{t("libraryView.pressureClassesPn", "Drukklassen (PN)")}</option>
+              <option value="codes">{t("libraryView.extraCodes", "Extra Codes")}</option>
+              <option value="angles">{t("libraryView.anglesDegrees", "Graden (Hoeken)")}</option>
+              <option value="productLabels">{t("libraryView.productLabels", "Product Labels")}</option>
             </select>
           </div>
           <div className="flex flex-wrap gap-2">
             {Object.keys(blueprints).length === 0 && (
-              <span className="text-slate-400 text-xs">Geen blauwdrukken gevonden.</span>
+              <span className="text-slate-400 text-xs">{t("libraryView.noBlueprintsFound", "Geen blauwdrukken gevonden.")}</span>
             )}
             {Object.entries(blueprints).map(([key, blueprint]) => (
               <button
@@ -231,7 +233,7 @@ const LibraryView = ({
           </h4>
           <p className="text-[11px] text-slate-400 font-bold uppercase leading-relaxed tracking-wider opacity-80">
             Wijzigingen in de bibliotheek zijn direct merkbaar in de filters van
-            de andere tabs. Vergeet niet bovenaan op <strong>"Opslaan"</strong>{" "}
+            de andere tabs. Vergeet niet bovenaan op <strong>"{t('common.save', 'Opslaan')}"</strong>{" "}
             te klikken om de wijzigingen definitief te maken in de root
             database.
           </p>

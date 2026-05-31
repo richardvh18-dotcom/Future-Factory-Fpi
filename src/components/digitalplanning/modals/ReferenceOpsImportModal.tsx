@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { X, Upload, Loader2, Database, CheckCircle, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -23,6 +24,7 @@ import { PATHS } from "../../../config/dbPaths";
  * }
  */
 const ReferenceOpsImportModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClose: () => void; onSuccess?: () => void }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<any>(null); // { records: [...], site: "101" }
@@ -213,13 +215,13 @@ const ReferenceOpsImportModal = ({ isOpen, onClose, onSuccess }: { isOpen: boole
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar">
-          {/* Uitleg */}
+            {result ? t('common.close', 'Sluiten') : t('common.cancel', 'Annuleren')}
           <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 text-sm text-violet-800">
-            <p className="font-bold mb-1">Wat doet deze import?</p>
+            <p className="font-bold mb-1">{t("referenceOpsImport.whatDoesThisImportDo", "Wat doet deze import?")}</p>
             <p className="text-xs leading-relaxed">
-              Laadt de <strong>Reference operations LN Frank.xlsx</strong> stamdata naar Firestore.
+              {t("referenceOpsImport.loadsReferenceOperations", "Laadt de ")}<strong>{t("referenceOpsImport.fileName", "Reference operations LN Frank.xlsx")}</strong>{t("referenceOpsImport.masterDataToFirestore", " stamdata naar Firestore.")}
               Elke refOp-code (bv. 1715, 1020, 1740) krijgt een document met beschrijving en type
-              (<em>production / post / qc</em>). Dit vervangt hardcoded classificaties in de app.
+              (<em>{t("referenceOpsImport.typeValues", "production / post / qc")}</em>). {t("referenceOpsImport.replacesHardcodedClassifications", "Dit vervangt hardcoded classificaties in de app.")}
             </p>
           </div>
 
@@ -265,17 +267,17 @@ const ReferenceOpsImportModal = ({ isOpen, onClose, onSuccess }: { isOpen: boole
                 <h3 className="font-black text-slate-700 text-sm uppercase tracking-wide">
                   Preview — {preview.records.length} codes gevonden
                 </h3>
-                <span className="text-xs text-slate-400">Alleen Site 101</span>
+                <span className="text-xs text-slate-400">{t("referenceOpsImport.onlySite101", "Alleen Site 101")}</span>
               </div>
               <div className="rounded-2xl border border-slate-200 overflow-hidden">
                 <div className="overflow-x-auto max-h-64">
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
-                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">Code</th>
-                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">Omschrijving</th>
-                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">Type</th>
-                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">WorkCenters</th>
+                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">{t("referenceOpsImport.code", "Code")}</th>
+                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">{t("referenceOpsImport.description", "Omschrijving")}</th>
+                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">{t("referenceOpsImport.type", "Type")}</th>
+                        <th className="text-left px-4 py-2 font-black text-slate-600 uppercase tracking-wide">{t("referenceOpsImport.workCenters", "WorkCenters")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -300,8 +302,8 @@ const ReferenceOpsImportModal = ({ isOpen, onClose, onSuccess }: { isOpen: boole
               </div>
               <p className="text-xs text-slate-400 mt-2">
                 Type wordt afgeleid uit de WorkCenter-beschrijvingen.{" "}
-                <strong className="text-slate-500">QC</strong> → qc,{" "}
-                <strong className="text-slate-500">Finishing / Nabewerken</strong> → post,{" "}
+                <strong className="text-slate-500">{t("referenceOpsImport.qc", "QC")}</strong> → qc,{" "}
+                <strong className="text-slate-500">{t("referenceOpsImport.finishingPost", "Finishing / Nabewerken")}</strong> → post,{" "}
                 overige → production.
               </p>
             </div>
@@ -342,9 +344,9 @@ const ReferenceOpsImportModal = ({ isOpen, onClose, onSuccess }: { isOpen: boole
               className="px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-colors disabled:opacity-50"
             >
               {saving ? (
-                <><Loader2 size={14} className="animate-spin" /> Opslaan…</>
+                  <><Loader2 size={14} className="animate-spin" /> {t('common.saving', 'Opslaan…')}</>
               ) : (
-                <><Upload size={14} /> Opslaan naar Firestore</>
+                  <><Upload size={14} /> {t('referenceOpsImport.saveToFirestore', 'Opslaan naar Firestore')}</>
               )}
             </button>
           )}

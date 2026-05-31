@@ -339,14 +339,14 @@ const AdminSettingsView = () => {
 
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3 text-left">
               <div>
-                <h4 className="text-sm font-black text-slate-800">Productie databron</h4>
+                <h4 className="text-sm font-black text-slate-800">{i18n.t("adminSettings.productionDataSource", "Productie databron")}</h4>
                 <p className="text-[10px] text-slate-500 font-medium mt-1">
                   De app leest en schrijft nu vast op de productiecollecties. Testen kan per machine-map zonder database-switch.
                 </p>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actieve paden</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{i18n.t("adminSettings.activePaths", "Actieve paden")}</p>
                 <p className="mt-2 text-[10px] font-mono text-slate-600 break-all">
                   PLANNING: /{getPathString(PATHS.PLANNING)}
                 </p>
@@ -361,7 +361,7 @@ const AdminSettingsView = () => {
             
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div>
-                <h4 className="text-sm font-black text-slate-800">Onderhoudsmodus</h4>
+                <h4 className="text-sm font-black text-slate-800">{i18n.t("adminSettings.maintenanceMode", "Onderhoudsmodus")}</h4>
                 <p className="text-[10px] text-slate-500 font-medium mt-1">
                   Blokkeer toegang voor niet-admins tijdens updates.
                 </p>
@@ -381,7 +381,7 @@ const AdminSettingsView = () => {
 
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div>
-                <h4 className="text-sm font-black text-slate-800">Release Notes</h4>
+                <h4 className="text-sm font-black text-slate-800">{i18n.t("adminSettings.releaseNotes", "Release Notes")}</h4>
                 <p className="text-[10px] text-slate-500 font-medium mt-1">
                   Toon de "Wat is nieuw" popup opnieuw.
                 </p>
@@ -424,7 +424,7 @@ const AdminSettingsView = () => {
                     !e.target.value.startsWith("data:") &&
                     setSettings({ ...settings, logoUrl: e.target.value })
                   }
-                  placeholder="https://..."
+                  placeholder={t("placeholders.adminUrlExample", "https://...")}
                 />
                 {settings.logoUrl && (
                   <button
@@ -597,12 +597,10 @@ const AdminSettingsView = () => {
         </div>
         <div className="text-left flex-1 relative z-10 leading-relaxed">
           <h4 className="text-white text-sm mb-2 italic tracking-tight uppercase leading-none">
-            Global Systeem Protocol
+            {t('adminSettings.globalSystemProtocol', 'Global Systeem Protocol')}
           </h4>
-          Deze instellingen worden direct gesynchroniseerd met alle actieve
-          terminals en werkstations. Wijzigingen in branding zijn binnen 1
-          seconde zichtbaar voor alle ingelogde gebruikers via de
-          <span className="text-blue-400 italic"> Secure Root Node</span>.
+          {t('adminSettings.syncNoticePrefix', 'Deze instellingen worden direct gesynchroniseerd met alle actieve terminals en werkstations. Wijzigingen in branding zijn binnen 1 seconde zichtbaar voor alle ingelogde gebruikers via de')}
+          <span className="text-blue-400 italic"> {t('adminSettings.secureRootNode', 'Secure Root Node')}</span>.
         </div>
       </div>
     </div>

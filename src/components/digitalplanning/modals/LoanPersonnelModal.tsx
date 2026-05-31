@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "i18next";
 import { X, ArrowRight, Users, Building2, Clock } from "lucide-react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db, auth } from "../../../config/firebase";
@@ -186,25 +187,25 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }: Loan
             </div>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-slate-600">Naam:</span>
+                <span className="text-sm font-bold text-slate-600">{i18n.t('loanPersonnel.name', 'Naam:')}</span>
                 <span className="text-sm font-black text-slate-900 uppercase italic">
                   {person?.operatorName}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-slate-600">Afdeling:</span>
+                <span className="text-sm font-bold text-slate-600">{i18n.t('loanPersonnel.department', 'Afdeling:')}</span>
                 <span className="text-sm font-black text-slate-900 uppercase italic">
                   {currentDepartment?.name}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-slate-600">Station:</span>
+                <span className="text-sm font-bold text-slate-600">{i18n.t('common.station', 'Station:')}</span>
                 <span className="text-sm font-black text-slate-900 uppercase italic">
                   {person?.machineId}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-slate-600">Shift:</span>
+                <span className="text-sm font-bold text-slate-600">{i18n.t('common.shift', 'Shift:')}</span>
                 <span className="text-sm font-black text-slate-900">
                   {person?.shiftStart} - {person?.shiftEnd}
                 </span>
@@ -243,7 +244,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }: Loan
                 }}
                 className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-900 focus:outline-none focus:border-blue-500 transition-colors"
               >
-                <option value="">-- Selecteer afdeling --</option>
+                <option value="">{i18n.t('loanPersonnel.selectDepartment', '-- Selecteer afdeling --')}</option>
                 {departments.map((dept) => (
                   <option key={dept.id} value={dept.id}>
                     {dept.name}
@@ -263,7 +264,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }: Loan
                   onChange={(e) => setTargetStation(e.target.value)}
                   className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-900 focus:outline-none focus:border-blue-500 transition-colors"
                 >
-                  <option value="">-- Selecteer station --</option>
+                  <option value="">{i18n.t('loanPersonnel.selectStation', '-- Selecteer station --')}</option>
                   {availableStations.map((station) => (
                     <option key={station.id} value={station.name}>
                       {station.name}
@@ -284,7 +285,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }: Loan
                   onChange={(e) => setTargetShift(e.target.value)}
                   className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-900 focus:outline-none focus:border-blue-500 transition-colors"
                 >
-                  <option value="">-- Selecteer shift --</option>
+                  <option value="">{i18n.t('loanPersonnel.selectShift', '-- Selecteer shift --')}</option>
                   {availableShifts.map((shift) => (
                     <option key={shift.id} value={shift.id}>
                       {shift.label} ({shift.start} - {shift.end})
@@ -294,7 +295,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }: Loan
                 {selectedShift && (
                   <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-xl">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-bold text-blue-900">Gewerkte uren:</span>
+                      <span className="font-bold text-blue-900">{i18n.t('loanPersonnel.workedHours', 'Gewerkte uren:')}</span>
                       <span className="font-black text-blue-600">{shiftHours.toFixed(1)} uur</span>
                     </div>
                   </div>
@@ -309,7 +310,7 @@ const LoanPersonnelModal = ({ isOpen, onClose, person, currentDepartment }: Loan
               <Clock size={20} className="text-amber-600 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-bold text-amber-900">
-                  <strong>Let op:</strong> De persoon krijgt de shift-tijden van de gekozen afdeling en shift.
+                  <strong>{i18n.t('common.warning', 'Let op:')}</strong> {i18n.t('loanPersonnel.shiftTimesWarning', 'De persoon krijgt de shift-tijden van de gekozen afdeling en shift.')}
                   De originele planning blijft behouden voor referentie.
                 </p>
               </div>

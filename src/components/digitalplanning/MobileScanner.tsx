@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, FC, FormEvent, ChangeEvent } from "react";
+import i18n from "i18next";
 import { X } from "lucide-react";
 import { useNotifications } from '../../contexts/NotificationContext';
 
@@ -157,7 +158,7 @@ const MobileScanner: FC<MobileScannerProps> = ({ onScan, onClose }) => {
           <form onSubmit={handleManualSubmit} className="flex gap-2">
             <input
               type="text"
-              placeholder="Of typ code handmatig..."
+              placeholder={i18n.t("placeholders.dpOrTypeCodeManually", "Of typ code handmatig...")}
               className="flex-1 bg-white/90 backdrop-blur border-0 rounded-xl px-4 py-3 text-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
               value={manualCode}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setManualCode(e.target.value)}
@@ -171,10 +172,10 @@ const MobileScanner: FC<MobileScannerProps> = ({ onScan, onClose }) => {
         {/* Instructions */}
         <div className="absolute bottom-8 left-0 right-0 text-center px-4">
           <div className="bg-black/70 backdrop-blur-sm px-6 py-4 rounded-2xl inline-block">
-            <div className="text-white font-bold text-lg mb-1">Scan QR Code</div>
-            <div className="text-xs text-white/70">Plaats de QR code in het midden van het vierkant</div>
+            <div className="text-white font-bold text-lg mb-1">{i18n.t('mobileScanner.scanQrCode', 'Scan QR Code')}</div>
+            <div className="text-xs text-white/70">{i18n.t('mobileScanner.placeQrInCenter', 'Plaats de QR code in het midden van het vierkant')}</div>
             {!scannerLoaded && (
-              <div className="text-xs text-amber-300 mt-2">⏳ Scanner wordt geladen...</div>
+              <div className="text-xs text-amber-300 mt-2">{i18n.t('mobileScanner.loadingScanner', '⏳ Scanner wordt geladen...')}</div>
             )}
           </div>
         </div>
