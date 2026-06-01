@@ -66,25 +66,41 @@ type DateLikeInput =
 
 const getMeasurementLabel = (key: string, t: any): string => {
   const labels: Record<string, string> = {
+    "RI_Department": t("qc.meas_department", "Afdeling"),
     "Brix_Department": t("qc.meas_department", "Afdeling"),
+    "RI_Kitchen": t("qc.meas_kitchen", "Harskeuken"),
     "Brix_Kitchen": t("qc.meas_kitchen", "Harskeuken"),
+    "RI_TapPoint": t("qc.meas_tappoint", "Aftappunt"),
     "Brix_TapPoint": t("qc.meas_tappoint", "Aftappunt"),
+    "RI_Shift": t("qc.meas_shift", "Ploeg"),
     "Brix_Shift": t("qc.meas_shift", "Ploeg"),
+    "RI_Operator": t("qc.meas_operator", "Operator (Personeelsnr)"),
     "Brix_Operator": t("qc.meas_operator", "Operator (Personeelsnr)"),
+    "RI_OperatorNumber": t("qc.meas_operator", "Operator (Personeelsnr)"),
     "Brix_OperatorNumber": t("qc.meas_operator", "Operator (Personeelsnr)"),
     "operator": t("qc.meas_operator", "Operator (Personeelsnr)"),
     "operatorNumber": t("qc.meas_operator", "Operator (Personeelsnr)"),
     "OperatorNumber": t("qc.meas_operator", "Operator (Personeelsnr)"),
     "Operator": t("qc.meas_operator_short", "Operator"),
+    "RI_TableRef": t("qc.meas_tableref", "Tabelreferentie"),
     "Brix_TableRef": t("qc.meas_tableref", "Tabelreferentie"),
+    "RI_Table": t("qc.meas_tableref", "Tabelreferentie"),
     "Brix_Table": t("qc.meas_tableref", "Tabelreferentie"),
+    "RI_ResinWeight": t("qc.meas_resin_g", "Ingewogen Hars (g)"),
     "Brix_ResinWeight": t("qc.meas_resin_g", "Ingewogen Hars (g)"),
+    "RI_Resin": t("qc.meas_resin_g", "Ingewogen Hars (g)"),
     "Brix_Resin": t("qc.meas_resin_g", "Ingewogen Hars (g)"),
+    "RI_HardenerWeight": t("qc.meas_hardener_g", "Ingewogen Harder (g)"),
     "Brix_HardenerWeight": t("qc.meas_hardener_g", "Ingewogen Harder (g)"),
+    "RI_IPD": t("qc.meas_ipd_g", "Ingewogen IPD (g)"),
     "Brix_IPD": t("qc.meas_ipd_g", "Ingewogen IPD (g)"),
+    "RI": t("qc.meas_brix", "Brekingsindex"),
     "Brix": t("qc.meas_brix", "Brekingsindex"),
+    "RI_Ratio": t("qc.meas_ratio", "Mengverhouding"),
     "Brix_Ratio": t("qc.meas_ratio", "Mengverhouding"),
+    "RI_Area": t("qc.meas_area", "Acceptatieniveau (Area)"),
     "Brix_Area": t("qc.meas_area", "Acceptatieniveau (Area)"),
+    "RI_VisualCheck": t("qc.meas_visual", "Visuele Check"),
     "Brix_VisualCheck": t("qc.meas_visual", "Visuele Check"),
     "Tg": t("qc.meas_tg", "Tg Meting (°C)"),
     "TW": t("qc.meas_tw", "Wanddikte (TW)"),
@@ -98,6 +114,12 @@ const getMeasurementLabel = (key: string, t: any): string => {
 };
 
 const MEASUREMENT_ORDER = [
+  "RI_Department",
+  "RI_Kitchen",
+  "RI_TapPoint",
+  "RI_Shift",
+  "RI_Operator",
+  "RI_OperatorNumber",
   "Brix_Department",
   "Brix_Kitchen",
   "Brix_TapPoint",
@@ -108,6 +130,16 @@ const MEASUREMENT_ORDER = [
   "operatorNumber",
   "OperatorNumber",
   "Operator",
+  "RI_TableRef",
+  "RI_Table",
+  "RI_ResinWeight",
+  "RI_Resin",
+  "RI_HardenerWeight",
+  "RI_IPD",
+  "RI",
+  "RI_Ratio",
+  "RI_Area",
+  "RI_VisualCheck",
   "Brix_TableRef",
   "Brix_Table",
   "Brix_ResinWeight",
@@ -129,18 +161,18 @@ const MEASUREMENT_ORDER = [
 
 const formatMeasurementValue = (key: string, value: any, t: any): string => {
   const strVal = String(value);
-  if (key === "Brix_VisualCheck") {
+  if (key === "Brix_VisualCheck" || key === "RI_VisualCheck") {
     if (value === true || strVal.toLowerCase() === "true") return t("qc.visual_check_ok", "Ja (Akkoord)");
     if (value === false || strVal.toLowerCase() === "false") return t("qc.visual_check_nok", "Nee (Afgekeurd)");
   }
-  if (key === "Brix_Shift") {
+  if (key === "Brix_Shift" || key === "RI_Shift") {
     const s = strVal.toLowerCase().trim();
     if (["mo", "morning", "ochtend", "vroeg", "v"].includes(s)) return t("qc.shift_morning", "Ochtend");
     if (["af", "afternoon", "middag", "m", "mi"].includes(s)) return t("qc.shift_afternoon", "Middag");
     if (["ev", "evening", "avond", "a", "av"].includes(s)) return t("qc.shift_evening", "Avond");
     if (["ni", "night", "nacht", "n", "na"].includes(s)) return t("qc.shift_night", "Nacht");
   }
-  if (["Brix_ResinWeight", "Brix_HardenerWeight", "Brix_Resin", "Brix_IPD"].includes(key)) {
+  if (["Brix_ResinWeight", "Brix_HardenerWeight", "Brix_Resin", "Brix_IPD", "RI_ResinWeight", "RI_HardenerWeight", "RI_Resin", "RI_IPD"].includes(key)) {
     const numVal = parseFloat(strVal);
     if (!isNaN(numVal)) {
       return numVal.toFixed(3);
@@ -325,6 +357,11 @@ const ProductDossierModal = ({
   }, [dossierLabel, showLabelPreview]);
 
   const isTijdelijkeAfkeur = product?.inspection?.status === "Tijdelijke afkeur";
+  const qualityStatusLabel = String(product?.inspection?.status || "Niet gecontroleerd");
+  const measurementCount = product?.measurements ? Object.keys(product.measurements).length : 0;
+  const inspectionReasonCount = Array.isArray(product?.inspection?.reasons)
+    ? product.inspection.reasons.length
+    : 0;
   const isArchivedProduct = Boolean(product?.archived || product?.isArchivedOrder || product?.archivedAt);
 
   const REJECTION_REASON_LABELS: Record<string, string> = {
@@ -647,8 +684,15 @@ const ProductDossierModal = ({
       doc.text("Status:", 14, 50);
       doc.setFont("helvetica", "normal");
       doc.text(String(product?.status || "-"), 45, 50);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("QC Samenvatting:", 14, 56);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Status: ${qualityStatusLabel}`, 45, 56);
+      doc.text(`Metingen: ${measurementCount}`, 110, 56);
+      doc.text(`Bevindingen: ${inspectionReasonCount}`, 150, 56);
       
-      let startY = 60;
+      let startY = 64;
 
       if (product?.measurements && Object.keys(product.measurements).length > 0) {
         doc.setFontSize(14);
@@ -669,7 +713,7 @@ const ProductDossierModal = ({
         
         sortedMeas.forEach(([k, v]) => {
           let category = t("qc.cat_other", "Overige Metingen");
-          if (k.startsWith("Brix")) category = t("qc.cat_brix", "Brekingsindex");
+          if (k.startsWith("Brix") || k.startsWith("RI")) category = t("qc.cat_brix", "Brekingsindex");
           else if (k === "Tg") category = t("qc.cat_tg", "Laboratorium (Tg)");
           else if (["TW", "TF", "TWco", "TWc", "TWcb", "TWtb"].includes(k)) category = t("qc.cat_physical", "Fysieke Metingen (Operator)");
 
@@ -1225,7 +1269,7 @@ const ProductDossierModal = ({
 
                         sortedEntries.forEach(([key, val]) => {
                           let category = t("qc.cat_other", "Overige Metingen");
-                          if (key.startsWith("Brix")) category = t("qc.cat_brix", "Brekingsindex");
+                          if (key.startsWith("Brix") || key.startsWith("RI")) category = t("qc.cat_brix", "Brekingsindex");
                           else if (key === "Tg") category = t("qc.cat_tg", "Laboratorium (Tg)");
                           else if (["TW", "TF", "TWco", "TWc", "TWcb", "TWtb"].includes(key)) category = t("qc.cat_physical", "Fysieke Metingen (Operator)");
 
@@ -1273,6 +1317,33 @@ const ProductDossierModal = ({
                   <AlertTriangle className="text-rose-500" size={20} />{" "}
                   Kwaliteitsrapporten & Klachten
                 </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                  <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm">
+                    <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest block mb-1">
+                      Rapportstatus
+                    </span>
+                    <p className="text-sm font-black text-slate-800 uppercase italic">
+                      {qualityStatusLabel}
+                    </p>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm">
+                    <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest block mb-1">
+                      Meetwaarden
+                    </span>
+                    <p className="text-sm font-black text-slate-800 uppercase italic">
+                      {measurementCount} geregistreerd
+                    </p>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm">
+                    <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest block mb-1">
+                      QC Bevindingen
+                    </span>
+                    <p className="text-sm font-black text-slate-800 uppercase italic">
+                      {inspectionReasonCount} geregistreerd
+                    </p>
+                  </div>
+                </div>
 
                 {product.qcNotes && product.qcNotes.length > 0 ? (
                   <div className="space-y-4 mb-6">

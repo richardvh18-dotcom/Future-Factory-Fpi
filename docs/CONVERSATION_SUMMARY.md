@@ -1,3 +1,78 @@
+## Update sessie 31 mei 2026 (RI-canonisatie + typed path migratie afgerond)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. RI als canonieke meettype doorgetrokken in backend en frontend (met fallback op legacy Brix)**
+- Backend services en callables bijgewerkt zodat `ri` leidend is en `brix` als legacy input/compatibiliteit blijft ondersteund.
+- QC UI-flows bijgewerkt zodat nieuwe metingen standaard op RI lopen.
+- Productdossier-weergave uitgebreid met RI-keys naast bestaande Brix-keys.
+
+**2. Productdossier compatibel gemaakt voor oude + nieuwe meetvelden**
+- `ProductDossierModal.tsx` ondersteunt nu labels/sortering/categorisering voor zowel `RI_*` als `Brix_*` meetvelden.
+- Hierdoor blijven historische dossiers leesbaar terwijl nieuwe RI-metingen direct correct worden getoond.
+
+**3. Typed path database-migratie uitgevoerd van `types/brix` naar `types/ri`**
+- Nieuw script toegevoegd:
+    - `scripts/migrate-qc-types-brix-to-ri-via-cli-auth.cjs`
+- Script ondersteunt dry-run/apply, scope-keuze (`all|measurements|records`) en optioneel `--keep-source`.
+
+### Verificatie migratie
+- Dry-run: 4 kandidaten in `qc_measurements/live/types/brix/items` en 4 kandidaten in `qc_records/live/types/brix/items`.
+- Apply: 8/8 documenten succesvol gemigreerd, 0 mislukt.
+- Nacontrole telling:
+    - `future-factory/production/qc_measurements/live/types/ri/items: 4`
+    - `future-factory/production/qc_records/live/types/ri/items: 4`
+    - `future-factory/production/qc_measurements/live/types/brix/items: 0`
+    - `future-factory/production/qc_records/live/types/brix/items: 0`
+
+### Extra validatie
+- Gerichte error-checks op aangepaste QC-bestanden en `ProductDossierModal.tsx` uitgevoerd zonder nieuwe fouten.
+
+---
+
+## Update sessie 31 mei 2026 (Legacy QC Brix migratie uitgevoerd)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Legacy Brix-metingen operationeel verplaatst naar nieuwe directorystructuur**
+- Een gerichte migratie uitgevoerd voor de 4 legacy documenten uit:
+    - `future-factory/production/qc_measurements`
+- Doelpad per record:
+    - `future-factory/production/qc_measurements/live/types/brix/items/{measurementId}`
+- Daarnaast per record gespiegeld naar generieke records-structuur:
+    - `future-factory/production/qc_records/live/types/brix/items/{measurementId}`
+- Legacy bronrecords zijn na succesvolle copy verwijderd.
+
+**2. Technische uitvoering toegevoegd voor herhaalbare migratie**
+- Nieuw script toegevoegd:
+    - `scripts/migrate-legacy-qc-measurements-via-cli-auth.cjs`
+- Script ondersteunt:
+    - dry-run modus
+    - apply modus
+    - typefilter (`brix|tg|all`)
+    - token-refresh via Firebase CLI refresh token voor robuuste REST-auth
+
+**3. Verificatie direct na migratie**
+- Dry-run resultaat: 4 kandidaten (Brix).
+- Apply resultaat: 4/4 gemigreerd, 0 mislukt.
+- Nacontrole telling:
+    - `legacyRootCount: 0`
+    - `liveBrixCount: 4`
+    - `qcRecordsBrixCount: 4`
+
+### Gemigreerde document IDs
+- `LFE6JMOtXiOsxWmZJfLR`
+- `e7sHiu5HrxeKCFrwK5Ac`
+- `gOavdNNzGr6ITrK2nwN0`
+- `pjpNotrzpnYI5SdjbHTN`
+
+### Productdossier impact
+- `ProductDossierModal.tsx` gebruikt geen directe padquery op `qc_measurements` of `qc_records` en vereiste voor deze migratie geen aanvullende wijziging.
+
+---
+
 ## Update sessie 31 mei 2026 (QC Steekproef robuustheid & dubbele teller fix)
 
 **Branch:** `FPiFF-18-12-May` (actuele werkbranch)
@@ -176,38 +251,46 @@
 3. DevOps-discipline behouden: hooks, tests, CI-workflows en kwaliteitsgates actief houden.
 4. Focus op kernwaarde blijven benutten: productieplanning, operations workflows, dashboards en cloud deployment.
 
-### Geprioriteerde actiepunten (critical)
-1. **Role-based security hardening afronden**
-- Rechtenmodel eenduidig maken voor alle kritieke paden (admin, teamleader, operator, QC).
-- Security-regels en callable-authorisatie systematisch toetsen met regressietests per rol.
+### Geprioriteerde actiepunten (app-specifiek)
+1. **QC-rapportage consolideren**
+- Eén overzicht per lot met metingen, afkeur, correcties, historiek en export naar PDF/Excel.
+- QC-schermen eenduidiger maken zodat operators en teamleaders dezelfde status en dezelfde labels zien.
 
-2. **Audit logging/compliance trail implementeren**
-- Immutable audit-events toevoegen voor kritieke domeinacties (start/stop productie, QC edits, label/print events, statusovergangen).
-- Uniform event-schema invoeren (wie, wat, wanneer, oude/nieuwe waarde, bronflow).
+2. **Teamleader personeelsdashboard herontwerpen**
+- Indeling verbeteren voor aanwezigheid, ploeg, stationbezetting, afwezigheid en overdrachten.
+- Sneller inzicht geven in wie waar werkt en welke werkplekken onderbezet of geblokkeerd zijn.
 
-3. **Backend API/service-laag verder centraliseren**
-- Directe frontend-database interacties verder reduceren ten gunste van callables/service-endpoints.
-- Domeinlogica consolideren in backend services voor betere schaalbaarheid, policy enforcement en traceability.
+3. **Planning board met drag-drop opleveren**
+- Timeline/Gantt bouwen voor slepen tussen machines en lijnen.
+- Conflict-detectie, capaciteitscheck en live herplanning toevoegen voor planners.
 
-4. **Machine connectivity roadmap starten**
-- Verkenning en pilot opzetten voor OPC UA / MQTT / PLC-koppelingen via een gecontroleerde adapterlaag.
-- Bepalen welke shopfloor-signalen eerst nodig zijn voor operationele waarde (status, output, downtime, quality flags).
+4. **Realtime meldingen en escalaties invoeren**
+- Alerts voor downtime, vertraging, QC-afkeur, labelproblemen en ontbrekende scans.
+- Notificaties rollen naar de juiste persona: planner, operator, QC of leidinggevende.
 
-### Geprioriteerde actiepunten (enterprise+)
-1. ERP-integratiepad definiëren (orders, masterdata, terugkoppeling productie/QC).
-2. Offline/poor-connectivity strategie uitwerken voor shopfloor continuiteit.
-3. Edge computing patroon definiëren voor latency-kritische of machine-nabije verwerking.
-4. Productie-analytics engine plannen (KPI-model, historisering, trend- en afwijkingsdetectie).
+5. **Print- en labelflow robuust maken**
+- Queue, herprint en printerdiagnostiek verder stabiliseren.
+- Per job zichtbaar maken welke renderer, payload en printerinstellingen zijn gebruikt.
+
+6. **Security en audit verder dichtzetten**
+- Rechtenmodel per rol expliciet maken en testen.
+- Audit trail standaard maken voor productie-start/stop, QC-bewerkingen, statuswissels en printacties.
+
+### Aanvullende platformacties
+1. Offline/poor-connectivity strategie uitwerken voor tablets en werkvloerflows.
+2. Backend-service laag verder centraliseren om directe frontend writes te beperken.
+3. ERP-integratiepad definiëren voor orders, masterdata en terugkoppeling van productie/QC.
+4. Machine-connectivity pilot voorbereiden voor OPC UA / MQTT / PLC-signalen.
 
 ### Concreet vervolgschema (uitvoerbaar)
-1. **Sprint 1:** security hardening + audit event model + testmatrix per rol.
-2. **Sprint 2:** backend-centralisatie van resterende kritieke writes + API contracten.
-3. **Sprint 3:** machine-connectivity pilot (1 protocol, 1 lijn, 1 use-case) + evaluatie.
-4. **Sprint 4:** ERP-koppeling scope + analytics fundament + offline/edge design-besluit.
+1. **Sprint 1:** QC-rapportages + teamleader personeelsdashboard.
+2. **Sprint 2:** planning board + realtime notificaties.
+3. **Sprint 3:** print/label betrouwbaarheid + security/audit hardening.
+4. **Sprint 4:** offline support + ERP/machine-connectiviteit scope.
 
 ### Doelstatus na uitvoering
 - Positionering blijft: modern cloud manufacturing platform met sterke SaaS-architectuur.
-- Verschuiving richting volwaardige enterprise-MES kenmerken door security, auditability, integraties en industriële connectiviteit structureel af te dekken.
+- Verschuiving richting volwaardige enterprise-MES kenmerken door security, auditability, planning, rapportage en connectiviteit structureel af te dekken.
 
 ## Update sessie 29 mei 2026 (Monday/VPlan-richting verwerkt naar productactiepunten)
 

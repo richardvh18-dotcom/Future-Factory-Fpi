@@ -208,30 +208,30 @@ export const MTPresentation = () => {
           className="bg-white/5 backdrop-blur-[15px] border-2 border-white/10 text-white/60 px-[2vw] py-[1.2vh] rounded-[1.5rem] font-bold cursor-pointer transition-all hover:bg-blue-500 hover:translate-y-[-3px] hover:text-white hover:border-blue-500 flex items-center gap-4 uppercase text-[clamp(12px,0.9vw,22px)]"
         >
           <ArrowLeft size={20} />
-          Terug naar App
+          {t('mtPresentation.backToApp', 'Terug naar App')}
         </button>
       </div>
 
       {/* Slide Counter */}
       <div className="fixed bottom-[4vh] left-[4vw] text-[0.8vw] font-bold text-white/20 uppercase tracking-[5px] z-50">
-        SLIDE {String(current + 1).padStart(2, '0')} / {total}
+        {t('mtPresentation.slideCounter', 'SLIDE')} {String(current + 1).padStart(2, '0')} / {total}
       </div>
 
       {/* Navigation Buttons */}
       <div className="fixed bottom-[3vh] right-[3vw] flex gap-[1.5vw] z-50">
         <button
           onClick={() => changeSlide(-1)}
-          aria-label="Vorige slide"
+          aria-label={t('mtPresentation.previousSlideAria', 'Vorige slide')}
           className="bg-white/5 backdrop-blur-[15px] border-2 border-white/10 text-white/60 px-[2vw] py-[1.2vh] rounded-[1.5rem] font-bold cursor-pointer transition-all hover:bg-blue-500 hover:translate-y-[-3px] hover:text-white hover:border-blue-500 flex items-center gap-4 uppercase"
         >
           <ChevronLeft size={20} />
         </button>
         <button
           onClick={() => changeSlide(1)}
-          aria-label="Volgende slide"
+          aria-label={t('mtPresentation.nextSlideAria', 'Volgende slide')}
           className="bg-white/5 backdrop-blur-[15px] border-2 border-white/10 text-white/60 px-[2vw] py-[1.2vh] rounded-[1.5rem] font-bold cursor-pointer transition-all hover:bg-blue-500 hover:translate-y-[-3px] hover:text-white hover:border-blue-500 flex items-center gap-4 uppercase"
         >
-          VOLGENDE <ChevronRight size={20} />
+          {t('mtPresentation.next', 'VOLGENDE')} <ChevronRight size={20} />
         </button>
       </div>
 
@@ -256,17 +256,17 @@ export const MTPresentation = () => {
               <span className="text-blue-500">{t('mtPresentation.factory', 'FACTORY')}</span>
             </h1>
             <p className="text-[2.2vw] text-slate-400 font-light italic mt-6 max-w-5xl">
-              De digitale transitie van de werkvloer.
+              {t('mtPresentation.digitalTransitionShopfloor', 'De digitale transitie van de werkvloer.')}
             </p>
             <div className="mt-12 px-12 py-6 bg-white/5 border border-white/10 rounded-[3rem] backdrop-blur-xl inline-flex flex-col items-center">
               <p className="text-[0.8vw] font-bold uppercase tracking-[0.6em] text-blue-400 mb-2">
-                Project Architect
+                {t('mtPresentation.projectArchitect', 'Project Architect')}
               </p>
               <p className="text-[3.2vw] font-extrabold tracking-tight text-white leading-none">
                 Richard van Heerde
               </p>
               <p className="text-slate-500 text-[1vw] uppercase tracking-widest font-black mt-4">
-                Corporate Presentation • 2026
+                {t('mtPresentation.corporatePresentation2026', 'Corporate Presentation • 2026')}
               </p>
             </div>
           </div>
@@ -275,30 +275,30 @@ export const MTPresentation = () => {
         {/* Slide 2 - Journey */}
         <div className={`slide ${current === 2 ? 'active' : ''} bg-slate-900`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            De Reis naar Maatwerk
+            {t('mtPresentation.journeyToCustomization', 'De Reis naar Maatwerk')}
           </h2>
           <div className="grid grid-cols-2 gap-12">
             <div className="space-y-8">
               <div className="bg-red-500/5 border-2 border-red-500/20 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px]">
                 <h3 className="text-red-400 mb-4 flex items-center gap-4 text-[clamp(22px,2vw,50px)] font-bold">
-                  <SearchX size={40} /> 2024: Onderzoek Extern
+                  <SearchX size={40} /> {t('mtPresentation.externalResearch2024', '2024: Onderzoek Extern')}
                 </h3>
                 <p className="text-[1.4vw]">
-                  Software van derden bleek te star. Het kon niet alles wat Future Pipe nodig had. We moesten ons proces aanpassen aan hun systeem.
+                  {t('mtPresentation.thirdPartyTooRigid', 'Software van derden bleek te star. Het kon niet alles wat Future Pipe nodig had. We moesten ons proces aanpassen aan hun systeem.')}
                 </p>
               </div>
               <div className="bg-emerald-500/5 border-2 border-emerald-500/20 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px]">
                 <h3 className="text-emerald-400 mb-4 flex items-center gap-4 text-[clamp(22px,2vw,50px)] font-bold">
-                  <Code2 size={40} /> Dec 2025: De Start
+                  <Code2 size={40} /> {t('mtPresentation.startDec2025', 'Dec 2025: De Start')}
                 </h3>
                 <p className="text-[1.4vw]">
-                  Besloten om zelf te ontwikkelen. Omdat hoe we werkten met papier en Excel echt niet meer kon. Tijd voor data aan de bron.
+                  {t('mtPresentation.buildOurselvesReason', 'Besloten om zelf te ontwikkelen. Omdat hoe we werkten met papier en Excel echt niet meer kon. Tijd voor data aan de bron.')}
                 </p>
               </div>
             </div>
             <div className="flex flex-col justify-center p-12 bg-white/5 rounded-[4rem] border-2 border-white/5">
               <p className="text-[3vw] font-black italic text-blue-500 leading-tight">
-                "Als de markt ons niet kan helpen, bouwen we het zelf. Beter, sneller en goedkoper."
+                {t('mtPresentation.marketCantHelpQuote', '"Als de markt ons niet kan helpen, bouwen we het zelf. Beter, sneller en goedkoper."')}
               </p>
             </div>
           </div>
@@ -307,15 +307,15 @@ export const MTPresentation = () => {
         {/* Slide 3 - Genesis */}
         <div className={`slide ${current === 3 ? 'active' : ''} bg-slate-950`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Het Begin (Genesis)
+            {t('mtPresentation.genesisTitle', 'Het Begin (Genesis)')}
           </h2>
           <div className="grid grid-cols-2 gap-12 items-center">
             <div className="space-y-6">
               <h3 className="text-blue-400 italic text-[clamp(22px,2vw,50px)] font-bold">
-                De Initiële Behoefte
+                {t('mtPresentation.initialNeed', 'De Initiële Behoefte')}
               </h3>
               <p className="font-black italic text-white leading-tight mb-8 text-[2.2vw]">
-                "Hoe krijg IK de juiste tekeningen en maten direct bij de man aan de machine?"
+                {t('mtPresentation.initialQuestionQuote', '"Hoe krijg IK de juiste tekeningen en maten direct bij de man aan de machine?"')}
               </p>
               <div className="space-y-4">
                 <div className="flex items-center gap-6 p-4 bg-white/5 rounded-2xl border border-white/10">
@@ -334,7 +334,7 @@ export const MTPresentation = () => {
             </div>
             <div className="bg-slate-800/50 border-2 border-blue-500/20 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px]">
               <p className="text-slate-400 italic">
-                "Door een database aan de bron te creëren, elimineren we de kans op fouten door verouderde papieren tekeningen."
+                {t('mtPresentation.databaseAtSourceQuote', '"Door een database aan de bron te creëren, elimineren we de kans op fouten door verouderde papieren tekeningen."')}
               </p>
             </div>
           </div>
@@ -343,28 +343,28 @@ export const MTPresentation = () => {
         {/* Slide 4 - Bottom-Up */}
         <div className={`slide ${current === 4 ? 'active' : ''} bg-slate-900`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Bottom-Up Opbouw
+            {t('mtPresentation.bottomUpBuildTitle', 'Bottom-Up Opbouw')}
           </h2>
           <div className="grid grid-cols-2 gap-12 items-stretch">
             <div className="bg-slate-950 text-white p-12 rounded-[3rem] flex flex-col justify-center border border-white/10">
               <h3 className="text-blue-400 mb-2 italic text-[clamp(22px,2vw,50px)] font-bold">
-                Operator Standpunt
+                {t('mtPresentation.operatorPerspective', 'Operator Standpunt')}
               </h3>
               <p className="text-slate-500 text-[1.4vw] mb-4 font-semibold">
-                Niet bedacht aan een bureau, maar aan de machine.
+                {t('mtPresentation.notDeskButMachine', 'Niet bedacht aan een bureau, maar aan de machine.')}
               </p>
               <p className="text-slate-400 text-[1.1vw] leading-relaxed mb-6">
-                Geen systeem van bovenaf opgelegd waar het proces op aangepast moet worden door kantoorpersoneel.
+                {t('mtPresentation.noTopDownSystem', 'Geen systeem van bovenaf opgelegd waar het proces op aangepast moet worden door kantoorpersoneel.')}
               </p>
               <p className="font-black italic text-blue-500 mb-8 border-l-4 border-blue-500 pl-6 text-[2.2vw]">
                 {t('mtPresentation.operatorToolPrefix', '"Een tool die de operator ')}<span className="text-white underline">{t('mtPresentation.really', 'ECHT')}</span>{t('mtPresentation.operatorToolSuffix', ' helpt."')}
               </p>
               <div className="flex gap-4">
                 <div className="bg-blue-600 text-white px-[1.5vw] py-[1.2vh] rounded-[1vw] font-bold text-[1vw] uppercase flex items-center justify-center gap-[0.8vw] flex-1">
-                  <Zap size={20} /> Minimaal handelingen
+                  <Zap size={20} /> {t('mtPresentation.minimalActions', 'Minimaal handelingen')}
                 </div>
                 <div className="bg-blue-600 text-white px-[1.5vw] py-[1.2vh] rounded-[1vw] font-bold text-[1vw] uppercase flex items-center justify-center gap-[0.8vw] flex-1">
-                  <Eye size={20} /> Maximaal overzicht
+                  <Eye size={20} /> {t('mtPresentation.maximumOverview', 'Maximaal overzicht')}
                 </div>
               </div>
             </div>
@@ -383,7 +383,7 @@ export const MTPresentation = () => {
         {/* Slide 5 - MES */}
         <div className={`slide ${current === 5 ? 'active' : ''}`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Wat is een MES Systeem?
+            {t('mtPresentation.whatIsMesSystem', 'Wat is een MES Systeem?')}
           </h2>
           <p className="text-[1.2vw] text-blue-400 font-semibold mb-8 border-b border-white/10 pb-6 leading-relaxed">
             {t('mtPresentation.mesDefinitionPrefix', 'Een ')}<b>{t('mtPresentation.mesAcronym', 'MES')}</b>{t('mtPresentation.mesDefinitionSuffix', ' (Manufacturing Execution System) is slimme software die de volledige uitvoering op een fabrieksvloer in realtime aanstuurt, bewaakt en optimaliseert.')}
@@ -397,7 +397,7 @@ export const MTPresentation = () => {
                   <strong>{t('mtPresentation.erpInforLn', 'ERP (Infor-LN)')}</strong>
                   <br />
                   <span className="text-[11px] uppercase text-slate-300 font-bold tracking-widest">
-                    Kantoor / Administratie
+                    {t('mtPresentation.officeAdministration', 'Kantoor / Administratie')}
                   </span>
                 </div>
                 <div className="flex justify-center text-blue-500">
@@ -407,7 +407,7 @@ export const MTPresentation = () => {
                   <strong>{t('mtPresentation.mesFutureFactory', 'MES (Future-Factory)')}</strong>
                   <br />
                   <span className="text-[11px] uppercase text-slate-300 font-bold tracking-widest">
-                    Intelligentie / Regie
+                    {t('mtPresentation.intelligenceControl', 'Intelligentie / Regie')}
                   </span>
                 </div>
                 <div className="flex justify-center text-blue-500">
@@ -417,7 +417,7 @@ export const MTPresentation = () => {
                   <strong>{t('mtPresentation.shopfloor', 'WERKVLOER')}</strong>
                   <br />
                   <span className="text-[11px] uppercase text-slate-300 font-bold tracking-widest">
-                    Mensen / Output
+                    {t('mtPresentation.peopleOutput', 'Mensen / Output')}
                   </span>
                 </div>
               </div>
@@ -459,20 +459,20 @@ export const MTPresentation = () => {
         {/* Slide 6 - Vercel */}
         <div className={`slide ${current === 6 ? 'active' : ''} bg-slate-900`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            1. Vercel: De Gastheer
+            {t('mtPresentation.vercelHostTitle', '1. Vercel: De Gastheer')}
           </h2>
           <div className="grid grid-cols-2 gap-12 items-center">
             <div className="space-y-8">
               <div className="bg-slate-800/50 border-l-[1vw] border-blue-500 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px]">
                 <h3 className="mb-4 text-[clamp(22px,2vw,50px)] font-bold">{t('mtPresentation.lightHardware', 'Lichte Hardware')}</h3>
                 <p className="text-[1.3vw]">
-                  Vercel doet het denkwerk in de cloud. Onze tablets op de vloer hoeven niet hard te werken.
+                  {t('mtPresentation.vercelCloudHeavyLifting', 'Vercel doet het denkwerk in de cloud. Onze tablets op de vloer hoeven niet hard te werken.')}
                 </p>
               </div>
               <div className="bg-slate-800/50 border-l-[1vw] border-emerald-500 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px]">
                 <h3 className="mb-4 text-[clamp(22px,2vw,50px)] font-bold">{t('mtPresentation.timeMachine', 'De Tijdmachine')}</h3>
                 <p className="text-[1.3vw]">
-                  Een update gedaan met een foutje? Met een druk op de knop draaien we het hele systeem terug.
+                  {t('mtPresentation.vercelRollback', 'Een update gedaan met een foutje? Met een druk op de knop draaien we het hele systeem terug.')}
                 </p>
               </div>
             </div>
@@ -486,11 +486,11 @@ export const MTPresentation = () => {
         {/* Slide 7 - Global */}
         <div className={`slide ${current === 7 ? 'active' : ''} bg-slate-950`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Wereldwijde Standaard
+            {t('mtPresentation.globalStandard', 'Wereldwijde Standaard')}
           </h2>
           <div className="flex flex-col items-center justify-center h-full">
             <p className="text-[1.2vw] font-black uppercase tracking-[0.5em] text-blue-500 mb-12">
-              Technologie vertrouwd door marktleiders
+              {t('mtPresentation.techTrustedByLeaders', 'Technologie vertrouwd door marktleiders')}
             </p>
             <div className="flex gap-8">
               {['UBER', 'NINTENDO', 'TICKETMASTER', 'EBAY'].map((brand, index) => (
@@ -504,7 +504,7 @@ export const MTPresentation = () => {
               ))}
             </div>
             <p className="mt-16 text-slate-500 italic text-[1.4vw] max-w-3xl text-center">
-              "Door te kiezen voor Vercel, gebruikt de Future Factory hetzelfde fundament als de meest veeleisende platforms ter wereld."
+              {t('mtPresentation.vercelFoundationQuote', '"Door te kiezen voor Vercel, gebruikt de Future Factory hetzelfde fundament als de meest veeleisende platforms ter wereld."')}
             </p>
           </div>
         </div>
@@ -512,7 +512,7 @@ export const MTPresentation = () => {
         {/* Slide 8 - Firebase */}
         <div className={`slide ${current === 8 ? 'active' : ''} bg-slate-950`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            2. Firebase: De Veilige Kluis
+            {t('mtPresentation.firebaseSecureVaultTitle', '2. Firebase: De Veilige Kluis')}
           </h2>
           <div className="grid grid-cols-2 gap-12">
             <div className="bg-slate-800/50 border-2 border-white/8 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px] space-y-8">
@@ -546,7 +546,7 @@ export const MTPresentation = () => {
         {/* Slide 9 - Firebase Flow */}
         <div className={`slide ${current === 9 ? 'active' : ''} bg-slate-900`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Datastroom: Tablet naar Firebase
+            {t('mtPresentation.dataFlowTabletToFirebase', 'Datastroom: Tablet naar Firebase')}
           </h2>
           <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] gap-6 items-center mt-10">
             <div className={`flow-node p-8 text-center ${firebaseFlowActive === 0 ? 'flow-node-active' : ''}`}>
@@ -579,12 +579,12 @@ export const MTPresentation = () => {
         {/* Slide 10 - Codespaces */}
         <div className={`slide ${current === 10 ? 'active' : ''}`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            3. Codespaces: De Werkplaats
+            {t('mtPresentation.codespacesWorkshopTitle', '3. Codespaces: De Werkplaats')}
           </h2>
           <div className="grid grid-cols-2 gap-12 items-center">
             <div className="bg-slate-800/50 border-2 border-white/8 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px] space-y-6">
               <h3 className="text-blue-400 italic text-[clamp(22px,2vw,50px)] font-bold">
-                Team-effort, geen Solo-project
+                {t('mtPresentation.teamEffortNotSolo', 'Team-effort, geen Solo-project')}
               </h3>
               <p className="text-[1.3vw]">
                 {t('mtPresentation.codeWrittenPrefix', 'De code is geschreven in ')}<b>{t('mtPresentation.reactJavascript', 'React (JavaScript)')}</b>{t('mtPresentation.codeWrittenSuffix', ', de wereldstandaard. De hele werkplaats staat in GitHub.')}
@@ -592,13 +592,13 @@ export const MTPresentation = () => {
               <div className="p-6 bg-blue-600/10 rounded-3xl border border-blue-500/20 flex items-center gap-6">
                 <Users className="text-blue-500" size={40} />
                 <p className="text-[1.1vw] font-bold">
-                  IT kan morgen een andere programmeur toegang geven tot de exacte werkplek van Richard.
+                  {t('mtPresentation.itCanGrantAccess', 'IT kan morgen een andere programmeur toegang geven tot de exacte werkplek van Richard.')}
                 </p>
               </div>
             </div>
             <div className="bg-slate-800/50 border-2 border-white/8 rounded-[2.5rem] p-12 text-center backdrop-blur-[12px]">
               <p className="text-slate-400 uppercase tracking-widest text-sm mb-6 font-bold">
-                Wij gebruiken dezelfde techniek als:
+                {t('mtPresentation.sameTechAs', 'Wij gebruiken dezelfde techniek als:')}
               </p>
               <div className="grid grid-cols-3 gap-6 opacity-60">
                 <div className="brand-tile-breathe p-4 bg-black/40 rounded-2xl" style={{ animationDelay: '0s' }}>
@@ -621,7 +621,7 @@ export const MTPresentation = () => {
         {/* Slide 11 - Costs */}
         <div className={`slide ${current === 11 ? 'active' : ''} bg-slate-900`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Business Case: De Kosten
+            {t('mtPresentation.businessCaseCostsTitle', 'Business Case: De Kosten')}
           </h2>
           <div className="max-w-5xl mx-auto space-y-6 mt-8">
             <div className="flex justify-between items-center bg-slate-800/50 border-2 border-white/10 rounded-[2rem] p-8 backdrop-blur-[12px] hover:bg-slate-800/80 transition-all">
@@ -653,13 +653,13 @@ export const MTPresentation = () => {
             </div>
             <div className="pt-10 text-center">
               <p className="text-5xl md:text-6xl font-black text-emerald-500 tracking-tighter">
-                TOTAAL: ± EUR 135,- PER MAAND
+                {t('mtPresentation.totalPerMonth', 'TOTAAL: ± EUR 135,- PER MAAND')}
               </p>
               <p className="text-slate-400 mt-4 text-sm italic font-medium">
-                Schaalbaar per machine. Geen dure licenties per werknemer.
+                {t('mtPresentation.scalablePerMachine', 'Schaalbaar per machine. Geen dure licenties per werknemer.')}
               </p>
               <p className="text-slate-500 mt-2 text-sm italic font-medium">
-                * (kosten nemen af naarmate het van ontwikkelen naar onderhouden gaat)
+                {t('mtPresentation.costsDecreaseOverTime', '* (kosten nemen af naarmate het van ontwikkelen naar onderhouden gaat)')}
               </p>
             </div>
           </div>
@@ -668,12 +668,12 @@ export const MTPresentation = () => {
         {/* Slide 12 - Extra Opties */}
         <div className={`slide ${current === 12 ? 'active' : ''} bg-slate-900`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Optionele Extra's
+            {t('mtPresentation.optionalExtras', "Optionele Extra's")}
           </h2>
           <div className="grid grid-cols-2 gap-12 items-center mt-8">
             <div className="bg-slate-800/50 border-2 border-white/10 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px] space-y-6">
               <h3 className="text-blue-400 italic text-[clamp(22px,2vw,35px)] font-bold flex items-center gap-4">
-                <MonitorSmartphone size={32} className="shrink-0" /> Google Workspace (MDM)
+                <MonitorSmartphone size={32} className="shrink-0" /> {t('mtPresentation.googleWorkspaceMdm', 'Google Workspace (MDM)')}
               </h3>
               <p className="text-[1.3vw] leading-relaxed">
                 {t('mtPresentation.manageTabletsPrefix', 'Tablets op de werkvloer beheren en ')}<b>{t('mtPresentation.lockKioskMode', 'vergrendelen (Kiosk-modus)')}</b>.
@@ -687,7 +687,7 @@ export const MTPresentation = () => {
             
             <div className="bg-slate-800/50 border-2 border-white/10 rounded-[2.5rem] p-[2.5vw] backdrop-blur-[12px] space-y-6">
               <h3 className="text-emerald-400 italic text-[clamp(22px,2vw,35px)] font-bold flex items-center gap-4">
-                <Globe size={32} className="shrink-0" /> Eigen Domeinnaam
+                <Globe size={32} className="shrink-0" /> {t('mtPresentation.customDomain', 'Eigen Domeinnaam')}
               </h3>
               <p className="text-[1.3vw] leading-relaxed">
                 {t('mtPresentation.linkOfficialDomainToVercel', 'Koppel een officieel domein (bijv. fpi-future-factory.com) aan Vercel.')}
@@ -704,7 +704,7 @@ export const MTPresentation = () => {
         {/* Slide 13 - Transfer */}
         <div className={`slide ${current === 13 ? 'active' : ''} bg-slate-950`}>
           <h2 className="font-black uppercase text-[clamp(40px,3.5vw,85px)] leading-none mb-[3vh] border-l-[1vw] border-blue-500 pl-[2.5vw]">
-            Van Richard naar FPi Asset
+            {t('mtPresentation.fromRichardToFpiAsset', 'Van Richard naar FPi Asset')}
           </h2>
           <div className="grid grid-cols-2 gap-10">
             <div className="space-y-6">
@@ -742,17 +742,17 @@ export const MTPresentation = () => {
         {/* Slide 15 - Questions */}
         <div className={`slide ${current === 14 ? 'active' : ''} text-center`}>
           <h1 className="text-9xl font-black italic tracking-tighter mb-8 text-blue-600 leading-none">
-            VRAGEN?
+            {t('mtPresentation.questions', 'VRAGEN?')}
           </h1>
           <p className="text-2xl text-slate-500 uppercase tracking-[0.5em] font-light">
-            The floor is yours.
+            {t('mtPresentation.theFloorIsYours', 'The floor is yours.')}
           </p>
           <div className="mt-20 inline-block bg-slate-800/50 border-2 border-blue-500/30 rounded-[2.5rem] px-16 py-10 backdrop-blur-[12px]">
             <p className="text-xl font-bold tracking-[0.4em] uppercase italic text-blue-500">
-              Richard van Heerde
+              {t('mtPresentation.richardVanHeerde', 'Richard van Heerde')}
             </p>
             <p className="text-slate-600 mt-2 font-mono text-[10px] uppercase">
-              Future Factory MES v8.3 Master
+              {t('mtPresentation.futureFactoryMesMaster', 'Future Factory MES v8.3 Master')}
             </p>
           </div>
         </div>

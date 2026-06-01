@@ -9,7 +9,7 @@ import { useNotifications } from "../../contexts/NotificationContext";
 
 type AddLabMeasurementModalProps = {
   onClose: () => void;
-  defaultType?: "brix" | "tg";
+  defaultType?: "ri" | "tg";
 };
 
 const normalizeDepartmentName = (department?: string): string => {
@@ -72,7 +72,7 @@ const QAQC_W11_TABLES: Record<number, { nMix: number; ratio: number; area: "A" |
   ]
 };
 
-const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasurementModalProps) => {
+const AddLabMeasurementModal = ({ onClose, defaultType = "ri" }: AddLabMeasurementModalProps) => {
   const { t } = useTranslation();
   const { showSuccess, showError } = useNotifications();
   const [loading, setLoading] = useState(false);
@@ -140,7 +140,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
   }, [measurementTime]);
 
   const calculation = useMemo(() => {
-    if (defaultType !== "brix") return null;
+    if (defaultType !== "ri") return null;
     const nMix = parseFloat(formData.refractiveIndex);
     if (isNaN(nMix)) return null;
 
@@ -172,7 +172,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
     const measuredAtString = `${measurementDate} ${measurementTime}`;
     const lotUpper = formData.lotNumber.toUpperCase();
 
-    if (defaultType === "brix" && !calculation) {
+    if (defaultType === "ri" && !calculation) {
       showError("Vul een geldige brekingsindex in om de calculatie te voltooien.");
       return;
     }
@@ -229,7 +229,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
       trackedProductPath: matchedDocPath
     };
 
-    if (defaultType === "brix") {
+    if (defaultType === "ri") {
       payload = {
         ...payload,
         department: normalizeDepartmentName(formData.department),
@@ -242,6 +242,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
         tableRef: 1,
         mixingRatio: `100:${calculation!.measuredRatio}`,
         area: calculation!.area,
+        ri: parseFloat(formData.refractiveIndex),
         brix: parseFloat(formData.refractiveIndex), // fallback field
       };
     } else {
@@ -259,7 +260,9 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
       if (matchedDocPath) {
         try {
           const updates: any = {};
-          if (defaultType === "brix") {
+          if (defaultType === "ri") {
+            updates["measurements.RI"] = parseFloat(formData.refractiveIndex);
+            updates["measurements.RI_Ratio"] = `100:${calculation!.measuredRatio}`;
             updates["measurements.Brix"] = parseFloat(formData.refractiveIndex);
             updates["measurements.Mengverhouding"] = `100:${calculation!.measuredRatio}`;
           } else {
@@ -304,15 +307,15 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
       <div className="bg-white w-full max-w-2xl rounded-[30px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <div className="flex items-center gap-3">
-            <div className={`p-3 rounded-xl ${defaultType === "brix" ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"}`}>
-              {defaultType === "brix" ? <Beaker size={24} /> : <Thermometer size={24} />}
+            <div className={`p-3 rounded-xl ${defaultType === "ri" ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"}`}>
+              {defaultType === "ri" ? <Beaker size={24} /> : <Thermometer size={24} />}
             </div>
             <div>
               <h3 className="font-black text-slate-800 uppercase text-lg italic tracking-tight">
-                {defaultType === "brix" ? t("addLabMeasurementModal.newRefractiveIndexMeasurement", "Nieuwe Brekingsindex Meting") : t("addLabMeasurementModal.newTgMeasurement", "Nieuwe Tg Meting")}
+                {defaultType === "ri" ? t("addLabMeasurementModal.newRefractiveIndexMeasurement", "Nieuwe Brekingsindex Meting") : t("addLabMeasurementModal.newTgMeasurement", "Nieuwe Tg Meting")}
               </h3>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                {defaultType === "brix" ? t("addLabMeasurementModal.refractiveIndexAndMixRatio", "Brekingsindex & Mengverhouding") : t("addLabMeasurementModal.labAnalysis", "Laboratorium analyse")}
+                {defaultType === "ri" ? t("addLabMeasurementModal.refractiveIndexAndMixRatio", "Brekingsindex & Mengverhouding") : t("addLabMeasurementModal.labAnalysis", "Laboratorium analyse")}
               </p>
             </div>
           </div>
@@ -329,7 +332,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
           </div>
 
           {/* 2. Meetstation */}
-          {defaultType === "brix" && (
+          {defaultType === "ri" && (
             <div>
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1 block">{t("addLabMeasurementModal.resinKitchenMeasurementPoint", "Harskeuken / Meetpunt")}</label>
               <select
@@ -354,7 +357,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
           )}
 
           {/* 3. Datum, Tijd en Ploeg */}
-          <div className={`grid gap-4 ${defaultType === "brix" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-2"}`}>
+          <div className={`grid gap-4 ${defaultType === "ri" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-2"}`}>
             <div className="space-y-1">
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest block">{t("common.date", "Datum")}</label>
               <input 
@@ -375,7 +378,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
                 className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-blue-500"
               />
             </div>
-            {defaultType === "brix" && (
+            {defaultType === "ri" && (
               <div className="space-y-1">
                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest block">{t("addLabMeasurementModal.shiftAuto", "Ploeg (Auto)")}</label>
                 <input 
@@ -394,7 +397,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
             <input type="text" required value={formData.lotNumber} onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value.toUpperCase() })} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-blue-500" placeholder={t("placeholders.qcLabLotExample", "Bijv. 4026...")} />
           </div>
 
-          {defaultType === "brix" && (
+          {defaultType === "ri" && (
             <>
               {/* 5. Afgewogen Hars */}
               <div>
@@ -487,7 +490,7 @@ const AddLabMeasurementModal = ({ onClose, defaultType = "brix" }: AddLabMeasure
 
           <div className="pt-4 flex gap-3 sticky bottom-0 bg-white">
             <button type="button" onClick={onClose} className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors text-xs uppercase tracking-wider flex-1">{t("common.cancel", "Annuleren")}</button>
-            <button type="submit" disabled={loading} className={`px-6 py-3 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 flex-[2] ${defaultType === "brix" ? "bg-blue-600 hover:bg-blue-700 shadow-blue-200" : "bg-purple-600 hover:bg-purple-700 shadow-purple-200"}`}>
+            <button type="submit" disabled={loading} className={`px-6 py-3 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 flex-[2] ${defaultType === "ri" ? "bg-blue-600 hover:bg-blue-700 shadow-blue-200" : "bg-purple-600 hover:bg-purple-700 shadow-purple-200"}`}>
               {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
               {t("common.save", "Opslaan")}
             </button>

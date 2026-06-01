@@ -92,12 +92,13 @@ const normalizeCallableError = (error: unknown, actionName: string): Error => {
 export const saveQcMeasurement = async (payload: {
   lotNumber: string;
   resinBatch?: string;
+  ri?: number | null;
   brix?: number | null;
   tg?: number | null;
   notes?: string;
   actorLabel: string;
   source: string;
-  type?: 'brix' | 'tg';
+  type?: 'ri' | 'tg';
   department?: string;
   kitchen?: string;
   tapPoint?: string;
@@ -142,7 +143,7 @@ export const saveQcInspection = async (payload: {
 export const updateQcMeasurement = async (payload: {
   measurementId: string;
   lotNumber?: string;
-  type?: "brix" | "tg";
+  type?: "ri" | "tg";
   measuredAt?: string;
   actorLabel?: string;
   source?: string;
@@ -155,6 +156,7 @@ export const updateQcMeasurement = async (payload: {
   resinWeight?: number;
   hardenerWeight?: number;
   refractiveIndex?: number;
+  ri?: number;
   brix?: number;
   visualCheckOk?: boolean;
   tableRef?: number;

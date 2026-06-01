@@ -58,6 +58,12 @@ const PrintQueueAdminView = lazy(() =>
 );
 const ProductDossierModal = lazy(() => import("./components/digitalplanning/modals/ProductDossierModal"));
 const TeamleaderOrderDetailModal = lazy(() => import("./components/digitalplanning/modals/TeamleaderOrderDetailModal"));
+const MTPresentation = lazy(() =>
+  import("./components/MTPresentation").then((module) => ({ default: module.MTPresentation }))
+);
+const TeamleaderPresentation = lazy(() =>
+  import("./components/TeamleaderPresentation")
+);
 
 /**
  * App.jsx V18.0 - Responsive Design
@@ -66,6 +72,8 @@ const TeamleaderOrderDetailModal = lazy(() => import("./components/digitalplanni
  */
 const App = () => {
   const navigate = useNavigate();
+  const pathname =
+    typeof window !== "undefined" ? window.location.pathname : "";
   const [searchQuery, setSearchQuery] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
@@ -348,6 +356,34 @@ const App = () => {
           Identiteit controleren...
         </p>
       </div>
+    );
+  }
+
+  if (pathname === "/presentation") {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex h-screen w-full items-center justify-center bg-slate-950">
+            <Loader2 className="animate-spin text-blue-400" size={48} />
+          </div>
+        }
+      >
+        <MTPresentation />
+      </Suspense>
+    );
+  }
+
+  if (pathname === "/presentation-teamleaders") {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex h-screen w-full items-center justify-center bg-slate-950">
+            <Loader2 className="animate-spin text-blue-400" size={48} />
+          </div>
+        }
+      >
+        <TeamleaderPresentation />
+      </Suspense>
     );
   }
 

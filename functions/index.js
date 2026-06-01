@@ -114,7 +114,8 @@ const {
   reconcileOrderControl,
 } = require('./src/callables/planningCallables');
 const { runMigrationTool } = require('./src/callables/migrationCallables');
-const { saveQcMeasurement, saveQcInspection, updateQcMeasurement } = require('./src/callables/qcCallables');
+const { saveQcMeasurement, saveQcInspection, updateQcMeasurement, migrateLegacyQcData } = require('./src/callables/qcCallables');
+const { archiveQcDataService } = require('./src/services/qcArchiveService');
 const auditService = require('./src/services/auditService');
 const {
   aiReactiveWatchdogTrackedScoped,
@@ -1841,6 +1842,18 @@ exports.appendQcNote = appendQcNote;
 exports.saveQcMeasurement = saveQcMeasurement;
 exports.saveQcInspection = saveQcInspection;
 exports.updateQcMeasurement = updateQcMeasurement;
+exports.migrateLegacyQcData = migrateLegacyQcData;
+exports.archiveQcDataMonthly = functions
+  .pubsub.schedule('15 3 1 * *')
+  .timeZone('Europe/Amsterdam')
+  .onRun(async () => {
+    try {
+      return await archiveQcDataService();
+    } catch (error) {
+      console.error('[archiveQcDataMonthly] error:', error);
+      throw error;
+    }
+  });
 exports.reserveAutoLotNumberRange = reserveAutoLotNumberRange;
 exports.addOrderDependency = addOrderDependency;
 exports.removeOrderDependency = removeOrderDependency;

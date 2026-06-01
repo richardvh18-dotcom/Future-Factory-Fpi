@@ -14,6 +14,7 @@ export type LabMeasurement = {
   id: string;
   lotNumber: string;
   resinBatch?: string;
+  ri?: number;
   brix?: number;
   tg?: number;
   measuredAt: string;
@@ -31,7 +32,7 @@ export type LabMeasurement = {
   tableRef?: number;
   mixingRatio?: string;
   area?: "A" | "B" | "C";
-  type?: "brix" | "tg";
+  type?: "ri" | "brix" | "tg";
   trackedProductPath?: string | null;
 };
 
@@ -60,13 +61,14 @@ const sampleMeasurements: LabMeasurement[] = [
     shift: "Mo",
     resinWeight: 3.275,
     hardenerWeight: 0.8,
+    ri: 1.5559,
     refractiveIndex: 1.5559,
     brix: 1.5559,
     visualCheckOk: true,
     tableRef: 1,
     mixingRatio: "100:22.8",
     area: "A",
-    type: "brix",
+    type: "ri",
   },
   {
     id: "m-002",
@@ -83,6 +85,8 @@ const sampleMeasurements: LabMeasurement[] = [
 
 type LabMeasurementsViewProps = {
   measurements?: LabMeasurement[];
+  readOnly?: boolean;
+  forcedTile?: "ri" | "tg";
 };
 
 const deptTileStyles: Record<string, string> = {
@@ -129,12 +133,13 @@ const getTimePart = (measuredAt?: string): string => {
   return match ? match[1] : "-";
 };
 
-const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasurementsViewProps) => {
+const LabMeasurementsView = ({ measurements = sampleMeasurements, readOnly = false, forcedTile }: LabMeasurementsViewProps) => {
   const { t } = useTranslation();
   const { isAdmin } = useAdminAuth();
   const { showSuccess, showError } = useNotifications();
+  const canEditRows = isAdmin && !readOnly;
   const [showAddModal, setShowAddModal] = useState(false);
-  const [activeTile, setActiveTile] = useState<"brix" | "tg">("brix");
+  const [activeTile, setActiveTile] = useState<"ri" | "tg">(forcedTile || "ri");
   const [activeDepartment, setActiveDepartment] = useState("Fittings");
   const [kitchenFilter, setKitchenFilter] = useState("Alle");
   const [searchTerm, setSearchTerm] = useState("");
@@ -145,6 +150,10 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
   const [personnelMap, setPersonnelMap] = useState<Record<string, string>>({});
   const [dossierProduct, setDossierProduct] = useState<any>(null);
   const [loadingDossierLot, setLoadingDossierLot] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (forcedTile) setActiveTile(forcedTile);
+  }, [forcedTile]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, getPathString(PATHS.PERSONNEL as string[])), (snap) => {
@@ -198,7 +207,8 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
   };
 
   const startEditing = (row: LabMeasurement) => {
-    const refractiveValue = row.refractiveIndex ?? row.brix;
+    if (readOnly) return;
+    const refractiveValue = row.refractiveIndex ?? row.ri ?? row.brix;
     setEditingMeasurementId(row.id);
     setEditDraft({
       measuredAt: String(row.measuredAt || ""),
@@ -233,7 +243,7 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
         measurementId: row.id,
         lotNumber: row.lotNumber,
         trackedProductPath: row.trackedProductPath || null,
-        type: "brix",
+        type: "ri",
         measuredAt: editDraft.measuredAt,
         actorLabel: editDraft.measuredBy || "QC Admin",
         source: "LabMeasurementsViewAdminEdit",
@@ -241,6 +251,7 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
         kitchen: editDraft.kitchen,
         shift: editDraft.shift,
         refractiveIndex: parsedRefractive,
+        ri: parsedRefractive,
         brix: parsedRefractive,
         mixingRatio: editDraft.mixingRatio,
         area: editDraft.area,
@@ -279,8 +290,8 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
   const filteredMeasurements = measurements.filter((m) => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
-    if (activeTile === "brix") {
-      const isBrix = m.type === "brix" || !!m.brix || !!m.refractiveIndex;
+    if (activeTile === "ri") {
+      const isBrix = m.type === "ri" || m.type === "brix" || !!m.ri || !!m.brix || !!m.refractiveIndex;
       if (!isBrix) return false;
       if (normalizeDepartment(m.department) !== activeDepartment) return false;
       if (kitchenFilter !== "Alle" && m.kitchen !== kitchenFilter) return false;
@@ -326,7 +337,7 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
   const brixCountByDepartment = uniqueDepartments.reduce((acc, dept) => {
     acc[dept] = measurements.filter(
       (m) =>
-        (m.type === "brix" || !!m.brix || !!m.refractiveIndex) &&
+        (m.type === "ri" || m.type === "brix" || !!m.ri || !!m.brix || !!m.refractiveIndex) &&
         normalizeDepartment(m.department) === dept
     ).length;
     return acc;
@@ -346,13 +357,13 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
         <button
           onClick={() => setShowAddModal(true)}
           className={`px-4 py-2 text-white rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg flex items-center gap-2 ${
-            activeTile === "brix"
+            activeTile === "ri"
               ? "bg-blue-600 hover:bg-blue-700 shadow-blue-200"
               : "bg-purple-600 hover:bg-purple-700 shadow-purple-200"
           }`}
         >
           <Plus size={16} />
-          {activeTile === "brix"
+          {activeTile === "ri"
             ? t("qc.add_brix", "Nieuwe Brekingsindex Meting")
             : t("qc.add_tg", "Nieuwe Tg Meting")}
         </button>
@@ -360,18 +371,18 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <button
-          onClick={() => setActiveTile("brix")}
+          onClick={() => setActiveTile("ri")}
           className={`p-6 rounded-3xl border-2 flex items-center gap-4 transition-all text-left ${
-            activeTile === "brix"
+            activeTile === "ri"
               ? "bg-blue-50 border-blue-500 shadow-lg shadow-blue-100"
               : "bg-white border-slate-100 hover:border-blue-200 hover:bg-slate-50"
           }`}
         >
-          <div className={`p-4 rounded-2xl ${activeTile === "brix" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400"}`}>
+          <div className={`p-4 rounded-2xl ${activeTile === "ri" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400"}`}>
             <Beaker size={24} />
           </div>
           <div>
-            <h3 className={`text-lg font-black uppercase tracking-tight ${activeTile === "brix" ? "text-blue-900" : "text-slate-700"}`}>
+            <h3 className={`text-lg font-black uppercase tracking-tight ${activeTile === "ri" ? "text-blue-900" : "text-slate-700"}`}>
               {t("qc.refractive_index_measurements", "Brekingsindex Metingen")}
             </h3>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">{t("qc.mix_ratios_and_index", "Mengverhoudingen & Index")}</p>
@@ -399,7 +410,7 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        {activeTile === "brix" ? (
+        {activeTile === "ri" ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
               {uniqueDepartments.map((department) => {
@@ -478,7 +489,7 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
                 </span>
               </div>
 
-              {activeTile === "brix" ? (
+              {activeTile === "ri" ? (
                 <div className="p-4 space-y-3">
                   {rows.map((row) => (
                     <details key={row.id} className="group rounded-xl border border-slate-200 bg-slate-50 open:bg-white open:shadow-sm">
@@ -493,7 +504,7 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
                       </summary>
 
                       <div className="px-4 pb-4 border-t border-slate-100">
-                        {isAdmin && (
+                        {canEditRows && (
                           <div className="pt-3 flex items-center justify-end gap-2">
                             {editingMeasurementId === row.id ? (
                               <>
@@ -601,7 +612,7 @@ const LabMeasurementsView = ({ measurements = sampleMeasurements }: LabMeasureme
                               />
                             ) : (
                               <span className="font-mono font-black text-blue-700">
-                                {row.refractiveIndex || row.brix ? Number(row.refractiveIndex || row.brix).toFixed(4) : "-"}
+                                {(row.refractiveIndex ?? row.ri ?? row.brix) ? Number(row.refractiveIndex ?? row.ri ?? row.brix).toFixed(4) : "-"}
                               </span>
                             )}
                           </div>

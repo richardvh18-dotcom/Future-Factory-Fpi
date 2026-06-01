@@ -124,7 +124,7 @@ const MTPresentationLauncher = () => (
         MT Presentatie (Tijdelijk)
       </h3>
       <p className="text-slate-600 text-sm leading-relaxed">
-        Open de presentatie in een nieuw tabblad. In de presentatie staat een vaste knop om direct terug de app in te gaan.
+        Open een presentatie in een nieuw tabblad. In beide presentaties staat een vaste knop om direct terug de app in te gaan.
       </p>
       <div className="flex flex-wrap gap-3 pt-2">
         <a
@@ -133,7 +133,16 @@ const MTPresentationLauncher = () => (
           rel="noreferrer"
           className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-blue-700 transition-colors"
         >
-          Open Presentatie
+          Open MT Presentatie
+          <ArrowRight size={14} />
+        </a>
+        <a
+          href="/presentation-teamleaders"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-emerald-700 transition-colors"
+        >
+          Open Teamleader Presentatie
           <ArrowRight size={14} />
         </a>
         <a

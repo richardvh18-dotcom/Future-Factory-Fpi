@@ -48,6 +48,7 @@ import { normalizeMachine } from "../../utils/hubHelpers";
 import { PATHS, isValidPath, getPathString } from "../../config/dbPaths";
 import PersonnelOccupancyView from '../personnel/PersonnelOccupancyView';
 import PersonnelListView from '../personnel/PersonnelListView';
+import PersonnelTeamView from '../personnel/subviews/PersonnelTeamView';
 import NFCTagRegistrationModal from './NFCTagRegistrationModal';
 import { DEFAULTS, SHIFT_COLORS } from "../../data/constants";
 import { useNotifications } from "../../contexts/NotificationContext";
@@ -247,6 +248,21 @@ const PersonnelManager: React.FC<PersonnelManagerProps> = ({ initialViewDate, in
     () => personnel.filter((p): p is Person & { id: string } => typeof p.id === "string" && p.id.length > 0),
     [personnel]
   );
+
+  const personnelOverview = useMemo(() => {
+    const departmentIds = new Set((structure.departments || []).map((dept) => dept.id));
+    const activePersonnel = personnelWithId.filter((person) => person.isActive !== false);
+    const loanPersonnel = personnelWithId.filter((person) => person.loan?.active);
+    const unmatchedPersonnel = personnelWithId.filter((person) => !departmentIds.has(String(person.departmentId || "")));
+
+    return {
+      total: personnelWithId.length,
+      active: activePersonnel.length,
+      loaned: loanPersonnel.length,
+      departments: (structure.departments || []).length,
+      unmatched: unmatchedPersonnel.length,
+    };
+  }, [personnelWithId, structure.departments]);
 
   // 1. DATA SYNC MET DE ROOT
   useEffect(() => {
@@ -926,30 +942,72 @@ const PersonnelManager: React.FC<PersonnelManagerProps> = ({ initialViewDate, in
 
           {/* TAB 2: PERSONEELSLIJST (DATABASE) */}
           {activeTab === "personnel" && (
-            <PersonnelListView
-              personnel={personnelWithId}
-              departments={structure.departments || []}
-              linkedTagEmployeeKeys={linkedTagEmployeeKeys}
-              expandedDepts={listExpandedSections}
-              onToggleDept={(id) => setListExpandedSections(prev => ({...prev, [id]: !prev[id]}))}
-              onEdit={(p) => openEditPerson(p as Person)}
-              onDelete={async (id: string) => {
-                const confirmed = await showConfirm({
-                  title: t('personnel.deleteTitle', 'Medewerker verwijderen'),
-                  message: t('common.deleteConfirm', "Verwijderen?"),
-                  confirmText: t('common.delete', 'Verwijderen'),
-                  cancelText: t('common.cancel', 'Annuleren'),
-                  tone: 'danger',
-                });
-                if (!confirmed) return;
-                await deleteDoc(doc(db, `${getPathString(PATHS.PERSONNEL)}/${id}`));
-                await logActivity(
-                  auth.currentUser?.uid || "system",
-                  "PERSONNEL_DELETE",
-                  `Personeelsrecord verwijderd: ${id}`
-                );
-              }}
-            />
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="bg-white rounded-[24px] border border-slate-200 shadow-sm p-4">
+                  <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('personnel.summaryTotal', 'Totaal')}</div>
+                  <div className="text-2xl font-black text-slate-900 italic">{personnelOverview.total}</div>
+                </div>
+                <div className="bg-white rounded-[24px] border border-emerald-100 shadow-sm p-4">
+                  <div className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">{t('personnel.summaryActive', 'Actief')}</div>
+                  <div className="text-2xl font-black text-emerald-700 italic">{personnelOverview.active}</div>
+                </div>
+                <div className="bg-white rounded-[24px] border border-indigo-100 shadow-sm p-4">
+                  <div className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">{t('personnel.summaryLoaned', 'Uitgeleend')}</div>
+                  <div className="text-2xl font-black text-indigo-700 italic">{personnelOverview.loaned}</div>
+                </div>
+                <div className="bg-white rounded-[24px] border border-blue-100 shadow-sm p-4">
+                  <div className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">{t('personnel.summaryDepartments', 'Afdelingen')}</div>
+                  <div className="text-2xl font-black text-blue-700 italic">{personnelOverview.departments}</div>
+                </div>
+                <div className="bg-white rounded-[24px] border border-amber-100 shadow-sm p-4 col-span-2 lg:col-span-1">
+                  <div className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">{t('personnel.summaryUnmatched', 'Ongekoppeld')}</div>
+                  <div className="text-2xl font-black text-amber-700 italic">{personnelOverview.unmatched}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-5 items-start">
+                <div className="bg-white rounded-[28px] border border-slate-200 shadow-sm p-5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2.5 rounded-2xl bg-slate-900 text-white shadow-md">
+                      <Users size={18} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-900 uppercase italic tracking-tighter">{t('personnel.teamLayout', 'Teamindeling')}</h3>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('personnel.teamLayoutDesc', 'Snel overzicht per afdeling')}</p>
+                    </div>
+                  </div>
+                  <PersonnelTeamView personnel={personnelWithId} departments={structure.departments || []} />
+                </div>
+
+                <div>
+                  <PersonnelListView
+                    personnel={personnelWithId}
+                    departments={structure.departments || []}
+                    linkedTagEmployeeKeys={linkedTagEmployeeKeys}
+                    expandedDepts={listExpandedSections}
+                    onToggleDept={(id) => setListExpandedSections(prev => ({...prev, [id]: !prev[id]}))}
+                    onEdit={(p) => openEditPerson(p as Person)}
+                    onDelete={async (id: string) => {
+                      const confirmed = await showConfirm({
+                        title: t('personnel.deleteTitle', 'Medewerker verwijderen'),
+                        message: t('common.deleteConfirm', "Verwijderen?"),
+                        confirmText: t('common.delete', 'Verwijderen'),
+                        cancelText: t('common.cancel', 'Annuleren'),
+                        tone: 'danger',
+                      });
+                      if (!confirmed) return;
+                      await deleteDoc(doc(db, `${getPathString(PATHS.PERSONNEL)}/${id}`));
+                      await logActivity(
+                        auth.currentUser?.uid || "system",
+                        "PERSONNEL_DELETE",
+                        `Personeelsrecord verwijderd: ${id}`
+                      );
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

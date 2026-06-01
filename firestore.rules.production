@@ -287,6 +287,26 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /future-factory/production/qc_records/{document=**} {
+      allow read: if hasUserRecord();
+      allow write: if false;
+    }
+
+    match /future-factory/production/archive/qc_measurements/{monthKey}/types/{measurementType}/items/{document=**} {
+      allow read: if hasUserRecord();
+      allow write: if false;
+    }
+
+    match /future-factory/production/archive/qc_inspections/{monthKey}/items/{document=**} {
+      allow read: if hasUserRecord();
+      allow write: if false;
+    }
+
+    match /future-factory/production/archive/qc_records/{monthKey}/types/{recordType}/items/{document=**} {
+      allow read: if hasUserRecord();
+      allow write: if false;
+    }
+
     // PRODUCTIE: writes geblokkeerd — beheerd via planning callables.
     match /future-factory/production/data/digital_planning/orders/{orderId} {
       allow read: if hasUserRecord();
