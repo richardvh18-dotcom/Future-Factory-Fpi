@@ -761,20 +761,51 @@ const PrintStationView = () => {
       const searchStr = lotNumber.trim().toUpperCase();
       let foundDoc: AnyRecord | null = null;
 
-      // 1. Zoek in actieve productie (Lotnummer)
+        // 1. Zoek in actieve productie (Lotnummer) - Root tracking
       try {
-        const activeRef = collection(db, getPathString(PATHS.ACTIVE_PRODUCTION));
-        const activeSnap = await getDocs(query(activeRef, where('lotNumber', '==', searchStr), limit(1)));
-        if (!activeSnap.empty) foundDoc = { id: activeSnap.docs[0].id, ...(activeSnap.docs[0].data() as AnyRecord) };
+          const trackingRef = collection(db, getPathString(PATHS.TRACKING as string[]));
+          const trackingSnap = await getDocs(query(trackingRef, where('lotNumber', '==', searchStr), limit(1)));
+          if (!trackingSnap.empty) foundDoc = { id: trackingSnap.docs[0].id, ...(trackingSnap.docs[0].data() as AnyRecord) };
       } catch (e) { console.warn(e); }
 
-      // 2. Zoek in archief
+        // 2. Zoek in actieve productie (Lotnummer) - Scoped tracking
       if (!foundDoc) {
         try {
-          const archiveRef = collection(db, getPathString(PATHS.PRODUCTION_ARCHIVE));
-          const archiveSnap = await getDocs(query(archiveRef, where('lotNumber', '==', searchStr), limit(1)));
-          if (!archiveSnap.empty) foundDoc = { id: archiveSnap.docs[0].id, ...(archiveSnap.docs[0].data() as AnyRecord) };
-        } catch (e) { console.warn(e); }
+            const itemsSnap = await getDocs(query(collectionGroup(db, 'items'), where('lotNumber', '==', searchStr), limit(1)));
+            if (!itemsSnap.empty) foundDoc = { id: itemsSnap.docs[0].id, ...(itemsSnap.docs[0].data() as AnyRecord) };
+          } catch (e) { console.warn(e); }
+        }
+
+        // 3. Fallback: Legacy actieve productie
+        if (!foundDoc) {
+          try {
+            const activeRef = collection(db, getPathString(PATHS.ACTIVE_PRODUCTION as string[]));
+            const activeSnap = await getDocs(query(activeRef, where('lotNumber', '==', searchStr), limit(1)));
+            if (!activeSnap.empty) foundDoc = { id: activeSnap.docs[0].id, ...(activeSnap.docs[0].data() as AnyRecord) };
+          } catch (e) { console.warn(e); }
+        }
+
+        // 4. Zoek in archief (meerdere jaren + legacy)
+        if (!foundDoc) {
+          try {
+            const currentYear = new Date().getFullYear();
+            for (let year = currentYear; year >= currentYear - 4; year--) {
+              const archiveRef = collection(db, 'future-factory', 'production', 'archive', String(year), 'items');
+              const archiveSnap = await getDocs(query(archiveRef, where('lotNumber', '==', searchStr), limit(1)));
+              if (!archiveSnap.empty) {
+                foundDoc = { id: archiveSnap.docs[0].id, ...(archiveSnap.docs[0].data() as AnyRecord) };
+                break;
+              }
+            }
+          } catch (e) { console.warn(e); }
+          
+          if (!foundDoc) {
+              try {
+                  const archiveRef = collection(db, getPathString(PATHS.PRODUCTION_ARCHIVE as string[]));
+                  const archiveSnap = await getDocs(query(archiveRef, where('lotNumber', '==', searchStr), limit(1)));
+                  if (!archiveSnap.empty) foundDoc = { id: archiveSnap.docs[0].id, ...(archiveSnap.docs[0].data() as AnyRecord) };
+              } catch (e) { console.warn(e); }
+          }
       }
 
       // 3. Fallback: Zoek in orders via collectionGroup (Voor als een ordernummer gescand wordt ipv lotnummer)

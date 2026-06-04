@@ -169,6 +169,7 @@ const getTimestampMillis = (value: unknown): number => {
 
 // --- Helper voor Tijdelijke Labels ---
 const TempLabelItem = ({ item, labelTemplates, labelRules, printerDpi = 203, handleTempLegacyPrint }: TempLabelItemProps) => {
+  const { t } = useTranslation();
   const itemDisplay = getOrderLabelDescription(item) || getOrderLabelItemCode(item);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
@@ -1402,7 +1403,22 @@ const PrintQueueAdminView = () => {
           'itemCode',
           'productCode',
         ]);
-        if (match) foundDoc = { ...match, source: 'active' };
+        if (match) {
+          foundDoc = { ...match, source: 'active' };
+        } else {
+          // Zoek ook in scoped items (collectionGroup)
+          const itemsQueries = [
+            getDocs(query(collectionGroup(db, 'items'), where('lotNumber', 'in', optionList), limit(1))),
+            getDocs(query(collectionGroup(db, 'items'), where('orderId', 'in', optionList), limit(1)))
+          ];
+          const itemSnaps = await Promise.all(itemsQueries.map(p => p.catch(() => null)));
+          for (const snap of itemSnaps) {
+            if (snap && !snap.empty) {
+              foundDoc = { id: snap.docs[0].id, ...snap.docs[0].data(), source: 'active_scoped' };
+              break;
+            }
+          }
+        }
       } catch (e) { console.warn(e); }
 
       // 2. Archief (Lotnummer / order) - meerdere jaren

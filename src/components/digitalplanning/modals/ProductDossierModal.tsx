@@ -1,5 +1,5 @@
 import { updatePlanningOrderPriority } from "../../../services/planningSecurityService";
-import React, { useState, useMemo, useRef, useEffect as useResizeEffect } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   X,
   Info,
@@ -31,7 +31,7 @@ import { db, logActivity } from "../../../config/firebase";
 import { PATHS, getPathString } from "../../../config/dbPaths";
 import { useAdminAuth } from "../../../hooks/useAdminAuth";
 import ProductDetailModal from "../../products/ProductDetailModal";
-import LabelVisualPreview from "../../printer/LabelVisualPreview";
+import AutoScaledLabelPreview from "../../printer/AutoScaledLabelPreview";
 import { useLabelPreview } from "../../../hooks/useLabelPreview";
 import { getDriver } from "../../../utils/printerDrivers";
 import { renderLabelToBitmapZpl } from "../../../utils/unifiedLabelRenderEngine";
@@ -323,12 +323,9 @@ const ProductDossierModal = ({
   const [rejectLoading, setRejectLoading] = useState(false);
   const [rejectReasons, setRejectReasons] = useState<string[]>([]);
   const [rejectNote, setRejectNote] = useState("");
-  const [previewZoom, setPreviewZoom] = useState(1);
-  const previewContainerRef = useRef<HTMLDivElement | null>(null);
 
   const notifyAny = notify as (message: string) => void;
 
-  const _DOSSIER_PPM = 3.78;
   const labelProductData = useMemo(() => product ? {
     ...product,
     orderNumber: product.orderId || product.orderNumber,
@@ -340,21 +337,6 @@ const ProductDossierModal = ({
     previewData?: Record<string, unknown>;
   };
 
-  useResizeEffect(() => {
-    const el = previewContainerRef.current;
-    if (!el || !dossierLabel) return;
-    const recalc = () => {
-      const W = el.clientWidth - 24;
-      const H = Math.max(el.clientHeight - 24, 120);
-      const lW = Number(dossierLabel?.width || 0) * _DOSSIER_PPM;
-      const lH = Number(dossierLabel?.height || 0) * _DOSSIER_PPM;
-      if (lW > 0 && lH > 0) setPreviewZoom(Math.min(2, W / lW, H / lH));
-    };
-    recalc();
-    const ro = new ResizeObserver(recalc);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [dossierLabel, showLabelPreview]);
 
   const isTijdelijkeAfkeur = product?.inspection?.status === "Tijdelijke afkeur";
   const qualityStatusLabel = String(product?.inspection?.status || "Niet gecontroleerd");
@@ -1156,15 +1138,14 @@ const ProductDossierModal = ({
 
                     {showLabelPreview && (
                       <div
-                        ref={previewContainerRef}
                         className="mt-3 bg-white/60 p-3 rounded-lg border border-blue-100/50 flex items-center justify-center overflow-hidden min-h-[140px]"
                       >
                         {dossierLabel ? (
-                          <LabelVisualPreview
+                          <AutoScaledLabelPreview
                             label={dossierLabel as any}
-                            data={dossierPreviewData}
-                            zoom={previewZoom}
+                            data={dossierPreviewData as any}
                             className="shadow-md"
+                            maxScale={1}
                           />
                         ) : isResolvingLabel ? (
                           <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">{t("common.loading", "Laden...")}</span>

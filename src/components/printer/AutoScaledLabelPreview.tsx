@@ -29,7 +29,7 @@ const AutoScaledLabelPreview = ({
   label,
   data,
   className = "",
-  maxScale = 3,
+  maxScale = 1,
   printerDpi = 203,
   strictFontSizing = false,
   exactBitmapPreview = false,
@@ -48,10 +48,26 @@ const AutoScaledLabelPreview = ({
       const currentContainer = containerRef.current as { getBoundingClientRect: () => { width: number } };
       const { width } = currentContainer.getBoundingClientRect();
       const labelWidthPx = (label.width || 0) * pixelsPerMm;
+      const labelHeightPx = (label.height || 0) * pixelsPerMm;
 
       if (labelWidthPx === 0) return;
 
       let newScale = width / labelWidthPx;
+
+      // Voorkom dat hoge/portret labels buiten de schermhoogte vallen
+      if (labelHeightPx > 0) {
+        const maxSafeHeight = window.innerHeight * 0.50;
+        const heightScale = maxSafeHeight / labelHeightPx;
+        if (newScale > heightScale) newScale = heightScale;
+      }
+
+      // Voorkom dat brede labels gigantisch worden op grote/brede schermen
+      if (labelWidthPx > 0) {
+        const maxSafeWidth = window.innerWidth * 0.50;
+        const widthScale = maxSafeWidth / labelWidthPx;
+        if (newScale > widthScale) newScale = widthScale;
+      }
+
       if (newScale > maxScale) newScale = maxScale;
 
       setScale(newScale);
