@@ -1,15 +1,16 @@
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
+import { DB_PATHS } from "../config/dbPaths";
 
 type ArchiveKind = "qc_measurements" | "qc_inspections";
 type MeasurementType = "ri" | "tg" | "unknown";
 type GenericRecordType = string;
 
 const SOURCE_COLLECTIONS: Record<ArchiveKind, string> = {
-  qc_measurements: "future-factory/production/qc_measurements",
-  qc_inspections: "future-factory/production/qc_inspections",
+  qc_measurements: DB_PATHS.QC_MEASUREMENTS,
+  qc_inspections: DB_PATHS.QC_INSPECTIONS,
 };
 
-const ARCHIVE_ROOT = "future-factory/production/archive";
+const ARCHIVE_ROOT = DB_PATHS.PRODUCTION_ARCHIVE;
 const BATCH_SIZE = 200;
 
 const getAmsterdamMonthKey = (dateLike: Date): string =>

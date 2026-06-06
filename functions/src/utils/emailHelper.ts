@@ -2,6 +2,7 @@
 
 const admin = require('firebase-admin');
 const { Resend } = require('resend');
+const { DB_PATHS } = require('../config/dbPaths');
 
 /**
  * Interne helper om e-mails te versturen met template ondersteuning.
@@ -17,7 +18,7 @@ async function sendEmailInternal({ to, subject, html, text, templateId, variable
 
   // Als er een templateId is, haal het template op en vervang variabelen
   if (templateId) {
-    const templateDoc = await admin.firestore().doc(`future-factory/settings/email_templates/${templateId}`).get();
+    const templateDoc = await admin.firestore().doc(`${DB_PATHS.EMAIL_TEMPLATES}/${templateId}`).get();
     if (!templateDoc.exists) {
       throw new Error(`Template met ID ${templateId} niet gevonden.`);
     }
@@ -38,7 +39,7 @@ async function sendEmailInternal({ to, subject, html, text, templateId, variable
   }
 
   // Pre-log poging
-  const logRef = admin.firestore().collection('future-factory/logs/email_logs').doc();
+  const logRef = admin.firestore().collection(DB_PATHS.EMAIL_LOGS).doc();
   const logData = {
     to,
     subject,

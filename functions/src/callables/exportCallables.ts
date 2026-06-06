@@ -4,13 +4,14 @@ const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const XLSX = require('xlsx');
 const { withAudit } = require('../utils/withAudit');
+const { DB_PATHS } = require('../config/dbPaths');
 
 const db = admin.firestore();
 
-const OCCUPANCY_COLLECTION = 'future-factory/production/machine_occupancy';
-const ATPS_EXPORT_RUNS_COLLECTION = 'future-factory/integrations/atps_export_runs';
-const ATPS_PREVIEW_RUNS_COLLECTION = 'future-factory/integrations/atps_preview_runs';
-const ATPS_RETRY_QUEUE_COLLECTION = 'future-factory/integrations/atps_retry_queue';
+const OCCUPANCY_COLLECTION = DB_PATHS.MACHINE_OCCUPANCY;
+const ATPS_EXPORT_RUNS_COLLECTION = DB_PATHS.ATPS_EXPORT_RUNS;
+const ATPS_PREVIEW_RUNS_COLLECTION = DB_PATHS.ATPS_PREVIEW_RUNS;
+const ATPS_RETRY_QUEUE_COLLECTION = DB_PATHS.ATPS_RETRY_QUEUE;
 const ATPS_RETRY_MAX_ATTEMPTS = 8;
 const ATPS_RETRY_BASE_MINUTES = 5;
 
@@ -160,7 +161,7 @@ const sendAtpsPayload = async (cfg, records = [], meta = {}) => {
         },
         body: JSON.stringify({
             generatedAt: new Date().toISOString(),
-            source: 'future-factory.machine_occupancy',
+            source: `${DB_PATHS.MACHINE_OCCUPANCY.replace(/\//g, '.')}`,
             count: records.length,
             records,
             meta,
@@ -363,7 +364,7 @@ exports.requestExportTask = withAudit(
     const userId = context.auth.uid;
 
     // 1. Maak een Task document aan om de voortgang bij te houden
-    const taskRef = await db.collection('future-factory/exports/tasks').add({
+    const taskRef = await db.collection(DB_PATHS.EXPORT_TASKS).add({
         userId,
         exportType,
         status: 'processing',
@@ -683,8 +684,8 @@ exports.getAtpsExportMonitor = withAudit(
 async function generateLNCompareData(filter) {
     const { selectedMachine } = filter;
     
-    const ordersSnapshot = await db.collection('future-factory/production/digital_planning').get();
-    const productsSnapshot = await db.collection('future-factory/production/tracked_products').get();
+    const ordersSnapshot = await db.collection(DB_PATHS.PRODUCTION_PLANNING).get();
+    const productsSnapshot = await db.collection(DB_PATHS.TRACKED_PRODUCTS).get();
 
     const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     const allProducts = productsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -727,7 +728,7 @@ async function generateLNCompareData(filter) {
 async function generatePlanningExportData(filter) {
     const { selectedMachine } = filter;
     
-    const ordersSnapshot = await db.collection('future-factory/production/digital_planning').get();
+    const ordersSnapshot = await db.collection(DB_PATHS.PRODUCTION_PLANNING).get();
     const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     const filteredOrders = allOrders.filter(o => {

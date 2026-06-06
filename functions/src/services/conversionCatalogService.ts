@@ -1,17 +1,13 @@
 // @ts-nocheck
 
 const { db, admin } = require('../config/firebase');
+const { DB_PATHS } = require('../config/dbPaths');
 
 const MAX_BATCH_ITEMS = 5000;
 const BATCH_SIZE = 400;
 
 const conversionsCollection = () =>
-  db
-    .collection('future-factory')
-    .doc('settings')
-    .collection('conversions')
-    .doc('mapping')
-    .collection('records');
+  db.collection(DB_PATHS.CONVERSIONS_RECORDS);
 
 const cleanText = (value) => String(value || '').trim();
 

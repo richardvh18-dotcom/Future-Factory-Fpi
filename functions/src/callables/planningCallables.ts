@@ -2,6 +2,7 @@
 
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
+const { DB_PATHS } = require('../config/dbPaths');
 const {
   REJECT_ALLOWED_ROLES,
   TEMP_REJECT_ALLOWED_ROLES,
@@ -2303,7 +2304,7 @@ const importReferenceOperations = withAudit('IMPORT_REFERENCE_OPERATIONS', async
     });
   }
 
-  const refOpsCol = admin.firestore().collection('future-factory/settings/reference_operations');
+  const refOpsCol = admin.firestore().collection(DB_PATHS.REFERENCE_OPERATIONS);
   const existingSnap = await refOpsCol.get();
   const existingCodes = new Set(existingSnap.docs.map((doc) => doc.id));
 
@@ -2824,13 +2825,9 @@ const migrateLegacyActivityLogs = withAudit('MIGRATE_LEGACY_ACTIVITY_LOGS', asyn
   const pageSize = Math.min(Math.max(Number(data?.pageSize) || 250, 50), 500);
 
   const sourceRef = admin.firestore()
-    .collection('future-factory')
-    .doc('logs')
-    .collection('activity_logs');
+    .collection(DB_PATHS.ACTIVITY_LOGS);
   const targetRef = admin.firestore()
-    .collection('future-factory')
-    .doc('audit')
-    .collection('logs');
+    .collection(DB_PATHS.AUDIT_LOGS);
 
   let scanned = 0;
   let migrated = 0;
@@ -2892,7 +2889,7 @@ const migrateLegacyActivityLogs = withAudit('MIGRATE_LEGACY_ACTIVITY_LOGS', asyn
         yearMonth,
         details: {
           legacy: true,
-          legacyPath: 'future-factory/logs/activity_logs',
+          legacyPath: DB_PATHS.ACTIVITY_LOGS,
           legacyLogId: docSnap.id,
           message: detailsMessage || null,
           source: clean(oldData.source) || null,

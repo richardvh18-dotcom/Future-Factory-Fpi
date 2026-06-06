@@ -6,7 +6,7 @@
  * auditService.js — ISO 9001 / ISO 27001 compliant audit logging.
  *
  * All entries are written via the Firebase Admin SDK to:
- *   /future-factory/audit/logs/{autoId}
+ *   DB_PATHS.AUDIT_LOGS/{autoId}
  *
  * Firestore rules block ALL client writes to this path — entries are
  * append-only from the backend, which provides the tamper-evidence
@@ -27,9 +27,10 @@
  */
 
 const admin = require('firebase-admin');
+const { DB_PATHS } = require('../config/dbPaths');
 
 /**
- * Writes an audit log entry to /future-factory/audit/logs/.
+ * Writes an audit log entry to DB_PATHS.AUDIT_LOGS.
  * Called server-side only; the Firestore rules block any client writes.
  *
  * @param {string}        userId          Firebase Auth UID of the actor.
@@ -54,9 +55,7 @@ async function logAction(userId, action, details = {}, options = {}) {
   const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
 
   await admin.firestore()
-    .collection('future-factory')
-    .doc('audit')
-    .collection('logs')
+    .collection(DB_PATHS.AUDIT_LOGS)
     .add({
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
       userId: userId || 'system',

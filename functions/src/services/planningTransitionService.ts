@@ -1264,7 +1264,7 @@ const bulkImportPlanningOrdersService = async ({
         const stdId = `${itemCodeClean}_${machineClean}`;
         
         batch.set(
-          db.collection(ctx.standardsPath || 'future-factory/production/time_standards').doc(stdId),
+          db.collection(ctx.standardsPath || `${BASE}/production/time_standards`).doc(stdId),
           {
             itemCode: itemCodeClean,
             machine: machineClean,

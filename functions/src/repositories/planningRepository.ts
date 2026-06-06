@@ -81,7 +81,7 @@ const getTrackedProductDocByIdOrLot = async (productOrLotId, runtimeDataSource =
 
   const { trackingCollection } = resolveRuntimeDataPaths();
 
-  // Ondersteun volledige documentpaden als input (bijv. future-factory/.../items/<id>).
+  // Ondersteun volledige documentpaden als input (bijv. DB_PATHS.TRACKED_PRODUCTS/.../items/<id>).
   if (safePathInput.includes('/')) {
     const pathRef = db.doc(safePathInput);
     const pathSnap = await pathRef.get();

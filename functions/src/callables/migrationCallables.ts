@@ -14,8 +14,8 @@
  *   data.orderId (optional) — scope to a single order; omit for full sweep
  *
  * Scans the following collections for doc-id / orderId prefix mismatches:
- *   - future-factory/production/tracked_products/** (items)
- *   - future-factory/production/archive/{year}/items
+ *   - DB_PATHS.TRACKED_PRODUCTS/** (items)
+ *   - DB_PATHS.PRODUCTION_ARCHIVE/{year}/items
  */
 
 const functions = require('firebase-functions/v1');
@@ -24,16 +24,17 @@ const auditService = require('../services/auditService');
 const { resolveUserRoleForContext } = require('../auth/resolveUserRole');
 const { clean } = require('../utils/text');
 const { withAudit } = require('../utils/withAudit');
+const { DB_BASE, DB_PATHS } = require('../config/dbPaths');
 
 const db = admin.firestore();
 
-const BASE = 'future-factory';
+const BASE = DB_BASE;
 const ADMIN_MIGRATION_ALLOWED_ROLES = new Set(['admin']);
 
 const isTrackedOrArchiveItemsPath = (refPath) => {
   const p = String(refPath || '');
   return (
-    p.includes(`${BASE}/production/tracked_products`) ||
+    p.includes(DB_PATHS.TRACKED_PRODUCTS) ||
     /\/production\/archive\/\d{4}\/items\//.test(p)
   );
 };

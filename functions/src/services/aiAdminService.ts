@@ -1,10 +1,11 @@
 // @ts-nocheck
 
 const { db, admin } = require('../config/firebase');
+const { DB_PATHS } = require('../config/dbPaths');
 
-const aiConfigRef = () => db.collection('future-factory').doc('settings').collection('ai_config').doc('main');
-const aiDocsRef = () => db.collection('future-factory').doc('settings').collection('ai_documents').doc('knowledge').collection('records');
-const aiKnowledgeRef = () => db.collection('future-factory').doc('settings').collection('ai_knowledge_base').doc('training').collection('records');
+const aiConfigRef = () => db.doc(DB_PATHS.AI_CONFIG_MAIN);
+const aiDocsRef = () => db.collection(DB_PATHS.AI_DOCUMENTS_RECORDS);
+const aiKnowledgeRef = () => db.collection(DB_PATHS.AI_KNOWLEDGE_RECORDS);
 
 const clean = (value) => String(value || '').trim();
 

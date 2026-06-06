@@ -1,12 +1,14 @@
 // @ts-nocheck
 
-const BASE = 'future-factory';
+const { DB_BASE, DB_PATHS } = require('./dbPaths');
 
-const TRACKING_COLLECTION = `${BASE}/production/tracked_products`;
-const PLANNING_COLLECTION = `${BASE}/production/digital_planning`;
-const PRODUCTION_EVENTS_COLLECTION = `${BASE}/production/events`;
-const PLANNING_COLLECTION_LEGACY = `${BASE}/production/data/digital_planning/orders`;
-const USER_ACCOUNTS_COLLECTION = `${BASE}/Users/Accounts`;
+const BASE = DB_BASE;
+
+const TRACKING_COLLECTION = DB_PATHS.TRACKED_PRODUCTS;
+const PLANNING_COLLECTION = DB_PATHS.PRODUCTION_PLANNING;
+const PRODUCTION_EVENTS_COLLECTION = DB_PATHS.PRODUCTION_EVENTS;
+const PLANNING_COLLECTION_LEGACY = DB_PATHS.PRODUCTION_PLANNING_LEGACY;
+const USER_ACCOUNTS_COLLECTION = DB_PATHS.USER_ACCOUNTS;
 
 const REJECT_ALLOWED_ROLES = new Set([
   'admin',

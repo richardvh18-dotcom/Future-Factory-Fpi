@@ -2,8 +2,9 @@
 
 const { db, admin } = require('../config/firebase');
 const auditService = require('./auditService');
+const { DB_PATHS } = require('../config/dbPaths');
 
-const PRODUCTS_COLLECTION = db.collection('future-factory').doc('production').collection('products');
+const PRODUCTS_COLLECTION = db.collection(DB_PATHS.PRODUCTION_PRODUCTS);
 
 const cleanText = (value) => String(value || '').trim();
 

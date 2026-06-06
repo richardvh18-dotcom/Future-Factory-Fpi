@@ -1,9 +1,10 @@
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { DB_PATHS } from "../config/dbPaths";
 
 type MeasurementType = "ri" | "tg";
 
 const getGenericRecordPath = (recordType: string): string =>
-  `future-factory/production/qc_records/live/types/${String(recordType || "unknown").toLowerCase()}/items`;
+  `${DB_PATHS.QC_RECORDS_LIVE}/types/${String(recordType || "unknown").toLowerCase()}/items`;
 
 const normalizeDepartmentName = (department?: string): string => {
   const value = String(department || "").trim();
@@ -38,7 +39,7 @@ const resolveTrackedRef = async (db: FirebaseFirestore.Firestore, payload: any) 
   }
 
   const rootTrackingQuery = await db
-    .collection("future-factory/production/tracked_products")
+    .collection(DB_PATHS.TRACKED_PRODUCTS)
     .where("lotNumber", "==", lotUpper)
     .limit(1)
     .get();
@@ -82,7 +83,7 @@ const resolveMeasurementType = (payload: any): MeasurementType => {
 };
 
 const getMeasurementCollectionPath = (measurementType: MeasurementType): string =>
-  `future-factory/production/qc_measurements/live/types/${measurementType}/items`;
+  `${DB_PATHS.QC_MEASUREMENTS}/live/types/${measurementType}/items`;
 
 export const migrateLegacyQcDataService = async (options?: {
   limit?: number;
@@ -105,7 +106,7 @@ export const migrateLegacyQcDataService = async (options?: {
   };
 
   if (migrateMeasurements) {
-    const snap = await db.collection("future-factory/production/qc_measurements").limit(limit).get();
+    const snap = await db.collection(DB_PATHS.QC_MEASUREMENTS).limit(limit).get();
     result.scannedMeasurements = snap.size;
 
     if (!dryRun && !snap.empty) {
@@ -144,7 +145,7 @@ export const migrateLegacyQcDataService = async (options?: {
   }
 
   if (migrateInspectionsToGeneric) {
-    const snap = await db.collection("future-factory/production/qc_inspections").limit(limit).get();
+    const snap = await db.collection(DB_PATHS.QC_INSPECTIONS).limit(limit).get();
     result.scannedInspections = snap.size;
 
     if (!dryRun && !snap.empty) {
@@ -250,7 +251,7 @@ export const saveQcInspectionService = async (payload: any) => {
 
   const trackedRef = await resolveTrackedRef(db, payload);
 
-  const docRef = db.collection("future-factory/production/qc_inspections").doc();
+  const docRef = db.collection(DB_PATHS.QC_INSPECTIONS).doc();
   const genericDocRef = db.collection(getGenericRecordPath("inspection")).doc(docRef.id);
   
   const batch = db.batch();
@@ -291,13 +292,13 @@ export const updateQcMeasurementService = async (payload: any) => {
   }
 
   const candidateRefs = [
-    db.doc(`future-factory/production/qc_measurements/live/types/ri/items/${measurementId}`),
-    db.doc(`future-factory/production/qc_measurements/live/types/brix/items/${measurementId}`),
-    db.doc(`future-factory/production/qc_measurements/live/types/tg/items/${measurementId}`),
-    db.doc(`future-factory/production/qc_records/live/types/ri/items/${measurementId}`),
-    db.doc(`future-factory/production/qc_records/live/types/brix/items/${measurementId}`),
-    db.doc(`future-factory/production/qc_records/live/types/tg/items/${measurementId}`),
-    db.doc(`future-factory/production/qc_measurements/${measurementId}`),
+    db.doc(`${DB_PATHS.QC_MEASUREMENTS}/live/types/ri/items/${measurementId}`),
+    db.doc(`${DB_PATHS.QC_MEASUREMENTS}/live/types/brix/items/${measurementId}`),
+    db.doc(`${DB_PATHS.QC_MEASUREMENTS}/live/types/tg/items/${measurementId}`),
+    db.doc(`${DB_PATHS.QC_RECORDS_LIVE}/types/ri/items/${measurementId}`),
+    db.doc(`${DB_PATHS.QC_RECORDS_LIVE}/types/brix/items/${measurementId}`),
+    db.doc(`${DB_PATHS.QC_RECORDS_LIVE}/types/tg/items/${measurementId}`),
+    db.doc(`${DB_PATHS.QC_MEASUREMENTS}/${measurementId}`),
   ];
 
   let measurementRef = null as FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData> | null;
@@ -318,7 +319,7 @@ export const updateQcMeasurementService = async (payload: any) => {
 
   const existing = measurementSnap.data() || {};
   const resolvedType = normalizeMeasurementType(payload?.type || existing.type || existing.measurementType || existing.recordType || "");
-  const genericDocRef = db.doc(`future-factory/production/qc_records/live/types/${resolvedType}/items/${measurementId}`);
+  const genericDocRef = db.doc(`${DB_PATHS.QC_RECORDS_LIVE}/types/${resolvedType}/items/${measurementId}`);
 
   const nextLotNumber = String(payload?.lotNumber || existing.lotNumber || "").trim().toUpperCase();
   const nextTrackedProductPath = payload?.trackedProductPath ?? existing.trackedProductPath ?? null;

@@ -2,9 +2,10 @@
 
 const { db, admin } = require('../config/firebase');
 const auditService = require('./auditService');
+const { DB_PATHS, pathToSegments, getArchivePlanningPath, getArchiveEfficiencyPath } = require('../config/dbPaths');
 
-const PLANNING_PATH = ['future-factory', 'production', 'data', 'digital_planning', 'orders'];
-const EFFICIENCY_PATH = ['future-factory', 'production', 'efficiency_hours'];
+const PLANNING_PATH = pathToSegments(DB_PATHS.PRODUCTION_PLANNING_LEGACY);
+const EFFICIENCY_PATH = pathToSegments(DB_PATHS.EFFICIENCY_HOURS);
 
 const ALIASES = {
   orderId: ['order', 'ordernummer', 'productieorder', 'tisfc010.pdno', 'fo'],
@@ -78,19 +79,16 @@ const getScopedEfficiencyDocRef = ({ departmentId, machineId, orderId }) => {
 };
 
 const getPlanningArchiveRef = (year) =>
-  db.collection('future-factory').doc('production').collection('archive').doc(String(year)).collection('planning');
+  db.collection(getArchivePlanningPath(year));
 
 const getEfficiencyArchiveRef = (year) =>
-  db.collection('future-factory').doc('production').collection('archive').doc(String(year)).collection('efficiency');
+  db.collection(getArchiveEfficiencyPath(year));
 
 const getScopedEfficiencyArchiveRef = ({ year, departmentId, machineId, orderId }) => {
   const dep = sanitizeSegment(departmentId || 'Fittings', 'Fittings');
   const machine = sanitizeSegment(normalizeMachineForScoped(machineId) || machineId || 'UNASSIGNED', 'UNASSIGNED');
   return db
-    .collection('future-factory')
-    .doc('production')
-    .collection('archive')
-    .doc(String(year))
+    .collection(getArchiveEfficiencyPath(year))
     .collection('efficiency_scoped')
     .doc(dep)
     .collection('machines')

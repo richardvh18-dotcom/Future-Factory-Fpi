@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 const { db, admin } = require('../config/firebase');
+const { DB_PATHS } = require('../config/dbPaths');
 
 // Bitmap-gebaseerde labels kunnen aanzienlijk groter zijn dan legacy tekst-ZPL.
 // Blijf ruim onder Firestore documentlimiet (~1 MiB) maar voorkom onnodige rejects.
@@ -8,7 +9,7 @@ const MAX_ZPL_LENGTH = 700000;
 const MAX_METADATA_LENGTH = 16000;
 const MAX_PRINT_QUANTITY = 200;
 const PRINTER_ID_PATTERN = /^[a-zA-Z0-9._:-]{2,80}$/;
-const PRINT_QUEUE_COLLECTION = 'future-factory/production/print_queue';
+const PRINT_QUEUE_COLLECTION = DB_PATHS.PRINT_QUEUE;
 const DEFAULT_DEPARTMENT = 'Fittings';
 const DEFAULT_MACHINE = 'UNASSIGNED';
 

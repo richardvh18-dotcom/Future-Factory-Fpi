@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 const { db, admin } = require('../config/firebase');
+const { DB_PATHS } = require('../config/dbPaths');
 
 /**
  * Update user profile settings (name, preferences, language, etc.)
@@ -10,7 +11,7 @@ async function updateUserProfileService(userId, profileData) {
     throw new Error('userId is verplicht.');
   }
 
-  const userRef = db.collection('future-factory').doc('users').collection('profiles').doc(userId);
+  const userRef = db.collection(DB_PATHS.USERS_PROFILES).doc(userId);
   
   const sanitizedData = {
     uid: userId,
@@ -40,7 +41,7 @@ async function clearPasswordChangeFlagService(userId) {
     throw new Error('userId is verplicht.');
   }
 
-  const userRef = db.collection('future-factory').doc('users').collection('profiles').doc(userId);
+  const userRef = db.collection(DB_PATHS.USERS_PROFILES).doc(userId);
   
   await userRef.set({ requirePasswordChange: false }, { merge: true });
 
@@ -65,7 +66,7 @@ async function submitAccountRequestService(requestData) {
     throw new Error('Geldig e-mailadres vereist.');
   }
 
-  const requestsRef = db.collection('future-factory').doc('admin').collection('account_requests');
+  const requestsRef = db.collection(DB_PATHS.ADMIN_ACCOUNT_REQUESTS);
   
   const docRef = await requestsRef.add({
     name,
@@ -97,7 +98,7 @@ async function updateUserLanguageService(userId, language) {
     throw new Error('Ongeldige taalcode.');
   }
 
-  const userRef = db.collection('future-factory').doc('users').collection('profiles').doc(userId);
+  const userRef = db.collection(DB_PATHS.USERS_PROFILES).doc(userId);
   
   await userRef.set({ 
     language: lang,

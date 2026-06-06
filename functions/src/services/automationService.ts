@@ -1,16 +1,17 @@
 // @ts-nocheck
 
 const { db, admin } = require('../config/firebase');
+const { DB_PATHS, pathToSegments } = require('../config/dbPaths');
 
 const COLLECTIONS = {
-  PLANNING: ['future-factory', 'production', 'data', 'digital_planning', 'orders'],
-  TRACKING: ['future-factory', 'production', 'tracked_products'],
-  OCCUPANCY: ['future-factory', 'production', 'machine_occupancy'],
-  PRODUCTION_STANDARDS: ['future-factory', 'production', 'time_standards'],
-  NOTIFICATION_LOGS: ['future-factory', 'notifications', 'logs'],
-  MESSAGES: ['future-factory', 'production', 'messages'],
-  AUTOMATION_RULES: ['future-factory', 'automation', 'rules'],
-  AUTOMATION_EXECUTIONS: ['future-factory', 'automation', 'executions'],
+  PLANNING: pathToSegments(DB_PATHS.PRODUCTION_PLANNING_LEGACY),
+  TRACKING: pathToSegments(DB_PATHS.TRACKED_PRODUCTS),
+  OCCUPANCY: pathToSegments(DB_PATHS.MACHINE_OCCUPANCY),
+  PRODUCTION_STANDARDS: pathToSegments(DB_PATHS.TIME_STANDARDS),
+  NOTIFICATION_LOGS: pathToSegments(DB_PATHS.NOTIFICATION_LOGS),
+  MESSAGES: pathToSegments(DB_PATHS.PRODUCTION_MESSAGES),
+  AUTOMATION_RULES: pathToSegments(DB_PATHS.AUTOMATION_RULES),
+  AUTOMATION_EXECUTIONS: pathToSegments(DB_PATHS.AUTOMATION_EXECUTIONS),
 };
 
 const toDate = (value) => {
@@ -310,7 +311,7 @@ async function executeAutomationRuleService(rule = {}) {
 
     if (result.triggered) {
       actionResult = await executeAction(rule.action, result);
-      await db.doc(`future-factory/automation/rules/${rule.id}`).set({
+      await db.doc(`${DB_PATHS.AUTOMATION_RULES}/${rule.id}`).set({
         executionCount: Number(rule.executionCount || 0) + 1,
         lastExecuted: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });

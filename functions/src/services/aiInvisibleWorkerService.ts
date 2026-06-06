@@ -5,12 +5,13 @@ const functions = require('firebase-functions/v1');
 const XLSX = require('xlsx');
 const { VertexAI } = require('@google-cloud/vertexai');
 const { db, admin } = require('../config/firebase');
+const { DB_BASE, DB_PATHS } = require('../config/dbPaths');
 
-const BASE = 'future-factory';
-const SYSTEM_LOGS_COLLECTION = `${BASE}/logs/system_logs`;
-const INSIGHTS_COLLECTION = `${BASE}/insights/reports`;
-const PRODUCTS_COLLECTION = `${BASE}/production/products`;
-const TRACKED_LEGACY_COLLECTION = `${BASE}/production/tracked_products`;
+const BASE = DB_BASE;
+const SYSTEM_LOGS_COLLECTION = DB_PATHS.SYSTEM_LOGS;
+const INSIGHTS_COLLECTION = DB_PATHS.INSIGHTS_REPORTS;
+const PRODUCTS_COLLECTION = DB_PATHS.PRODUCTION_PRODUCTS;
+const TRACKED_LEGACY_COLLECTION = DB_PATHS.TRACKED_PRODUCTS;
 const IMPORT_FOLDER_PREFIX = 'imports/planning/';
 const IMPORT_EXTENSIONS = ['.xlsx', '.xlsm', '.xls'];
 
