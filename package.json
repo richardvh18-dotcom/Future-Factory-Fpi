@@ -1,6 +1,6 @@
 {
   "name": "fpi-future-factory",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -72,6 +72,7 @@
     "repair:lossen": "node scripts/repair-lossen-routing.cjs",
     "migrate:legacy-logs": "node scripts/migrate-legacy-activity-logs-via-cli-auth.cjs",
     "migrate:legacy-logs:apply": "node scripts/migrate-legacy-activity-logs-via-cli-auth.cjs --apply",
+    "promote:prod": "bash scripts/promote-to-production.sh",
     "import:planning:auto": "node scripts/auto-planning-import.cjs --watch --dir ./imports/planning",
     "import:planning:once": "node scripts/auto-planning-import.cjs --dir ./imports/planning",
     "validate": "npm run enforce:new-ts && npm run lint && npm run type-check && npm run build",
