@@ -6,7 +6,7 @@ import {
   collection, collectionGroup, onSnapshot, orderBy, query, doc,
   where, getDocs, limit, getDoc, documentId
 } from 'firebase/firestore';
-import { PATHS, getPathString } from '../../config/dbPaths';
+import { PATHS, getPathString, getArchiveItemsPath } from '../../config/dbPaths';
 import { formatDistanceToNow } from 'date-fns';
 import { nl } from 'date-fns/locale';
 import {
@@ -122,6 +122,8 @@ const stationNameFromValue = (stationValue: unknown): string => {
   }
   return String(stationValue).trim();
 };
+
+const normalizeStationKey = (value: unknown): string => String(value || '').trim().toUpperCase();
 
 const PREVIEW_ROLL_WIDTH_MM = 90;
 
@@ -1185,7 +1187,10 @@ const PrintQueueAdminView = () => {
       if (j.status !== 'pending') return false;
       if (j.printerId !== currentPrinterId) return false;
       if (!selectedStation) return true;
-      return j.metadata?.stationId === selectedStation || j.metadata?.targetPrinterName === selectedStation;
+      const selectedKey = normalizeStationKey(selectedStation);
+      const stationKey = normalizeStationKey(j.metadata?.stationId);
+      const targetKey = normalizeStationKey(j.metadata?.targetPrinterName);
+      return stationKey === selectedKey || targetKey === selectedKey;
     });
 
     if (pendingJobs.length > 0) {
@@ -1196,10 +1201,19 @@ const PrintQueueAdminView = () => {
             await handlePrintJob(job);
           } catch (e) {
             console.error(`Auto-print failed for ${job.id}:`, e);
-            setAutoPrint(false);
             const message = e instanceof Error ? e.message : String(e);
-            setError(`Auto-print gestopt. Fout bij printen taak ${job.id}: ${message}`);
-            break;
+            const lowerMessage = String(message || '').toLowerCase();
+            const isUsbSessionIssue = /claim interface|claiminterface|usb|geen usb printer verbonden|access denied|toegang geweigerd|not allowed/.test(lowerMessage);
+
+            if (isUsbSessionIssue) {
+              // Houd auto-print aan, maar forceer reconnect van USB zodat de volgende run schoon start.
+              setUsbDevice(null);
+              setError(`Auto-print wacht op USB-herstel. Taak ${job.id} mislukt: ${message}`);
+              break;
+            }
+
+            // Voor niet-USB taakfouten blijven we de rest van de queue verwerken.
+            setError(`Taak ${job.id} mislukt: ${message}`);
           }
         }
         setIsProcessing(false);
@@ -1215,13 +1229,19 @@ const PrintQueueAdminView = () => {
       : null;
     const currentPrinterId = matchedPrinter?.id || printers.find((p) => p.isDefault)?.id || printers[0]?.id || null;
 
-    if (currentPrinterId) {
+    // In stationweergave willen we alle jobs voor dat station zien, ongeacht printer-id.
+    if (currentPrinterId && !selectedStation) {
       jobs = jobs.filter((j) => j.printerId === currentPrinterId);
     }
     
     // Filter op station als er een geselecteerd is
     if (selectedStation) {
-      jobs = jobs.filter(j => j.metadata?.stationId === selectedStation || j.metadata?.targetPrinterName === selectedStation);
+      const selectedKey = normalizeStationKey(selectedStation);
+      jobs = jobs.filter((j) => {
+        const stationKey = normalizeStationKey(j.metadata?.stationId);
+        const targetKey = normalizeStationKey(j.metadata?.targetPrinterName);
+        return stationKey === selectedKey || targetKey === selectedKey;
+      });
     } else if (role !== 'admin') {
       // Standaard filter voor niet-admins
       const allowedPrinterIds = printers.map((p) => p.id);
@@ -1498,7 +1518,7 @@ const PrintQueueAdminView = () => {
         const currentYear = new Date().getFullYear();
         for (let year = currentYear; year >= currentYear - 4; year--) {
           try {
-            const archiveRef = collection(db, 'future-factory', 'production', 'archive', String(year), 'items');
+            const archiveRef = collection(db, getPathString(getArchiveItemsPath(year)));
             const match = await searchCollectionByFields(archiveRef, [
               'lotNumber',
               'orderId',
@@ -1761,8 +1781,10 @@ const PrintQueueAdminView = () => {
           {stationGroups.map(station => {
             const pendingCount = printJobs.filter((j) => {
               if (j.status !== 'pending') return false;
-              if (activeQueuePrinter?.id && j.printerId !== activeQueuePrinter.id) return false;
-              return j.metadata?.stationId === station || j.metadata?.targetPrinterName === station;
+              const stationKey = normalizeStationKey(station);
+              const jobStationKey = normalizeStationKey(j.metadata?.stationId);
+              const targetKey = normalizeStationKey(j.metadata?.targetPrinterName);
+              return jobStationKey === stationKey || targetKey === stationKey;
             }).length;
             
             return (

@@ -6,6 +6,7 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
   doc,
   setDoc,
 } from "firebase/firestore";
@@ -32,8 +33,8 @@ import { getPathString, PATHS } from "../../config/dbPaths";
 import { normalizeMachine } from "../../utils/hubHelpers";
 import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, markMazakLabelsPrinted, queuePrintJob } from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { useLabelPreview } from "../../hooks/useLabelPreview";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
-import LabelVisualPreview from "../printer/LabelVisualPreview";
 import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";
 import StatusBadge from "./common/StatusBadge";
@@ -122,6 +123,16 @@ type LabelTemplate = {
   [key: string]: unknown;
 };
 
+type PrinterConfig = {
+  id: string;
+  name?: string;
+  dpi?: number | string;
+  isDefault?: boolean;
+  linkedStations?: unknown[];
+  queueStations?: unknown[];
+  [key: string]: unknown;
+};
+
 type AdminUser = { uid?: string; email?: string | null };
 
 type MazakViewProps = {
@@ -185,6 +196,88 @@ const getLotSeriesPrefix = (lotNumber: unknown) => {
   return match[1];
 };
 
+const stationNameFromValue = (stationValue: unknown): string => {
+  if (!stationValue) return "";
+  if (typeof stationValue === "string") return stationValue.trim();
+  if (typeof stationValue === "object") {
+    const stationObj = stationValue as Record<string, unknown>;
+    return String(
+      stationObj.name || stationObj.station || stationObj.id || stationObj.code || ""
+    ).trim();
+  }
+  return String(stationValue).trim();
+};
+
+const hasFlangeTag = (template: LabelTemplate): boolean => {
+  const tags = Array.isArray(template?.tags)
+    ? template.tags.map((tag) => String(tag || "").toUpperCase().trim())
+    : [];
+  return tags.includes("FLANGE");
+};
+
+const selectQueuePrinterForStation = (
+  printers: PrinterConfig[],
+  stationId: string
+): PrinterConfig | null => {
+  if (!Array.isArray(printers) || printers.length === 0) return null;
+  const stationNorm = normalizeMachine(stationId || "");
+
+  const stationMatched = printers.find((printer) => {
+    const linkedStations = [
+      ...(Array.isArray(printer?.queueStations) ? printer.queueStations : []),
+      ...(Array.isArray(printer?.linkedStations) ? printer.linkedStations : []),
+    ]
+      .map(stationNameFromValue)
+      .map((name) => normalizeMachine(name || ""))
+      .filter(Boolean);
+
+    return linkedStations.includes(stationNorm);
+  });
+  if (stationMatched) return stationMatched;
+
+  const mazakByName = printers.find((printer) =>
+    String(printer?.name || "").toUpperCase().includes("MAZAK")
+  );
+  if (mazakByName) return mazakByName;
+
+  // Veilige fallback zodat printjobs nooit stil uitvallen door ontbrekende stationkoppeling.
+  return printers.find((printer) => printer?.isDefault) || printers[0] || null;
+};
+
+const templateExtraCodeTokens = (template: LabelTemplate): string[] => {
+  const candidates: unknown[] = [
+    template?.extraCodes,
+    template?.requiredExtraCodes,
+    template?.applicableExtraCodes,
+    template?.extraCode,
+  ];
+
+  const flattened: string[] = candidates.flatMap((value) => {
+    if (Array.isArray(value)) return value.map((entry) => String(entry || "").trim());
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+    return [];
+  });
+
+  return Array.from(new Set(flattened.map((entry) => entry.toUpperCase()).filter(Boolean)));
+};
+
+const extractQueuedJobId = (value: unknown): string => {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+
+  const row = value as Record<string, unknown>;
+  const direct = String(row.jobId || row.id || "").trim();
+  if (direct) return direct;
+
+  const nested = row.data as Record<string, unknown> | undefined;
+  return String(nested?.jobId || nested?.id || "").trim();
+};
+
 const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const { t } = useTranslation();
   const { user } = useAdminAuth() as { user: AdminUser | null };
@@ -205,6 +298,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const [bulkSeriesProducts, setBulkSeriesProducts] = useState<ProductItem[]>([]);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [availableLabels, setAvailableLabels] = useState<LabelTemplate[]>([]);
+  const [availablePrinters, setAvailablePrinters] = useState<PrinterConfig[]>([]);
   const [selectedLabelId, setSelectedLabelId] = useState("");
   const [printing, setPrinting] = useState(false);
   const [freeLabelText, setFreeLabelText] = useState("");
@@ -325,6 +419,16 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   }, []);
 
   useEffect(() => {
+    const unsub = onSnapshot(collection(db, getPathString(PATHS.PRINTERS)), (snap) => {
+      const printers: PrinterConfig[] = snap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<PrinterConfig, "id">) }))
+        .filter((printer) => Boolean(printer?.id));
+      setAvailablePrinters(printers);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     const settingsRef = doc(db, getPathString(PATHS.GENERAL_SETTINGS));
     const unsub = onSnapshot(settingsRef, (snap) => {
       const rawList = (snap.data() as Record<string, unknown> | undefined)?.mazakFreeLabelTemplates;
@@ -358,9 +462,63 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   }, [selectedFreeTemplateId]);
 
   const filteredLabels = useMemo<LabelTemplate[]>(() => {
-    if (!selectedProduct) return availableLabels;
-    return filterLabelsByProduct(availableLabels as any, selectedProduct as any, { excludeTempOrderLabels: true }) as LabelTemplate[];
-  }, [availableLabels, selectedProduct]);
+    if (!selectedProduct) return [];
+
+    const productFiltered = filterLabelsByProduct(availableLabels as any, selectedProduct as any, {
+      excludeTempOrderLabels: true,
+    }) as LabelTemplate[];
+
+    const flangeOnly = productFiltered.filter((template) => hasFlangeTag(template));
+    const isReprintMode = activeTab === "process";
+
+    // Herprint moet altijd mogelijk blijven voor Flange-items,
+    // ook als extraCode op template/product niet (meer) exact matcht.
+    if (isReprintMode) {
+      return flangeOnly;
+    }
+
+    const productExtraCode = String(selectedProduct?.extraCode || "").trim().toUpperCase();
+
+    // Voorbereiding voor fijnmazige extraCode-matching: templates zonder extraCode-beperking blijven zichtbaar.
+    return flangeOnly.filter((template) => {
+      const templateCodes = templateExtraCodeTokens(template);
+      if (templateCodes.length === 0) return true;
+      if (!productExtraCode) return false;
+      return templateCodes.includes(productExtraCode);
+    });
+  }, [availableLabels, selectedProduct, activeTab]);
+
+  useEffect(() => {
+    if (!selectedLabelId) return;
+    const stillAvailable = filteredLabels.some((label) => String(label.id) === String(selectedLabelId));
+    if (!stillAvailable) {
+      setSelectedLabelId("");
+    }
+  }, [filteredLabels, selectedLabelId]);
+
+  const selectedQueuePrinter = useMemo<PrinterConfig | null>(() => {
+    return selectQueuePrinterForStation(availablePrinters, stationId || "");
+  }, [availablePrinters, stationId]);
+
+  const mazakPrinterDpi = useMemo<number>(() => {
+    const parsed = Number.parseInt(String(selectedQueuePrinter?.dpi ?? ""), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAZAK_DPI;
+  }, [selectedQueuePrinter]);
+
+  const previewProductData = useMemo(() => {
+    if (!selectedProduct) return null;
+    return {
+      ...selectedProduct,
+      orderNumber: selectedProduct.orderId || selectedProduct.orderNumber,
+      productId: selectedProduct.itemCode || selectedProduct.productId,
+      description: selectedProduct.item || selectedProduct.description,
+    } as Record<string, unknown>;
+  }, [selectedProduct]);
+
+  const { previewData: mazakPreviewData } = useLabelPreview(
+    previewProductData as Record<string, unknown> | null,
+    selectedLabelId
+  );
 
   const freeLabelTemplate = useMemo<LabelTemplate>(() => {
     return {
@@ -378,13 +536,11 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
   useEffect(() => {
     if (showPrintModal && filteredLabels.length > 0) {
-      // Kies bij voorkeur een flens, code of klein label als standaard
+      // In Mazak tonen we alleen flens-labels; kies daarbinnen een logische default.
       const preferred = filteredLabels.find((t: LabelTemplate) => 
         t.tags?.includes("FLENZEN") ||
         t.tags?.includes("FLENS") ||
-        t.tags?.includes("FLANGE") ||
-        t.tags?.includes("CODE") || 
-        t.name?.toLowerCase().includes("klein")
+        t.tags?.includes("FLANGE")
       );
       if (preferred) setSelectedLabelId(String(preferred.id || ""));
       else setSelectedLabelId(String(filteredLabels[0]?.id || ""));
@@ -463,11 +619,12 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const isBulkInboxMode = activeTab === "inbox" && bulkSeriesProducts.length > 1;
   const selectedTemplateChain = useMemo<LabelTemplate[]>(() => {
     if (!selectedLabelId) return [];
-    return resolveLinkedTemplateChain(availableLabels as any[], selectedLabelId, { maxDepth: 4 }) as LabelTemplate[];
+    const chain = resolveLinkedTemplateChain(availableLabels as any[], selectedLabelId, { maxDepth: 4 }) as LabelTemplate[];
+    return chain.filter((template) => hasFlangeTag(template));
   }, [availableLabels, selectedLabelId]);
   const effectiveTemplateChain = selectedTemplateChain.length > 0
     ? selectedTemplateChain
-    : ((selectedLabelId ? availableLabels.filter((t) => String(t.id) === String(selectedLabelId)) : []) as LabelTemplate[]);
+    : ((selectedLabelId ? filteredLabels.filter((t) => String(t.id) === String(selectedLabelId)) : []) as LabelTemplate[]);
   const labelsPerItem = Math.max(1, effectiveTemplateChain.length);
   const itemPrintCount = isBulkInboxMode ? bulkSeriesProducts.length : 1;
   const totalLabelCount = itemPrintCount * labelsPerItem;
@@ -624,6 +781,28 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     setShowActionModal(true);
   };
 
+  const resolveQueuePrinterForPrint = useCallback(async (): Promise<PrinterConfig> => {
+    if (selectedQueuePrinter?.id) return selectedQueuePrinter;
+
+    if (availablePrinters.length > 0) {
+      const fromState = selectQueuePrinterForStation(availablePrinters, stationId || "");
+      if (fromState?.id) return fromState;
+    }
+
+    const fetchedSnap = await getDocs(collection(db, getPathString(PATHS.PRINTERS)));
+    const fetchedPrinters: PrinterConfig[] = fetchedSnap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<PrinterConfig, "id">) }))
+      .filter((printer) => Boolean(printer?.id));
+
+    if (fetchedPrinters.length > 0) {
+      setAvailablePrinters(fetchedPrinters);
+      const fromFetch = selectQueuePrinterForStation(fetchedPrinters, stationId || "");
+      if (fromFetch?.id) return fromFetch;
+    }
+
+    throw new Error("Geen geldige Mazak-printer geconfigureerd voor de queue.");
+  }, [selectedQueuePrinter, availablePrinters, stationId]);
+
   const handlePrintLabels = async () => {
     if (!selectedProduct || !selectedLabelId) return;
 
@@ -633,6 +812,14 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       const isReprint = activeTab === "process";
       const itemsToPrint = isBulkInboxMode ? bulkSeriesProducts : [selectedProduct];
       const templatesToPrint = effectiveTemplateChain;
+      const queuePrinter = await resolveQueuePrinterForPrint();
+      const queuePrinterId = String(queuePrinter?.id || "").trim();
+      const queueStationId = normalizeMachine(stationId || "MAZAK") || "MAZAK";
+      const queuedJobIds: string[] = [];
+
+      if (!queuePrinterId) {
+        throw new Error("Geen geldige Mazak-printer geconfigureerd voor de queue.");
+      }
 
       if (templatesToPrint.length === 0) {
         throw new Error("Geen geldig template geselecteerd.");
@@ -643,32 +830,30 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
         for (let idx = 0; idx < templatesToPrint.length; idx++) {
           const templateToUse = templatesToPrint[idx];
-          let zplCode = "";
+          const zplCode = await renderLabelToBitmapZpl({
+            template: templateToUse as any,
+            data: processedData as any,
+            printerDpi: mazakPrinterDpi,
+            darkness: 15,
+            printSpeed: 3,
+            widthMm: Number((templateToUse as any)?.width) || 90,
+            heightMm: Number((templateToUse as any)?.height) || 40,
+          });
 
-          try {
-            if (templateToUse?.elements) {
-              zplCode = await renderLabelToBitmapZpl({
-                template: templateToUse as any,
-                data: processedData as any,
-                printerDpi: DEFAULT_MAZAK_DPI,
-                darkness: 15,
-                printSpeed: 3,
-                widthMm: Number((templateToUse as any)?.width) || 90,
-                heightMm: Number((templateToUse as any)?.height) || 40,
-              });
-            }
-          } catch (zplErr) {
-            console.warn("Bitmap generatie fout:", zplErr);
-            zplCode = "";
+          if (!String(zplCode || "").trim()) {
+            throw new Error(`Lege ZPL gegenereerd voor template ${String(templateToUse?.name || templateToUse?.id || "onbekend")}.`);
           }
 
-          await queuePrintJob(
-            "MAZAK-DEFAULT",
+          const queuedJobId = await queuePrintJob(
+            queuePrinterId,
             zplCode,
             {
+              description: `${isReprint ? "Mazak Herprint" : "Mazak Print"} ${String(item?.orderId || "-")} (${String(item?.lotNumber || "-")})`,
               templateId: String(templateToUse?.id || selectedLabelId),
               templateName: templateToUse?.name || "Mazak Label",
-              targetStation: stationId,
+              stationId: queueStationId,
+              targetStation: queueStationId,
+              targetPrinterName: queuePrinter?.name || queueStationId,
               orderId: item?.orderId,
               lotNumber: item?.lotNumber,
               isReprint,
@@ -677,6 +862,19 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
               linkedRootTemplateId: String(selectedLabelId || ""),
             }
           );
+
+          const normalizedJobId = extractQueuedJobId(queuedJobId);
+          if (!normalizedJobId) {
+            throw new Error("Queue response bevat geen geldig jobId.");
+          }
+
+          const rootJobRef = doc(db, getPathString(PATHS.PRINT_QUEUE), normalizedJobId);
+          const rootJobSnap = await getDoc(rootJobRef);
+          if (!rootJobSnap.exists()) {
+            throw new Error(`Queue job niet gevonden na aanmaak (jobId: ${normalizedJobId}).`);
+          }
+
+          queuedJobIds.push(normalizedJobId);
         }
       }
 
@@ -701,15 +899,16 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
         setActiveTab("process"); // Spring direct naar gereedmelden
       }
       notify(
-        t(
+        `${t(
           "mazak.labels_queued_success",
           "{{count}} label(s) succesvol naar de print wachtrij verstuurd!",
           { count: totalLabelCount }
-        )
+        )}${queuedJobIds[0] ? ` (job: ${queuedJobIds[0]})` : ""}`
       );
     } catch (err) {
       console.error("Fout bij printen:", err);
-      notify(t("mazak.print_error", "Er is een fout opgetreden bij het printen."));
+      const message = err instanceof Error ? err.message : String(err || "Onbekende fout");
+      notify(`${t("mazak.print_error", "Er is een fout opgetreden bij het printen.")}: ${message}`);
     } finally {
       setPrinting(false);
     }
@@ -727,10 +926,17 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
     setPrinting(true);
     try {
+      const queuePrinter = await resolveQueuePrinterForPrint();
+      const queuePrinterId = String(queuePrinter?.id || "").trim();
+      const queueStationId = normalizeMachine(stationId || "MAZAK") || "MAZAK";
+      if (!queuePrinterId) {
+        throw new Error("Geen geldige Mazak-printer geconfigureerd voor de queue.");
+      }
+
       const zplCode = await renderLabelToBitmapZpl({
         template: freeLabelTemplate as any,
         data: { freeText: normalizedFreeText } as any,
-        printerDpi: DEFAULT_MAZAK_DPI,
+        printerDpi: mazakPrinterDpi,
         darkness: 15,
         printSpeed: 3,
         widthMm: 90,
@@ -739,10 +945,13 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
       await Promise.all(
         Array.from({ length: quantity }, () =>
-          queuePrintJob("MAZAK-DEFAULT", zplCode, {
+          queuePrintJob(queuePrinterId, zplCode, {
+            description: `Mazak Vrij Label (${String(queueStationId)})`,
             templateId: FREE_TEXT_LABEL_TEMPLATE.id,
             templateName: FREE_TEXT_LABEL_TEMPLATE.name || "Vrij label 90x35",
-            targetStation: stationId,
+            stationId: queueStationId,
+            targetStation: queueStationId,
+            targetPrinterName: queuePrinter?.name || queueStationId,
             isReprint: false,
             isFreeLabel: true,
             freeLabelText: normalizedFreeText,
@@ -769,7 +978,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       );
     } catch (err) {
       console.error("Fout bij printen vrije labels:", err);
-      notify(t("mazak.print_error", "Er is een fout opgetreden bij het printen."));
+      const message = err instanceof Error ? err.message : String(err || "Onbekende fout");
+      notify(`${t("mazak.print_error", "Er is een fout opgetreden bij het printen.")}: ${message}`);
     } finally {
       setPrinting(false);
     }
@@ -1192,9 +1402,9 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                          </div>
                          <AutoScaledLabelPreview
                            label={template}
-                           data={processLabelData(selectedProduct)}
+                           data={mazakPreviewData}
                            className="w-full"
-                           printerDpi={DEFAULT_MAZAK_DPI}
+                           maxScale={1}
                          />
                        </div>
                      ))}
@@ -1613,7 +1823,9 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                   label={freeLabelTemplate}
                   data={{ freeText: freeLabelText || t("mazak.free_label_preview_placeholder", "Vrije tekst preview") }}
                   className="w-full"
-                  printerDpi={DEFAULT_MAZAK_DPI}
+                  printerDpi={mazakPrinterDpi}
+                  maxScale={1}
+                  exactBitmapPreview
                 />
               </div>
             </div>

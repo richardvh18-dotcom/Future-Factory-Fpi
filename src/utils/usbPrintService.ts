@@ -116,6 +116,12 @@ const normalizeUsbError = (err: unknown): Error => {
       );
     }
 
+    if (/claiminterface|claim interface|unable to claim interface|interface/i.test(combined)) {
+      return new Error(
+        "USB interface kon niet geclaimd worden. Printer kan nog bezet zijn door een ander tabblad of proces. Sluit andere printsessies en probeer opnieuw."
+      );
+    }
+
     return err;
   }
 
@@ -159,7 +165,16 @@ const prepareDevice = async (
     const errName = err instanceof Error ? err.name : "";
     const message = String(err instanceof Error ? err.message : err || "").toLowerCase();
     const isAlreadyClaimed = errName === "InvalidStateError" || /already|claimed|state/i.test(message);
-    if (!isAlreadyClaimed) throw err;
+    if (!isAlreadyClaimed) {
+      // Retry once after forcefully resetting this browser-context USB session.
+      await closeMatchingAuthorizedDevices({ printer, excludeDevice: device });
+      await safeCloseDevice(device);
+      await device.open();
+      if (!device.configuration) {
+        await device.selectConfiguration(1);
+      }
+      await device.claimInterface(endpointInfo.interfaceNumber);
+    }
   }
 
   if (endpointInfo.alternateSetting !== undefined) {
