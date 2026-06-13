@@ -8,9 +8,10 @@ import { db } from "../../config/firebase";
 import { PATHS, getPathString } from "../../config/dbPaths";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useNotifications } from "../../contexts/NotificationContext";
-import { startProductionLots, reserveAutoLotNumberRange } from "../../services/planningSecurityService";
+import { startProductionLots, reserveAutoLotNumberRange, queuePrintJob } from "../../services/planningSecurityService";
 import { useTeamleaderFirestore } from "../digitalplanning/useTeamleaderFirestore";
 import { isOpenOrRunningOrder } from "../../utils/teamleaderDerived";
+import { generateLotBatchZPL } from "../../utils/zplHelper";
 
 type TeamleaderOrder = {
   id?: string;
@@ -70,6 +71,27 @@ const getMachineCode = (station: string): string => {
   if (digits.length === 3) return digits;
   if (digits.length === 1) return `40${digits}`;
   return `4${digits.slice(-2).padStart(2, "0")}`;
+};
+
+const normalizeStationCode = (station: unknown): string => {
+  const normalized = String(station || "").trim().toUpperCase();
+  return normalized.startsWith("40") ? normalized.slice(2) : normalized;
+};
+
+const printerHasStation = (printer: unknown, station: string) => {
+  const typedPrinter = (printer || {}) as { linkedStations?: unknown[]; queueStations?: unknown[] };
+  const linked = Array.isArray(typedPrinter.linkedStations) ? typedPrinter.linkedStations : [];
+  const queue = Array.isArray(typedPrinter.queueStations) ? typedPrinter.queueStations : [];
+  const target = normalizeStationCode(station);
+  return [...linked, ...queue].some((entry) => normalizeStationCode(entry) === target);
+};
+
+const resolveBm01Printer = async () => {
+  const snap = await getDocs(collection(db, getPathString(PATHS.PRINTERS as unknown as string[])));
+  const printers = snap.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
+  const stationMatch = printers.find((printer) => printerHasStation(printer, "BM01"));
+  if (stationMatch) return stationMatch;
+  return printers.find((printer) => Boolean((printer as { isDefault?: unknown }).isDefault)) || null;
 };
 
 const QcSampleView = () => {
@@ -302,6 +324,33 @@ const QcSampleView = () => {
         isVirtualLot: true,
         virtualReason: String(reason || "").trim(),
       });
+
+      try {
+        const bm01Printer = await resolveBm01Printer();
+        if (bm01Printer?.id) {
+          const qcLabelPayload = generateLotBatchZPL({
+            lots: [finalLot],
+            orderNumber: selectedOrder?.orderId || "",
+          });
+          if (qcLabelPayload) {
+            await queuePrintJob(String(bm01Printer.id || "").trim(), qcLabelPayload, {
+              description: `QC virtueel lot ${finalLot} (${selectedOrder?.orderId || ""})`,
+              quantity: 1,
+              orderId: selectedOrder?.orderId || "",
+              lotNumber: finalLot,
+              stationId: "BM01",
+              targetPrinterName: String((bm01Printer as { name?: unknown }).name || "BM01 Printer"),
+              source: "QcSampleView",
+              isVirtualLot: true,
+            });
+          }
+        } else {
+          showWarning("Geen BM01 printerconfig gevonden; QC label is niet naar de printqueue verstuurd.");
+        }
+      } catch (printError) {
+        console.error("QC virtueel lot printqueue mislukt:", printError);
+        showWarning("Virtueel lot is aangemaakt, maar label kon niet naar BM01 printqueue worden verstuurd.");
+      }
 
       setLotNumber("");
       

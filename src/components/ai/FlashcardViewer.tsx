@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
+import { PATHS, getPathString } from "../../config/dbPaths";
 
 type Flashcard = {
   front: { text: string };
@@ -64,7 +65,7 @@ const FlashcardViewer = ({ data, onClose }: FlashcardViewerProps) => {
 
   const saveResult = async (correct: boolean) => {
     try {
-      const resultsRef = collection(db, "future-factory", "settings", "flashcard_results");
+      const resultsRef = collection(db, getPathString(PATHS.FLASHCARD_RESULTS));
       await addDoc(resultsRef, {
         cardQuestion: currentCard.front.text,
         cardAnswer: currentCard.back.text,

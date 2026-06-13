@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { PATHS, getPathString, getArchiveRootPath } from "../../config/dbPaths";
 import { formatDateTimeSafe } from "../../utils/dateUtils";
 import { getISOWeek, getYear } from "date-fns";
 import LabMeasurementsView, { LabMeasurement } from "./LabMeasurementsView";
@@ -36,23 +37,29 @@ const getQcCollectionPath = (
   monthKey?: string,
   measurementType?: "ri" | "tg"
 ) => {
+  const liveRoot =
+    kind === "qc_measurements"
+      ? getPathString(PATHS.QC_MEASUREMENTS)
+      : getPathString(PATHS.QC_INSPECTIONS);
+  const archiveRoot = getPathString(getArchiveRootPath());
+
   if (scope === "live") {
     if (kind === "qc_measurements") {
-      return `future-factory/production/qc_measurements/live/types/${measurementType || "ri"}/items`;
+      return `${liveRoot}/live/types/${measurementType || "ri"}/items`;
     }
 
-    return `future-factory/production/qc_inspections`;
+    return liveRoot;
   }
 
   if (monthKey) {
     if (kind === "qc_measurements") {
-      return `future-factory/production/archive/${kind}/${monthKey}/types/${measurementType || "misc"}/items`;
+      return `${archiveRoot}/${kind}/${monthKey}/types/${measurementType || "misc"}/items`;
     }
 
-    return `future-factory/production/archive/${kind}/${monthKey}/items`;
+    return `${archiveRoot}/${kind}/${monthKey}/items`;
   }
 
-  return `future-factory/production/${kind}`;
+  return `${archiveRoot}/${kind}`;
 };
 
 const parseMeasuredAtDate = (value: unknown): Date | null => {

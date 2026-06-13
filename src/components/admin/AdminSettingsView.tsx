@@ -30,6 +30,7 @@ import {
   PATHS,
   ACTIVE_SITE,
   getPathString,
+  DB_PATH_OVERRIDE_KEYS,
 } from "../../config/dbPaths";
 
 type UploadedLogo = {
@@ -44,6 +45,8 @@ type SettingsState = {
   logoUrl: string;
   themeColor: string;
   maintenanceMode: boolean;
+  drawingSyncEnabled: boolean;
+  lastDrawingSync?: any;
   uploadedLogos: UploadedLogo[];
   [key: string]: unknown;
 };
@@ -100,8 +103,43 @@ const AdminSettingsView = () => {
     logoUrl: "",
     themeColor: "blue",
     maintenanceMode: false,
+    drawingSyncEnabled: true,
     uploadedLogos: [], // Array om alle geüploade logo's bij te houden
   });
+
+  const isTestPlanningPath = PATHS.PLANNING?.[0] === "artifacts";
+
+  const setPathMode = (mode: "test" | "production") => {
+    if (typeof window === "undefined") return;
+
+    try {
+      if (mode === "test") {
+        const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || "future-factory-377ef").trim();
+        window.localStorage.setItem(
+          DB_PATH_OVERRIDE_KEYS.PLANNING,
+          `artifacts/${projectId}/public/data/digital_planning`
+        );
+        window.localStorage.setItem(
+          DB_PATH_OVERRIDE_KEYS.TEMP_PLANNING,
+          `artifacts/${projectId}/public/data/temp_labels_orders`
+        );
+      } else {
+        window.localStorage.removeItem(DB_PATH_OVERRIDE_KEYS.PLANNING);
+        window.localStorage.removeItem(DB_PATH_OVERRIDE_KEYS.TEMP_PLANNING);
+      }
+
+      notify(
+        mode === "test"
+          ? t("adminSettings.pathModeTestEnabled", "Test planning paden geactiveerd. De pagina wordt herladen.")
+          : t("adminSettings.pathModeProductionEnabled", "Productie planning paden geactiveerd. De pagina wordt herladen.")
+      );
+
+      window.location.reload();
+    } catch (error) {
+      console.error("Padmodus wisselen mislukt:", error);
+      notify(t("adminSettings.pathModeSwitchFailed", "Wisselen van padmodus is mislukt."));
+    }
+  };
 
   // 1. Live Sync met de Root
   useEffect(() => {
@@ -339,14 +377,41 @@ const AdminSettingsView = () => {
 
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3 text-left">
               <div>
-                <h4 className="text-sm font-black text-slate-800">{i18n.t("adminSettings.productionDataSource", "Productie databron")}</h4>
+                <h4 className="text-sm font-black text-slate-800">{t("adminSettings.productionDataSource", "Productie databron")}</h4>
                 <p className="text-[10px] text-slate-500 font-medium mt-1">
-                  De app leest en schrijft nu vast op de productiecollecties. Testen kan per machine-map zonder database-switch.
+                  Schakel hier de planning-databron tussen productie en test artifacts.
                 </p>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{i18n.t("adminSettings.activePaths", "Actieve paden")}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  {t("adminSettings.pathMode", "Padmodus")}
+                </p>
+                <p className={`mt-2 text-[11px] font-black ${isTestPlanningPath ? "text-amber-700" : "text-emerald-700"}`}>
+                  {isTestPlanningPath
+                    ? t("adminSettings.pathModeTest", "TEST (artifacts)")
+                    : t("adminSettings.pathModeProduction", "PRODUCTIE")}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPathMode("test")}
+                    className="px-3 py-2 rounded-lg text-[11px] font-black uppercase tracking-wide bg-amber-500 text-white hover:bg-amber-600"
+                  >
+                    {t("adminSettings.switchToTest", "Naar Test")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPathMode("production")}
+                    className="px-3 py-2 rounded-lg text-[11px] font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700"
+                  >
+                    {t("adminSettings.switchToProduction", "Naar Productie")}
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t("adminSettings.activePaths", "Actieve paden")}</p>
                 <p className="mt-2 text-[10px] font-mono text-slate-600 break-all">
                   PLANNING: /{getPathString(PATHS.PLANNING)}
                 </p>
@@ -361,7 +426,7 @@ const AdminSettingsView = () => {
             
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div>
-                <h4 className="text-sm font-black text-slate-800">{i18n.t("adminSettings.maintenanceMode", "Onderhoudsmodus")}</h4>
+                <h4 className="text-sm font-black text-slate-800">{t("adminSettings.maintenanceMode", "Onderhoudsmodus")}</h4>
                 <p className="text-[10px] text-slate-500 font-medium mt-1">
                   Blokkeer toegang voor niet-admins tijdens updates.
                 </p>
@@ -381,7 +446,35 @@ const AdminSettingsView = () => {
 
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div>
-                <h4 className="text-sm font-black text-slate-800">{i18n.t("adminSettings.releaseNotes", "Release Notes")}</h4>
+                <h4 className="text-sm font-black text-teal-800 flex items-center gap-2">
+                  Auto Tekening Sync
+                  <Zap size={14} className="text-amber-500" />
+                </h4>
+                <p className="text-[10px] text-slate-500 font-medium mt-1">
+                  Automatische match tussen Infor en Catalogus.
+                  {settings.lastDrawingSync && (
+                    <span className="block text-teal-600 font-bold mt-0.5">
+                      Laatste run: {new Date(settings.lastDrawingSync?.seconds * 1000).toLocaleString('nl-NL')}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={settings.drawingSyncEnabled !== false}
+                  onChange={(e) =>
+                    setSettings({ ...settings, drawingSyncEnabled: e.target.checked })
+                  }
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div>
+                <h4 className="text-sm font-black text-slate-800">{t("adminSettings.releaseNotes", "Release Notes")}</h4>
                 <p className="text-[10px] text-slate-500 font-medium mt-1">
                   Toon de "Wat is nieuw" popup opnieuw.
                 </p>

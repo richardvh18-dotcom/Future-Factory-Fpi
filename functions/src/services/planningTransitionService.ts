@@ -1619,6 +1619,7 @@ const completeTrackedProductService = async ({
   }
 
   const productData = trackedDoc.data() || {};
+  const isVirtualLot = Boolean(productData?.isVirtualLot);
   const now = new Date();
   const year = now.getFullYear();
   const userLabel = actorLabel || clean(auth?.token?.name) || clean(auth?.token?.email) || auth?.uid;
@@ -1641,6 +1642,7 @@ const completeTrackedProductService = async ({
   // Verhoog produced op de planning order.
   // Geeft { incremented, orderDoc, orderComplete } terug voor auto-archiveer logica.
   const incrementProducedOnOrder = async (batch) => {
+    if (isVirtualLot) return { incremented: false };
     if (!orderId || orderId === 'NOG_TE_BEPALEN') return { incremented: false };
     const orderDoc = await getPlanningOrderDocByOrderId(orderId, ctx._rds);
     if (!orderDoc) return { incremented: false };
@@ -3193,6 +3195,7 @@ const startWorkstationProductionRunService = async ({
   labelTemplateId,
   seriesGroupId,
   isFlangeSeries,
+  lotNumbers = [],
   stationOperators,
   source,
   auth,
@@ -3212,6 +3215,9 @@ const startWorkstationProductionRunService = async ({
   const qty = Math.max(1, parseInt(String(stringCount || 1), 10) || 1);
   const safeLabelTemplateId = clean(labelTemplateId);
   const safeSeriesGroupId = clean(seriesGroupId);
+  const explicitLots = Array.isArray(lotNumbers)
+    ? Array.from(new Set(lotNumbers.map((entry) => clean(entry).toUpperCase()).filter(Boolean)))
+    : [];
   const safeOperators = Array.isArray(stationOperators)
     ? Array.from(new Set(stationOperators.map((entry) => clean(entry)).filter(Boolean))).slice(0, 50)
     : [];
@@ -3239,10 +3245,14 @@ const startWorkstationProductionRunService = async ({
     throw new Error('LOT_MATCHES_ORDER_ID');
   }
 
-  const requestedLots = Array.from({ length: qty }, (_, i) => {
-    const currentSeq = startSeq + i;
-    return `${prefix}${String(currentSeq).padStart(4, '0')}`;
-  });
+  const requestedLots = explicitLots.length > 0
+    ? explicitLots
+    : Array.from({ length: qty }, (_, i) => {
+      const currentSeq = startSeq + i;
+      return `${prefix}${String(currentSeq).padStart(4, '0')}`;
+    });
+  const effectiveQty = requestedLots.length;
+  const bypassOverflowForExplicitBatch = explicitLots.length > 0;
 
   await assertLotsAreUniqueInActiveTracking({ ctx, lotNumbers: requestedLots });
 
@@ -3282,9 +3292,9 @@ const startWorkstationProductionRunService = async ({
   const batch = db.batch();
   const flowState = getNextFlowStateServer('START_WINDING');
 
-  for (let i = 0; i < qty; i += 1) {
+  for (let i = 0; i < effectiveQty; i += 1) {
     const currentLotNumber = requestedLots[i];
-    const isOverflow = currentStartedCount + i + 1 > plannedAmount;
+    const isOverflow = !bypassOverflowForExplicitBatch && (currentStartedCount + i + 1 > plannedAmount);
     const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLotNumber);
     const labelAudit = lotSpecificLabelZpl
       ? {
@@ -3324,7 +3334,7 @@ const startWorkstationProductionRunService = async ({
     if (safeSeriesGroupId) {
       unitData.seriesGroupId = safeSeriesGroupId;
       unitData.seriesIndex = i + 1;
-      unitData.seriesSize = qty;
+      unitData.seriesSize = effectiveQty;
       unitData.seriesOrderNumber = orderId;
       unitData.isFlangeSeries = Boolean(isFlangeSeries);
     }
@@ -3816,6 +3826,7 @@ const startProductionLotsService = async ({
   labelTemplateId,
   seriesGroupId,
   isFlangeSeries,
+  lotNumbers = [],
   isVirtualLot = false,
   virtualReason = '',
   dbCtx = null,
@@ -3829,9 +3840,14 @@ const startProductionLotsService = async ({
   const safeLotStart = clean(lotStart).toUpperCase();
   const safeStationId = clean(stationId);
   const safeStationLabel = clean(stationLabel);
+  const normalizedStationDisplay = normalizeMachineForCounter(safeStationId);
+  const normalizedStationLabelDisplay = normalizeMachineForCounter(safeStationLabel || safeStationId);
   const safeVirtualReason = clampText(virtualReason, 300);
   const virtualMode = Boolean(isVirtualLot);
   const qty = Math.max(1, parseInt(String(totalToProduce || 1), 10) || 1);
+  const explicitLots = Array.isArray(lotNumbers)
+    ? Array.from(new Set(lotNumbers.map((entry) => clean(entry).toUpperCase()).filter(Boolean)))
+    : [];
   const {
     orderDoc: planningOrderDoc,
     orderData: planningOrderData,
@@ -3887,7 +3903,10 @@ const startProductionLotsService = async ({
   const nowIso = new Date().toISOString();
   const batch = db.batch();
 
-  const requestedLots = Array.from({ length: qty }, (_, i) => buildLotNumber(i));
+  const requestedLots = explicitLots.length > 0
+    ? explicitLots
+    : Array.from({ length: qty }, (_, i) => buildLotNumber(i));
+  const effectiveQty = requestedLots.length;
   await assertLotsAreUniqueInActiveTracking({ ctx, lotNumbers: requestedLots });
 
   const scopedDepartment = resolveScopedDepartment(
@@ -3897,29 +3916,36 @@ const startProductionLotsService = async ({
   );
   const scopedPlanningMachine = resolveScopedMachine(planningOrderData.machine, safeStationId);
 
-  for (let i = 0; i < qty; i += 1) {
+  for (let i = 0; i < effectiveQty; i += 1) {
     const currentLot = requestedLots[i];
     const docId = `${resolvedOrderId}_${safeItemCode}_${currentLot}`.replace(/[^a-zA-Z0-9]/g, '_');
     const lotSpecificLabelZpl = buildLotSpecificLabelZpl(currentLot);
 
+    const virtualStation = 'Naharding';
     const trackedPayload = {
       id: docId,
       orderId: resolvedOrderId,
       lotNumber: currentLot,
       itemCode: safeItemCode,
-      machine: safeStationId,
-      stationLabel: safeStationLabel,
-      status: virtualMode ? 'QC Virtual Issued' : 'In Production',
-      currentStation: safeStationId,
-      currentStep: virtualMode ? 'QC_VIRTUAL' : 'Wikkelen',
+      machine: virtualMode ? normalizedStationDisplay : safeStationId,
+      stationLabel: virtualMode ? normalizedStationLabelDisplay : safeStationLabel,
+      status: virtualMode ? 'qc_sample' : 'In Production',
+      currentStation: virtualMode ? virtualStation : safeStationId,
+      currentStep: virtualMode ? 'Naharding' : 'Wikkelen',
+      lastStation: virtualMode ? normalizedStationDisplay : null,
       isVirtualLot: virtualMode,
       virtualReason: virtualMode ? safeVirtualReason : null,
       virtualIssuedAt: virtualMode ? admin.firestore.FieldValue.serverTimestamp() : null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      timestamps: virtualMode
+        ? {
+          oven_naharding_start: admin.firestore.FieldValue.serverTimestamp(),
+        }
+        : {},
       history: [{
-        action: virtualMode ? 'QC Virtueel lot uitgegeven' : 'Start Wikkelen',
-        station: safeStationLabel,
+        action: virtualMode ? 'QC Virtueel lot uitgegeven naar Naharding' : 'Start Wikkelen',
+        station: virtualMode ? virtualStation : safeStationLabel,
         timestamp: nowIso,
         user: actorLabel || 'Operator',
         details: virtualMode && safeVirtualReason ? safeVirtualReason : null,
@@ -3931,7 +3957,7 @@ const startProductionLotsService = async ({
         ? {
           timestamp: nowIso,
           user: actorLabel || 'Operator',
-          station: safeStationId,
+          station: virtualMode ? normalizedStationDisplay : safeStationId,
           source: 'production_start',
           templateId: labelTemplateId || null,
         }
@@ -3940,7 +3966,7 @@ const startProductionLotsService = async ({
         ? {
           seriesGroupId,
           seriesIndex: i + 1,
-          seriesSize: qty,
+          seriesSize: effectiveQty,
           seriesOrderNumber: safeOrderId,
           isFlangeSeries: Boolean(isFlangeSeries),
         }
@@ -3988,7 +4014,7 @@ const startProductionLotsService = async ({
         lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
       };
     if (!virtualMode && startedCounterField) {
-      planningUpdates[startedCounterField] = admin.firestore.FieldValue.increment(qty);
+      planningUpdates[startedCounterField] = admin.firestore.FieldValue.increment(effectiveQty);
     }
     if (createdLots && createdLots.length > 0) {
       planningUpdates.issuedLotNumbers = admin.firestore.FieldValue.arrayUnion(...createdLots);
@@ -4000,6 +4026,49 @@ const startProductionLotsService = async ({
         batch.set(scopedPlanningRef, planningUpdates, { merge: true });
       }
     }
+  }
+
+  if (virtualMode && createdLots.length > 0) {
+    const firstLotDigits = String(createdLots[0] || '').replace(/\D/g, '');
+    const lotWeekSuffix = firstLotDigits.length >= 6 ? firstLotDigits.slice(2, 6) : '';
+    const fallbackIso = getISOWeekInfoServer(new Date());
+    const fallbackWeekSuffix = `${String(fallbackIso.year).slice(-2)}${String(fallbackIso.week).padStart(2, '0')}`;
+    const weekSuffix = /^\d{4}$/.test(lotWeekSuffix) ? lotWeekSuffix : fallbackWeekSuffix;
+    const counterDocId = `${String(safeStationId || 'UNKNOWN').toUpperCase().replace(/[^A-Z0-9]/g, '')}_${weekSuffix}`;
+    const counterRef = db.collection(`${BASE}/production/counters`).doc(counterDocId);
+
+    await db.runTransaction(async (tx) => {
+      const counterSnap = await tx.get(counterRef);
+      const counterData = counterSnap.exists ? (counterSnap.data() || {}) : {};
+
+      const usedSequences = Array.from(new Set(
+        createdLots
+          .map((lot) => Number.parseInt(String(lot || '').slice(-4), 10))
+          .filter((seq) => Number.isFinite(seq) && seq > 0)
+      ));
+
+      if (usedSequences.length === 0) {
+        return;
+      }
+
+      const highestUsedSequence = Math.max(...usedSequences);
+      const currentLast = Number.isFinite(Number(counterData.lastSequence))
+        ? Number(counterData.lastSequence)
+        : 0;
+      const recycled = Array.isArray(counterData.recycledSequences)
+        ? counterData.recycledSequences
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+
+      const nextRecycled = recycled.filter((n) => !usedSequences.includes(n));
+
+      tx.set(counterRef, {
+        lastSequence: Math.max(currentLast, highestUsedSequence),
+        recycledSequences: nextRecycled,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    });
   }
 
   await batch.commit();

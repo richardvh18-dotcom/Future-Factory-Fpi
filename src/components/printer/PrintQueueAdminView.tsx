@@ -111,6 +111,16 @@ type PrintJob = AnyRecord & {
   description?: string;
 };
 
+const isInvalidPrintQueueTransitionError = (error: unknown): boolean => {
+  const message = String(
+    (error as { message?: unknown })?.message
+      || (error as { details?: unknown })?.details
+      || error
+      || ''
+  ).toLowerCase();
+  return message.includes('ongeldige print queue statusovergang') || message.includes('invalid_print_queue_transition');
+};
+
 const stationNameFromValue = (stationValue: unknown): string => {
   if (!stationValue) return '';
   if (typeof stationValue === 'string') return stationValue.trim();
@@ -124,6 +134,54 @@ const stationNameFromValue = (stationValue: unknown): string => {
 };
 
 const normalizeStationKey = (value: unknown): string => String(value || '').trim().toUpperCase();
+
+const getPrinterAllowedStationKeys = (printer: PrinterConfig | null | undefined): string[] => {
+  if (!printer) return [];
+  const stations = Array.isArray(printer.queueStations)
+    ? printer.queueStations
+    : (printer.linkedStations || []);
+
+  return Array.from(new Set(
+    stations
+      .map(stationNameFromValue)
+      .map((station) => normalizeStationKey(station))
+      .filter(Boolean)
+  ));
+};
+
+const getJobStationKeys = (job: PrintJob): string[] => {
+  const metadata = (job?.metadata || {}) as AnyRecord;
+  const candidates = [
+    metadata.stationId,
+    metadata.station,
+    metadata.currentStation,
+    metadata.machine,
+    metadata.targetPrinterName,
+    job.stationId,
+    job.currentStation,
+    job.machine,
+  ];
+
+  return Array.from(new Set(
+    candidates
+      .map((value) => normalizeStationKey(stationNameFromValue(value)))
+      .filter(Boolean)
+  ));
+};
+
+const getPrinterRoutingViolation = (job: PrintJob, printer: PrinterConfig | null | undefined): string | null => {
+  const allowedStationKeys = getPrinterAllowedStationKeys(printer);
+  if (allowedStationKeys.length === 0) return null;
+
+  const jobStationKeys = getJobStationKeys(job);
+  if (jobStationKeys.length === 0) return null;
+
+  const matches = jobStationKeys.some((key) => allowedStationKeys.includes(key));
+  if (matches) return null;
+
+  const printerName = String(printer?.name || printer?.id || 'onbekend');
+  return `Station-routering mismatch: job-station (${jobStationKeys.join(', ')}) valt niet onder printer ${printerName} (${allowedStationKeys.join(', ')}).`;
+};
 
 const PREVIEW_ROLL_WIDTH_MM = 90;
 
@@ -159,7 +217,20 @@ const normalizeQueuePrintPayload = (content: unknown, quantity: unknown) => {
   const qty = Number.isFinite(Number(quantity)) && Number(quantity) > 0
     ? Math.max(1, Math.floor(Number(quantity)))
     : 1;
-  return Array.from({ length: qty }, () => base).join("\n");
+
+  const applyCutMode = (zpl: string, shouldCut: boolean): string => {
+    const cutMedia = shouldCut ? "^MMC" : "^MMT";
+    const cutPQ = shouldCut ? "^PQ1,0,1,Y" : "^PQ1,0,1,N";
+    return String(zpl || "")
+      .replace(/\^MM[CT]/g, cutMedia)
+      .replace(/\^PQ1,0,1,[YN]/g, cutPQ);
+  };
+
+  if (qty === 1) {
+    return applyCutMode(base, true);
+  }
+
+  return Array.from({ length: qty }, (_, idx) => applyCutMode(base, idx === qty - 1)).join("\n");
 };
 
 const getTimestampMillis = (value: unknown): number => {
@@ -1191,7 +1262,7 @@ const PrintQueueAdminView = () => {
       const stationKey = normalizeStationKey(j.metadata?.stationId);
       const targetKey = normalizeStationKey(j.metadata?.targetPrinterName);
       return stationKey === selectedKey || targetKey === selectedKey;
-    });
+    }).sort((a, b) => getTimestampMillis(a.createdAt) - getTimestampMillis(b.createdAt));
 
     if (pendingJobs.length > 0) {
       const processQueue = async () => {
@@ -1201,6 +1272,10 @@ const PrintQueueAdminView = () => {
             await handlePrintJob(job);
           } catch (e) {
             console.error(`Auto-print failed for ${job.id}:`, e);
+            if (isInvalidPrintQueueTransitionError(e)) {
+              // Deze taak is waarschijnlijk al verwerkt door een andere actieve queue-processor.
+              continue;
+            }
             const message = e instanceof Error ? e.message : String(e);
             const lowerMessage = String(message || '').toLowerCase();
             const isUsbSessionIssue = /claim interface|claiminterface|usb|geen usb printer verbonden|access denied|toegang geweigerd|not allowed/.test(lowerMessage);
@@ -1360,17 +1435,53 @@ const PrintQueueAdminView = () => {
 
   const handlePrintJob = async (job: PrintJob) => {
     if (!usbDevice) throw new Error("Geen USB printer verbonden.");
-    await transitionPrintQueueJobStatus({
-      jobId: job.id,
-      status: 'printing',
-      source: 'PrintQueueAdminView',
-    });
+
+    const routingViolation = getPrinterRoutingViolation(job, activeQueuePrinter as PrinterConfig | null);
+    if (routingViolation) {
+      try {
+        await transitionPrintQueueJobStatus({
+          jobId: job.id,
+          status: 'error',
+          error: routingViolation,
+          source: 'PrintQueueAdminView',
+        });
+      } catch (transitionError) {
+        if (!isInvalidPrintQueueTransitionError(transitionError)) {
+          throw transitionError;
+        }
+      }
+      throw new Error(routingViolation);
+    }
+
+    try {
+      await transitionPrintQueueJobStatus({
+        jobId: job.id,
+        status: 'printing',
+        source: 'PrintQueueAdminView',
+      });
+    } catch (error) {
+      if (isInvalidPrintQueueTransitionError(error)) {
+        // Taak is intussen al door een andere client opgepakt of afgewerkt.
+        return;
+      }
+      throw error;
+    }
     try {
       const regeneratedContent = await regenerateBitmapPayloadFromJob(job);
       const content = regeneratedContent || job.printData || job.zpl;
       if (!content) throw new Error("Geen printdata gevonden in job.");
       const quantity = getJobQuantity(job) || 1;
-      const payload = normalizeQueuePrintPayload(content, quantity);
+      const isPreBatchedJob = Boolean(job?.metadata?.queuedAsBatch);
+      const batchSeqIndex = Number(job?.metadata?.batchSequenceIndex);
+      const batchSeqTotal = Number(job?.metadata?.batchSequenceTotal);
+      const hasBatchSequence = Number.isFinite(batchSeqIndex) && Number.isFinite(batchSeqTotal) && batchSeqTotal > 0;
+      const shouldCutAtEnd = hasBatchSequence ? batchSeqIndex === batchSeqTotal : true;
+      const basePayload = normalizeQueuePrintPayload(content, quantity);
+      const payload = isPreBatchedJob
+        ? String(basePayload)
+        : String(basePayload)
+            .replace(/\^MM[CT]/g, shouldCutAtEnd ? '^MMC' : '^MMT')
+            .replace(/\^PQ1,0,1,[YN]/g, shouldCutAtEnd ? '^PQ1,0,1,Y' : '^PQ1,0,1,N');
 
       await printRawUsb(usbDevice, payload);
       await transitionPrintQueueJobStatus({
@@ -1380,12 +1491,18 @@ const PrintQueueAdminView = () => {
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      await transitionPrintQueueJobStatus({
-        jobId: job.id,
-        status: 'error',
-        error: message,
-        source: 'PrintQueueAdminView',
-      });
+      try {
+        await transitionPrintQueueJobStatus({
+          jobId: job.id,
+          status: 'error',
+          error: message,
+          source: 'PrintQueueAdminView',
+        });
+      } catch (transitionError) {
+        if (!isInvalidPrintQueueTransitionError(transitionError)) {
+          throw transitionError;
+        }
+      }
       throw e;
     }
   };
@@ -1684,7 +1801,7 @@ const PrintQueueAdminView = () => {
 
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="h-full overflow-y-auto custom-scrollbar p-4 md:p-8">
       <div className="flex justify-between items-start mb-6">
         <div>
           <div className="flex items-center gap-4">
@@ -1884,7 +2001,7 @@ const PrintQueueAdminView = () => {
           {/* QUEUE LIST */}
           <div>
       <h2 className="text-xl font-bold mb-3">{t("printer.printTasks", "Print Taken")}</h2>
-      <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+      <div className="bg-white shadow-md rounded-lg overflow-auto max-h-[58vh]">
         <table className="w-full text-sm text-left text-slate-500">
           <thead className="text-xs text-slate-700 uppercase bg-slate-50">
             <tr>
@@ -1910,6 +2027,11 @@ const PrintQueueAdminView = () => {
                     {Boolean(job.metadata?.stationId) && <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-bold">{String(job.metadata?.stationId)}</span>}
                     {getJobSizeLabel(job) && <span className="text-[10px] bg-blue-50 px-2 py-0.5 rounded text-blue-700 font-bold">{getJobSizeLabel(job)}</span>}
                     {getJobQuantity(job) && <span className="text-[10px] bg-emerald-50 px-2 py-0.5 rounded text-emerald-700 font-bold">{t("common.amount", "Aantal")}: {getJobQuantity(job)}</span>}
+                    {Boolean(job.metadata?.queuedAsBatch) && (
+                      <span className="text-[10px] bg-violet-50 px-2 py-0.5 rounded text-violet-700 font-bold">
+                        Batch cut: {String(job.metadata?.cutMode || "last-only")}
+                      </span>
+                    )}
                   </div>
                   {job.status === 'error' && <p className="text-red-600 text-xs mt-1">{String(job.error || '')}</p>}
                 </td>

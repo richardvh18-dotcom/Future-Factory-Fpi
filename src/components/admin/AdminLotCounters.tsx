@@ -2,6 +2,7 @@ import React, { useState, useEffect, FC } from 'react';
 import i18n from 'i18next';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { PATHS, getPathString } from '../../config/dbPaths';
 import { Loader2, Hash, Calendar, Server } from 'lucide-react';
 
 // Machine naar FPI code mapping (Consistent met ProductionStartModal)
@@ -51,7 +52,7 @@ const AdminLotCounters: FC = () => {
 
   useEffect(() => {
     // Luister live naar de counters collectie
-    const ref = collection(db, 'future-factory', 'production', 'counters');
+    const ref = collection(db, getPathString(PATHS.COUNTERS));
     // We halen alles op (het zijn er niet veel door de auto-cleanup)
     const unsub = onSnapshot(ref, (snap) => {
       const data = snap.docs.map(doc => {

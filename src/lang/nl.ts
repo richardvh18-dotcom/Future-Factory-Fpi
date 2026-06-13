@@ -2523,6 +2523,7 @@ export const nl = {
     },
     status: {
       good: "Goed",
+      qc_sample: "QC Steekproef",
       repair: "Tijdelijke afkeur",
       rejected: "Afkeur",
       finished: "Gereed",

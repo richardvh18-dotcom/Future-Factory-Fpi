@@ -191,12 +191,13 @@ const ProductReleaseModal = ({ isOpen, product, bulkProducts = [], onClose, onCo
         getDocs(query(collection(db, getPathString(PATHS.PLANNING)), where("itemCode", "==", itemCode))),
         getDocs(query(collectionGroup(db, "orders"), where("itemCode", "==", itemCode))),
       ]);
+      const planningPrefix = `${getPathString(PATHS.PLANNING)}/`;
 
       rootPlanningSnap.docs.forEach((docSnap) => {
         planningMatches.set(docSnap.ref.path, docSnap);
       });
       scopedPlanningSnap.docs.forEach((docSnap) => {
-        if (String(docSnap.ref.path || "").startsWith("future-factory/production/digital_planning/")) {
+        if (String(docSnap.ref.path || "").startsWith(planningPrefix)) {
           planningMatches.set(docSnap.ref.path, docSnap);
         }
       });

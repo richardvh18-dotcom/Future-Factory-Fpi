@@ -434,6 +434,9 @@ const startWorkstationProductionRun = withAudit('START_WORKSTATION_PRODUCTION_RU
   const labelTemplateId = clean(data?.labelTemplateId);
   const seriesGroupId = clean(data?.seriesGroupId);
   const isFlangeSeries = Boolean(data?.isFlangeSeries);
+  const lotNumbers = Array.isArray(data?.lotNumbers)
+    ? data.lotNumbers.map((entry) => clean(entry)).filter(Boolean)
+    : [];
   const source = clampText(data?.source, 80);
   const stationOperators = Array.isArray(data?.stationOperators)
     ? data.stationOperators.map((entry) => clampText(entry, 80)).filter(Boolean).slice(0, 50)
@@ -454,6 +457,7 @@ const startWorkstationProductionRun = withAudit('START_WORKSTATION_PRODUCTION_RU
       labelTemplateId,
       seriesGroupId,
       isFlangeSeries,
+      lotNumbers,
       stationOperators,
       source,
       auth: context.auth,
@@ -1559,6 +1563,9 @@ const startProductionLots = withAudit('START_PRODUCTION_LOTS', async (data, cont
   const labelTemplateId = clean(data?.labelTemplateId);
   const seriesGroupId = clean(data?.seriesGroupId);
   const isFlangeSeries = Boolean(data?.isFlangeSeries);
+  const lotNumbers = Array.isArray(data?.lotNumbers)
+    ? data.lotNumbers.map((entry) => clean(entry)).filter(Boolean)
+    : [];
   const hasOrderLocator = Boolean(orderDocId || orderDocPath || orderSourcePath || orderId);
   if (!hasOrderLocator || !itemCode || !lotStart || !stationId) {
     throw new functions.https.HttpsError('invalid-argument', 'order locator (orderDocId/orderDocPath/orderSourcePath/orderId), itemCode, lotStart en stationId zijn verplicht.');
@@ -1585,6 +1592,7 @@ const startProductionLots = withAudit('START_PRODUCTION_LOTS', async (data, cont
       labelTemplateId,
       seriesGroupId,
       isFlangeSeries,
+      lotNumbers,
       isVirtualLot,
       virtualReason,
       dbCtx: resolveDbContext(),

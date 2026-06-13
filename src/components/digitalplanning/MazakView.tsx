@@ -54,12 +54,11 @@ const clampFreeLabelFontSize = (value: unknown): number => {
 
 const FREE_TEXT_LABEL_TEMPLATE: LabelTemplate = {
   id: "MAZAK-FREE-TEXT-90x35",
-  name: "Vrij tekst 90x35",
-  width: 90,
-  height: 35,
+  name: "Vrij tekst 100x25",
+  width: 100,
+  height: 25,
   elements: [
-    { type: "box", x: 1, y: 1, width: 88, height: 33, thickness: 0.25 },
-    { type: "text", x: 4, y: 4, width: 82, height: 27, fontSize: 10, isBold: true, content: "{freeText}", maxLines: 5 },
+    { type: "text", x: 3, y: 2, width: 94, height: 21, fontSize: 10, isBold: true, content: "{freeText}", maxLines: 4 },
   ],
 };
 
@@ -196,6 +195,15 @@ const getLotSeriesPrefix = (lotNumber: unknown) => {
   return match[1];
 };
 
+const getLotSeriesSequence = (lotNumber: unknown): number | null => {
+  const raw = String(lotNumber || "").trim();
+  if (!raw) return null;
+  const match = raw.match(/(\d{3})$/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const stationNameFromValue = (stationValue: unknown): string => {
   if (!stationValue) return "";
   if (typeof stationValue === "string") return stationValue.trim();
@@ -276,6 +284,27 @@ const extractQueuedJobId = (value: unknown): string => {
 
   const nested = row.data as Record<string, unknown> | undefined;
   return String(nested?.jobId || nested?.id || "").trim();
+};
+
+const applyBatchCutMode = (zpl: string, shouldCut: boolean): string => {
+  const cutMedia = shouldCut ? "^MMC" : "^MMT";
+  const cutPq = shouldCut ? "^PQ1,0,1,Y" : "^PQ1,0,1,N";
+  return String(zpl || "")
+    .replace(/\^MM[CT]/g, cutMedia)
+    .replace(/\^PQ1,0,1,[YN]/g, cutPq);
+};
+
+const buildMazakBatchPayload = (chunks: string[]): string => {
+  const safeChunks = chunks.map((chunk) => String(chunk || "").trim()).filter(Boolean);
+  if (safeChunks.length === 0) return "";
+
+  if (safeChunks.length === 1) {
+    return applyBatchCutMode(safeChunks[0], true);
+  }
+
+  return safeChunks
+    .map((chunk, index) => applyBatchCutMode(chunk, index === safeChunks.length - 1))
+    .join("\n");
 };
 
 const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
@@ -766,6 +795,43 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       }
     }
 
+    if (activeTab === "inbox" && sameSeries.length > 1) {
+      const lotPrefix = getLotSeriesPrefix(item?.lotNumber);
+      const orderKey = String(item?.orderId || "").trim().toUpperCase();
+      const itemCodeKey = String(item?.itemCode || "").trim().toUpperCase();
+      const seedSequences = sameSeries
+        .map((seriesItem) => getLotSeriesSequence(seriesItem?.lotNumber))
+        .filter((value): value is number => Number.isFinite(value));
+
+      if (lotPrefix && seedSequences.length > 0) {
+        const minSeq = Math.min(...seedSequences);
+        const maxSeq = Math.max(...seedSequences);
+
+        const expandedSeries = items.filter((candidate) => {
+          if (!isSeriesEligibleItem(candidate)) return false;
+          const candidatePrefix = getLotSeriesPrefix(candidate?.lotNumber);
+          if (!candidatePrefix || candidatePrefix !== lotPrefix) return false;
+
+          const candidateOrder = String(candidate?.orderId || "").trim().toUpperCase();
+          if (orderKey && candidateOrder && candidateOrder !== orderKey) return false;
+
+          const candidateItemCode = String(candidate?.itemCode || "").trim().toUpperCase();
+          if (itemCodeKey && candidateItemCode && candidateItemCode !== itemCodeKey) return false;
+
+          const candidateSeq = getLotSeriesSequence(candidate?.lotNumber);
+          if (!Number.isFinite(candidateSeq)) return false;
+
+          return candidateSeq >= minSeq && candidateSeq <= maxSeq;
+        });
+
+        sameSeries = expandedSeries.sort((a, b) => {
+          const aSeq = getLotSeriesSequence(a?.lotNumber) || 0;
+          const bSeq = getLotSeriesSequence(b?.lotNumber) || 0;
+          return aSeq - bSeq;
+        });
+      }
+    }
+
     setBulkSeriesProducts(sameSeries.length > 1 ? sameSeries : []);
     setSelectedProduct(item);
   };
@@ -825,8 +891,12 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
         throw new Error("Geen geldig template geselecteerd.");
       }
 
+      const zplChunks: string[] = [];
+      const lotNumbersForBatch: string[] = [];
+
       for (const item of itemsToPrint) {
         const processedData = processLabelData(item);
+        lotNumbersForBatch.push(String(item?.lotNumber || "").trim());
 
         for (let idx = 0; idx < templatesToPrint.length; idx++) {
           const templateToUse = templatesToPrint[idx];
@@ -844,39 +914,49 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
             throw new Error(`Lege ZPL gegenereerd voor template ${String(templateToUse?.name || templateToUse?.id || "onbekend")}.`);
           }
 
-          const queuedJobId = await queuePrintJob(
-            queuePrinterId,
-            zplCode,
-            {
-              description: `${isReprint ? "Mazak Herprint" : "Mazak Print"} ${String(item?.orderId || "-")} (${String(item?.lotNumber || "-")})`,
-              templateId: String(templateToUse?.id || selectedLabelId),
-              templateName: templateToUse?.name || "Mazak Label",
-              stationId: queueStationId,
-              targetStation: queueStationId,
-              targetPrinterName: queuePrinter?.name || queueStationId,
-              orderId: item?.orderId,
-              lotNumber: item?.lotNumber,
-              isReprint,
-              linkedSequenceIndex: idx + 1,
-              linkedSequenceTotal: templatesToPrint.length,
-              linkedRootTemplateId: String(selectedLabelId || ""),
-            }
-          );
-
-          const normalizedJobId = extractQueuedJobId(queuedJobId);
-          if (!normalizedJobId) {
-            throw new Error("Queue response bevat geen geldig jobId.");
-          }
-
-          const rootJobRef = doc(db, getPathString(PATHS.PRINT_QUEUE), normalizedJobId);
-          const rootJobSnap = await getDoc(rootJobRef);
-          if (!rootJobSnap.exists()) {
-            throw new Error(`Queue job niet gevonden na aanmaak (jobId: ${normalizedJobId}).`);
-          }
-
-          queuedJobIds.push(normalizedJobId);
+          zplChunks.push(zplCode);
         }
       }
+
+      const batchPayload = buildMazakBatchPayload(zplChunks);
+      if (!batchPayload) {
+        throw new Error("Geen geldige batchpayload voor Mazak print opgebouwd.");
+      }
+
+      const queuedJobId = await queuePrintJob(
+        queuePrinterId,
+        batchPayload,
+        {
+          description: `${isReprint ? "Mazak Herprint" : "Mazak Print"} batch ${String(selectedProduct?.orderId || "-")} (${itemsToPrint.length} lot${itemsToPrint.length === 1 ? "" : "s"})`,
+          templateId: String(selectedLabelId),
+          templateName: templatesToPrint.length > 1 ? "Mazak Label Batch" : (templatesToPrint[0]?.name || "Mazak Label"),
+          stationId: queueStationId,
+          targetStation: queueStationId,
+          targetPrinterName: queuePrinter?.name || queueStationId,
+          orderId: selectedProduct?.orderId,
+          lotNumber: lotNumbersForBatch[0] || selectedProduct?.lotNumber,
+          lotNumbers: lotNumbersForBatch.filter(Boolean),
+          lotCount: itemsToPrint.length,
+          labelCount: zplChunks.length,
+          isReprint,
+          linkedSequenceTotal: templatesToPrint.length,
+          linkedRootTemplateId: String(selectedLabelId || ""),
+          cutMode: "last-only",
+          queuedAsBatch: true,
+        }
+      );
+
+      const normalizedJobId = extractQueuedJobId(queuedJobId);
+      if (!normalizedJobId) {
+        throw new Error("Queue response bevat geen geldig jobId.");
+      }
+
+      const rootJobRef = doc(db, getPathString(PATHS.PRINT_QUEUE), normalizedJobId);
+      const rootJobSnap = await getDoc(rootJobRef);
+      if (!rootJobSnap.exists()) {
+        throw new Error(`Queue job niet gevonden na aanmaak (jobId: ${normalizedJobId}).`);
+      }
+      queuedJobIds.push(normalizedJobId);
 
       await markMazakLabelsPrinted({
         productIds: itemsToPrint.map((item) => item.id || item.lotNumber).filter(Boolean),
@@ -939,8 +1019,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
         printerDpi: mazakPrinterDpi,
         darkness: 15,
         printSpeed: 3,
-        widthMm: 90,
-        heightMm: 35,
+        widthMm: 100,
+        heightMm: 25,
       });
 
       await Promise.all(
@@ -948,7 +1028,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
           queuePrintJob(queuePrinterId, zplCode, {
             description: `Mazak Vrij Label (${String(queueStationId)})`,
             templateId: FREE_TEXT_LABEL_TEMPLATE.id,
-            templateName: FREE_TEXT_LABEL_TEMPLATE.name || "Vrij label 90x35",
+            templateName: FREE_TEXT_LABEL_TEMPLATE.name || "Vrij label 100x25",
             stationId: queueStationId,
             targetStation: queueStationId,
             targetPrinterName: queuePrinter?.name || queueStationId,
@@ -966,7 +1046,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       await logActivity(
         user?.uid || "system",
         "PRINT_FREE_LABELS",
-        `Mazak: ${quantity} vrije label(s) 90x35 naar queue gestuurd (align: ${freeLabelAlign}, font: ${normalizedFontSize})`
+        `Mazak: ${quantity} vrije label(s) 100x25 naar queue gestuurd (align: ${freeLabelAlign}, font: ${normalizedFontSize})`
       );
 
       notify(
@@ -1690,7 +1770,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
           <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left w-full">
             <div className="bg-slate-900 rounded-[35px] p-6 text-white border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
               <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("mazak.free_label_header", "Vrij label")}</span>
-              <h2 className="text-3xl font-black italic leading-none text-left">90 x 35 mm</h2>
+              <h2 className="text-3xl font-black italic leading-none text-left">100 x 25 mm</h2>
               <p className="text-xs font-bold text-white/70 mt-2">{t("mazak.free_label_subtitle", "Print losse labels met vrije tekst")}</p>
             </div>
 
@@ -1787,7 +1867,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500"
                 />
                 <p className="mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                  {t("mazak.fixed_free_label_size", "Vast formaat: 90x35 mm")}
+                  {t("mazak.fixed_free_label_size", "Vast formaat: 100x25 mm")}
                 </p>
               </div>
 

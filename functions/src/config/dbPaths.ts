@@ -42,6 +42,7 @@ export const DB_PATHS = {
   ATPS_PREVIEW_RUNS: `${DB_BASE}/integrations/atps_preview_runs`,
   ATPS_RETRY_QUEUE: `${DB_BASE}/integrations/atps_retry_queue`,
   EXPORT_TASKS: `${DB_BASE}/exports/tasks`,
+  LN_QR_EXPORT_HISTORY: `${DB_BASE}/exports/ln_qr_history`,
 
   NOTIFICATION_LOGS: `${DB_BASE}/notifications/logs`,
   AUTOMATION_RULES: `${DB_BASE}/automation/rules`,

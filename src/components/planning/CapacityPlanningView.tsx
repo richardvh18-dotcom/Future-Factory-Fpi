@@ -362,11 +362,12 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
     const unsubScopedPlanning = onSnapshot(
       collectionGroup(readDb, "orders"),
       (snapshot) => {
+        const planningPrefix = `${getPathString(readPaths.PLANNING)}/`;
         planningBucketsRef.current.scoped = snapshot.docs
           .filter((d) => {
             const path = d.ref.path || "";
             return (
-              path.includes("/production/digital_planning/") &&
+              path.startsWith(planningPrefix) &&
               path.includes("/machines/") &&
               path.includes("/orders/")
             );

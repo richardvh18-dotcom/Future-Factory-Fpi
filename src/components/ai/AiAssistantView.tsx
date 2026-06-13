@@ -12,6 +12,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { getRawPlanningData } from "../../services/planningContext";
+import { PATHS, getPathString } from "../../config/dbPaths";
 import AiChatView from "./AiChatView";
 import FlashcardViewer from "./FlashcardViewer";
 import { MOCK_FLASHCARDS } from "../../data/aiPrompts";
@@ -49,7 +50,7 @@ const AiAssistantView = () => {
     const loadFlashcards = async () => {
       try {
         // 1. Load custom flashcards from admin
-        const flashcardsRef = collection(db, "future-factory", "settings", "flashcards");
+        const flashcardsRef = collection(db, getPathString(PATHS.FLASHCARDS));
         const flashcardsSnap = await getDocs(query(flashcardsRef, where("active", "==", true)));
           const customCards: Flashcard[] = flashcardsSnap.docs.map((doc) => {
           const row = doc.data() as Record<string, unknown>;
@@ -69,7 +70,7 @@ const AiAssistantView = () => {
           });
 
         // 2. Load verified Q&A from AI knowledge base
-        const knowledgeRef = collection(db, "future-factory", "settings", "ai_knowledge_base");
+        const knowledgeRef = collection(db, getPathString(PATHS.AI_KNOWLEDGE_BASE));
         const knowledgeSnap = await getDocs(query(knowledgeRef, where("verified", "==", true)));
         const knowledgeCards: Flashcard[] = knowledgeSnap.docs
           .map((doc) => doc.data() as Record<string, unknown>)

@@ -7,10 +7,10 @@
  * via Firebase Functions config/environment.
  */
 
-import { collection, query, getDocs, addDoc, setDoc, getDoc, doc, limit, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, collectionGroup, query, getDocs, addDoc, setDoc, getDoc, doc, limit, orderBy, serverTimestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import app, { auth, db, logActivity } from '../config/firebase';
-import { PATHS, getPathString } from '../config/dbPaths';
+import { PATHS, getPathString, getPlanningArchivePath } from '../config/dbPaths';
 import i18n from '../i18n';
 import { fetchScopedEfficiencyHours } from '../utils/efficiencyScopedReader';
 
@@ -66,6 +66,10 @@ const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   return String(error);
 };
+
+const SYSTEM_PROMPT_BUDGET = 11500;
+
+const clamp = (value: string, maxChars: number): string => String(value || '').slice(0, maxChars);
 
 class AIService {
   public availableModel: string;
@@ -149,6 +153,20 @@ class AIService {
   async getProductionOrders(limitCount = 50) {
     try {
       let allOrders: any[] = [];
+      const seen = new Set<string>();
+
+      const pushUnique = (rows: any[], source: string) => {
+        rows.forEach((row) => {
+          const stableId = String(
+            row.orderId || row.orderNumber || row.id || row.jobId || row.productOrderId || ''
+          ).trim();
+          const dedupeKey = stableId ? `${source}:${stableId}` : `${source}:${JSON.stringify(row).slice(0, 220)}`;
+          if (!seen.has(dedupeKey)) {
+            seen.add(dedupeKey);
+            allOrders.push({ source, ...row });
+          }
+        });
+      };
       
       // Probeer PATHS.PLANNING eerst
       try {
@@ -159,14 +177,47 @@ class AIService {
         
         const planningOrders = snapshot.docs.map(doc => ({
           id: doc.id,
-          source: 'PLANNING',
           ...(doc.data() as Record<string, any>)
         }));
         
         console.log(`📦 PATHS.PLANNING: ${planningOrders.length} documenten gevonden`);
-        allOrders.push(...planningOrders);
+        pushUnique(planningOrders, 'PLANNING');
       } catch (error) {
         console.log('⚠️ PATHS.PLANNING error:', getErrorMessage(error));
+      }
+
+      // Legacy planning pad fallback
+      try {
+        const legacyPath = ['future-factory', 'production', 'data', 'digital_planning', 'orders'];
+        console.log('🔎 Trying LEGACY planning path:', legacyPath.join('/'));
+        const legacyCollection = collection(db, getPathString(legacyPath));
+        const legacySnap = await getDocs(query(legacyCollection, limit(limitCount)));
+
+        const legacyOrders = legacySnap.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as Record<string, any>)
+        }));
+
+        console.log(`📦 LEGACY planning: ${legacyOrders.length} documenten gevonden`);
+        pushUnique(legacyOrders, 'PLANNING_LEGACY');
+      } catch (error) {
+        console.log('⚠️ LEGACY planning error:', getErrorMessage(error));
+      }
+
+      // Scoped orders fallback via collectionGroup
+      try {
+        console.log('🔎 Trying collectionGroup("orders") fallback');
+        const scopedSnap = await getDocs(query(collectionGroup(db, 'orders'), limit(Math.max(80, limitCount * 3))));
+
+        const scopedOrders = scopedSnap.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as Record<string, any>)
+        }));
+
+        console.log(`📦 Scoped orders: ${scopedOrders.length} documenten gevonden`);
+        pushUnique(scopedOrders, 'PLANNING_SCOPED');
+      } catch (error) {
+        console.log('⚠️ Scoped orders fallback error:', getErrorMessage(error));
       }
       
       // Probeer PATHS.TRACKING
@@ -178,12 +229,11 @@ class AIService {
         
         const trackedOrders = snapshot.docs.map(doc => ({
           id: doc.id,
-          source: 'TRACKING',
           ...(doc.data() as Record<string, any>)
         }));
         
         console.log(`📦 PATHS.TRACKING: ${trackedOrders.length} documenten gevonden`);
-        allOrders.push(...trackedOrders);
+        pushUnique(trackedOrders, 'TRACKING');
       } catch (error) {
         console.log('⚠️ PATHS.TRACKING error:', getErrorMessage(error));
       }
@@ -606,6 +656,335 @@ class AIService {
   }
 
   /**
+   * Parse what-if/planning scenario uit vrije tekst.
+   * Ondersteunt o.a. uitstel in dagen, extra capaciteit en voorrang op orders.
+   */
+  parsePlanningScenario(query: string) {
+    const raw = String(query || '').trim();
+    if (!raw) return null;
+
+    const lower = raw.toLowerCase();
+    const isScenarioIntent = /(wat\s+als|what\s*if|scenario|stel\s+dat|als\s+we)/i.test(raw);
+
+    const orderIds = [...new Set((raw.match(/\bN\d{5,}\b/gi) || []).map(v => v.toUpperCase()))];
+
+    let delayDays = 0;
+    const delayA = lower.match(/(?:uitstel|uitstellen|later|opschuiven|vertragen)\s*(?:met|van)?\s*(\d{1,2})\s*(?:werkdagen|werkdag|dagen|dag|wd)/i);
+    const delayB = lower.match(/(\d{1,2})\s*(?:werkdagen|werkdag|dagen|dag|wd)\s*(?:uitstellen|later|opschuiven|vertragen)/i);
+    if (delayA?.[1]) delayDays = Number(delayA[1]) || 0;
+    else if (delayB?.[1]) delayDays = Number(delayB[1]) || 0;
+
+    let extraCapacityHours = 0;
+    const capA = lower.match(/(?:extra|\+)\s*(\d{1,3})\s*(?:uur|uren)/i);
+    const capB = lower.match(/(\d{1,3})\s*(?:uur|uren)\s*(?:extra|capaciteit)/i);
+    if (capA?.[1]) extraCapacityHours += Number(capA[1]) || 0;
+    else if (capB?.[1]) extraCapacityHours += Number(capB[1]) || 0;
+
+    const extraShiftMatch = lower.match(/(\d{1,2})\s*(?:extra\s+)?ploeg(?:en)?/i);
+    if (extraShiftMatch?.[1]) {
+      extraCapacityHours += (Number(extraShiftMatch[1]) || 0) * 8;
+    } else if (/extra\s+ploeg/.test(lower)) {
+      extraCapacityHours += 8;
+    }
+
+    const prioritizeOrderIds = [...new Set([
+      ...((raw.match(/(?:prioriteit|voorrang|eerst)\s*(?:voor|aan)?\s*(N\d{5,})/gi) || [])
+        .map(v => (v.match(/N\d{5,}/i)?.[0] || '').toUpperCase())
+        .filter(Boolean)),
+    ])];
+
+    const hasScenarioData = delayDays > 0 || extraCapacityHours > 0 || prioritizeOrderIds.length > 0;
+    if (!isScenarioIntent && !hasScenarioData) return null;
+
+    return {
+      isScenarioIntent: true,
+      orderIds,
+      delayOrderIds: orderIds,
+      delayDays: Math.max(0, Math.min(30, delayDays)),
+      extraCapacityHours: Math.max(0, Math.min(72, extraCapacityHours)),
+      prioritizeOrderIds,
+      raw,
+    };
+  }
+
+  /**
+   * Voorspellende planning op basis van resterende uren, deadlines en beschikbare dagcapaciteit.
+   * Resultaat: ETA per order, risicoscore en prioriteitenlijst.
+   */
+  async getPredictivePlanningContext(scenario: any = null) {
+    let ctx = '\n\n## VOORSPELLENDE PLANNING (ETA + RISICO + PRIORITEIT):\n';
+    ctx += '='.repeat(60) + '\n';
+
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const parseDate = (value: any): Date | null => {
+      if (!value) return null;
+      const maybeDate = value?.toDate ? value.toDate() : new Date(value);
+      if (!(maybeDate instanceof Date) || Number.isNaN(maybeDate.getTime())) return null;
+      return maybeDate;
+    };
+
+    const weekday = (d: Date) => {
+      const day = d.getDay();
+      return day !== 0 && day !== 6;
+    };
+
+    const addWorkingDays = (start: Date, days: number): Date => {
+      const out = new Date(start.getTime());
+      if (days <= 0) return out;
+      let remaining = days;
+      while (remaining > 0) {
+        out.setDate(out.getDate() + 1);
+        if (weekday(out)) remaining -= 1;
+      }
+      return out;
+    };
+
+    const diffWorkingDays = (fromDate: Date, toDate: Date): number => {
+      const start = new Date(fromDate.getTime());
+      const end = new Date(toDate.getTime());
+      if (end.getTime() <= start.getTime()) return 0;
+      let count = 0;
+      const cursor = new Date(start.getTime());
+      while (cursor.getTime() < end.getTime()) {
+        cursor.setDate(cursor.getDate() + 1);
+        if (weekday(cursor)) count += 1;
+      }
+      return count;
+    };
+
+    const safeNum = (value: any): number => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    try {
+      // 1) Basis dagcapaciteit uit fabrieksstructuur
+      let dailyCapacityHours = 16;
+      try {
+        const factorySnap = await getDoc(doc(db, getPathString(PATHS.FACTORY_CONFIG)));
+        if (factorySnap.exists()) {
+          const departments = (factorySnap.data()?.departments || []) as any[];
+          const computed = departments.reduce((sum, dept) => {
+            const shifts = Number(dept?.shifts) || 1;
+            return sum + shifts * 8;
+          }, 0);
+          if (computed > 0) dailyCapacityHours = computed;
+        }
+      } catch {
+        // Default blijft actief.
+      }
+
+      // 2) Real-time bezetting vandaag -> effectieve restcapaciteit
+      let occupiedToday = 0;
+      try {
+        const occSnap = await getDocs(query(collection(db, getPathString(PATHS.OCCUPANCY)), limit(500)));
+        const todayIso = new Date().toISOString().slice(0, 10);
+        occSnap.docs.forEach((docSnap) => {
+          const row = docSnap.data() as Record<string, any>;
+          if (String(row.date || '') === todayIso) {
+            occupiedToday += safeNum(row.hours || 8);
+          }
+        });
+      } catch {
+        // Geen blokkade als bezetting niet leesbaar is.
+      }
+
+      const baseDailyCapacity = Math.max(1, Math.round((dailyCapacityHours - Math.min(dailyCapacityHours, occupiedToday)) * 10) / 10);
+      const scenarioExtraCapacity = scenario?.extraCapacityHours ? Number(scenario.extraCapacityHours) : 0;
+      const effectiveDailyCapacity = Math.max(1, Math.round((baseDailyCapacity + scenarioExtraCapacity) * 10) / 10);
+      const loadFactor = dailyCapacityHours > 0
+        ? Math.max(0, Math.min(2, occupiedToday / dailyCapacityHours))
+        : 1;
+
+      // 3) Werk met efficiency + tracking + planningdata
+      const [efficiencyRows, trackingSnap, planningSnap, planningLegacySnap, planningScopedSnap] = await Promise.all([
+        fetchScopedEfficiencyHours({ db, mode: 'active', maxDocs: 200 }),
+        getDocs(query(collection(db, getPathString(PATHS.TRACKING)), limit(1200))),
+        getDocs(query(collection(db, getPathString(PATHS.PLANNING)), limit(600))),
+        getDocs(query(collection(db, 'future-factory/production/data/digital_planning/orders'), limit(600))).catch(() => ({ docs: [] } as any)),
+        getDocs(query(collectionGroup(db, 'orders'), limit(1800))).catch(() => ({ docs: [] } as any)),
+      ]);
+
+      const trackingRows = trackingSnap.docs.map(d => d.data() as Record<string, any>);
+      const planningRowsRaw = [
+        ...planningSnap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, any>) })),
+        ...(planningLegacySnap?.docs || []).map((d: any) => ({ id: d.id, ...(d.data() as Record<string, any>) })),
+        ...(planningScopedSnap?.docs || []).map((d: any) => ({ id: d.id, ...(d.data() as Record<string, any>) })),
+      ];
+      const planningSeen = new Set<string>();
+      const planningRows = planningRowsRaw.filter((row) => {
+        const key = String(row.orderId || row.orderNumber || row.id || '').trim();
+        const dedupeKey = key || JSON.stringify(row).slice(0, 220);
+        if (planningSeen.has(dedupeKey)) return false;
+        planningSeen.add(dedupeKey);
+        return true;
+      });
+
+      const planningByOrder = new Map<string, Record<string, any>>();
+      planningRows.forEach((row) => {
+        const key = String(row.orderId || row.orderNumber || row.id || '').trim();
+        if (key) planningByOrder.set(key, row);
+      });
+
+      const predictions = (efficiencyRows as any[])
+        .filter(row => row?.orderId)
+        .map((row) => {
+          const orderId = String(row.orderId);
+          const related = trackingRows.filter(r => String(r.orderId || r.orderNumber || '') === orderId);
+
+          let producedQty = 0;
+          let actualMinutes = 0;
+          related.forEach((log) => {
+            const statusTag = String(log.status || log.currentStep || log.currentStation || '').toLowerCase();
+            if (statusTag.includes('complete') || statusTag.includes('gereed') || statusTag.includes('finished')) producedQty += 1;
+
+            const start = parseDate(log?.timestamps?.station_start || log?.station_start || log?.startedAt);
+            const end = parseDate(log?.timestamps?.completed || log?.timestamps?.finished || log?.completedAt || log?.finishedAt) || new Date();
+            if (start && end.getTime() > start.getTime()) {
+              actualMinutes += (end.getTime() - start.getTime()) / 60000;
+            }
+          });
+
+          const normPerUnit = safeNum(row.minutesPerUnit);
+          const totalQty = Math.max(0, safeNum(row.quantity));
+          const remainingQty = Math.max(0, totalQty - producedQty);
+          const remainingHours = normPerUnit > 0
+            ? (remainingQty * normPerUnit) / 60
+            : Math.max(0, safeNum(row.standardTimeTotal) / 60);
+
+          const earnedMinutes = producedQty * normPerUnit;
+          const efficiency = actualMinutes > 0 ? Math.max(30, (earnedMinutes / actualMinutes) * 100) : 100;
+          const adjustedHours = remainingHours * (100 / Math.max(30, efficiency));
+          let etaWorkDays = Math.max(0, Math.ceil(adjustedHours / effectiveDailyCapacity));
+
+          // Scenario: order bewust uitstellen in werkdagen.
+          if (scenario?.delayDays && Array.isArray(scenario?.delayOrderIds) && scenario.delayOrderIds.includes(orderId)) {
+            etaWorkDays += Number(scenario.delayDays) || 0;
+          }
+          const etaDate = addWorkingDays(now, etaWorkDays);
+
+          const plan = planningByOrder.get(orderId) || {};
+          const dueDate = parseDate(
+            plan.deliveryDate || plan.leverDatum || plan.dueDate || plan.deadline || row.deliveryDate || row.dueDate
+          );
+          const daysToDeadline = dueDate ? diffWorkingDays(now, dueDate) : null;
+          const slackDays = daysToDeadline === null ? null : (daysToDeadline - etaWorkDays);
+
+          let riskScore = 30;
+          if (slackDays !== null) {
+            if (slackDays < 0) riskScore = 92;
+            else if (slackDays === 0) riskScore = 82;
+            else if (slackDays <= 1) riskScore = 72;
+            else if (slackDays <= 3) riskScore = 58;
+            else if (slackDays <= 5) riskScore = 45;
+            else riskScore = 30;
+          }
+          if (efficiency < 80) riskScore += 14;
+          else if (efficiency < 90) riskScore += 8;
+
+          if (remainingHours > 120) riskScore += 12;
+          else if (remainingHours > 80) riskScore += 8;
+          else if (remainingHours > 40) riskScore += 4;
+
+          const completionRatio = totalQty > 0 ? (producedQty / totalQty) : 0;
+          if (completionRatio < 0.2 && remainingHours > 30) riskScore += 5;
+
+          if (loadFactor > 0.95) riskScore += 10;
+          else if (loadFactor > 0.85) riskScore += 6;
+
+          if (!dueDate && remainingHours > 60) riskScore += 10;
+
+          if (Array.isArray(scenario?.prioritizeOrderIds) && scenario.prioritizeOrderIds.includes(orderId)) {
+            riskScore = Math.max(riskScore, 88);
+          }
+
+          riskScore = Math.max(5, Math.min(99, Math.round(riskScore)));
+
+          const priority = riskScore >= 85
+            ? 'NU STARTEN'
+            : riskScore >= 68
+              ? 'HOGE PRIORITEIT'
+              : riskScore >= 48
+                ? 'NORMALE PRIORITEIT'
+                : 'KAN WACHTEN';
+
+          return {
+            orderId,
+            producedQty,
+            totalQty,
+            remainingQty,
+            remainingHours: Math.round(adjustedHours * 10) / 10,
+            etaWorkDays,
+            etaDate,
+            dueDate,
+            efficiency: Math.round(efficiency),
+            riskScore,
+            priority,
+            slackDays,
+          };
+        })
+        .filter(p => p.remainingHours > 0)
+        .sort((a, b) => b.riskScore - a.riskScore)
+        .slice(0, 20);
+
+      if (scenario) {
+        ctx += '\n### Scenario actief:\n';
+        ctx += `- Input: "${clamp(String(scenario.raw || ''), 200)}"\n`;
+        if (scenario.delayDays > 0 && scenario.delayOrderIds?.length) {
+          ctx += `- Uitstel: ${scenario.delayOrderIds.join(', ')} met ${scenario.delayDays} werkdag(en)\n`;
+        }
+        if (scenario.extraCapacityHours > 0) {
+          ctx += `- Extra capaciteit: +${scenario.extraCapacityHours} uur/dag\n`;
+        }
+        if (scenario.prioritizeOrderIds?.length) {
+          ctx += `- Handmatige voorrang: ${scenario.prioritizeOrderIds.join(', ')}\n`;
+        }
+      }
+
+      ctx += `- Dagcapaciteit model: ${dailyCapacityHours} uur\n`;
+      ctx += `- Bezet vandaag: ${Math.round(occupiedToday)} uur\n`;
+      ctx += `- Basiscapaciteit na bezetting: ${baseDailyCapacity} uur\n`;
+      ctx += `- Effectieve planningscapaciteit vandaag: ${effectiveDailyCapacity} uur\n`;
+
+      if (predictions.length === 0) {
+        ctx += '- Geen actieve orders met voorspelbare resterende uren gevonden.\n';
+      } else {
+        ctx += '\n### ETA & Risico per order (top op urgentie):\n';
+        predictions.forEach((p) => {
+          const etaText = p.etaDate.toLocaleDateString('nl-NL');
+          const dueText = p.dueDate ? p.dueDate.toLocaleDateString('nl-NL') : 'onbekend';
+          const slackText = p.slackDays === null ? 'onbekend' : `${p.slackDays} wd`; 
+          ctx += `- ${p.orderId}: ${p.priority}, risico ${p.riskScore}/100, ETA ${etaText}, deadline ${dueText}, slack ${slackText}, resterend ${p.remainingHours}u, voortgang ${p.producedQty}/${p.totalQty}, eff ${p.efficiency}%\n`;
+        });
+
+        const nowStart = predictions.filter(p => p.priority === 'NU STARTEN').slice(0, 5);
+        const high = predictions.filter(p => p.priority === 'HOGE PRIORITEIT').slice(0, 5);
+        const wait = predictions.filter(p => p.priority === 'KAN WACHTEN').slice(0, 5);
+
+        ctx += '\n### Prioriteitenlijst:\n';
+        if (nowStart.length) {
+          ctx += '- NU STARTEN: ' + nowStart.map(p => p.orderId).join(', ') + '\n';
+        }
+        if (high.length) {
+          ctx += '- HOGE PRIORITEIT: ' + high.map(p => p.orderId).join(', ') + '\n';
+        }
+        if (wait.length) {
+          ctx += '- KAN WACHTEN: ' + wait.map(p => p.orderId).join(', ') + '\n';
+        }
+      }
+
+      ctx += '\n**INSTRUCTIE VOOR AI:** Gebruik ETA, risicoscore en prioriteit expliciet in advies. Geef concrete herplanning (welke order eerst, hoeveel uren per dag, en welke deadline risico loopt).\n';
+      ctx += '='.repeat(60) + '\n';
+      return clamp(ctx, 5200);
+    } catch (error) {
+      console.warn('Kon voorspellende planning niet opbouwen:', getErrorMessage(error));
+      return '\n\n## VOORSPELLENDE PLANNING:\n- Niet beschikbaar door een databasefout.\n';
+    }
+  }
+
+  /**
    * Extract belangrijke zoektermen uit een vraag
    * Verwijdert stopwoorden en haalt key terms eruit
    */
@@ -625,6 +1004,290 @@ class AIService {
     
     // Return unieke termen
     return [...new Set(importantWords)];
+  }
+
+  /**
+   * Extraheer herkenbare entiteiten uit de vraag:
+   * ordernummers, itemcodes/sku-achtige tokens en maatwaarden.
+   */
+  extractEntityTokens(query: string) {
+    const raw = String(query || '');
+    const orderIds = [...new Set((raw.match(/\bN\d{5,}\b/gi) || []).map(v => v.toUpperCase()))];
+    const lotIds = [...new Set((raw.match(/\b\d{10,20}\b/g) || []).map(v => v.trim()))];
+    const codeTokens = [...new Set(
+      (raw.match(/\b[A-Z]{1,4}[-_]?\d{2,}[A-Z0-9_-]*\b/g) || [])
+        .map(v => v.toUpperCase())
+    )];
+
+    const dimensions = [...new Set(
+      (raw.match(/\b\d{1,4}(?:[.,]\d+)?\s?(?:mm|cm|m|inch|in)\b/gi) || [])
+        .map(v => v.toLowerCase().replace(/\s+/g, ''))
+    )];
+
+    const numericHints = [...new Set(
+      (raw.match(/\b\d{2,5}(?:[.,]\d+)?\b/g) || []).map(v => v.replace(',', '.'))
+    )];
+
+    return { orderIds, lotIds, codeTokens, dimensions, numericHints };
+  }
+
+  /**
+   * Compacte live snapshot die ALTIJD wordt toegevoegd,
+   * zodat de AI basis-inzicht heeft in orders/capaciteit/voorraad.
+   */
+  async getOperationalSnapshotContext() {
+    try {
+      const thisYear = new Date().getFullYear();
+      const [planningSnap, planningLegacySnap, planningScopedSnap, trackingSnap, trackingScopedItemsSnap, occupancySnap, inventorySnap, archiveCurrentYearSnap, archivePrevYearSnap] = await Promise.all([
+        getDocs(query(collection(db, getPathString(PATHS.PLANNING)), limit(250))),
+        getDocs(query(collection(db, 'future-factory/production/data/digital_planning/orders'), limit(250))).catch(() => ({ docs: [] } as any)),
+        getDocs(query(collectionGroup(db, 'orders'), limit(800))).catch(() => ({ docs: [] } as any)),
+        getDocs(query(collection(db, getPathString(PATHS.TRACKING)), limit(1200))),
+        getDocs(query(collectionGroup(db, 'items'), limit(3000))).catch(() => ({ docs: [] } as any)),
+        getDocs(query(collection(db, getPathString(PATHS.OCCUPANCY)), limit(200))),
+        getDocs(query(collection(db, getPathString(PATHS.INVENTORY)), limit(200))),
+        getDocs(query(collection(db, getPathString(getPlanningArchivePath(thisYear))), limit(2500))).catch(() => ({ docs: [] } as any)),
+        getDocs(query(collection(db, getPathString(getPlanningArchivePath(thisYear - 1))), limit(2500))).catch(() => ({ docs: [] } as any)),
+      ]);
+
+      const planningRowsRaw = [
+        ...planningSnap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, any>) })),
+        ...(planningLegacySnap?.docs || []).map((d: any) => ({ id: d.id, ...(d.data() as Record<string, any>) })),
+        ...(planningScopedSnap?.docs || []).map((d: any) => ({ id: d.id, ...(d.data() as Record<string, any>) })),
+      ];
+      const planningSeen = new Set<string>();
+      const planningRows = planningRowsRaw.filter((row) => {
+        const key = String(row.orderId || row.orderNumber || row.id || '').trim();
+        const dedupeKey = key || JSON.stringify(row).slice(0, 220);
+        if (planningSeen.has(dedupeKey)) return false;
+        planningSeen.add(dedupeKey);
+        return true;
+      });
+
+      const trackingRowsRaw = [
+        ...trackingSnap.docs.map((d) => ({
+          id: d.id,
+          __path: String((d as any)?.ref?.path || ''),
+          ...(d.data() as Record<string, any>),
+        })),
+        ...(trackingScopedItemsSnap?.docs || [])
+          .map((d: any) => ({
+            id: d.id,
+            __path: String(d?.ref?.path || ''),
+            ...(d.data() as Record<string, any>),
+          }))
+          .filter((row: any) => row.__path.includes('/production/tracked_products/')),
+      ];
+
+      const trackingSeen = new Set<string>();
+      const trackingRows = trackingRowsRaw.filter((row) => {
+        const lot = String(row.lotNumber || row.lot || row.batchNumber || row.batch || row.id || '').trim();
+        const path = String(row.__path || '').trim();
+        const dedupeKey = path || lot || JSON.stringify(row).slice(0, 220);
+        if (trackingSeen.has(dedupeKey)) return false;
+        trackingSeen.add(dedupeKey);
+        return true;
+      });
+      const occupancyRows = occupancySnap.docs.map(d => d.data() as Record<string, any>);
+      const inventoryRows = inventorySnap.docs.map(d => d.data() as Record<string, any>);
+
+      const isCompleted = (value: any) => {
+        const v = String(value || '').toLowerCase();
+        return v.includes('complete') || v.includes('gereed') || v.includes('finished') || v === 'done';
+      };
+
+      const hasStartSignal = (row: Record<string, any>) => {
+        return !!(
+          row?.timestamps?.station_start ||
+          row?.timestamps?.started ||
+          row?.station_start ||
+          row?.startedAt ||
+          row?.startTime ||
+          row?.timestamp ||
+          row?.createdAt ||
+          row?.updatedAt
+        );
+      };
+
+      const hasEndSignal = (row: Record<string, any>) => {
+        return !!(
+          row?.timestamps?.completed ||
+          row?.timestamps?.finished ||
+          row?.completedAt ||
+          row?.finishedAt ||
+          row?.endTime
+        );
+      };
+
+      const getLotNumber = (row: Record<string, any>) => String(
+        row?.lotNumber || row?.lot || row?.batchNumber || row?.batch || row?.lotId || ''
+      ).trim();
+
+      const normalize = (value: any) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+
+      const isActiveTrackedStatus = (row: Record<string, any>) => {
+        const status = normalize(row?.status);
+        const step = normalize(row?.currentStep);
+        const station = normalize(row?.currentStation || row?.machine || row?.originMachine);
+
+        const activeTokens = [
+          'new', 'todo', 'to_do', 'te_doen', 'in_behandeling', 'processing',
+          'running', 'lopend', 'ingepland', 'gereed_voor_productie', 'productie',
+          'started', 'gestart', 'in_progress', 'busy',
+        ];
+
+        return activeTokens.some((token) =>
+          status.includes(token) || step.includes(token) || station.includes(token)
+        );
+      };
+
+      const activeTrackingRows = trackingRows.filter((row) => {
+        if (isCompleted(row.status) || isCompleted(row.currentStep) || isCompleted(row.currentStation)) return false;
+        const lot = getLotNumber(row);
+        if (!lot) return false;
+        if (hasEndSignal(row)) return false;
+        return hasStartSignal(row) || isActiveTrackedStatus(row);
+      });
+
+      const activeOrderIdsFromLots = new Set<string>();
+      activeTrackingRows.forEach((row) => {
+        const orderId = String(row.orderId || row.orderNumber || '').trim();
+        if (orderId) activeOrderIdsFromLots.add(orderId);
+      });
+
+      const activeOrders = planningRows.filter((r) => {
+        const orderId = String(r.orderId || r.orderNumber || r.id || '').trim();
+        return orderId ? activeOrderIdsFromLots.has(orderId) : false;
+      });
+      const completedOrders = planningRows.filter(r => isCompleted(r.status) || isCompleted(r.currentStep));
+      const archivedCompletedCount = (archiveCurrentYearSnap?.docs?.length || 0) + (archivePrevYearSnap?.docs?.length || 0);
+
+      const today = new Date().toISOString().slice(0, 10);
+      const activeOperatorsToday = occupancyRows.filter(r => String(r.date || '') === today).length;
+      const hoursToday = occupancyRows
+        .filter(r => String(r.date || '') === today)
+        .reduce((sum, row) => sum + (Number(row.hours) || 8), 0);
+
+      const lowStock = inventoryRows.filter(r => {
+        const qty = Number(r.quantity ?? r.stock ?? 0);
+        const min = Number(r.minStock ?? r.minimumStock ?? 0);
+        return Number.isFinite(min) && min > 0 && qty <= min;
+      });
+
+      const activeTrackingByOrder = new Map<string, number>();
+      activeTrackingRows.forEach((row) => {
+        const orderId = String(row.orderId || row.orderNumber || '').trim();
+        if (!orderId) return;
+        activeTrackingByOrder.set(orderId, (activeTrackingByOrder.get(orderId) || 0) + 1);
+      });
+
+      const parseDateSafe = (value: any): Date | null => {
+        if (!value) return null;
+        const d = value?.toDate ? value.toDate() : new Date(value);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+        return d;
+      };
+
+      const formatDateTime = (value: Date | null): string => {
+        if (!value) return 'onbekend';
+        return value.toLocaleString('nl-NL', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      };
+
+      const formatDateOnly = (value: Date | null): string => {
+        if (!value) return 'onbekend';
+        return value.toLocaleDateString('nl-NL', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        });
+      };
+
+      const planningByOrder = new Map<string, Record<string, any>>();
+      planningRows.forEach((row) => {
+        const key = String(row.orderId || row.orderNumber || row.id || '').trim();
+        if (key && !planningByOrder.has(key)) planningByOrder.set(key, row);
+      });
+
+      const hotOrders = [...activeTrackingByOrder.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+
+      let ctx = '\n\n## LIVE OPERATIE SNAPSHOT (ALTIJD MEENEMEN):\n';
+      ctx += `- Planning orders totaal: ${planningRows.length}\n`;
+      ctx += `- Lopende orders (actieve lotnummers): ${activeOrderIdsFromLots.size}\n`;
+      ctx += `- Actieve lotnummers in uitvoering: ${activeTrackingRows.length}\n`;
+      ctx += `- Gemaakte orders (actief pad): ${completedOrders.length}\n`;
+      ctx += `- Gearchiveerde afgeronde orders (dit+vorig jaar): ${archivedCompletedCount}\n`;
+      ctx += `- Tracking records totaal: ${trackingRows.length}\n`;
+      ctx += `- Tracking bron: root + scoped items\n`;
+      ctx += `- Actieve operators vandaag: ${activeOperatorsToday}\n`;
+      ctx += `- Ingeplande/bezette uren vandaag: ${Math.round(hoursToday)} uur\n`;
+      ctx += `- Catalogus items (sample): ${inventoryRows.length}\n`;
+      ctx += `- Lage voorraad items (sample): ${lowStock.length}\n`;
+
+      if (hotOrders.length > 0) {
+        ctx += '\nTop lopende orders o.b.v. actieve lotnummers:\n';
+        hotOrders.forEach(([orderId, count]) => {
+          const plan = planningByOrder.get(orderId) || {};
+          const relatedLots = activeTrackingRows.filter((r) => String(r.orderId || r.orderNumber || '').trim() === orderId);
+          const lotNumbers = [...new Set(relatedLots.map((r) => getLotNumber(r)).filter(Boolean))];
+
+          const product = String(
+            plan.item || plan.itemDescription || plan.productName || plan.product || plan.itemCode ||
+            relatedLots[0]?.item || relatedLots[0]?.itemDescription || relatedLots[0]?.productName || relatedLots[0]?.itemCode ||
+            'onbekend'
+          ).trim();
+
+          const startCandidates = relatedLots
+            .map((r) => parseDateSafe(r?.timestamps?.station_start || r?.timestamps?.started || r?.startedAt || r?.startTime || r?.createdAt || r?.updatedAt))
+            .filter((d): d is Date => !!d)
+            .sort((a, b) => a.getTime() - b.getTime());
+          const startedAt = startCandidates[0] || null;
+
+          const dueDate = parseDateSafe(
+            plan.deliveryDate || plan.leverDatum || plan.dueDate || plan.deadline || plan.plannedDeliveryDate
+          );
+
+          const etaDate = parseDateSafe(
+            plan.estimatedDeliveryDate || plan.expectedDeliveryDate || plan.predictedDeliveryDate || plan.eta ||
+            plan.estimatedEnd || plan.estimatedCompletionDate
+          );
+
+          const lotsPreview = lotNumbers.slice(0, 6).join(', ');
+          const lotsSuffix = lotNumbers.length > 6 ? ' …' : '';
+
+          ctx += `- ${orderId}: ${count} actieve lotrecords | lotnummers: ${lotsPreview || 'onbekend'}${lotsSuffix} | product: ${product} | gestart: ${formatDateTime(startedAt)} | leverdatum: ${formatDateOnly(dueDate)} | geschatte leverdatum: ${formatDateOnly(etaDate)}\n`;
+        });
+      }
+
+      ctx += '\nDefinitie: Lopend = order met minimaal 1 actief lotnummer (gestart, nog niet afgerond).\n';
+      ctx += 'Bij detailvragen over een order: geef altijd lotnummers, product, startmoment, leverdatum en geschatte leverdatum uit bovenstaande regels.\n';
+
+      return clamp(ctx, 4200);
+    } catch (error) {
+      console.warn('Kon live operatie snapshot niet laden:', getErrorMessage(error));
+      return '\n\n## LIVE OPERATIE SNAPSHOT:\n- Niet beschikbaar door een databasefout.\n';
+    }
+  }
+
+  composeSystemPrompt(basePrompt: string, dbContext: string) {
+    const base = String(basePrompt || '');
+    const ctx = String(dbContext || '');
+    if (!ctx.trim()) return clamp(base, SYSTEM_PROMPT_BUDGET);
+
+    const ctxBudget = Math.min(7000, Math.floor(SYSTEM_PROMPT_BUDGET * 0.62));
+    const baseBudget = SYSTEM_PROMPT_BUDGET - ctxBudget;
+
+    const trimmedContext = clamp(ctx, ctxBudget);
+    const trimmedBase = clamp(base, baseBudget);
+
+    return `${trimmedContext}\n\n## BASISINSTRUCTIES\n${trimmedBase}`;
   }
 
   /**
@@ -692,16 +1355,42 @@ class AIService {
   async searchCatalogProducts(searchTerm: string): Promise<CatalogProduct[]> {
     try {
       const products = await this.getCatalogProducts(100);
-      const term = searchTerm.toLowerCase();
-      
-      return products.filter(product => 
-        (product.name && product.name.toLowerCase().includes(term)) ||
-        (product.sku && product.sku.toLowerCase().includes(term)) ||
-        (product.specifications && JSON.stringify(product.specifications).toLowerCase().includes(term)) ||
-        (product.tolerance && JSON.stringify(product.tolerance).toLowerCase().includes(term)) ||
-        (product.diameter && product.diameter.toString().includes(searchTerm)) ||
-        (product.length && product.length.toString().includes(searchTerm))
-      );
+      const term = searchTerm.toLowerCase().trim();
+      const tokens = this.extractSearchTerms(searchTerm);
+      const entities = this.extractEntityTokens(searchTerm);
+      const allTerms = [...new Set([
+        term,
+        ...tokens,
+        ...entities.orderIds.map(v => v.toLowerCase()),
+        ...entities.codeTokens.map(v => v.toLowerCase()),
+        ...entities.dimensions,
+        ...entities.numericHints,
+      ].filter(Boolean))];
+
+      return products.filter(product => {
+        const codeCandidates = [
+          product.sku,
+          (product as any).itemCode,
+          (product as any).articleCode,
+          (product as any).extraCode,
+          (product as any).extraCodes,
+          (product as any).partNumber,
+          (product as any).drawingNumber,
+        ].filter(Boolean).map(v => String(v).toLowerCase());
+
+        const haystack = JSON.stringify({
+          name: product.name || '',
+          description: product.description || '',
+          codeCandidates,
+          specifications: product.specifications || '',
+          tolerance: product.tolerance || '',
+          toleranceRange: product.toleranceRange || '',
+          dimensions: [product.diameter, product.length, product.width, product.height],
+          raw: product,
+        }).toLowerCase();
+
+        return allTerms.some(t => haystack.includes(String(t).toLowerCase()));
+      });
     } catch (error) {
       console.error('Error searching catalog products:', error);
       return [];
@@ -717,8 +1406,17 @@ class AIService {
     try {
       let contextData = '';
       const queryStr = userQuery.toLowerCase();
+      const entities = this.extractEntityTokens(userQuery);
+      const scenario = this.parsePlanningScenario(userQuery);
       
       console.log('🔍 AI Context: Zoeken naar:', userQuery);
+
+      // ALTIJD eerst een compacte live snapshot toevoegen.
+      try {
+        contextData += await this.getOperationalSnapshotContext();
+      } catch (err) {
+        console.warn('Kon operationele snapshot niet toevoegen:', err);
+      }
 
       // GEHEUGEN: Eerder geleerde feiten uit goedgekeurde antwoorden
       try {
@@ -787,7 +1485,10 @@ class AIService {
                             queryStr.includes('nog') ||
                             queryStr.includes('gemaakt') ||
                             queryStr.includes('lot') ||
-                            /\b\d{10,20}\b/.test(queryStr);
+                            /\b\d{10,20}\b/.test(queryStr) ||
+                            entities.orderIds.length > 0 ||
+                            entities.lotIds.length > 0 ||
+                            entities.codeTokens.length > 0;
       
       if (isOrderRelated || queryStr.includes('product')) {
         const orders = await this.searchProductionOrders(userQuery);
@@ -982,7 +1683,8 @@ class AIService {
         queryStr.includes('klaar op') || queryStr.includes('hoeveel uur') ||
         queryStr.includes('beschikbaar') || queryStr.includes('vrije') ||
         queryStr.includes('passen') ||
-        /\d+\s*(uur|werkuur|manuur)/i.test(userQuery);
+        /\d+\s*(uur|werkuur|manuur)/i.test(userQuery) ||
+        !!scenario;
 
       if (isCapacityQuery) {
         try {
@@ -993,6 +1695,15 @@ class AIService {
         } catch (err) {
           console.warn('Kon capaciteitscontext niet laden:', err);
         }
+
+        try {
+          console.log('🧠 Voorspellende planningscontext ophalen...');
+          const predictiveCtx = await this.getPredictivePlanningContext(scenario);
+          contextData += predictiveCtx;
+          console.log('✅ Voorspellende planningscontext toegevoegd');
+        } catch (err) {
+          console.warn('Kon voorspellende planning niet laden:', err);
+        }
       }
 
       // Controleer op catalog/maten/toleranties vragen
@@ -1001,7 +1712,10 @@ class AIService {
           queryStr.includes('diameter') ||
           queryStr.includes('lengte') ||
           queryStr.includes('catalog') ||
-          queryStr.includes('spec')) {
+          queryStr.includes('spec') ||
+          entities.codeTokens.length > 0 ||
+          entities.dimensions.length > 0 ||
+          entities.numericHints.length > 0) {
         const products = await this.searchCatalogProducts(userQuery);
         if (products.length > 0) {
           contextData += `\n\n${i18n.t("ai.context.catalog_info", "📋 CATALOGUS PRODUCT INFORMATIE:")}\n`;
@@ -1039,6 +1753,8 @@ class AIService {
         }
       }
       
+      contextData = clamp(contextData, 7800);
+
       console.log('📊 Context data lengte:', contextData.length, 'bytes');
       if (contextData.length > 100) {
         console.log('📋 Context preview:', contextData.substring(0, 200) + '...');
@@ -1103,7 +1819,7 @@ class AIService {
           console.log('✅ Context toegevoegd aan prompt');
           console.log('📝 Context bevat documenten:', context.includes('RELEVANTE DOCUMENTEN'));
           console.log('📝 Context bevat orders:', context.includes('PRODUCTIE ORDER'));
-          enhancedSystemPrompt += '\n\n' + context;
+          enhancedSystemPrompt = this.composeSystemPrompt(enhancedSystemPrompt, context);
         } else {
           console.log('⚠️ Geen context gevonden, gebruik standaard system prompt');
         }

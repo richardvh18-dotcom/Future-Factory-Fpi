@@ -324,7 +324,7 @@ const ProductDetailModal = ({ product, onClose, userRole }: ProductDetailModalPr
                           await uploadBytes(storageRef, file);
                           const url = await getDownloadURL(storageRef);
                           // Voeg toe aan product.sourcePdfs
-                          const productRef = doc(db, "future-factory/production/products", product.id);
+                          const productRef = doc(db, `${getPathString(PATHS.PRODUCTS)}/${product.id}`);
                           await updateDoc(productRef, {
                             sourcePdfs: arrayUnion({ name: file.name, url })
                           });

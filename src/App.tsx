@@ -33,7 +33,7 @@ import { useProductsData } from "./hooks/useProductsData";
 import { useSettingsData } from "./hooks/useSettingsData";
 import { useMessages } from "./hooks/useMessages";
 import { useAutoLogout } from "./hooks/useAutoLogout";
-import { PATHS, getPathString } from "./config/dbPaths";
+import { PATHS, getPathString, getArchiveItemsPath } from "./config/dbPaths";
 
 // Lazy Loading Modules
 const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
@@ -169,7 +169,7 @@ const App = () => {
 
     const checkPasswordChange = async () => {
       try {
-        const userDoc = await getDoc(doc(db, "future-factory", "Users", "Accounts", user.uid));
+        const userDoc = await getDoc(doc(db, `${getPathString(PATHS.USERS)}/${user.uid}`));
         setRequiresPasswordChange(Boolean(userDoc.exists() && userDoc.data()?.requirePasswordChange));
       } catch (err) {
         console.error("Error checking password change:", err);
@@ -301,7 +301,7 @@ const App = () => {
       if (!foundProduct) {
         const currentYear = new Date().getFullYear();
         for (const year of [currentYear, currentYear - 1]) {
-          const archiveRef = collection(db, "future-factory", "production", "archive", String(year), "items");
+          const archiveRef = collection(db, getPathString(getArchiveItemsPath(year)));
           const archSnap = await getDocs(query(archiveRef, where("lotNumber", "==", qStr), limit(1)));
           if (!archSnap.empty) {
             foundProduct = { id: archSnap.docs[0].id, ...archSnap.docs[0].data(), archived: true };

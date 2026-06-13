@@ -73,7 +73,7 @@ const docPath = (path: string[]) => doc(db, getPathString(path));
 const docPathWithId = (path: string[], id: string) => doc(db, `${getPathString(path)}/${id}`);
 
 // Nieuw pad voor site config
-const SITE_CONFIG_PATH = ["future-factory", "settings", "site_config", "app"];
+const SITE_CONFIG_PATH = PATHS.SITE_CONFIG_APP;
 
 /**
  * AdminMatrixManager V7.5 - Full Access Edition
@@ -103,7 +103,7 @@ const AdminMatrixManager = ({ onNavigate }: { onNavigate?: (screen: string | nul
           getDoc(docPath(PATHS.GENERAL_SETTINGS)),
           getDoc(docPath(PATHS.BLUEPRINTS)),
           getDoc(docPath(SITE_CONFIG_PATH)),
-          getDoc(doc(db, "future-factory/settings/site_config/main")),
+          getDoc(docPath(PATHS.SITE_CONFIG_MAIN)),
         ]);
 
         if (rangeSnap.exists()) setMatrixData(rangeSnap.data() as MatrixData);

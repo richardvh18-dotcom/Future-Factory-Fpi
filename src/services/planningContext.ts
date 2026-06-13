@@ -1,7 +1,7 @@
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
-import { PATHS, getPathString } from "../config/dbPaths";
+import { PATHS, getPathString, getArchiveItemsPath } from "../config/dbPaths";
 import { getISOWeek } from "date-fns";
 
 type PlanningDoc = QueryDocumentSnapshot<DocumentData>;
@@ -115,7 +115,7 @@ const resolveMachine = (data: Record<string, unknown>, fallbackId = ""): string 
 export const getRawPlanningData = async (limitCount = 50): Promise<PlanningRow[]> => {
   try {
     const paths = [
-      PATHS?.PLANNING || ["future-factory", "production", "digital_planning"],
+      PATHS.PLANNING,
       ["future-factory", "production", "data", "digital_planning", "orders"],
     ];
 
@@ -186,7 +186,7 @@ export const getTodayProductionContext = async () => {
     const todayStr = todayStart.toISOString().slice(0, 10);
 
     // Scan tracked_products op vandaag-voltooide items
-    const trackingPath = PATHS?.TRACKING || ["future-factory", "production", "tracked_products"];
+    const trackingPath = PATHS.TRACKING;
     const trackSnap = await getDocs(
       query(
         collection(db, getPathString(trackingPath as string[])),
@@ -245,7 +245,7 @@ export const getTodayProductionContext = async () => {
 
     // Scan archief van dit jaar op vandaag-gearchiveerde items
     const year = new Date().getFullYear();
-    const archivePath = ["future-factory", "production", "archive", String(year), "items"];
+    const archivePath = getArchiveItemsPath(year);
     const archSnap = await getDocs(
       query(collection(db, getPathString(archivePath as string[])), limit(500))
     ).catch(() => ({ docs: [] }));

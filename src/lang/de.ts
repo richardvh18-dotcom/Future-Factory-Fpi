@@ -1399,6 +1399,7 @@ export const de = {
   },
   status: {
     good: "Gut",
+    qc_sample: "QC-Stichprobe",
     repair: "Temporärer Ausschuss",
     rejected: "Ausschuss",
     finished: "Fertig",

@@ -1081,13 +1081,12 @@ const Terminal = ({ initialStation, onCancelProduction, orders = [] }: TerminalP
     try {
       const cleanOrderId = String(order.orderId).trim();
       const cleanItemCode = String(order.itemCode || order.productId).trim();
-      const totalToProduce = Math.max(1, parseInt(String(_stringCount), 10) || 1);
       const startLot = String(lot || "").trim().toUpperCase();
-      const seriesGroupId =
-        startOptions?.seriesGroupId ||
-        (totalToProduce > 1
-          ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${startLot}`
-          : null);
+      const explicitLotNumbers = Array.isArray(startOptions?.lotNumbers)
+        ? startOptions.lotNumbers.map((entry: unknown) => String(entry || "").trim().toUpperCase()).filter(Boolean)
+        : [];
+      const totalToProduce = explicitLotNumbers.length > 0 ? explicitLotNumbers.length : Math.max(1, parseInt(String(_stringCount), 10) || 1);
+      const seriesGroupId = String(startOptions?.seriesGroupId || "").trim() || null;
 
       setShowStartModal(false);
       if (shouldJumpToWinding) {
@@ -1110,6 +1109,8 @@ const Terminal = ({ initialStation, onCancelProduction, orders = [] }: TerminalP
         labelTemplateId: labelTemplateId || "",
         seriesGroupId,
         isFlangeSeries: !!startOptions?.isFlangeSeries,
+        lotNumbers: explicitLotNumbers,
+        stringCount: totalToProduce,
       }) as { createdLots?: string[], firstLot?: string };
 
       const createdLots = Array.isArray(startResult?.createdLots)

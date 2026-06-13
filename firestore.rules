@@ -352,7 +352,7 @@ service cloud.firestore {
     // collectionGroup("orders") query voor scoped per-machine planning orders
     match /{path=**}/orders/{orderId} {
       allow read: if hasUserRecord() || isSignedIn();
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     // collectionGroup("items") query voor scoped tracked_products docs
@@ -418,6 +418,11 @@ service cloud.firestore {
     // Achtergrond exports: gebruiker mag alleen eigen taken lezen.
     // Schrijven gebeurt via backend (Admin SDK / callable), niet direct vanuit de client.
     match /future-factory/exports/tasks/{taskId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /future-factory/exports/ln_qr_history/{historyId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create, update, delete: if false;
     }

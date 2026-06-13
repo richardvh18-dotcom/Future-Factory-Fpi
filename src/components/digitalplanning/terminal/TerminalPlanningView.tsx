@@ -18,9 +18,9 @@ import {
   History,
   Calendar,
 } from "lucide-react";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../../../config/firebase";
-import { getArchiveItemsPath, getPathString } from "../../../config/dbPaths";
+import { getArchiveItemsPath, getPathString, PATHS } from "../../../config/dbPaths";
 import { manualSyncDrawings } from "../../../utils/manualSyncDrawings";
 import { format, differenceInDays, startOfDay, getISOWeek } from "date-fns";
 import { nl } from "date-fns/locale";
@@ -78,6 +78,41 @@ const TerminalPlanningView = ({
 }: TerminalPlanningViewProps) => {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const { t } = useTranslation();
+
+  const [toolingMolds, setToolingMolds] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, getPathString(PATHS.TOOLING_MOLDS as string[])),
+      (snap) => {
+        setToolingMolds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      },
+      (err) => console.error("Fout bij ophalen mallen in terminal:", err)
+    );
+    return () => unsub();
+  }, []);
+
+  const matchedMold = React.useMemo(() => {
+    if (!selectedOrder || toolingMolds.length === 0) return null;
+    const code = String(selectedOrder.itemCode || selectedOrder.productId || "").toUpperCase().trim();
+    const itemDesc = String(selectedOrder.item || selectedOrder.itemDescription || "").toUpperCase().trim();
+
+    let match = toolingMolds.find(m => {
+      if (m.active === false || !code) return false;
+      const moldCodes = String(m.itemCode || "").toUpperCase().split(",").map(c => c.trim());
+      return moldCodes.includes(code);
+    });
+    
+    if (!match) {
+      const sortedMolds = [...toolingMolds].sort((a, b) => String(b.matcher || "").length - String(a.matcher || "").length);
+      match = sortedMolds.find(m => {
+        if (m.active === false) return false;
+        const matchers = String(m.matcher || "").toUpperCase().split("|").map(s => s.trim());
+        return matchers.some(matcher => matcher && itemDesc.includes(matcher));
+      });
+    }
+    return match || null;
+  }, [selectedOrder, toolingMolds]);
 
   // --- Helpers ---
   const parseDateSafe = (dateInput: unknown) => {
@@ -510,6 +545,7 @@ const TerminalPlanningView = ({
     return Array.from(
       new Set(
         trackedProducts
+          .filter((p) => !p?.isVirtualLot)
           .filter((p) => String(p?.orderId || "").trim().toUpperCase() === orderId)
           .map((p) => String(p?.lotNumber || p?.id || "").trim())
           .filter(Boolean)
@@ -541,6 +577,7 @@ const TerminalPlanningView = ({
             );
             snap.docs.forEach((docSnap) => {
               const data = docSnap.data() || {};
+              if (data?.isVirtualLot) return;
               const lot = String(data?.lotNumber || docSnap.id || "").trim();
               if (lot) lots.add(lot);
             });
@@ -905,6 +942,23 @@ const TerminalPlanningView = ({
                     </p>
                   )}
                 </section>
+
+                {matchedMold && (
+                  <section className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100">
+                    <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <Layers size={14} className="text-indigo-500" />
+                      {t("digitalplanning.order_detail.mold_config", "Mal Configuratie")}
+                    </h4>
+                    <div className="flex items-center gap-3">
+                      <span className="bg-indigo-200 text-indigo-800 px-3 py-1.5 rounded-xl text-lg uppercase font-black">
+                        {matchedMold.cavityCount}x
+                      </span>
+                      <span className="font-bold text-base text-indigo-900 leading-tight">
+                        {matchedMold.matcher || matchedMold.itemCode || t("common.unknown", "Onbekend")}
+                      </span>
+                    </div>
+                  </section>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t pt-8">

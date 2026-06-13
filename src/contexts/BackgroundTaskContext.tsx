@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { db, auth } from '../config/firebase';
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import { PATHS, getPathString } from '../config/dbPaths';
 
 export type BackgroundTask = {
     id: string;
@@ -79,7 +80,7 @@ export const BackgroundTaskProvider = ({ children }: { children: React.ReactNode
         }
 
         const q = query(
-            collection(db, 'future-factory/exports/tasks'),
+            collection(db, getPathString(PATHS.EXPORT_TASKS)),
             where('userId', '==', currentUser.uid),
             limit(50)
         );

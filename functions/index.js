@@ -38,6 +38,40 @@ const AI_MAX_CLIENT_ERROR_MSG = 1600;
 const AI_MAX_CLIENT_ERROR_STACK = 4000;
 const DEFAULT_SCOPED_DEPARTMENT = 'Fittings';
 const DEFAULT_SCOPED_MACHINE = 'UNASSIGNED';
+const { executeDrawingSync } = require('./src/services/drawingSyncService');
+
+/**
+ * Scheduled Drawing Sync
+ * Runs every day at 02:00 Amsterdam time by default.
+ * Can be triggered more frequently via database settings if needed.
+ */
+exports.scheduledDrawingSync = functions.pubsub
+  .schedule('0 2 * * *')
+  .timeZone('Europe/Amsterdam')
+  .onRun(async (context) => {
+    // 1. Check if sync is enabled and if custom schedule is needed
+    const settingsDoc = await db.doc('future-factory/settings/general_configs/main').get();
+    const settings = settingsDoc.data() || {};
+    
+    if (settings.drawingSyncEnabled === false) {
+      console.log('Drawing sync is disabled in settings.');
+      return null;
+    }
+
+    try {
+      await executeDrawingSync();
+      
+      // Update last successful run in settings
+      await settingsDoc.ref.set({
+        lastDrawingSync: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      
+    } catch (error) {
+      console.error('Scheduled Drawing Sync Error:', error);
+    }
+    return null;
+  });
+
 const {
   rejectTrackedProductFinal,
   tempRejectTrackedProduct,
@@ -1899,6 +1933,7 @@ exports.aiImportConsolidator = aiImportConsolidator;
 // Export Callables
 const {
   requestExportTask,
+  saveLnQrExportHistory,
   previewAtpsOccupancyExport,
   runAtpsOccupancyPreview,
   executeAtpsOccupancyExport,
@@ -1907,6 +1942,7 @@ const {
   processAtpsRetryQueueInternal,
 } = require('./src/callables/exportCallables');
 exports.requestExportTask = requestExportTask;
+exports.saveLnQrExportHistory = saveLnQrExportHistory;
 exports.previewAtpsOccupancyExport = previewAtpsOccupancyExport;
 exports.executeAtpsOccupancyExport = executeAtpsOccupancyExport;
 exports.getAtpsExportMonitor = getAtpsExportMonitor;

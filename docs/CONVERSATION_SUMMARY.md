@@ -1,3 +1,403 @@
+## Update sessie 13 juni 2026 (Mazak printflow: batch-stabiliteit, USB-locking, cut-mode en queue UX)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. To do in LN export gekoppeld aan echte planningwaarde**
+- In `ImportExportDashboard` gebruikt `todoCount` nu eerst echte planningvelden (`todoCount`, `todo`, `toDo`, `to_do`, `remaining`, `open`, `plan`).
+- Fallback blijft actief: alleen zonder bruikbare planningwaarde wordt `max(0, totaal - naharding)` gebruikt.
+- Doelcase: order `N20025396` toont hiermee `To do = 3` wanneer planning dit zo bevat.
+
+**2. Mazak serie-bulk selectie robuuster gemaakt**
+- Bulkselectie in `MazakView` is uitgebreid zodat ontbrekende lotnummers binnen dezelfde reeks/prefix/order/itemcode worden aangevuld.
+- Praktijkeffect: series zoals `...002` t/m `...009` worden als complete set meegenomen i.p.v. gaten (zoals ontbrekende `006`/`008`).
+
+**3. Mazak queueing omgezet naar echte batchjob (1 queue-item per batch)**
+- In plaats van per label een losse queue-job wordt batchprint nu samengevoegd tot één gecombineerde ZPL payload.
+- Hierdoor print de printer doorlopend i.p.v. label-voor-label met queue-pauzes.
+
+**4. USB stabiliteit verbeterd voor batchprints**
+- In `usbPrintService` is een per-device mutex/lock toegevoegd zodat gelijktijdige claims binnen dezelfde browsercontext worden geserialiseerd.
+- USB transfer gebeurt nu in chunks (4096 bytes) om grote batchpayloads stabieler over WebUSB te versturen.
+
+**5. Cut-mode correctie voor gebatchte jobs**
+- In `PrintQueueAutoProcessor` en `PrintQueueAdminView` wordt bij `queuedAsBatch` de bestaande payload niet meer opnieuw globaal overschreven.
+- Resultaat: geen cut meer na ieder label; cut vindt plaats op het einde van de batch (last-only).
+
+**6. Queue UX fix (MAZAK station view)**
+- `PrintQueueAdminView` kreeg een interne verticale scrollcontainer en een scrollbaar queue-tabelgebied.
+- Hierdoor blijven alle regels zichtbaar/scrolbaar in stationweergave (niet meer beperkt tot enkele zichtbare regels).
+
+**7. Queue visual feedback toegevoegd**
+- Extra badge in de queue-list bij batchjobs: `Batch cut: last-only` (of metadata-waarde).
+- Operators zien hiermee direct dat een taak als batch met eind-cut is ingestuurd.
+
+### Validatie
+- Gerichte error-checks uitgevoerd op:
+    - `src/components/digitalplanning/ImportExportDashboard.tsx`
+    - `src/components/digitalplanning/MazakView.tsx`
+    - `src/utils/usbPrintService.ts`
+    - `src/components/printer/PrintQueueAutoProcessor.tsx`
+    - `src/components/printer/PrintQueueAdminView.tsx`
+- Resultaat: geen nieuwe errors gevonden in de aangepaste bestanden.
+
+---
+
+## Update sessie 13 juni 2026 (LN export: To do uit echte planning)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Kolomvolgorde LN lijst/PDF uitgebreid met To do**
+- In de LN exportlijst en Lijst PDF staat nu na `Totaal order` ook de kolom `To do`.
+- Actuele volgorde: `Station`, `Order`, `Product`, `Totaal order`, `To do`, `Naharding (geweest)`, `Aantal`.
+
+**2. To do komt nu uit echte planningwaarden (geen pure afgeleide meer)**
+- In `ImportExportDashboard` is de berekening aangepast zodat `todoCount` eerst uit planningvelden wordt gehaald.
+- Prioriteit van velden: `todoCount`, `todo`, `toDo`, `to_do`, `remaining`, `open`, `plan`.
+- Alleen zonder bruikbare planningwaarde wordt teruggevallen op afgeleide logica: `max(0, totaal - naharding)`.
+
+**3. Numerieke parsing robuuster gemaakt**
+- Nieuwe veilige number-conversie toegevoegd zodat ook stringwaarden (zoals `3`, `3,0`, of met tekst) goed als getal gelezen worden.
+
+### Verwacht praktijkresultaat
+- Voor order `N20025396` wordt `To do` nu `3` wanneer die waarde in de planning aanwezig is.
+
+### Validatie
+- Gerichte error-check uitgevoerd op `src/components/digitalplanning/ImportExportDashboard.tsx`.
+- Resultaat: geen nieuwe errors gevonden.
+
+---
+
+## Update sessie 12 juni 2026 (Virtueel lotnummer flow: direct Naharding + batch naar Gereed)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Virtuele QC-lots lopen nu direct door naar Naharding**
+- In de backend startflow (`startProductionLotsService`) worden virtuele lots niet meer gestart op `QC_VIRTUAL`, maar direct op:
+    - `currentStation: Naharding`
+    - `currentStep: Naharding`
+    - `status: Te Naharden`
+- Er wordt direct een naharding-starttimestamp gezet (`timestamps.oven_naharding_start`) zodat batchselectie en datumlogica aansluiten op de praktijk.
+
+**2. Batch-knop Naharding pakt ook oudere virtuele lots op**
+- In `BM01Hub` is de Naharding-filter uitgebreid met legacy-herkenning:
+    - `isVirtualLot === true` in combinatie met `currentStep === QC_VIRTUAL` of `status === QC Virtual Issued`.
+- Hierdoor blijven oude virtuele lots niet meer hangen en kunnen deze alsnog via "Batch Naharding gereedmelden" mee naar Gereed.
+
+**3. Virtuele lots beïnvloeden officiële productie-output niet**
+- Bij archiveren/gereedmelden wordt `produced` niet verhoogd voor `isVirtualLot` records.
+- Daarmee blijft de orderproductieteller correct voor echte productie en los van QC-steekproeven.
+
+**4. Extra fix: virtuele lots tellen ook niet meer mee in Terminal-planning teller**
+- In `TerminalPlanningView` zijn actieve en gearchiveerde lotlijsten aangepast zodat records met `isVirtualLot === true` worden uitgesloten.
+- Hiermee verdwijnt het +1-effect op "Gemaakt" direct na uitgifte van een virtueel QC-lot.
+
+**5. QC virtueel lot stuurt nu label naar BM01 printqueue**
+- In `QcSampleView` is na succesvolle virtuele lot-uitgifte een printqueue-stap toegevoegd.
+- De flow zoekt eerst een aan BM01 gekoppelde printer en valt anders terug op de standaardprinter.
+- Bij printqueue-fout blijft lot-uitgifte succesvol, met een duidelijke waarschuwing naar de gebruiker.
+
+**6. Virtueel lot reserveert nu ook echt de centrale lotnummer-sequence**
+- In de backend (`startProductionLotsService`) wordt bij virtuele lots nu ook de counter in `production/counters` bijgewerkt.
+- Hierdoor claimt een virtueel lot de gebruikte sequence definitief (incl. opschonen uit `recycledSequences`).
+- Praktijkeffect: als productie eindigt op `...0006` en QC een virtueel lot `...0007` aanmaakt, start productie daarna op `...0008`.
+
+**7. QC-lot statusbadge toont "QC Steekproef" (met i18n)**
+- Status-waarde voor virtuele QC-lots is gewijzigd van `Te Naharden` naar `qc_sample`.
+- In `StatusBadge.tsx` is een nieuwe mapping toegevoegd: badge toont "QC Steekproef" (NL) / "QC Sample" (EN) / "QC-Stichprobe" (DE).
+- i18n sleutel `status.qc_sample` toegevoegd aan `nl.ts`, `en.ts` en `de.ts`.
+
+**8. Stationnaam virtueel lot: 40BH18 → BH18**
+- Bronstation in het virtuele-lot record werd opgeslagen als `40BH18` i.p.v. `BH18`.
+- Gecorrigeerd door `normalizeMachineForCounter` toe te passen op `machine`, `stationLabel`, `lastStation` en `labelLastPrint.station` bij virtuele lots.
+
+### Validatie
+- Gerichte error-check uitgevoerd op:
+    - `functions/src/services/planningTransitionService.ts`
+    - `src/components/digitalplanning/BM01Hub.tsx`
+    - `src/components/digitalplanning/terminal/TerminalPlanningView.tsx`
+    - `src/components/admin/QcSampleView.tsx`
+- Extra backend-check na counter-fix en station-normalisatie:
+    - `functions/src/services/planningTransitionService.ts`
+    - `src/components/digitalplanning/common/StatusBadge.tsx`
+    - `src/lang/nl.ts`, `src/lang/en.ts`, `src/lang/de.ts`
+- Resultaat: geen nieuwe errors gevonden.
+
+### Vloer-checklist (afgesproken)
+1. Virtueel lot aanmaken -> moet direct op Naharding verschijnen.
+2. Naharding batch openen -> nieuw lot + legacy `QC_VIRTUAL` lots moeten zichtbaar zijn.
+3. Batch Naharding gereedmelden -> lot gaat naar Gereed/archief zonder `produced`-verhoging.
+
+---
+
+## Update sessie 11 juni 2026 (AI assistent: live productiecontext, voorspellende planning en tracked_products betrouwbaarheid)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. AI-context sterk uitgebreid voor operationele vragen**
+- In `src/services/aiService.ts` is een always-on live operation snapshot toegevoegd.
+- Context bevat nu structureel data over planning, tracking, bezetting en catalogus.
+
+**2. Slimmere query-herkenning en context-opbouw**
+- Entity-detectie toegevoegd voor ordernummers, lotnummers, itemcodes/SKU en maatwaarden.
+- Prompt-opbouw aangepast zodat live databasecontext prioriteit krijgt en minder snel wordt afgekapt.
+
+**3. Voorspellende planning toegevoegd**
+- Scenario-modus toegevoegd (what-if): uitstel in dagen, extra capaciteit, prioriteit op orders.
+- Predictive context levert ETA, risicoscore en prioriteitenlabels (`NU STARTEN`, `HOGE PRIORITEIT`, etc.).
+
+**4. Databron-fallbacks toegevoegd voor orders/planning**
+- Snapshot en orderzoeking gebruiken nu:
+    - actief planningpad
+    - legacy planningpad
+    - `collectionGroup("orders")`
+- Hierdoor valt AI minder snel terug op foutieve nulwaarden.
+
+**5. Definitie 'lopend' aangepast naar actieve lotnummers**
+- Lopend betekent nu: order met minimaal 1 actief lotnummer in uitvoering.
+- Gearchiveerde afgeronde orders worden apart geteld en benoemd.
+
+**6. Tracking-bron verbeterd voor echte vloerdata**
+- Naast root `tracked_products` wordt nu ook scoped data meegenomen via `collectionGroup("items")` onder `.../production/tracked_products/...`.
+- Actieve lotdetectie is robuuster gemaakt op status/step/station en start/eindsignalen.
+
+**7. Order-detail in snapshot uitgebreid voor AI-toelichting**
+- Voor top actieve orders bevat context nu expliciet:
+    - lotnummers
+    - product
+    - startmoment productie
+    - leverdatum
+    - geschatte leverdatum (als aanwezig)
+
+### Extra tooling
+- Nieuw validatiescript toegevoegd:
+    - `scripts/validate-ai-planning-context.cjs`
+- Nieuw npm script toegevoegd:
+    - `npm run validate:ai-planning`
+
+### Validatie
+- Meerdere keren gerichte error-checks gedaan op `src/services/aiService.ts`: geen nieuwe errors.
+- Validatiescript na wijzigingen uitgevoerd: **4/4 tests geslaagd**.
+
+### Huidige status
+- AI-assistent is nu veel sterker gekoppeld aan live productie-informatie op lotniveau.
+- Antwoorden op ordervragen kunnen nu concreter worden onderbouwd met feitelijke orderdetails.
+
+### Openstaande praktische check
+1. In de live app verifiëren dat detailvragen over een specifieke order (bijv. `N20025335`) consequent lotnummers, product, startmoment, leverdatum en geschatte leverdatum teruggeven.
+
+---
+
+## Update sessie 10 juni 2026 (Drawing sync backend-automatisering + Sync Tekeningen dashboard)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+**Tijdstip update:** 2026-06-10
+
+### Uitgevoerd in deze sessie
+**1. Drawing sync verplaatst naar backend automation**
+- Matchinglogica is gecentraliseerd in `functions/src/services/drawingSyncService.ts`.
+- De scheduled Cloud Function `scheduledDrawingSync` draait dagelijks om `02:00` Europe/Amsterdam via `functions/index.js`.
+- Backend sync gebruikt nu ook `collectionGroup("orders")` zodat scoped/per-machine orders meegenomen worden.
+
+**2. Matchinglogica robuuster gemaakt voor praktijkcodes**
+- Code-normalisatie ondersteunt varianten met underscores en gecompacteerde codes.
+- Materiaalvarianten met wissels/verwijdering rond `C` en `E` worden meegenomen in de lookup.
+- Hierdoor worden ook minder strakke Infor/productvarianten beter gematcht.
+
+**3. Centrale succeslogging toegevoegd voor automatische en handmatige sync**
+- Backend schrijft succesvolle matches naar `future-factory/settings/drawing_sync_logs`.
+- Handmatige sync schrijft naar exact hetzelfde pad, zodat de UI een gecombineerd overzicht heeft.
+- Logregels bevatten onder meer `timestamp`, `code`, `productName`, `productId`, `type: 'MATCH_FOUND'` en `method` (`AUTOMATIC` of `MANUAL`).
+
+**4. Admin-pagina herschreven naar centraal Sync Tekeningen dashboard**
+- `src/components/admin/ManualSyncDrawings.tsx` is omgebouwd tot centrale beheerpagina voor drawings sync.
+- De pagina toont nu backend status, laatst bekende run en een realtime success-log zijbalk op basis van `onSnapshot`.
+- De admin-entry in `src/components/admin/AdminDashboard.tsx` is hernoemd naar `Sync Tekeningen`.
+
+**5. Handmatige sync en dashboardstatus gelijkgetrokken**
+- `src/utils/manualSyncDrawings.ts` werkt nu `lastDrawingSync` bij na een handmatige run.
+- De sync-pagina toont daarmee dezelfde run-status als de backendinstellingen.
+- De dashboardweergave bevat ook een toggle/status voor `drawingSyncEnabled`.
+
+### Deploys en validatie
+- Firebase Functions deploy uitgevoerd: geslaagd (`Deploy complete`).
+- Gerichte error-checks uitgevoerd op:
+    - `src/components/admin/ManualSyncDrawings.tsx`
+    - `src/utils/manualSyncDrawings.ts`
+    - `functions/src/services/drawingSyncService.ts`
+- Geen directe errors gevonden in de aangepaste bestanden.
+
+### Huidige status
+- Backend drawing sync draait geautomatiseerd en is gedeployed.
+- Logging voor handmatige en automatische matches loopt via een gezamenlijk Firestore-pad.
+- Het nieuwe `Sync Tekeningen` dashboard staat functioneel klaar.
+
+### Openstaande check
+- Nog verifiëren in de live UI of `drawing_sync_logs` zichtbaar binnenkomen en of `lastDrawingSync` direct goed ververst na een handmatige run.
+
+## Update sessie 10 juni 2026 (PWA optimalisaties, Tooling Molds auto-aanvullen, Terminal Mal-Config & bugfixes)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. PWA Workstation Header compacter gemaakt voor mobiel (portretmodus)**
+- In `WorkstationHub.tsx` is de header op mobiele schermen herschreven naar één gestroomlijnde horizontale regel.
+- Bevat nu efficiënter geplaatste tijd-, operator- en inlogknoppen zodat er maximale verticale ruimte overblijft voor de planningslijst.
+
+**2. PWA Dark Mode / Zwarte scrollbalken verholpen**
+- `index.html` en `public/manifest.json` geforceerd op lichte weergave (`color-scheme: light`) om onleesbare invulvelden door automatische dark-mode van het OS/browser te voorkomen.
+
+**3. Offline PWA-caching (Service Worker) toegevoegd**
+- `vite-plugin-pwa` geïntegreerd via nieuw configuratiebestand `vite.pwa.config.ts` en `vite.config.ts`.
+- Zorgt voor offline beschikbaarheid van de app en cacht dynamische Firestore requests via een NetworkFirst / CacheFirst strategie.
+
+**4. Limiet voor inladen van grote Excel-imports verwijderd**
+- In `PlanningImportModal.tsx` de beperking `displayData.slice(0, 50)` verwijderd zodat alle regels direct zichtbaar zijn in het voorbeeldscherm voor de import.
+
+**5. Mallen & Gereedschappen auto-aanvullen en uitgebreid zoeken**
+- In `AdminToolingMoldsView.tsx` wordt de omschrijving (`matcher`) nu automatisch aangevuld op basis van de ingevoerde `itemCode`, door te zoeken in zowel de actieve planning als de Conversie Matrix.
+- In de "Order Search" modal wordt nu óók de Conversie Matrix doorzocht op zowel korte IDs als INFOR/ItemCodes.
+
+**6. Mal Configuratie toegevoegd in Terminal weergave (Rechter detailscherm)**
+- Het paarse "Mal Configuratie" label (bijv. "8x • FL 50") wordt nu, net als in de Teamleader Hub, dynamisch getoond in het orderdossier in de werkvloer Terminal (`TerminalPlanningView.tsx`).
+
+**7. Bugfix: PATHS ReferenceError**
+- Een `PATHS is not defined` crash in `TerminalPlanningView.tsx` bij het ophalen van de malconfiguraties opgelost door `PATHS` toe te voegen aan de imports uit `dbPaths`.
+
+## Update sessie 9 juni 2026 (Printer station-mapping fail-check via Firebase)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+**Tijdstip update:** 2026-06-09
+
+### Uitgevoerd in deze sessie
+**1. Harde station-naar-printer validatie toegevoegd op basis van Firebase printerconfig**
+- Wens: routering moet volgen uit de aan printer gekoppelde stations (`queueStations`/`linkedStations`) in Firebase.
+- Oplossing: vóór statusovergang naar `printing` wordt per job gevalideerd of job-station(s) binnen de toegestane stations van de actieve printer vallen.
+- Bij mismatch wordt de taak geforceerd op `error` gezet met expliciete melding `Station-routering mismatch`.
+
+**2. Fail-check op beide processors afgedekt**
+- Print Queue Admin flow controleert nu station-mapping voordat een job geprint wordt.
+- Automatische achtergrondprocessor controleert hetzelfde, zodat parallelle clients dezelfde harde route-regel afdwingen.
+
+**3. Bestaande overgangsrace-fix behouden**
+- Benign handling voor `INVALID_PRINT_QUEUE_TRANSITION` blijft actief om onterechte taakfouten bij gelijktijdige verwerking te vermijden.
+
+### Relevante bestanden
+- `src/components/printer/PrintQueueAdminView.tsx`
+- `src/components/printer/PrintQueueAutoProcessor.tsx`
+
+### Validatie
+- Gerichte error-check op aangepaste bestanden: geen nieuwe errors.
+- Frontend build uitgevoerd (`npm run build`): geslaagd.
+
+### Huidige status
+- Station-routering volgt nu hard de printerstations uit Firebase.
+- Verkeerd gerouteerde jobs worden geblokkeerd en niet geprint.
+
+## Update sessie 9 juni 2026 (Release-actie: versie bump + Vercel productie-deploy)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+**Tijdstip update:** 2026-06-09
+
+### Uitgevoerd in deze sessie
+**1. Voortgang opgeslagen in conversatiesamenvatting**
+- Laatste status van Wikkelen batch/groep-gereedmelden en print queue overgangsfix is vastgelegd.
+
+**2. Versie bump uitgevoerd**
+- Projectversie opgehoogd naar de volgende patchversie.
+
+**3. Productie-deploy naar Vercel uitgevoerd**
+- Huidige branch is gedeployed naar Vercel production.
+
+### Huidige status
+- Conversatievoortgang staat bijgewerkt.
+- Patchversie is verhoogd.
+- Laatste productieversie staat live op Vercel.
+
+## Update sessie 9 juni 2026 (Wikkelen batch/groep gereedmelden + print queue overgangsrace)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+**Tijdstip update:** 2026-06-09
+
+### Uitgevoerd in deze sessie
+**1. Wikkelen gereedmelden uitgebreid naar batch/groep op alle stations**
+- Root cause: multi-select voor gereedmelden in terminal-wikkelen stond hard beperkt tot `BH18`, waardoor batchactie elders niet beschikbaar was.
+- Oplossing: station-lock verwijderd zodat batchselectie in Wikkelen op alle stations werkt.
+- Reeks-/groepslogica verbreed van alleen flange-items naar alle serie-eligible items.
+- Groepen openen nu standaard uitgeklapt, zodat operators direct de onderliggende lots kunnen selecteren en afmelden.
+
+**2. Consistentie tussen terminal- en actieve productieview hersteld**
+- Dezelfde groepsregels en default-uitklapgedrag zijn gelijkgetrokken in beide views.
+- Hiermee is het gedrag voor batch/groep-gereedmelden uniform in de UI.
+
+**3. Foutmelding "Ongeldige print queue statusovergang" opgelost**
+- Root cause: race-condition tussen parallelle printprocessors (admin-view en auto-processor) die dezelfde taakstatus probeerden te updaten.
+- Oplossing frontend: overgangsfout `INVALID_PRINT_QUEUE_TRANSITION` wordt nu als benign/no-op behandeld op transition-momenten (`printing` en `error`) in beide printprocessors.
+- Effect: onterechte taakfouten zoals `Taak UjYPWbAzBkniwnftitr0 mislukt: Ongeldige print queue statusovergang` worden niet meer als mislukking getoond wanneer de taak ondertussen al door een andere processor verwerkt is.
+
+### Relevante bestanden
+- `src/components/digitalplanning/terminal/TerminalProductionView.tsx`
+- `src/components/digitalplanning/views/ActiveProductionView.tsx`
+- `src/components/printer/PrintQueueAdminView.tsx`
+- `src/components/printer/PrintQueueAutoProcessor.tsx`
+
+### Deploys en validatie
+- Frontend builds uitgevoerd (`npm run build`): geslaagd.
+- Error-checks op aangepaste bestanden: geen nieuwe errors.
+- Firebase hosting deploy uitgevoerd: geslaagd (`Deploy complete`).
+- Hosting URL: `https://future-factory-377ef.web.app`.
+
+### Huidige status
+- Gereedmelden in Wikkelen ondersteunt nu batch/groep op alle relevante stations.
+- Print queue overgangsraces veroorzaken geen onterechte taakfoutmeldingen meer.
+
+## Update sessie 8 juni 2026 (Batch-start teller + printer-loop regressie)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+**Tijdstip update:** 2026-06-08
+
+### Uitgevoerd in deze sessie
+**1. Productiestart met meerdere stuks gefixt (teller werd genegeerd)**
+- Root cause: in `ProductionStartModal` werd `totalToProduce` voor bepaalde flows nog afgeleid uit fallback-logica i.p.v. strikt uit de ingevoerde teller (`stringCount`).
+- Oplossing: `totalToProduce` gebruikt nu consequent de tellerwaarde, zodat bij teller `2` ook effectief `2` stuks gestart worden.
+
+**2. Batch-lotnummers expliciet opgebouwd en doorgegeven**
+- Voor starts met `totalToProduce > 1` wordt nu altijd een expliciete lijst met lotnummers opgebouwd.
+- Deze lijst wordt via `startOptions.lotNumbers` doorgegeven naar de starthandlers, zodat backend-start niet op een enkel lot terugvalt.
+
+**3. Onbedoelde seriegroepering uit startflow verwijderd**
+- Automatische fallback `seriesGroupId`-generatie in starthandlers is verwijderd.
+- Alleen een expliciet aangeleverde `seriesGroupId` wordt nog gebruikt.
+- Hiermee worden batchstarts niet meer onbedoeld als één serie-header samengevouwen.
+
+**4. Printer-loop regressie opgelost (extra lotnummer-batchprints)**
+- Root cause: naast het normale label kon een extra queue-job worden aangemaakt met string-lotnummers (orderregel + veel lots), wat als printer-loop werd ervaren.
+- Oplossing: automatische string-lot batchprint staat nu standaard uit en draait alleen nog wanneer `generalSettings.enableStringLotBatchPrint` expliciet aan staat.
+
+### Deploys en validatie
+- Meerdere frontend builds uitgevoerd (`npm run build`): geslaagd.
+- Hosting meerdere keren gedeployed naar Firebase: geslaagd (`Deploy complete`).
+- Hosting URL: `https://future-factory-377ef.web.app`.
+- Gerichte error-checks op aangepaste bestanden: geen nieuwe errors.
+
+### Relevante bestanden
+- `src/components/digitalplanning/modals/ProductionStartModal.tsx`
+- `src/components/digitalplanning/WorkstationHub.tsx`
+- `src/components/digitalplanning/Terminal.tsx`
+
+### Huidige status
+- Tellerwaarde in startmodal is leidend voor productie-aantal.
+- Multi-start bouwt en verstuurt expliciete lotnummerreeksen.
+- Onverwachte extra lotnummer-printjobs zijn standaard uitgeschakeld.
+
 ## Update sessie 5 juni 2026 (Tablet UX fixes: toetsenbord-popups + onderbalk ruimteherstel)
 
 **Branch:** `FPiFF-18-12-May` (actuele werkbranch)

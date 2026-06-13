@@ -41,24 +41,51 @@ const TerminalProductionView = ({
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
+  const isSeriesEligibleItem = useMemo(() => (item: AnyRecord) => {
+    const statusUpper = String(item?.status || "").toUpperCase();
+    const stepUpper = String(item?.currentStep || "").toUpperCase();
+    return statusUpper !== "REJECTED" && stepUpper !== "REJECTED";
+  }, []);
+
+  const getLotSeriesPrefix = useMemo(() => (lotNumber: unknown) => {
+    const raw = String(lotNumber || "").trim();
+    if (!raw) return "";
+    const match = raw.match(/^(.*?)(\d{3,4})$/);
+    if (!match) return "";
+    return match[1];
+  }, []);
+
+  const resolveSeriesGroupKey = useMemo(() => (item: AnyRecord) => {
+    const explicitGroupId = String(item?.seriesGroupId || "").trim();
+    if (explicitGroupId) return explicitGroupId;
+    if (!isSeriesEligibleItem(item)) return "";
+
+    const lotPrefix = getLotSeriesPrefix(item?.lotNumber);
+    if (!lotPrefix) return "";
+
+    const orderKey = String(item?.orderId || "").trim().toUpperCase() || "-";
+    const itemKey = String(item?.itemCode || item?.item || "").trim().toUpperCase() || "-";
+    return `legacy_${orderKey}_${itemKey}_${lotPrefix}`;
+  }, [getLotSeriesPrefix, isSeriesEligibleItem]);
+
   const groupedSeries = useMemo(() => {
     const grouped = new Map<string, AnyRecord[]>();
     activeWikkelingen.forEach((item: AnyRecord) => {
-      const groupId = item?.seriesGroupId;
+      const groupId = resolveSeriesGroupKey(item);
       if (!groupId) return;
       if (!grouped.has(groupId)) grouped.set(groupId, []);
       const group = grouped.get(groupId);
       if (group) group.push(item);
     });
     return grouped;
-  }, [activeWikkelingen]);
+  }, [activeWikkelingen, resolveSeriesGroupKey]);
 
   useEffect(() => {
     setCollapsedGroups((prev) => {
       const next = { ...prev };
       groupedSeries.forEach((group, groupId) => {
         if (group.length <= 1) return;
-        if (!(groupId in next)) next[groupId] = true;
+        if (!(groupId in next)) next[groupId] = false;
       });
       Object.keys(next).forEach((groupId) => {
         const group = groupedSeries.get(groupId);
@@ -75,7 +102,7 @@ const TerminalProductionView = ({
     const rows: AnyRecord[] = [];
 
     activeWikkelingen.forEach((item: AnyRecord) => {
-      const groupId = item?.seriesGroupId;
+      const groupId = resolveSeriesGroupKey(item);
       const group = groupId ? groupedSeries.get(groupId) || [] : [];
       const isSeriesGroup = groupId && group.length > 1;
 
@@ -97,7 +124,7 @@ const TerminalProductionView = ({
     });
 
     return rows;
-  }, [activeWikkelingen, groupedSeries, collapsedGroups]);
+  }, [activeWikkelingen, groupedSeries, collapsedGroups, resolveSeriesGroupKey]);
 
   const selectedSeriesUnits = useMemo(() => {
     if (!selectedWikkeling?.seriesGroupId) return [];
@@ -304,6 +331,10 @@ const TerminalProductionView = ({
             if (prod.isSeriesHeader) {
               const isCollapsed = !!collapsedGroups[prod.seriesGroupId];
               const firstSeriesUnit = prod.seriesUnits?.[0] || null;
+              const lotLabels = (prod.seriesUnits || [])
+                .map((seriesUnit: AnyRecord) => String(seriesUnit?.lotNumber || seriesUnit?.id || "").trim())
+                .filter(Boolean)
+                .join(", ");
               return (
                 <div
                   key={prod.id}
@@ -314,6 +345,11 @@ const TerminalProductionView = ({
                     <div>
                       <h4 className="font-black italic leading-none mb-1">{t("productionStartModal.labels.order", "Order")} {prod.orderId}</h4>
                       <p className="text-[10px] font-bold text-orange-700 uppercase">{t("digitalplanning.terminal.series_count", "Serie {{count}} stuks", { count: prod.seriesCount })}</p>
+                      {lotLabels && (
+                        <p className="text-[10px] font-bold text-orange-700 uppercase mt-1 tracking-wide">
+                          {t("digitalplanning.terminal.series_lots", "Lots")} {lotLabels}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() =>
@@ -346,8 +382,8 @@ const TerminalProductionView = ({
                 key={prod.id}
                 ref={el => (itemRefs.current[String(prod.id || "")] = el)}
                 onClick={() => {
-                  if (activeTab === "wikkelen" && (prod.currentStation === "BH18" || prod.machine === "BH18")) {
-                    // BH18 Multi-select ondersteuning
+                  if (activeTab === "wikkelen") {
+                    // Batchselectie in wikkelen op alle stations
                     toggleMultiLot(prod.id);
                   }
                   onSelectTracked(prod.id);

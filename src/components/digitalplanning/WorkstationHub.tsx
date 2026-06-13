@@ -644,11 +644,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
       const unsubScopedOrders = onSnapshot(
         collectionGroup(db, "orders"),
         (snap) => {
+          const planningPrefix = `${getPathString(PATHS.PLANNING)}/`;
           scopedOrders = snap.docs
             .filter((d) => {
               const path = d.ref.path || "";
               return (
-                path.includes("/production/digital_planning/") &&
+                  path.startsWith(planningPrefix) &&
                 path.includes("/machines/") &&
                 path.includes("/orders/")
               );
@@ -1624,9 +1625,20 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
         const activityMeta = stationActivityByOrder.get(orderIdForActivity);
         const hasStationActivityCheck = (activityMeta?.active || 0) > 0;
         const docPath = String(o?.__docPath || o?.sourcePath || "").toUpperCase();
-        const isBh12StrictView = currentStationClean === "BH12";
-        if (isBh12StrictView && !docPath.includes("40BH12")) {
-          return false;
+        const strictScopedStations = new Set(["BH12", "BH18"]);
+        if (strictScopedStations.has(currentStationClean)) {
+          const machineScopedSuffix = `/FITTINGS/MACHINES/40${currentStationClean}/`;
+          const planningBasePath = String(getPathString(PATHS.PLANNING) || "").toUpperCase();
+          const trackingBasePath = String(getPathString(PATHS.TRACKING) || "").toUpperCase();
+          const strictPathNeedles = [
+            `${planningBasePath}${machineScopedSuffix}`,
+            `${trackingBasePath}${machineScopedSuffix}`,
+          ].filter(Boolean);
+
+          const hasStrictPathMatch = strictPathNeedles.some((needle) => docPath.includes(needle));
+          if (!hasStrictPathMatch) {
+            return false;
+          }
         }
         
         // Bereken effectieve plan: respecteer handmatige verlagingen (plan < quantity)
@@ -1975,11 +1987,11 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
     }
 
     try {
-      const seriesGroupId =
-        startOptions?.seriesGroupId ||
-        (Number(stringCount) > 1
-          ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${String(customLotNumber || "LOT").replace(/[^a-zA-Z0-9]/g, "_")}`
-          : null);
+      const explicitLotNumbers = Array.isArray(startOptions?.lotNumbers)
+        ? startOptions.lotNumbers.map((entry: unknown) => String(entry || "").trim().toUpperCase()).filter(Boolean)
+        : [];
+      const batchCount = explicitLotNumbers.length > 0 ? explicitLotNumbers.length : Math.max(1, parseInt(String(stringCount), 10) || 1);
+      const seriesGroupId = String(startOptions?.seriesGroupId || "").trim() || null;
       let overflowItems = [];
 
       const stationOperators = occupancy
@@ -1998,7 +2010,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
       const startResult: any = await startWorkstationProductionRun({
         orderDocId: order.id,
         lotStart: customLotNumber,
-        stringCount,
+        stringCount: batchCount,
         stationId: selectedStation,
         orderDocPath: order?.__docPath || "",
         orderSourcePath: order?.sourcePath || "",
@@ -2007,6 +2019,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
         labelTemplateId: labelTemplateId || "",
         seriesGroupId: seriesGroupId || "",
         isFlangeSeries: !!startOptions?.isFlangeSeries,
+        lotNumbers: explicitLotNumbers,
         stationOperators,
         source: "WorkstationHub",
       });
@@ -2409,24 +2422,57 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
 
   return (
     <>
-    <div className="flex flex-col w-full h-[100dvh] bg-white">
+    <div className="flex flex-col w-full h-[100dvh] bg-slate-50 text-slate-900">
       {/* HEADER */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
-        <div className="w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center gap-3">
+        <div className="w-full px-2 sm:px-4 lg:px-8 py-1 sm:py-0">
+          <div className="flex h-12 sm:h-16 items-center justify-between gap-1 sm:gap-3">
             {/* Linkerkant: Terug & Titel */}
-            <div className="flex items-center">
+            <div className="flex items-center shrink-0">
               <button
                 onClick={handleBack}
-                className="mr-2 sm:mr-4 px-3 py-1.5 sm:px-4 sm:py-2 bg-white border border-gray-200 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider"
+                className="mr-1.5 sm:mr-4 px-2 py-1.5 sm:px-4 sm:py-2 bg-white border border-gray-200 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1.5 sm:gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider shadow-sm"
               >
-                <LogOut className="w-3 h-3 sm:w-4 sm:h-4" />
+                <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 <span className="hidden sm:inline">{t("digitalplanning.workstation.back")}</span>
               </button>
-              <span className="text-base sm:text-xl font-black text-gray-900 italic tracking-tight truncate max-w-[170px] sm:max-w-none">
+              <span className="text-sm sm:text-xl font-black text-gray-900 italic tracking-tight truncate max-w-[60px] xs:max-w-[100px] sm:max-w-none">
                 {WORKSTATIONS.find((w) => w.id === selectedStation)?.name ||
                   selectedStation}
               </span>
+            </div>
+
+            {/* Mobiele Info (Midden) - Zichtbaar op kleine schermen in dezelfde regel */}
+            <div className="flex lg:hidden flex-1 items-center justify-end min-w-0 gap-1 sm:gap-2">
+              <div className="flex items-center bg-slate-50 rounded-md border border-slate-200 p-1 min-w-0 shadow-sm">
+                <div className="flex items-center gap-1 overflow-hidden mr-1">
+                  {stationOccupancy.length > 0 ? (
+                    <span className={`px-1 py-0.5 rounded text-[9px] font-bold uppercase border truncate ${getShiftColor(stationOccupancy[0]?.shift)}`}>
+                      {stationOccupancy[0]?.operatorName.split(' ')[0]}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold text-slate-400 italic hidden xs:inline-block px-1">Geen</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    useWorkstationStore.getState().setShowOperatorCheckinModal(true);
+                    useWorkstationStore.getState().setOperatorBadgeInput("");
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="shrink-0 px-1.5 py-1 rounded bg-blue-600 text-white text-[9px] font-black uppercase tracking-widest active:scale-95 shadow-sm"
+                >
+                  Inlog
+                </button>
+              </div>
+
+              {/* Tijd Widget Mobiel */}
+              <div className="shrink-0 flex items-center justify-center px-1.5 py-1 bg-white rounded-md border border-slate-200 text-center shadow-sm">
+                <p className="text-[10px] font-bold text-slate-700">
+                  {currentDate.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
             </div>
 
             {/* KPI Tegels */}
@@ -2496,12 +2542,12 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
             </div>
 
             {/* Rechterkant: Mobiel Menu Button */}
-            <div className="flex items-center">
+            <div className="flex items-center shrink-0 ml-1">
               {/* Mobiel Hamburger Menu */}
-              <div className="lg:hidden relative ml-2">
+              <div className="lg:hidden relative">
                 <button
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                  className="p-2 bg-gray-100 rounded-lg text-gray-600 active:bg-gray-200"
+                  className="p-1.5 sm:p-2 bg-gray-100 rounded-lg text-gray-600 active:bg-gray-200 shadow-sm"
                 >
                   {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
                 </button>
@@ -2622,46 +2668,6 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
                   </div>
                 )}
               </div>
-            </div>
-          </div>
-
-          {/* Mobiele quick info + operator actie */}
-          <div className="lg:hidden pb-3 flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2 px-2 py-2 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="min-w-0">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t("common.week")} {currentWeekInfo.week}</p>
-                <p className="text-[11px] font-bold text-slate-700 truncate">
-                  {currentDate.toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" })}
-                  {" • "}
-                  {currentDate.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                        useWorkstationStore.getState().setShowOperatorCheckinModal(true);
-                        useWorkstationStore.getState().setOperatorBadgeInput("");
-                  setIsMobileMenuOpen(false);
-                }}
-                className="shrink-0 px-3 py-2 rounded-lg bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest"
-              >
-                Inloggen
-              </button>
-            </div>
-
-            <div className="px-2 py-2 bg-white rounded-lg border border-slate-200">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{t("digitalplanning.workstation.scheduled_occupancy", "Bezetting")}</p>
-              {stationOccupancy.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {stationOccupancy.slice(0, 3).map((occ, idx) => (
-                    <span key={`${occ.operatorNumber || idx}_${idx}`} className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase border ${getShiftColor(occ.shift)}`}>
-                      {occ.operatorName}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] font-bold text-slate-500 italic">{t("digitalplanning.workstation.no_operator")}</p>
-              )}
             </div>
           </div>
         </div>

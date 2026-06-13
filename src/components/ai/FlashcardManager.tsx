@@ -31,7 +31,7 @@ import {
 import { db, auth, logActivity } from "../../config/firebase";
 import { aiService } from "../../services/aiService";
 import { useNotifications } from '../../contexts/NotificationContext';
-import { getPathString } from "../../config/dbPaths";
+import { PATHS, getPathString } from "../../config/dbPaths";
 
 type FlashcardText = {
   text?: string;
@@ -93,7 +93,7 @@ type AIServiceLike = {
 };
 
 const ai = aiService as unknown as AIServiceLike;
-const colPath = (path: string) => collection(db, path);
+const colPath = (path: string[]) => collection(db, getPathString(path));
 
 /**
  * FlashcardManager V1.0
@@ -118,7 +118,7 @@ const FlashcardManager = () => {
 
   // Load flashcards from Firestore
   useEffect(() => {
-    const flashcardsRef = colPath("future-factory/settings/flashcards");
+    const flashcardsRef = colPath(PATHS.FLASHCARDS);
     const q = query(flashcardsRef, orderBy("createdAt", "desc"));
 
     const unsubscribe = onSnapshot(
@@ -138,7 +138,7 @@ const FlashcardManager = () => {
 
   // Load flashcard results
   useEffect(() => {
-    const resultsRef = colPath("future-factory/settings/flashcard_results");
+    const resultsRef = colPath(PATHS.FLASHCARD_RESULTS);
     const q = query(resultsRef, orderBy("timestamp", "desc"));
 
     const unsubscribe = onSnapshot(
@@ -162,7 +162,7 @@ const FlashcardManager = () => {
 
     setSaving(true);
     try {
-      const flashcardsRef = colPath("future-factory/settings/flashcards");
+      const flashcardsRef = colPath(PATHS.FLASHCARDS);
       await addDoc(flashcardsRef, {
         front: { text: newCard.front, language: "nl-NL" },
         back: { text: newCard.back, language: "nl-NL" },
@@ -191,7 +191,7 @@ const FlashcardManager = () => {
     if (!window.confirm("Weet je zeker dat je deze kaart wilt verwijderen?")) return;
     
     try {
-      await deleteDoc(doc(db, `future-factory/settings/flashcards/${id}`));
+      await deleteDoc(doc(db, `${getPathString(PATHS.FLASHCARDS)}/${id}`));
       await logActivity(
         auth.currentUser?.uid || "system",
         "FLASHCARD_DELETE",
@@ -215,7 +215,7 @@ const FlashcardManager = () => {
       const planningData = await ai.getProductionOrders(10);
 
       // 3. Haal geverifieerde AI knowledge op
-      const knowledgeRef = colPath("future-factory/settings/ai_knowledge_base");
+      const knowledgeRef = colPath(PATHS.AI_KNOWLEDGE_BASE);
       const knowledgeSnap = await getDocs(query(knowledgeRef, orderBy("timestamp", "desc")));
       const knowledgeItems = knowledgeSnap.docs
         .filter(doc => doc.data().verified)
@@ -299,7 +299,7 @@ const FlashcardManager = () => {
 
   const handleAcceptSuggestion = async (suggestion: Suggestion) => {
     try {
-      const flashcardsRef = colPath("future-factory/settings/flashcards");
+      const flashcardsRef = colPath(PATHS.FLASHCARDS);
       await addDoc(flashcardsRef, {
         front: { text: suggestion.front, language: "nl-NL" },
         back: { text: suggestion.back, language: "nl-NL" },

@@ -80,6 +80,7 @@ const runMigrationToolCallable = httpsCallable(functions, "runMigrationTool");
 const previewAtpsOccupancyExportCallable = callableWithRuntime(httpsCallable(functions, "previewAtpsOccupancyExport"));
 const executeAtpsOccupancyExportCallable = callableWithRuntime(httpsCallable(functions, "executeAtpsOccupancyExport"));
 const getAtpsExportMonitorCallable = callableWithRuntime(httpsCallable(functions, "getAtpsExportMonitor"));
+const saveLnQrExportHistoryCallable = callableWithRuntime(httpsCallable(functions, "saveLnQrExportHistory"));
 
 export const rejectTrackedProductFinal = async ({
   productId,
@@ -242,6 +243,7 @@ export const startWorkstationProductionRun = async ({
   labelTemplateId = "",
   seriesGroupId = "",
   isFlangeSeries = false,
+  lotNumbers = [],
   stationOperators = [],
   source = "",
 }: Record<string, unknown>) => {
@@ -257,6 +259,7 @@ export const startWorkstationProductionRun = async ({
     labelTemplateId: String(labelTemplateId || "").trim(),
     seriesGroupId: String(seriesGroupId || "").trim(),
     isFlangeSeries: Boolean(isFlangeSeries),
+    lotNumbers: Array.isArray(lotNumbers) ? lotNumbers.map((entry) => String(entry || "").trim()).filter(Boolean) : [],
     stationOperators: Array.isArray(stationOperators)
       ? stationOperators.map((entry) => String(entry || "").trim()).filter(Boolean)
       : [],
@@ -938,6 +941,7 @@ export const startProductionLots = async ({
   labelTemplateId = "",
   seriesGroupId = "",
   isFlangeSeries = false,
+  lotNumbers = [],
   isVirtualLot = false,
   virtualReason = "",
 }: Record<string, unknown>) => {
@@ -957,6 +961,7 @@ export const startProductionLots = async ({
     labelTemplateId: String(labelTemplateId || "").trim(),
     seriesGroupId: String(seriesGroupId || "").trim(),
     isFlangeSeries: Boolean(isFlangeSeries),
+    lotNumbers: Array.isArray(lotNumbers) ? lotNumbers.map((entry) => String(entry || "").trim()).filter(Boolean) : [],
     isVirtualLot: Boolean(isVirtualLot),
     virtualReason: String(virtualReason || "").trim(),
   };
@@ -1562,4 +1567,23 @@ export const getAtpsExportMonitor = async ({
     previewLimit,
   });
   return result?.data || { runs: [], previewRuns: [], retryQueue: {} };
+};
+
+export const saveLnQrExportHistory = async ({
+  exportKind = "qr",
+  resetCounters = true,
+  periodLabel = "",
+  rangeMode = "export",
+  clientTempId = "",
+  rows = [],
+}: Record<string, unknown> = {}) => {
+  const result = await saveLnQrExportHistoryCallable({
+    exportKind: String(exportKind || "qr").trim(),
+    resetCounters: Boolean(resetCounters),
+    periodLabel: String(periodLabel || "").trim(),
+    rangeMode: String(rangeMode || "export").trim(),
+    clientTempId: String(clientTempId || "").trim(),
+    rows: Array.isArray(rows) ? rows : [],
+  });
+  return result?.data || { ok: false };
 };

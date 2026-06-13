@@ -24,6 +24,7 @@ import {
   Printer,
   CheckCircle,
   XCircle,
+  Layers,
 } from "lucide-react";
 import ProductMoveModal from "./ProductMoveModal";
 import ProductJourneyModal from "./modals/ProductJourneyModal";
@@ -34,7 +35,7 @@ import ConfirmationModal from "./modals/ConfirmationModal";
 import { FileImage } from "lucide-react";
 import { findDrawingForProduct } from "../../utils/findDrawingForProduct";
 import { format, differenceInDays } from "date-fns";
-import { collection, getDoc, getDocs, query, where, limit, doc } from "firebase/firestore";
+import { collection, getDoc, getDocs, query, where, limit, doc, onSnapshot } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { trackedLotExistsActive } from "../../utils/trackedProducts";
 import { countFinishedTrackedLots, getOrderFinishedUnits } from "../../utils/planningProgress";
@@ -129,6 +130,41 @@ const OrderDetail = React.memo(({
   const [startedDraft, setStartedDraft] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
   const autoArchiveAttemptedRef = useRef<Set<string>>(new Set());
+  const [toolingMolds, setToolingMolds] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!order) return;
+    const unsub = onSnapshot(
+      collection(db, getPathString(PATHS.TOOLING_MOLDS as string[])),
+      (snap) => {
+        setToolingMolds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      },
+      (err) => console.error("Fout bij ophalen mallen:", err)
+    );
+    return () => unsub();
+  }, [order?.id]);
+
+  const matchedMold = useMemo(() => {
+    if (!order || toolingMolds.length === 0) return null;
+    const code = String(order.itemCode || order.productId || "").toUpperCase().trim();
+    const itemDesc = String(order.item || order.itemDescription || "").toUpperCase().trim();
+
+    let match = toolingMolds.find(m => {
+      if (m.active === false || !code) return false;
+      const moldCodes = String(m.itemCode || "").toUpperCase().split(",").map(c => c.trim());
+      return moldCodes.includes(code);
+    });
+    
+    if (!match) {
+      const sortedMolds = [...toolingMolds].sort((a, b) => String(b.matcher || "").length - String(a.matcher || "").length);
+      match = sortedMolds.find(m => {
+        if (m.active === false) return false;
+        const matchers = String(m.matcher || "").toUpperCase().split("|").map(s => s.trim());
+        return matchers.some(matcher => matcher && itemDesc.includes(matcher));
+      });
+    }
+    return match || null;
+  }, [order, toolingMolds]);
 
   const orderProducts = useMemo(() => {
     if (!order) return [];
@@ -1069,6 +1105,22 @@ const OrderDetail = React.memo(({
             </div>
           </div>
         )}
+
+          {/* NIEUW: Mal Configuratie */}
+          {matchedMold && (
+            <div className="p-2.5 bg-indigo-50 rounded-lg border border-indigo-100 flex justify-between items-center animate-in fade-in">
+              <div>
+                <span className="text-[9px] font-black text-indigo-500 uppercase tracking-tight block mb-0.5">{t("digitalplanning.order_detail.mold_config", "Mal Configuratie")}</span>
+                <span className="font-bold text-xs text-indigo-900 flex items-center gap-1.5">
+                  <span className="bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-black">{matchedMold.cavityCount}x</span>
+                  {matchedMold.matcher || matchedMold.itemCode || t("common.unknown", "Onbekend")}
+                </span>
+              </div>
+              <div className="p-1.5 bg-indigo-100 rounded-md">
+                <Layers size={16} className="text-indigo-600" />
+              </div>
+            </div>
+          )}
 
         {/* Tekening */}
         <button

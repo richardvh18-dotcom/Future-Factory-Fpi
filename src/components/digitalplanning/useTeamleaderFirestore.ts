@@ -164,11 +164,12 @@ export const useTeamleaderFirestore = ({ user }: { user: TeamleaderUser | null |
       const unsubScopedOrders = onSnapshot(
         collectionGroup(db, "orders"),
         (snap) => {
+          const planningPrefix = `${getPathString(PATHS.PLANNING)}/`;
           scopedOrders = snap.docs
             .filter((d) => {
               const path = d.ref.path || "";
               return (
-                path.includes("/production/digital_planning/") &&
+                path.startsWith(planningPrefix) &&
                 path.includes("/machines/") &&
                 path.includes("/orders/")
               );

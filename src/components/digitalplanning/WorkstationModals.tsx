@@ -162,7 +162,7 @@ export const WorkstationModals = ({
               }}
               placeholder={t("personnelOccupancy.labels.employeeNumber", "Personeelsnummer")}
               autoFocus
-              className="w-full p-3 rounded-xl border-2 border-slate-200 font-bold text-slate-800 outline-none focus:border-blue-500"
+              className="w-full p-3 rounded-xl border-2 border-slate-200 bg-white font-bold text-slate-800 outline-none focus:border-blue-500"
             />
 
             <button
@@ -275,7 +275,7 @@ export const WorkstationModals = ({
                   value={store.correctedHours}
                   onChange={(e) => store.setCorrectedHours(e.target.value)}
                   placeholder={t("placeholders.dpWorkedHoursExample", "bijv. 6 of 7.5")}
-                  className="w-full p-3 rounded-xl border-2 border-slate-200 font-black text-lg text-slate-900 outline-none focus:border-amber-400 text-center"
+                  className="w-full p-3 rounded-xl border-2 border-slate-200 bg-white font-black text-lg text-slate-900 outline-none focus:border-amber-400 text-center"
                 />
                 <p className="text-[10px] text-slate-400 mt-1 text-center">
                   Origineel automatisch berekend: {Number(store.hourCorrectionEntry.hoursWorked || 0).toFixed(1)} uur
@@ -290,7 +290,7 @@ export const WorkstationModals = ({
                   value={store.correctionReason}
                   onChange={(e) => store.setCorrectionReason(e.target.value)}
                   placeholder={t("placeholders.dpWorkstationReasonExample", "bijv. eerder naar huis, doktersbezoek...")}
-                  className="w-full p-3 rounded-xl border-2 border-slate-200 font-bold text-sm text-slate-800 outline-none focus:border-amber-400"
+                  className="w-full p-3 rounded-xl border-2 border-slate-200 bg-white font-bold text-sm text-slate-800 outline-none focus:border-amber-400"
                 />
               </div>
             </div>

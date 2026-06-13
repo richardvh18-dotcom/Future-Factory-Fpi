@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { VitePWA } from 'vite-plugin-pwa';
+import { pwaConfig } from './vite.pwa.config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +25,7 @@ try {
  * + Optimized build configuration
  */
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), VitePWA(pwaConfig)],
   resolve: {
     alias: {
       // Zorgt ervoor dat we @ kunnen gebruiken als kortere weg naar de src map

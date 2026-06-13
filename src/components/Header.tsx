@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Search, Factory, X, Bot, Sparkles, Menu, Loader2 } from "lucide-react";
+import { PATHS } from "../config/dbPaths";
 
 interface HeaderProps {
   searchQuery: string;
@@ -24,6 +25,10 @@ const Header = ({ searchQuery, setSearchQuery, onSearchSubmit, isSearching, logo
     if (typeof navigator === "undefined") return true;
     return navigator.onLine;
   });
+  const isTestPathMode = PATHS.PLANNING?.[0] === "artifacts";
+  const onlineStatusLabel = isTestPathMode
+    ? t('header.system_status_test', 'Test Actief')
+    : t('header.system_status_production', 'Productie Actief');
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -149,9 +154,25 @@ const Header = ({ searchQuery, setSearchQuery, onSearchSubmit, isSearching, logo
       </div>
 
       <div className="hidden lg:flex min-w-[280px] justify-end">
-        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border ${isOnline ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-rose-500/10 border-rose-500/30 text-rose-400"}`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-400"}`}></div>
-          {isOnline ? t('header.system_status', 'Systeem actief') : 'Offline'}
+        <div
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border ${
+            isOnline
+              ? isTestPathMode
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+              : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+          }`}
+        >
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              isOnline
+                ? isTestPathMode
+                  ? "bg-amber-400 animate-pulse"
+                  : "bg-emerald-400 animate-pulse"
+                : "bg-rose-400"
+            }`}
+          ></div>
+          {isOnline ? onlineStatusLabel : 'Offline'}
         </div>
       </div>
     </header>

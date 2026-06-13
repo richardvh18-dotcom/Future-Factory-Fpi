@@ -163,6 +163,7 @@ const OrderSearchModal = ({ isOpen, onClose, onSelectItems, newRow, setNewRow }:
       const colRef = colPath(PATHS.TEMP_PLANNING);
       const planRef = colPath(PATHS.PLANNING);
       const trackRef = colPath(PATHS.TRACKING);
+      const convRef = colPath(PATHS.CONVERSION_MATRIX);
 
       const foundDocs = new Map<string, ToolingDoc>();
       const addDocs = (snap: QuerySnapshot<DocumentData> | null) => {
@@ -221,6 +222,7 @@ const OrderSearchModal = ({ isOpen, onClose, onSelectItems, newRow, setNewRow }:
             getDoc(docPath(PATHS.TEMP_PLANNING, opt)),
             getDoc(docPath(PATHS.PLANNING, opt)),
             getDoc(docPath(PATHS.TRACKING, opt)),
+            getDoc(docPath(PATHS.CONVERSION_MATRIX, opt)),
           ]);
           snaps.forEach((s) => {
             if (s.exists()) {
@@ -235,14 +237,15 @@ const OrderSearchModal = ({ isOpen, onClose, onSelectItems, newRow, setNewRow }:
 
       // Exact field queries for root collections - search all relevant fields
       try {
-        const fieldNames = ["orderId", "orderNumber", "Order", "Productieorder", "order", "originalOrderId", "itemCode", "productCode", "articleCode"];
+        const fieldNames = ["orderId", "orderNumber", "Order", "Productieorder", "order", "originalOrderId", "itemCode", "productCode", "articleCode", "manufacturedId", "targetProductId"];
         const exactQueries: Array<Promise<QuerySnapshot<DocumentData> | null>> = [];
         
         for (const field of fieldNames) {
           exactQueries.push(
             getDocs(query(planRef, where(field, "==", searchStr))).catch(() => null),
             getDocs(query(trackRef, where(field, "==", searchStr))).catch(() => null),
-            getDocs(query(colRef, where(field, "==", searchStr))).catch(() => null)
+            getDocs(query(colRef, where(field, "==", searchStr))).catch(() => null),
+            getDocs(query(convRef, where(field, "==", searchStr))).catch(() => null)
           );
         }
         
@@ -421,6 +424,9 @@ const AdminToolingMoldsView = () => {
     stations: "",
     cavityCount: 1,
   });
+  // State voor auto-aanvullen
+  const [rawOrders, setRawOrders] = useState<any[]>([]);
+  const [conversionMatrix, setConversionMatrix] = useState<any[]>([]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -441,6 +447,54 @@ const AdminToolingMoldsView = () => {
 
     return () => unsubscribe();
   }, []);
+
+  // Haal planning en conversie matrix op voor auto-aanvullen
+  useEffect(() => {
+    const unsubOrders = onSnapshot(query(collection(db, getPathString(PATHS.PLANNING)), limit(1000)), (snap) => {
+        setRawOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const unsubMatrix = onSnapshot(collection(db, getPathString(PATHS.CONVERSION_MATRIX)), (snap) => {
+        setConversionMatrix(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => {
+        unsubOrders();
+        unsubMatrix();
+    };
+  }, []);
+
+  // Auto-aanvullen van 'matcher' op basis van 'itemCode'
+  useEffect(() => {
+    if (!newRow.itemCode || newRow.itemCode.length < 4) {
+      return;
+    }
+
+    const handler = setTimeout(() => {
+      const code = newRow.itemCode.toUpperCase().trim();
+      
+      if (newRow.matcher) {
+          return;
+      }
+
+      const foundOrder: any = rawOrders.find(o => 
+        (o.itemCode || "").toUpperCase().trim() === code || 
+        (o.item || "").toUpperCase().trim() === code
+      );
+      
+      if (foundOrder) {
+        setNewRow(prev => ({ ...prev, matcher: foundOrder.itemDescription || foundOrder.item || "" }));
+        return;
+      }
+
+      const foundInMatrix: any = conversionMatrix.find(c => (c.sourceCode || "").toUpperCase().trim() === code);
+      if (foundInMatrix) {
+        setNewRow(prev => ({ ...prev, matcher: foundInMatrix.description || foundInMatrix.targetDescription || "" }));
+      }
+    }, 500);
+
+    return () => clearTimeout(handler);
+  }, [newRow.itemCode, rawOrders, conversionMatrix, newRow.matcher]);
 
   const filteredRows = useMemo(() => {
     setSelectedRows(new Set()); // Clear selection when tab changes

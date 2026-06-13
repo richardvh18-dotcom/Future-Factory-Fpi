@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next';
 import { db } from '../../config/firebase';
 import { collection, query, where, getDocs, limit, doc, getDoc, documentId, onSnapshot, collectionGroup, orderBy } from 'firebase/firestore';
-import { PATHS, getPathString } from '../../config/dbPaths';
+import { PATHS, getPathString, getArchiveItemsPath } from '../../config/dbPaths';
 import { Loader2, Printer, Search, RefreshCw, Send, X, Tag, Usb } from 'lucide-react';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { generateLotBatchZPL } from '../../utils/zplHelper';
@@ -814,7 +814,7 @@ const PrintStationView = () => {
           try {
             const currentYear = new Date().getFullYear();
             for (let year = currentYear; year >= currentYear - 4; year--) {
-              const archiveRef = collection(db, 'future-factory', 'production', 'archive', String(year), 'items');
+              const archiveRef = collection(db, getPathString(getArchiveItemsPath(year)));
               const archiveSnap = await getDocs(query(archiveRef, where('lotNumber', '==', searchStr), limit(1)));
               if (!archiveSnap.empty) {
                 foundDoc = { id: archiveSnap.docs[0].id, ...(archiveSnap.docs[0].data() as AnyRecord) };

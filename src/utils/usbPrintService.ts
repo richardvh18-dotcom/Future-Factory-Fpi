@@ -10,6 +10,64 @@ type UsbPrinterRef = {
   productId?: number;
 };
 
+const USB_TRANSFER_CHUNK_SIZE = 4096;
+
+type UsbDeviceLockState = {
+  locked: boolean;
+  waiters: Array<() => void>;
+};
+
+const usbDeviceLocks = new Map<string, UsbDeviceLockState>();
+
+const getUsbDeviceLockKey = (device: USBDevice): string => {
+  const vendor = Number(device?.vendorId || 0);
+  const product = Number(device?.productId || 0);
+  const serial = String(device?.serialNumber || "").trim();
+  return `${vendor}:${product}:${serial || "na"}`;
+};
+
+const acquireUsbDeviceLock = async (device: USBDevice): Promise<() => void> => {
+  const key = getUsbDeviceLockKey(device);
+  let state = usbDeviceLocks.get(key);
+
+  if (!state) {
+    state = { locked: false, waiters: [] };
+    usbDeviceLocks.set(key, state);
+  }
+
+  if (!state.locked) {
+    state.locked = true;
+    return () => {
+      const current = usbDeviceLocks.get(key);
+      if (!current) return;
+      const next = current.waiters.shift();
+      if (next) {
+        next();
+      } else {
+        current.locked = false;
+      }
+    };
+  }
+
+  await new Promise<void>((resolve) => {
+    state?.waiters.push(resolve);
+  });
+
+  const resumedState = usbDeviceLocks.get(key);
+  if (resumedState) resumedState.locked = true;
+
+  return () => {
+    const current = usbDeviceLocks.get(key);
+    if (!current) return;
+    const next = current.waiters.shift();
+    if (next) {
+      next();
+    } else {
+      current.locked = false;
+    }
+  };
+};
+
 export const parseUsbId = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value === "number") return value;
@@ -266,6 +324,7 @@ export const printRawUsbToDevice = async ({
   }
 
   ensureUsbSupport();
+  const releaseDeviceLock = await acquireUsbDeviceLock(device);
   try {
     const endpointInfo = await prepareDevice(device, {
       vendorId: device.vendorId,
@@ -273,9 +332,12 @@ export const printRawUsbToDevice = async ({
     });
     const data = new TextEncoder().encode(String(content));
 
-    const result = await device.transferOut(endpointInfo.endpointNumber, data);
-    if (result.status !== "ok") {
-      throw new Error(`USB print mislukt met status: ${result.status}`);
+    for (let offset = 0; offset < data.length; offset += USB_TRANSFER_CHUNK_SIZE) {
+      const chunk = data.slice(offset, offset + USB_TRANSFER_CHUNK_SIZE);
+      const result = await device.transferOut(endpointInfo.endpointNumber, chunk);
+      if (result.status !== "ok") {
+        throw new Error(`USB print mislukt met status: ${result.status}`);
+      }
     }
 
     return {
@@ -287,6 +349,7 @@ export const printRawUsbToDevice = async ({
     throw normalizeUsbError(err);
   } finally {
     await safeCloseDevice(device);
+    releaseDeviceLock();
   }
 };
 

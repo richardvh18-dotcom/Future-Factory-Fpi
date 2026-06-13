@@ -327,7 +327,7 @@ const AdminUsersView = () => {
 
   // 1b. Live Sync met Roles
   useEffect(() => {
-    const rolesRef = collection(db, "future-factory/settings/roles");
+    const rolesRef = collection(db, getPathString(PATHS.ROLES));
     const q = query(rolesRef, orderBy("label", "asc"));
     
     const unsub = onSnapshot(q, (snap) => {
@@ -601,7 +601,7 @@ const AdminUsersView = () => {
       const roleId = newRole.id.toLowerCase().replace(/\s+/g, "_");
       
       try {
-          await setDoc(doc(db, "future-factory", "settings", "roles", roleId), {
+          await setDoc(doc(db, `${getPathString(PATHS.ROLES)}/${roleId}`), {
               id: roleId,
               label: newRole.label,
               color: newRole.color
@@ -624,7 +624,7 @@ const AdminUsersView = () => {
       });
       if (!confirmed) return;
       try {
-          await deleteDoc(doc(db, "future-factory", "settings", "roles", roleId));
+          await deleteDoc(doc(db, `${getPathString(PATHS.ROLES)}/${roleId}`));
       } catch (e) {
           console.error(e);
       }
@@ -633,7 +633,7 @@ const AdminUsersView = () => {
   const handleInitRoles = async () => {
     const batch = writeBatch(db);
     roles.forEach(role => {
-        const ref = doc(db, "future-factory", "settings", "roles", role.id);
+        const ref = doc(db, `${getPathString(PATHS.ROLES)}/${role.id}`);
         batch.set(ref, role);
     });
     await batch.commit();

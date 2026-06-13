@@ -1,5 +1,6 @@
 import { db, auth, logActivity } from "../config/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { PATHS, getPathString } from "../config/dbPaths";
 
 const MAX_ZPL_LENGTH = 120000;
 const MAX_METADATA_LENGTH = 16000;
@@ -65,7 +66,7 @@ export const queuePrintJob = async (printerId: string, zplData: string, metadata
       throw new Error(`Aantal labels moet tussen 1 en ${MAX_PRINT_QUANTITY} liggen.`);
     }
 
-    const queueRef = collection(db, "future-factory", "production", "print_queue");
+    const queueRef = collection(db, getPathString(PATHS.PRINT_QUEUE));
     const sanitizedMetadata = sanitizeFirestoreValue({
       ...metadata,
       userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",

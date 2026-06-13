@@ -154,6 +154,29 @@ import { TeamleaderModalProvider, useTeamleaderModalStore } from "./modals/Teaml
      getLotFromTrackedRecord,
    });
    const dataStoreList = (dataStore || []) as any[];
+
+  const officialDepartmentName = useMemo(() => {
+    const departments = Array.isArray((factoryConfig as any)?.departments)
+      ? (factoryConfig as any).departments
+      : [];
+
+    const selectedSlug = departmentFilter !== "ALL"
+      ? String(departmentFilter || "").toLowerCase()
+      : String(targetSlug || "").toLowerCase();
+
+    const matchedDepartment = departments.find((d: any) => {
+      const slug = String(d?.slug || "").toLowerCase();
+      const id = String(d?.id || "").toLowerCase();
+      const name = String(d?.name || "").toLowerCase();
+      return slug === selectedSlug || id === selectedSlug || name === selectedSlug;
+    });
+
+    const configuredName = String(matchedDepartment?.name || "").trim();
+    if (configuredName) return configuredName;
+
+    if (departmentFilter !== "ALL") return String(departmentFilter).trim();
+    return String(departmentName || targetSlug || "all").trim();
+  }, [factoryConfig, departmentFilter, targetSlug, departmentName]);
    
    const selectedOrder = useMemo(() => {
      if (!selectedOrderId) return null;
@@ -497,6 +520,7 @@ import { TeamleaderModalProvider, useTeamleaderModalStore } from "./modals/Teaml
            ) : activeTab === "import_export" ? (
            <ImportExportDashboard
                currentDepartment={departmentFilter !== "ALL" ? departmentFilter.toLowerCase() : targetSlug}
+               departmentDisplayName={officialDepartmentName}
                onCreateOrder={() => useTeamleaderModalStore.getState().setShowAddOrderModal(true)}
                    trackedProducts={rawProductsList}
                    archivedHistoryProducts={archivedHistoryProductsList}

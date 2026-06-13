@@ -338,8 +338,8 @@ const AdminDashboard = () => {
         },
         {
           id: "manual_sync_drawings",
-          title: "Handmatige Sync Tekeningen",
-          desc: "Start direct een sync tussen conversiematrix en tekeningen.",
+          title: "Sync Tekeningen",
+          desc: "Directe en geautomatiseerde sync tussen catalogus en planning.",
           icon: <DatabaseZap size={24} className="text-green-600" />,
           color: "bg-green-50 border-green-100",
           roles: ["admin"],

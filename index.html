@@ -6,15 +6,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     
     <!-- PWA & Mobile Settings -->
+    <link rel="manifest" href="/manifest.json?v=4" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="FPi Factory" />
-    <meta name="theme-color" content="#0f172a" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#ffffff" />
 
     <title>FPi Future Factory | MES Portal</title>
 
-    <!-- QR Code Scanner Library -->
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <!-- Android PWA Optimalisaties -->
+    <style>
+      html, body {
+        overscroll-behavior-y: none; /* Voorkom pull-to-refresh bij naar beneden vegen */
+        touch-action: pan-x pan-y; /* Voorkom double-tap to zoom vertraging */
+        -webkit-tap-highlight-color: transparent; /* Verwijder blauwe flikkering bij het aantikken */
+      }
+      /* Voorkom ongewenste tekstselectie op knoppen tijdens het scannen/tikken */
+      button, a, .no-select, [role="button"] {
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      /* Zorg dat tekstinvoervelden wel normaal werken */
+      input, textarea {
+        user-select: auto;
+        -webkit-user-select: auto;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

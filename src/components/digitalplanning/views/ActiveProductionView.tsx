@@ -36,6 +36,33 @@ const ActiveProductionView = ({
   onClickUnit,
 }: ActiveProductionViewProps) => {
   const { t } = useTranslation();
+  const isSeriesEligibleUnit = React.useCallback((unit: AnyRecord) => {
+    const statusUpper = String(unit?.status || "").toUpperCase();
+    const stepUpper = String(unit?.currentStep || "").toUpperCase();
+    return statusUpper !== "REJECTED" && stepUpper !== "REJECTED";
+  }, []);
+
+  const getLotSeriesPrefix = React.useCallback((lotNumber: unknown) => {
+    const raw = String(lotNumber || "").trim();
+    if (!raw) return "";
+    const match = raw.match(/^(.*?)(\d{3,4})$/);
+    if (!match) return "";
+    return match[1];
+  }, []);
+
+  const resolveSeriesGroupKey = React.useCallback((unit: AnyRecord) => {
+    const explicitGroupId = String(unit?.seriesGroupId || "").trim();
+    if (explicitGroupId) return explicitGroupId;
+    if (!isSeriesEligibleUnit(unit)) return "";
+
+    const lotPrefix = getLotSeriesPrefix(unit?.lotNumber);
+    if (!lotPrefix) return "";
+
+    const orderKey = String(unit?.orderId || "").trim().toUpperCase() || "-";
+    const itemKey = String(unit?.itemCode || unit?.item || "").trim().toUpperCase() || "-";
+    return `legacy_${orderKey}_${itemKey}_${lotPrefix}`;
+  }, [getLotSeriesPrefix, isSeriesEligibleUnit]);
+
   const isMazakStation =
     String(selectedStation || "").toUpperCase().replace(/\s/g, "") === "MAZAK";
 
@@ -43,14 +70,14 @@ const ActiveProductionView = ({
     if (isMazakStation) return new Map<string, AnyRecord[]>();
     const grouped = new Map<string, AnyRecord[]>();
     (activeUnits || []).forEach((unit: AnyRecord) => {
-      const groupId = unit?.seriesGroupId;
+      const groupId = resolveSeriesGroupKey(unit);
       if (!groupId) return;
       if (!grouped.has(groupId)) grouped.set(groupId, []);
       const group = grouped.get(groupId);
       if (group) group.push(unit);
     });
     return grouped;
-  }, [activeUnits, isMazakStation]);
+  }, [activeUnits, isMazakStation, resolveSeriesGroupKey]);
 
   const [collapsedGroups, setCollapsedGroups] = React.useState<Record<string, boolean>>({});
 
@@ -59,7 +86,7 @@ const ActiveProductionView = ({
       const next = { ...prev };
       groupedSeries.forEach((group, groupId) => {
         if (group.length <= 1) return;
-        if (!(groupId in next)) next[groupId] = true;
+        if (!(groupId in next)) next[groupId] = false;
       });
 
       Object.keys(next).forEach((groupId) => {
@@ -79,7 +106,7 @@ const ActiveProductionView = ({
     const rows: AnyRecord[] = [];
 
     activeUnits.forEach((unit: AnyRecord) => {
-      const groupId = unit?.seriesGroupId;
+      const groupId = resolveSeriesGroupKey(unit);
       const group = groupId ? groupedSeries.get(groupId) || [] : [];
       const isSeriesGroup = groupId && group.length > 1;
 
@@ -104,7 +131,7 @@ const ActiveProductionView = ({
     });
 
     return rows;
-  }, [activeUnits, groupedSeries, collapsedGroups]);
+  }, [activeUnits, groupedSeries, collapsedGroups, resolveSeriesGroupKey]);
 
   const formatTimeLabel = (value: any) => {
     const date = toDateSafe(value);
@@ -141,6 +168,10 @@ const ActiveProductionView = ({
                   const processableUnits = groupUnits.filter(
                     (groupUnit: AnyRecord) => !["Finished", "REJECTED"].includes(groupUnit?.currentStep)
                   );
+                  const lotLabels = groupUnits
+                    .map((groupUnit: AnyRecord) => String(groupUnit?.lotNumber || groupUnit?.id || "").trim())
+                    .filter(Boolean)
+                    .join(", ");
 
                   return (
                     <div
@@ -152,6 +183,11 @@ const ActiveProductionView = ({
                           <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">{t("digitalplanning.active_production.order_row", "Order Row")}</p>
                           <p className="text-sm font-black text-indigo-900 mt-1">{unit.orderId}</p>
                           <p className="text-[10px] text-indigo-700 font-bold mt-1">{unit.item}</p>
+                          {lotLabels && (
+                            <p className="text-[10px] text-indigo-600 font-bold mt-1 uppercase tracking-wide">
+                              {t("digitalplanning.active_production.series_lots", "Lots")} {lotLabels}
+                            </p>
+                          )}
                         </div>
                         <button
                           onClick={() =>

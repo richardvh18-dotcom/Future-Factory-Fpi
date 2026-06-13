@@ -1,4 +1,4 @@
-import { collection, getDocs, writeBatch, type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
+import { collection, collectionGroup, getDocs, writeBatch, doc, addDoc, updateDoc, serverTimestamp as firestoreTimestamp, type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { PATHS, getPathString } from "../config/dbPaths";
 import i18n from "../i18n";
@@ -31,13 +31,12 @@ const compactCode = (value: unknown): string => normalizeCode(value).replace(/[^
 const isLikelyCodeValue = (value: unknown): boolean => {
   const raw = String(value || "").trim();
   if (!raw) return false;
-  if (raw.length < 6) return false;
-  if (/\s/.test(raw)) return false;
-
-  const normalized = normalizeCode(raw);
-  const hasLetter = /[A-Z]/.test(normalized);
-  const hasDigit = /\d/.test(normalized);
-  return hasLetter && hasDigit;
+  // Een code moet minimaal 5 tekens zijn om zinvol te zijn voor matching
+  if (raw.length < 5) return false;
+  
+  // We accepteren nu ook puur numerieke codes of puur tekstuele codes
+  // zolang ze maar geen spaties bevatten (wat meestal duidt op een beschrijving ipv code)
+  return !/\s/.test(raw);
 };
 
 /**
@@ -45,11 +44,28 @@ const isLikelyCodeValue = (value: unknown): boolean => {
  * Tekeningen maken geen onderscheid tussen materiaaltype.
  */
 const materialVariants = (code: string): string[] => {
-  if (!code || code.length < 8) return [];
+  if (!code || code.length < 5) return [];
   const c = code.toUpperCase();
-  if (c[6] === "C") return [c.slice(0, 6) + "E" + c.slice(7)];
-  if (c[6] === "E") return [c.slice(0, 6) + "C" + c.slice(7)];
-  return [];
+  
+  const variants = new Set<string>();
+  
+  // Posities waar we vaak Materiaal (C/E) indicators zien
+  // Index 4 (bijv. FLST-E-S...) of Index 6 (bijv. ELMO90-C-...)
+  [4, 6].forEach(idx => {
+    if (c.length > idx) {
+      if (c[idx] === "C") {
+        variants.add(c.slice(0, idx) + "E" + c.slice(idx + 1));
+        variants.add(c.slice(0, idx) + c.slice(idx + 1));
+        variants.add(c.slice(0, idx) + " " + c.slice(idx + 1));
+      } else if (c[idx] === "E") {
+        variants.add(c.slice(0, idx) + "C" + c.slice(idx + 1));
+        variants.add(c.slice(0, idx) + c.slice(idx + 1));
+        variants.add(c.slice(0, idx) + " " + c.slice(idx + 1));
+      }
+    }
+  });
+  
+  return Array.from(variants);
 };
 
 const buildLookupKeys = (value: unknown): string[] => {
@@ -91,15 +107,31 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
   try {
     console.log(i18n.t("manualsync.start", "Start manual sync..."));
 
-    // 1. Haal alle unieke itemCodes uit de planning
-    const planningRef = collection(db, getPathString(PATHS.PLANNING));
+    // 1. Haal alle unieke itemCodes uit de planning (zowel root als scoped)
+    const planningPath = getPathString(PATHS.PLANNING);
+    const planningRef = collection(db, planningPath);
     const planningSnap = await getDocs(planningRef);
     
+    // NIEUW: Ook scoped orders ophalen (machines/*/orders)
+    // We gebruiken collectionGroup voor "orders" en filteren op het actieve planning pad.
+    // LET OP: Hiervoor is de index 'orders' in Firestore vereist.
+    console.log("Fetching scoped orders via collectionGroup...");
+    let scopedDocs: QueryDocumentSnapshot<DocumentData, DocumentData>[] = [];
+    try {
+      const scopedSnap = await getDocs(collectionGroup(db, "orders"));
+      scopedDocs = scopedSnap.docs.filter(d => d.ref.path.startsWith(planningPath + "/"));
+    } catch (err) {
+      console.warn("Could not fetch scoped orders via collectionGroup (permission or missing index), falling back to root only:", err);
+    }
+    
+    const allPlanningDocs = [...planningSnap.docs, ...scopedDocs];
+    console.log(`Totaal ${allPlanningDocs.length} planning documenten gevonden (Root: ${planningSnap.size}, Scoped: ${scopedDocs.length})`);
+
     const uniqueItems = new Set<string>();
     const planningDocsByCode = new Map<string, PlanningDoc[]>();
     const codeSources = new Map<string, Set<string>>();
 
-    planningSnap.docs.forEach((doc) => {
+    allPlanningDocs.forEach((doc) => {
       const data = doc.data();
       
       // NIEUW: Parse document ID voor codes zoals N20024040_EL9ACSS0JR02A0BCCBB0
@@ -150,14 +182,16 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
     });
 
     const total = uniqueItems.size;
-    console.log(i18n.t("manualsync.planning_count", "Planning bevat {count} unieke items om te checken.", { count: total }));
+    console.log(`Unieke codes uit planning: ${total}`);
 
     let current = 0;
     const results: SyncResultItem[] = [];
     let savedCount = 0;
 
     // 2. Haal alle producten op uit de catalogus
-    const productsRef = collection(db, getPathString(PATHS.PRODUCTS));
+    const productsPath = getPathString(PATHS.PRODUCTS);
+    console.log(`Product catalogus ophalen van: ${productsPath}`);
+    const productsRef = collection(db, productsPath);
     const productsSnap = await getDocs(productsRef);
     
     // Indexeer producten op articleCode EN id voor snelle lookup
@@ -187,10 +221,15 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
       addToIndex(p.productCode);
     });
 
-    console.log(i18n.t("manualsync.catalog_count", "Catalogus bevat {count} producten.", { count: productsSnap.size }));
+    // DEBUG: Log ECHT wat we in de catalogus hebben om te vergelijken
+    const catalogKeysSample = Array.from(productsByCode.keys()).slice(0, 50);
+    const catalogIdsSample = productsSnap.docs.slice(0, 10).map(d => d.id);
+    console.log("Catalogus Ids (eerste 10):", catalogIdsSample);
+    console.log("Catalogus index sample (keys):", catalogKeysSample);
 
     // 2b. Haal conversies op voor fallback (Old Code -> New Code)
-    const conversionsRef = collection(db, getPathString(PATHS.CONVERSION_MATRIX));
+    const conversionsPath = getPathString(PATHS.CONVERSION_MATRIX);
+    const conversionsRef = collection(db, conversionsPath);
     const conversionsSnap = await getDocs(conversionsRef);
     const conversionsByOldCode = new Map<string, Set<string>>();
 
@@ -267,8 +306,8 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
       }
 
       // DEBUG: Log de eerste paar pogingen om te zien wat er mis gaat
-      if (current <= 5) {
-        console.log(`${i18n.t("manualsync.searching", "Zoeken naar item")}: '${itemCode}' (clean: '${cleanCode}') -> ${match ? i18n.t("manualsync.found", "GEVONDEN") : i18n.t("manualsync.not_found", "NIET GEVONDEN")}`);
+      if (current <= 10) {
+        console.log(`${i18n.t("manualsync.searching", "Zoeken naar item")}: '${itemCode}' (clean: '${cleanCode}') -> Keys:`, lookupKeys, `-> ${match ? i18n.t("manualsync.found", "GEVONDEN") : i18n.t("manualsync.not_found", "NIET GEVONDEN")}`);
       }
 
       if (match) {
@@ -284,9 +323,29 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
                 chunk.forEach((docSnap) => {
                     batch.update(docSnap.ref, { drawing: match.id });
                 });
-                await batch.commit();
+                try {
+                  await batch.commit();
+                } catch (batchErr) {
+                  console.error(`Fout bij updaten match voor ${itemCode}:`, batchErr);
+                  throw batchErr;
+                }
             }
             savedCount += docsToUpdate.length;
+
+            // Log succesful manual match
+            try {
+              const logPath = getPathString(PATHS.GENERAL_SETTINGS).replace('/general_configs/main', '/drawing_sync_logs');
+              await addDoc(collection(db, logPath), {
+                timestamp: firestoreTimestamp(),
+                code: itemCode,
+                productName: match.name || match.id,
+                productId: match.id,
+                type: 'MATCH_FOUND',
+                method: 'MANUAL'
+              });
+            } catch (logErr) {
+              console.warn("Log failed:", logErr);
+            }
         }
 
         results.push({ 
@@ -315,7 +374,12 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
                     chunk.forEach((docSnap) => {
                         batch.update(docSnap.ref, { drawing: null });
                     });
-                    await batch.commit();
+                    try {
+                      await batch.commit();
+                    } catch (batchErr) {
+                      console.error(`Fout bij verwijderen tekening voor ${itemCode}:`, batchErr);
+                      // We gooien de error niet omhoog om de rest van de sync niet te blokkeren
+                    }
                 }
                 removedCount = docsWithDrawing.length;
                 console.log(i18n.t("manualsync.old_link_removed", { item: itemCode, count: removedCount, defaultValue: `Oude koppeling verwijderd voor: ${itemCode} (${removedCount} items)` }));
@@ -342,6 +406,16 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
 
       // Update progress UI
       if (onProgress) onProgress(current, total, results);
+    }
+
+    // Update last run date in settings
+    try {
+      const settingsRef = doc(db, getPathString(PATHS.GENERAL_SETTINGS));
+      await updateDoc(settingsRef, {
+        lastDrawingSync: firestoreTimestamp()
+      });
+    } catch (err) {
+      console.warn("Failed to update lastDrawingSync:", err);
     }
 
     console.log(i18n.t("manualsync.sync_done", "Sync voltooid. {count} matches gevonden en opgeslagen.", { count: savedCount }));

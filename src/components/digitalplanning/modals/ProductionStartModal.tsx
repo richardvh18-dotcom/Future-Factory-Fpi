@@ -351,7 +351,7 @@ const ProductionStartModal = ({
       : null;
     if (currentById) return currentById;
 
-    const prnPaths = PATHS?.PRINTERS || ['future-factory', 'settings', 'printers'];
+    const prnPaths = PATHS.PRINTERS;
     const snap = await getDocs(collection(db, getPathString(prnPaths as string[])));
     const fetchedPrinters = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
     const fetchedResolved = resolveTargetPrinter(fetchedPrinters, stationId);
@@ -653,7 +653,7 @@ const ProductionStartModal = ({
       if (!isOpen || !stationId) return;
       const today = new Date().toISOString().split('T')[0];
       try {
-        const occPaths = PATHS?.OCCUPANCY || ['future-factory', 'personnel', 'occupancy'];
+        const occPaths = PATHS.OCCUPANCY;
         const q = query(
           collection(db, getPathString(occPaths as string[])),
           where("machineId", "==", stationId),
@@ -681,7 +681,7 @@ const ProductionStartModal = ({
   useEffect(() => {
     if(!isOpen) return;
     try {
-        const prnPaths = PATHS?.PRINTERS || ['future-factory', 'settings', 'printers'];
+        const prnPaths = PATHS.PRINTERS;
         const printersRef = collection(db, getPathString(prnPaths as string[]));
         const unsub = onSnapshot(printersRef, (snap) => {
           const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
@@ -742,7 +742,7 @@ const ProductionStartModal = ({
       }
 
       // 3) Legacy active production check (orders met activeLot)
-      const actPaths = PATHS?.ACTIVE_PRODUCTION || ["future-factory", "production", "active"];
+      const actPaths = PATHS.ACTIVE_PRODUCTION;
       const activeRef = collection(db, getPathString(actPaths as string[]));
       const activeLotSnap = await getDocs(query(activeRef, where("activeLot", "==", normalizedLot), limit(1)));
       if (!activeLotSnap.empty) return true;
@@ -769,7 +769,7 @@ const ProductionStartModal = ({
     
     const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
     const counterDocId = `${safeStationId}_${weekSuffix}`;
-    const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
+    const counterRef = doc(db, getPathString(PATHS.COUNTERS), counterDocId);
 
     try {
         const counterSnap = await getDoc(counterRef);
@@ -793,7 +793,7 @@ const ProductionStartModal = ({
     });
 
     try {
-        const activePath = PATHS?.ACTIVE_PRODUCTION || ['future-factory', 'production', 'active'];
+        const activePath = PATHS.ACTIVE_PRODUCTION;
         const activeRef = collection(db, getPathString(activePath as string[]));
         const activeSnap = await getDocs(activeRef);
         activeSnap.forEach((doc: any) => {
@@ -856,7 +856,7 @@ const ProductionStartModal = ({
   const consumeRecycledSequence = async (baseLot: string, station: string, weekSuffix: string) => {
     const safeStationId = (station || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
     const counterDocId = `${safeStationId}_${weekSuffix}`;
-    const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
+    const counterRef = doc(db, getPathString(PATHS.COUNTERS), counterDocId);
     const counterSnap = await getDoc(counterRef);
     if (!counterSnap.exists()) return null;
 
@@ -903,7 +903,7 @@ const ProductionStartModal = ({
     const baseLot = `${bedrijf}${jaar}${week}${machine}${land}`;
     const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
     const counterDocId = `${safeStationId}_${jaar}${week}`;
-    const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
+    const counterRef = doc(db, getPathString(PATHS.COUNTERS), counterDocId);
 
     return runTransaction(db, async (tx) => {
       const counterSnap = await tx.get(counterRef);
@@ -1115,7 +1115,7 @@ const ProductionStartModal = ({
           
           const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
           const counterDocId = `${safeStationId}_${weekSuffix}`;
-          const counterRef = doc(db, "future-factory", "production", "counters", counterDocId);
+          const counterRef = doc(db, getPathString(PATHS.COUNTERS), counterDocId);
           
           const currentSeq = parseInt(usedLotNumber.slice(-4), 10);
           if (!Number.isFinite(currentSeq)) {
@@ -1143,7 +1143,7 @@ const ProductionStartModal = ({
           const isoOld = getIsoWeekAndYear(twoWeeksAgo);
           const oldDocId = `${safeStationId}_${isoOld.year.slice(-2)}${isoOld.week}`;
           
-          await deleteDoc(doc(db, "future-factory", "production", "counters", oldDocId)).catch(() => {});
+          await deleteDoc(doc(db, getPathString(PATHS.COUNTERS), oldDocId)).catch(() => {});
 
       } catch (e: any) {
         if (isPermissionDeniedError(e)) {
@@ -1373,11 +1373,7 @@ const ProductionStartModal = ({
       let printData = null;
       let lotBatchPrintData = null;
       let counterClaimed = false;
-      const totalToProduce = isManualMode
-        ? Math.max(1, parseInt(stringCount, 10) || 1)
-        : isFlangeOrder
-        ? Math.max(1, Number(flangeSeriesInfo?.cavityCount || 1))
-        : Math.max(1, parseInt(stringCount, 10) || 1);
+      const totalToProduce = Math.max(1, parseInt(stringCount, 10) || 1);
       const requestedLabelsToPrint = isFlangeOrder ? 0 : Math.max(1, parseInt(labelCount, 10) || 1);
       const operatorForcedLabels = !isFlangeOrder && typeof matchedOperatorPrintRule?.labelCount === "number" && matchedOperatorPrintRule.labelCount > 0
         ? matchedOperatorPrintRule.labelCount
@@ -1385,12 +1381,11 @@ const ProductionStartModal = ({
       const bh18ForcedLabels = operatorForcedLabels === null && isBh18Station(stationId) && getOrderNominalDiameter(order) > 200 ? 2 : null;
       const labelsToPrint = operatorForcedLabels ?? bh18ForcedLabels ?? requestedLabelsToPrint;
       const normalizedRunStationId = String(stationId || "").toUpperCase();
-      const shouldPrintStringLotBatch = (normalizedRunStationId === "BH11" || normalizedRunStationId === "BH12") && totalToProduce > 1;
+      const shouldPrintStringLotBatch =
+        Boolean(generalSettings?.enableStringLotBatchPrint) &&
+        (normalizedRunStationId === "BH11" || normalizedRunStationId === "BH12") &&
+        totalToProduce > 1;
       let lotBatchLots: string[] = [];
-      const seriesGroupId = totalToProduce > 1
-        ? `${String(order?.orderId || "ORDER").replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`
-        : null;
-
       if (!isManualMode) {
         targetPrinter = await resolveTargetPrinterAsync();
         const previewLotCandidate = String(lotNumber || "").trim();
@@ -1512,7 +1507,7 @@ const ProductionStartModal = ({
         }
       }
 
-      if (shouldPrintStringLotBatch) {
+      if (totalToProduce > 1) {
         const prefix = String(effectiveLotNumber || "").slice(0, -4);
         const startSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
         if (!prefix || !Number.isFinite(startSeq)) {
@@ -1524,7 +1519,7 @@ const ProductionStartModal = ({
         ));
 
         // Queue mode gebruikt printer-DPI voor consistente weergave op labelstrip.
-        if (printConfig.mode === "queue") {
+        if (shouldPrintStringLotBatch && printConfig.mode === "queue") {
           if (!targetPrinter) {
             targetPrinter = await resolveTargetPrinterAsync();
           }
@@ -1539,8 +1534,10 @@ const ProductionStartModal = ({
         }
       }
 
+      const batchCount = Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots.length : totalToProduce;
+
       if (!counterClaimed) {
-        await updateCounterOnStart(effectiveLotNumber, totalToProduce);
+        await updateCounterOnStart(effectiveLotNumber, batchCount);
       }
       await logActivity(auth.currentUser?.uid || "system", "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
 
@@ -1556,8 +1553,9 @@ const ProductionStartModal = ({
         !isManualMode ? selectedLabelId : null,
         {
           isFlangeSeries: isFlangeOrder,
-          seriesGroupId,
           skipStartLabel: isFlangeOrder,
+          lotNumbers: Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots : undefined,
+          batchCount,
         }
       );
       updateOperation(startOpId, "Klaar ✓");

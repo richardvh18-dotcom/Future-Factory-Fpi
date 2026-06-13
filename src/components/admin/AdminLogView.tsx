@@ -40,6 +40,7 @@ import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, parse, isValid } 
 import { nl } from "date-fns/locale";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useNotifications } from "../../contexts/NotificationContext";
+import { PATHS } from "../../config/dbPaths";
 
 const WEEK_INPUT_FORMAT = "RRRR-'W'II";
 
@@ -349,8 +350,8 @@ const AdminLogView = () => {
   const READ_ONLY_MODE = true;
 
   // Correcte paden voor logs (hardcoded om mismatch met dbPaths te voorkomen)
-  const LOG_PATH = ["future-factory", "audit", "logs"] as const;
-  const ARCHIVE_PATH = ["future-factory", "logs", "activity_logs_archive"] as const;
+  const LOG_PATH = PATHS.AUDIT_LOGS;
+  const ARCHIVE_PATH = PATHS.ACTIVITY_LOGS_ARCHIVE;
 
   const actionTypes = [
     "PRODUCT_CREATE",

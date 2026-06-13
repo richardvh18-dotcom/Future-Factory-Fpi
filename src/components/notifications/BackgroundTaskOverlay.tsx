@@ -4,6 +4,7 @@ import { Download, Loader2, CheckCircle, AlertCircle, X } from "lucide-react";
 import { format } from "date-fns";
 import { doc, deleteDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { PATHS, getPathString } from "../../config/dbPaths";
 
 export default function BackgroundTaskOverlay() {
   const tasks = useBackgroundTaskStore((state) => state.tasks);
@@ -15,7 +16,7 @@ export default function BackgroundTaskOverlay() {
 
   const clearTask = async (taskId: string) => {
     try {
-      await deleteDoc(doc(db, "future-factory/exports/tasks", taskId));
+      await deleteDoc(doc(db, `${getPathString(PATHS.EXPORT_TASKS)}/${taskId}`));
     } catch (error) {
       console.error("Kon export taak niet wissen:", error);
     }

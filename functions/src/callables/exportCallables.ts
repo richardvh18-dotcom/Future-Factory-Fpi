@@ -349,6 +349,72 @@ const runAtpsOccupancyPreview = async (input = {}) => {
 
 exports.runAtpsOccupancyPreview = runAtpsOccupancyPreview;
 
+exports.saveLnQrExportHistory = withAudit(
+    'SAVE_LN_QR_EXPORT_HISTORY',
+    async (data, context) => {
+        if (!context.auth) {
+            throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
+        }
+
+        const exportKind = clean(data?.exportKind) === 'list' ? 'list' : 'qr';
+        const periodLabel = clean(data?.periodLabel);
+        const rangeMode = clean(data?.rangeMode) || 'export';
+        const clientTempId = clean(data?.clientTempId);
+        const resetCounters = Boolean(data?.resetCounters);
+        const exportMode = resetCounters ? 'export_and_reset' : 'export_only';
+        const rowsInput = Array.isArray(data?.rows) ? data.rows : [];
+
+        if (!periodLabel) {
+            throw new functions.https.HttpsError('invalid-argument', 'periodLabel is verplicht.');
+        }
+
+        if (rowsInput.length === 0) {
+            throw new functions.https.HttpsError('invalid-argument', 'Minimaal 1 exportregel is verplicht.');
+        }
+
+        const rows = rowsInput.slice(0, 500).map((row = {}, index) => ({
+            id: clean(row?.id) || `${clean(row?.station)}__${clean(row?.orderId)}__${index}`,
+            station: clean(row?.station),
+            orderId: clean(row?.orderId),
+            item: clean(row?.item),
+            totalOrderCount: Number(row?.totalOrderCount || 0),
+            nahardingCount: Number(row?.nahardingCount || 0),
+            wikkelCount: Number(row?.wikkelCount || 0),
+            refOpsText: clean(row?.refOpsText) || '20',
+            count: Number(row?.count || 0),
+        })).filter((row) => row.station && row.orderId);
+
+        if (rows.length === 0) {
+            throw new functions.https.HttpsError('invalid-argument', 'Geen geldige exportregels ontvangen.');
+        }
+
+        const nowIso = new Date().toISOString();
+        const docRef = await db.collection(DB_PATHS.LN_QR_EXPORT_HISTORY).add({
+            userId: context.auth.uid,
+            createdByUid: context.auth.uid,
+            createdByEmail: clean(context.auth.token?.email),
+            exportKind,
+            exportMode,
+            resetCounters,
+            periodLabel,
+            rangeMode,
+            clientTempId: clientTempId || null,
+            rows,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAtIso: nowIso,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        return {
+            ok: true,
+            id: docRef.id,
+            exportMode,
+            createdAtIso: nowIso,
+        };
+    },
+    (handler) => functions.region('europe-west1').https.onCall(handler),
+);
+
 /**
  * Genereert een Excel export op de achtergrond en slaat deze op in Firestore
  * zodat het systeem niet wordt belast.

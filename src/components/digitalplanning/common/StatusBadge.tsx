@@ -64,6 +64,13 @@ const StatusBadge: FC<StatusBadgeProps> = React.memo(({ status, showIcon = true 
         icon: <XCircle size={12} />,
       };
     }
+    if (cleanStatus === "qc_sample" || cleanStatus === "qc steekproef" || cleanStatus === "qc sample") {
+      return {
+        label: t('status.qc_sample', 'QC Steekproef'),
+        style: "bg-cyan-50 text-cyan-700 border-cyan-200",
+        icon: <ShieldCheck size={12} />,
+      };
+    }
 
     // 2. PRODUCTIE STATUSSEN (MES)
     if (

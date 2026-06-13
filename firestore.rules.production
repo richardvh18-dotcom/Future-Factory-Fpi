@@ -364,6 +364,11 @@ service cloud.firestore {
       allow write: if canManagePlanningSettings();
     }
 
+    match /future-factory/exports/ln_qr_history/{historyId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
     match /future-factory/logs/activity_logs/{logId} {
       allow create: if hasUserRecord() || isSignedIn();
       allow read, update, delete: if isAdmin();

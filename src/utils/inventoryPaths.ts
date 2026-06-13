@@ -62,6 +62,6 @@ export const buildScopedInventoryDocPath = ({
 };
 
 export const isProductionInventoryScopedDoc = (path = "") =>
-  String(path || "").includes("/future-factory/production/inventory/") &&
+  String(path || "").includes(`/${PATHS.INVENTORY.join("/")}/`) &&
   String(path || "").includes("/machines/") &&
   String(path || "").includes("/items/");

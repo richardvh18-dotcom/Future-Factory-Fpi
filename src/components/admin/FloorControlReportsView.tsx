@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { collection, query, where, orderBy, getDocs, limit, type DocumentData } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { PATHS, getPathString } from "../../config/dbPaths";
 import { format, startOfWeek } from "date-fns";
 import { nl } from "date-fns/locale";
 
@@ -45,7 +46,7 @@ export default function FloorControlReportsView() {
       setLoading(true);
       try {
         // Haal de logs op uit future-factory/audit/logs
-        const logsRef = collection(db, "future-factory", "audit", "logs");
+        const logsRef = collection(db, getPathString(PATHS.AUDIT_LOGS));
         const q = query(
           logsRef,
           where("action", "==", ACTION_NAME),

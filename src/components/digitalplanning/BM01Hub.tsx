@@ -518,11 +518,13 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
         const step = String(item?.currentStep || "").toUpperCase().replace(/\s/g, "");
         const status = String(item?.status || "").toUpperCase().trim();
         const lastStation = String(item?.lastStation || "").toUpperCase().replace(/\s/g, "");
+        const isLegacyQcVirtual = Boolean(item?.isVirtualLot) && (step === "QC_VIRTUAL" || status === "QC VIRTUAL ISSUED");
 
         const isNahardingRelated =
             station.includes("NAHARD") || station.includes("OVEN") ||
             step.includes("NAHARD") || step.includes("OVEN") ||
             status === "TE NAHARDEN" ||
+            isLegacyQcVirtual ||
             lastStation.includes("NAHARD") || lastStation.includes("OVEN");
 
         if (isNahardingRelated) {
@@ -542,13 +544,15 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
             const station = String(p.currentStation || "").toUpperCase().replace(/\s/g, "");
             const step = String(p.currentStep || "").toUpperCase().replace(/\s/g, "");
             const status = String(p.status || "").toUpperCase().trim();
+            const isLegacyQcVirtual = Boolean(p?.isVirtualLot) && (step === "QC_VIRTUAL" || status === "QC VIRTUAL ISSUED");
 
             const isNaharding =
                 station.includes("NAHARD") ||
                 station.includes("OVEN") ||
                 step.includes("NAHARD") ||
                 step.includes("OVEN") ||
-                status === "TE NAHARDEN";
+                status === "TE NAHARDEN" ||
+                isLegacyQcVirtual;
 
             const isClosed =
                 status === "COMPLETED" ||

@@ -2530,6 +2530,7 @@ export const en = {
     },
     status: {
       good: "Good",
+      qc_sample: "QC Sample",
       repair: "Temporary Rejection",
       rejected: "Rejected",
       finished: "Finished",

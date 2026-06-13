@@ -138,11 +138,12 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         ]);
 
         const byKey = new Map<string, { data: PlanningImportEntry; priority: number }>();
+        const planningPrefix = `${getPathString(PATHS.PLANNING)}/`;
 
         const scopedPlanningDocs = scopedSnap.docs.filter((docEntry: any) => {
           const path = String(docEntry?.ref?.path || "");
           return (
-            path.includes("/production/digital_planning/") &&
+            path.startsWith(planningPrefix) &&
             path.includes("/machines/") &&
             path.includes("/orders/")
           );
@@ -1732,7 +1733,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {displayData.slice(0, 50).map((order) => {
+                      {displayData.map((order) => {
                         const isExisting = isExistingOrder(order);
                         const changeMeta = orderChangeMeta.get(order.id);
                         const isQtyIncrease = changeMeta?.quantityChanged && Number(changeMeta.newQuantity) > Number(changeMeta.oldQuantity);
