@@ -8,8 +8,8 @@
  */
 
 import { collection, collectionGroup, query, getDocs, addDoc, setDoc, getDoc, doc, limit, orderBy, serverTimestamp } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import app, { auth, db, logActivity } from '../config/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions, logActivity } from '../config/firebase';
 import { PATHS, getPathString, getPlanningArchivePath } from '../config/dbPaths';
 import i18n from '../i18n';
 import { fetchScopedEfficiencyHours } from '../utils/efficiencyScopedReader';
@@ -78,7 +78,7 @@ class AIService {
 
   constructor() {
     this.availableModel = 'gemini-2.5-flash';
-    this.functions = getFunctions(app);
+    this.functions = functions;
     this.aiProxyGenerate = httpsCallable(this.functions, 'aiProxyGenerate');
     
     // Expose debug functie globally voor troubleshooting

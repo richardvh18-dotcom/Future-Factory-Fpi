@@ -1,8 +1,6 @@
-import { getFunctions, httpsCallable } from "firebase/functions";
-import app from "../config/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../config/firebase";
 import { PATHS, getPathString } from "../config/dbPaths";
-
-const functions = getFunctions(app);
 
 type CallableFn = (payload?: unknown) => Promise<{ data?: unknown }>;
 const callableWithRuntime = (callable: CallableFn) => async (payload: unknown = {}) => callable(payload);

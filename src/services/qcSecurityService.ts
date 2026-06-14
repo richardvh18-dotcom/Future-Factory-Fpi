@@ -1,9 +1,6 @@
-import { getFunctions, httpsCallable, httpsCallableFromURL } from "firebase/functions";
+import { httpsCallable, httpsCallableFromURL } from "firebase/functions";
 import { onAuthStateChanged, User } from "firebase/auth";
-import app from "../config/firebase";
-import { auth } from "../config/firebase";
-
-const functions = getFunctions(app);
+import { auth, functions } from "../config/firebase";
 
 type QcCallableName = "saveQcMeasurement" | "saveQcInspection" | "updateQcMeasurement";
 
