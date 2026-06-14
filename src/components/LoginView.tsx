@@ -10,7 +10,7 @@ import { parseAuthQR } from "../utils/qrAuth";
 import MobileScanner from "./MobileScanner";
 import {
   Factory, KeyRound, Mail, AlertCircle, Loader2, ArrowRight,
-  ShieldCheck, Globe, Check, QrCode, X,
+  ShieldCheck, Globe, Check, QrCode, X, Eye, EyeOff
 } from "lucide-react";
 import AccountRequestModal from "./AccountRequestModal";
 
@@ -36,6 +36,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }: LoginViewProps)
   const { notify } = useNotifications();
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [settings, setSettings] = useState<AppSettings>({ appName: appName || "Future Factory", logoUrl: logoUrl || "" });
   const [showLangMenu, setShowLangMenu] = useState<boolean>(false);
@@ -217,9 +218,15 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }: LoginViewProps)
                 </label>
                 <div className="relative group">
                   <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-500 transition-colors" size={18} />
-                  <input type="password" required autoComplete="current-password" value={password}
+                  <input type={showPassword ? "text" : "password"} required autoComplete="current-password" value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 md:py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400" />
+                    className="w-full pl-12 pr-12 py-3 md:py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-cyan-500 transition-colors"
+                    tabIndex={-1}
+                    title={showPassword ? t('login.hide_password', 'Verberg wachtwoord') : t('login.show_password', 'Toon wachtwoord')}>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
                 <div className="flex justify-end mt-1">
                   <button type="button"

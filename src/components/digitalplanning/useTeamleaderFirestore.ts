@@ -68,6 +68,7 @@ export const useTeamleaderFirestore = ({ user }: { user: TeamleaderUser | null |
   const [bezetting, setBezetting] = useState<Record<string, unknown>[]>([]);
   const [archivedHistoryProducts, setArchivedHistoryProducts] = useState<FirestoreTrackedProduct[]>([]);
   const [archivedRejectedProducts, setArchivedRejectedProducts] = useState<FirestoreTrackedProduct[]>([]);
+  const [activeDowntimes, setActiveDowntimes] = useState<AnyRecord[]>([]);
   const [factoryConfig, setFactoryConfig] = useState<FactoryConfig>(null);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
@@ -229,6 +230,22 @@ export const useTeamleaderFirestore = ({ user }: { user: TeamleaderUser | null |
       );
       unsubs.push(unsubConfig);
 
+      // LISTENER 5: Downtime
+      const unsubDowntime = onSnapshot(
+        query(
+          collection(db, getPathString(PATHS.DOWNTIME)),
+          where("endTime", "==", null)
+        ),
+        (snap) => {
+          if (isMounted) setActiveDowntimes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        },
+        (err: { code?: string }) => {
+          if (err.code === "permission-denied") return;
+          console.warn("Downtime Sync Error:", err);
+        }
+      );
+      unsubs.push(unsubDowntime);
+
       const now = new Date();
       const minArchiveDate = subDays(now, 365);
       const archiveDataByYear: Record<number, FirestoreTrackedProduct[]> = {};
@@ -318,6 +335,7 @@ export const useTeamleaderFirestore = ({ user }: { user: TeamleaderUser | null |
     bezetting,
     archivedHistoryProducts,
     archivedRejectedProducts,
+    activeDowntimes,
     factoryConfig,
     loading,
     dbError,

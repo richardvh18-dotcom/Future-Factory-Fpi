@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ScanBarcode, X, Pencil, Nfc, Loader2 } from "lucide-react";
+import { ScanBarcode, X, Pencil, Nfc, Loader2, LogOut } from "lucide-react";
 import { useWorkstationStore } from "./useWorkstationStore";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import RepairModal from "./modals/RepairModal";
@@ -18,6 +18,7 @@ export const WorkstationModals = ({
   handlePostProcessingFinish,
   handleRepairComplete,
   handleOperatorShiftCheckin,
+  handleOperatorCheckout,
   handleSaveHourCorrection,
   onDismissPromptShift,
   stationOccupancy,
@@ -214,6 +215,14 @@ export const WorkstationModals = ({
                           <span className="ml-1 text-amber-500 font-black" title="Uren gecorrigeerd">✎</span>
                         )}
                       </span>
+                      <button
+                        type="button"
+                        title={t("digitalplanning.workstation.logout", "Uitloggen")}
+                        onClick={() => handleOperatorCheckout?.(occ)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut size={12} />
+                      </button>
                       {["teamleader", "admin", "planner"].includes(String(currentUser?.role || "").toLowerCase()) && (
                         <button
                           type="button"

@@ -1,3 +1,28 @@
+## Update sessie 14 juni 2026 (Machine Storing & Live Monitor)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Machine Storing knop en blokkade op Workstations**
+- Nieuwe rode knop "Storing Melden / In Storing" toegevoegd aan de Workstation Header (`WorkstationHub.tsx`).
+- Wanneer actief, wordt er een block gelegd op `handleStartProduction` zodat operators geen nieuwe orders kunnen starten zolang de machine in storing staat.
+- Downtime-rapporten worden correct opgeslagen in Firestore (`future-factory/production/downtime_reports`) met exacte starttijden. Eindtijd wordt gezet bij afmelden.
+
+**2. Teamleader Dashboard Integratie (Live Status)**
+- `useTeamleaderFirestore` uitgebreid met een listener voor openstaande downtimes (`endTime == null`).
+- `TeamleaderDashboard` toont nu de machinekaart met rode kleuren en een knipperende `Storing` label wanneer de machine platligt.
+- Groene (`ACTIEF`) en witte (`INACTIEF`) statussen zijn toegevoegd op basis van ploeg-bemanningsdata.
+
+**3. Firebase Security Rules update**
+- `firestore.rules` aangepast zodat operators in de productieomgeving daadwerkelijk kunnen schrijven naar `downtime_reports`. Dit voorkwam de initiële "Permission Denied" (401) fout.
+- Succesvol gedeployed naar Firebase Cloud na een handmatige re-authenticatie (`firebase login --reauth`) in de terminal.
+
+### Volgende stappen (Hervatpunt)
+- **Teamleader Personeelsdashboard:** Verder gaan met het ontwerpen van de personeelsweergave.
+- **Downtime Notificaties:** Eventueel (later) een mail of bericht koppelen naar teamleaders zodra een machine op `STORING` springt.
+
+---
+
 ## Update sessie 14 juni 2026 (AI Chat Historie, UX & Voorbereiding Teamleader Personeelsdashboard)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)

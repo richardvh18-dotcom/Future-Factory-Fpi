@@ -23,6 +23,8 @@ type MachineGridItem = {
   finished?: number;
   plannedHours?: number;
   workedHoursThisWeek?: number;
+  status?: string;
+  activeDowntime?: any;
 };
 
 type DashboardMetrics = {
@@ -224,27 +226,40 @@ const TeamleaderDashboard = ({ metrics, onKpiClick, onStationSelect }: Teamleade
             <div
               key={machine.id}
               onClick={() => onStationSelect(machine.id)}
-              className="bg-white border border-slate-200 rounded-[25px] p-4 shadow-sm hover:shadow-md hover:border-blue-400 transition-all cursor-pointer group relative overflow-hidden text-left"
+              className={`rounded-[25px] p-4 shadow-sm hover:shadow-md transition-all cursor-pointer group relative overflow-hidden text-left border ${
+                machine.status === "STORING" 
+                  ? "bg-red-50 border-red-500 hover:border-red-600" 
+                  : machine.status === "ACTIEF" 
+                  ? "bg-emerald-50 border-emerald-300 hover:border-emerald-400" 
+                  : "bg-white border-slate-200 hover:border-blue-400"
+              }`}
             >
-              <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
-                <Cpu size={60} />
+              <div className={`absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity ${machine.status === "STORING" ? "text-red-600 opacity-20" : ""}`}>
+                {machine.status === "STORING" ? <AlertTriangle size={60} /> : <Cpu size={60} />}
               </div>
               <div className="text-left mb-3">
-                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">
-                  Station
-                </span>
+                <div className="flex justify-between items-start">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">
+                    Station
+                  </span>
+                  {machine.status === "STORING" && (
+                    <span className="text-[9px] font-black text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase animate-pulse">
+                      Storing
+                    </span>
+                  )}
+                </div>
                 <h4 className="text-lg font-black text-slate-900 tracking-tighter uppercase italic truncate">
                   {machine.id}
                 </h4>
                 {machine.operatorNames ? (
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[9px] font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg w-fit border border-slate-100">
-                    <Users size={10} className="text-blue-500" />
+                  <div className={`mt-1.5 flex items-center gap-1.5 text-[9px] font-bold px-2 py-1 rounded-lg w-fit border ${machine.status === "STORING" ? "text-red-700 bg-red-100 border-red-200" : "text-emerald-700 bg-emerald-100 border-emerald-200"}`}>
+                    <Users size={10} className={machine.status === "STORING" ? "text-red-500" : "text-emerald-500"} />
                     <span className="truncate max-w-[120px]">
                       {machine.operatorNames}
                     </span>
                   </div>
                 ) : (
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[9px] font-bold text-slate-300 px-2 py-1">
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[9px] font-bold text-slate-400 px-2 py-1">
                     <span className="italic">{t("teamleaderDashboard.noOperator", "Geen operator")}</span>
                   </div>
                 )}

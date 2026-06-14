@@ -1,8 +1,8 @@
-import { collection, collectionGroup, query, onSnapshot, doc, serverTimestamp, where, limit, getDocs, getDoc, arrayUnion, increment } from "firebase/firestore";
+import { collection, collectionGroup, query, onSnapshot, doc, serverTimestamp, where, limit, getDocs, getDoc, arrayUnion, increment, addDoc, updateDoc } from "firebase/firestore";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Loader2, Menu, X, Clock, Calendar, UserCheck } from "lucide-react";
+import { LogOut, Loader2, Menu, X, Clock, Calendar, UserCheck, AlertTriangle } from "lucide-react";
 import { useNFCReader, NFC_STATUS } from "../../hooks/useNFCReader";
 import { db, logActivity } from "../../config/firebase";
 import { PATHS, getArchiveItemsPath, getPathString } from "../../config/dbPaths";
@@ -356,6 +356,59 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
   const navigate = useNavigate();
   const initialStationName = typeof initialStationId === "object" ? initialStationId?.name : initialStationId;
 
+  const handleOperatorCheckout = async (occ: OccupancyEntry) => {
+    if (!occ || !occ.id) return;
+    
+    const confirmMessage = t("digitalplanning.workstation.confirm_checkout_msg", { name: occ.operatorName, station: occ.machineId || selectedStation });
+    const confirmed = await showConfirm({
+      title: t("digitalplanning.workstation.confirm_checkout", "Uitloggen bevestigen"),
+      message: confirmMessage || `Weet je zeker dat je ${occ.operatorName} wilt uitloggen van ${occ.machineId || selectedStation}?`,
+      confirmText: t("digitalplanning.workstation.logout", "Uitloggen"),
+      cancelText: t("common.cancel", "Annuleren"),
+      tone: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const now = new Date();
+      const previousHours = Number(occ.hoursWorked || 0);
+      const checkedInDate = toDateSafe(occ.shiftEffectiveStart as any) || toDateSafe(occ.checkedInAt as any);
+      const elapsedHours = checkedInDate ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000) : 0;
+      
+      const breakHours = (SHIFT_CONFIG[occ.shiftKey as ShiftKey]?.breakMinutes ?? 0) / 60;
+      const grossHours = Number((previousHours + elapsedHours).toFixed(2));
+      const finalHours = occ.isSecondary
+        ? 0
+        : Math.max(0, Number((grossHours - breakHours).toFixed(2)));
+
+      await saveOccupancyAssignment({
+        assignmentId: occ.id,
+        data: {
+          hoursWorked: finalHours,
+          hoursWorkedGross: occ.isSecondary ? 0 : grossHours,
+          ...(breakHours > 0 && !occ.isSecondary ? { breakDeductedHours: breakHours } : {}),
+          checkedOutAt: "__SERVER_TIMESTAMP__",
+          isActive: false,
+          updatedAt: "__SERVER_TIMESTAMP__",
+        },
+        source: "WorkstationHub.manualCheckout",
+        actorLabel: currentUser?.email || "Operator",
+      });
+
+      await logWorkstationActivity(
+        "OPERATOR_CHECKOUT",
+        `Handmatige uitlog: ${occ.operatorName} op ${occ.machineId || selectedStation}`,
+        { personnelNumber: occ.operatorNumber }
+      );
+
+      showSuccess(`${occ.operatorName} is uitgelogd.`);
+    } catch (err) {
+      console.error("Manual checkout failed:", err);
+      showError("Uitloggen mislukt: " + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
   const [selectedStation, setSelectedStation] = useState(
     initialStationName || "BH11"
   );
@@ -376,10 +429,80 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
 
   // Mobiel menu state
   const isMobileMenuOpen = useWorkstationStore((state) => state.isMobileMenuOpen);
-  const setIsMobileMenuOpen = useWorkstationStore((state) => state.setIsMobileMenuOpen);
+  const setIsMobileMenuOpen = useWorkstationStore((state) => state.isMobileMenuOpen);
   const [checkedInOperator, setCheckedInOperator] = useState<PersonnelEntry | null>(null);
   const [dismissedPromptShift, setDismissedPromptShift] = useState<ShiftKey | null>(null);
-  const [timeHeartbeat, setTimeHeartbeat] = useState(Date.now());
+  const [timeHeartbeat, setTimeHeartbeat] = useState<number>(Date.now());
+  const [activeDowntime, setActiveDowntime] = useState<any>(null);
+
+  useEffect(() => {
+    if (!selectedStation) return;
+    const q = query(
+      collection(db, getPathString(PATHS.DOWNTIME)),
+      where("machineId", "==", selectedStation),
+      where("endTime", "==", null),
+      limit(1)
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        setActiveDowntime({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      } else {
+        setActiveDowntime(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [selectedStation]);
+
+  const toggleMachineStoring = async () => {
+    if (activeDowntime) {
+      const confirmed = await showConfirm({
+        title: "Storing verholpen?",
+        message: "Is de machine storing verholpen en kan de productie weer starten?",
+        confirmText: "Ja, verholpen",
+        cancelText: "Annuleren",
+        tone: "success",
+      });
+      if (confirmed) {
+        try {
+          await logWorkstationActivity("MACHINE_UP", `Storing op ${selectedStation} verholpen.`);
+          await updateDoc(doc(db, getPathString(PATHS.DOWNTIME), activeDowntime.id), {
+            endTime: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          showSuccess("Storing succesvol afgemeld.");
+        } catch (e) {
+          console.error("Machine Storing Update Error:", e);
+          showError("Kon storing niet afmelden. " + String(e));
+        }
+      }
+    } else {
+      const confirmed = await showConfirm({
+        title: "Machine in storing?",
+        message: "Wil je deze machine in storing melden? Productie kan niet gestart worden zolang de storing actief is.",
+        confirmText: "Ja, in storing zetten",
+        cancelText: "Annuleren",
+        tone: "danger",
+      });
+      if (confirmed) {
+        try {
+          await logWorkstationActivity("MACHINE_DOWN", `Machine ${selectedStation} in storing gemeld.`);
+          await addDoc(collection(db, getPathString(PATHS.DOWNTIME)), {
+            machineId: selectedStation,
+            startTime: serverTimestamp(),
+            endTime: null,
+            reportedBy: checkedInOperator?.name || currentUser?.email || "Onbekend",
+            status: "STORING",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          showWarning("Machine staat nu in storing!");
+        } catch (e) {
+          console.error("Machine Storing Add Error:", e);
+          showError("Kon storing niet aanmelden. " + String(e));
+        }
+      }
+    }
+  };
   const lastShiftRef = useRef<ShiftKey>(getCurrentShiftKey(new Date()));
 
   const logWorkstationActivity = async (action: string, details: string, options: { personnelNumber?: string } = {}) => {
@@ -914,57 +1037,82 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
 
     const now = new Date(timeHeartbeat);
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    let targetBucket: ShiftKey | null = null;
 
-    // Trigger op de exacte eindminuut én 1 minuut eerder (heartbeat = 30s, mag niet gemist worden).
-    // VROEGE DIENST eindigt 14:00  → trigger op 13:59 of 14:00
-    // DAGDIENST      eindigt 16:00  → trigger op 15:59 of 16:00
-    // LATE DIENST    eindigt 22:00  → trigger op 21:59 of 22:00
-    // NACHTDIENST    eindigt 06:00  → trigger op 05:59 of 06:00 (zoekt entries van gisteren)
-    if (currentMinutes === 13 * 60 + 59 || currentMinutes === 14 * 60) targetBucket = "VROEG";
-    if (currentMinutes === 15 * 60 + 59 || currentMinutes === 16 * 60) targetBucket = "DAG";
-    if (currentMinutes === 21 * 60 + 59 || currentMinutes === 22 * 60) targetBucket = "LAAT";
-    if (currentMinutes === 5  * 60 + 59 || currentMinutes === 6  * 60) targetBucket = "NACHT";
-    if (!targetBucket) return;
+    // Bepaal welke shifts geëindigd zijn op basis van de huidige tijd (retroactief checken)
+    const expiredBuckets: ShiftKey[] = [];
+    
+    // VROEG: eindigt om 14:00
+    if (currentMinutes >= 14 * 60) expiredBuckets.push("VROEG");
+    // DAG: eindigt om 16:00
+    if (currentMinutes >= 16 * 60) expiredBuckets.push("DAG");
+    // LAAT: eindigt om 22:00
+    if (currentMinutes >= 22 * 60) expiredBuckets.push("LAAT");
+    // NACHT: eindigt om 06:00
+    if (currentMinutes >= 6 * 60 && currentMinutes < 22 * 60) expiredBuckets.push("NACHT");
 
-    // Deduplicatie: gebruik uur+minuut+bucket (zonder station) zodat één instantie
-    // alle operators sluit, ongeacht op welke machine ze nu werken.
-    const minuteKey = `${getTodayString()}_${now.getHours()}_${now.getMinutes()}_${targetBucket}`;
+    if (expiredBuckets.length === 0) return;
+
+    // Voorkom dat we dit tig keer per dag per bucket runnen.
+    // We maken een sleutel aan die maar 1x per minuut verandert en onthouden weke buckets we zojuist hebben geprobeerd.
+    const minuteKey = `${getTodayString()}_${now.getHours()}_${now.getMinutes()}_${expiredBuckets.join('-')}`;
     if (lastAutoCheckoutMinuteRef.current === minuteKey) return;
     lastAutoCheckoutMinuteRef.current = minuteKey;
 
     const runAutoCheckout = async () => {
       try {
         const todayStr = getTodayString();
-        // NACHT-dienst startte gisteren (~22:00) en eindigt vandaag (~06:00).
-        // Haal entries op via de datum van incheck (gisteren voor NACHT, vandaag voor de rest).
-        const queryDate = targetBucket === "NACHT" ? getYesterdayString() : todayStr;
+        
+        // Voor de zekerheid vragen we actieve occupancy op voor VANDAAG en GISTEREN
+        const yesterdayStr = getYesterdayString();
 
-        const occSnap = await getDocs(
-          query(collection(db, getPathString(PATHS.OCCUPANCY)), where("date", "==", queryDate), limit(500))
+        const occSnapToday = await getDocs(
+          query(collection(db, getPathString(PATHS.OCCUPANCY)), where("date", "==", todayStr), limit(500))
+        );
+        const occSnapYesterday = await getDocs(
+          query(collection(db, getPathString(PATHS.OCCUPANCY)), where("date", "==", yesterdayStr), limit(500))
         );
 
-        // Sluit ALLE actieve operators van deze dienst, ongeacht machine.
-        // Zo worden ook operators meegenomen die tussentijds van machine wisselden.
-        const toCheckout: OccupancyEntry[] = occSnap.docs
+        const allDocs = [...occSnapToday.docs, ...occSnapYesterday.docs];
+
+        // Filter alle documenten die actief zijn en in een verstreken bucket vallen
+        const toCheckout: OccupancyEntry[] = allDocs
           .map((d): OccupancyEntry => ({ id: d.id, ...(d.data() as Omit<OccupancyEntry, "id">) }))
           .filter((entry) => {
             const isActive = entry.isActive !== false && !entry.checkedOutAt;
-            return isActive && shiftMatchesBucket(entry.shift, targetBucket);
+            if (!isActive) return false;
+            
+            return expiredBuckets.some(bucket => shiftMatchesBucket(entry.shift, bucket));
           });
 
-        // Pauze-aftrek: alleen DAGDIENST heeft 45 min expliciete pauze die van de
-        // productieve uren afgaat. VROEG en LAAT zijn 8 uur incl. pauze (geen aftrek).
-        const breakHours = (SHIFT_CONFIG[targetBucket]?.breakMinutes ?? 0) / 60;
+        if (toCheckout.length === 0) return;
 
+        // Sluit ALLE actieve operators van de verstreken diensten
         await saveOccupancyAssignments({
           records: toCheckout.map((entry) => {
+            // Vind de bucket die we gaan sluiten
+            const targetBucket = expiredBuckets.find(b => shiftMatchesBucket(entry.shift, b)) as ShiftKey;
+            
             const previousHours = Number(entry.hoursWorked || 0);
             const checkedInDate = toDateSafe(entry.shiftEffectiveStart as any) || toDateSafe(entry.checkedInAt as any);
-            const elapsedHours = checkedInDate
-              ? Math.max(0, (now.getTime() - checkedInDate.getTime()) / 3600000)
-              : 0;
-            const grossHours = Number((previousHours + elapsedHours).toFixed(2));
+            
+            // LET OP: bij auto-checkout gebruiken we de officiële checkout-tijd van de shift, NIET de huidige tijd (now)
+            // anders zou een iPad die pas om 18:00 aangaat, de VROEGE dienst uren tot 18:00 doorrekenen.
+            const shiftCfg = SHIFT_CONFIG[targetBucket];
+            const autoCheckoutDate = new Date(checkedInDate || now);
+            if (targetBucket === "NACHT" && checkedInDate && checkedInDate.getHours() >= 12) {
+              // NACHT dienst gestart gisteren
+              autoCheckoutDate.setDate(autoCheckoutDate.getDate() + 1);
+            }
+            autoCheckoutDate.setHours(Math.floor(shiftCfg.checkoutMinute / 60), shiftCfg.checkoutMinute % 60, 0, 0);
+
+            // Als checkin Date ontbreekt of als we cumulatief tellen, bescherm against weird values
+            let elapsedHours = 0;
+            if (checkedInDate && autoCheckoutDate > checkedInDate) {
+              elapsedHours = (autoCheckoutDate.getTime() - checkedInDate.getTime()) / 3600000;
+            }
+
+            const breakHours = (shiftCfg?.breakMinutes ?? 0) / 60;
+            const grossHours = Number((previousHours + Math.max(0, elapsedHours)).toFixed(2));
             const finalHours = entry.isSecondary
               ? 0
               : Math.max(0, Number((grossHours - breakHours).toFixed(2)));
@@ -975,26 +1123,23 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
                 hoursWorked: finalHours,
                 hoursWorkedGross: entry.isSecondary ? 0 : grossHours,
                 ...(breakHours > 0 && !entry.isSecondary ? { breakDeductedHours: breakHours } : {}),
-                checkedOutAt: "__SERVER_TIMESTAMP__",
+                checkedOutAt: autoCheckoutDate, // Officiele eindtijd
                 isActive: false,
                 autoCheckout: true,
                 autoCheckoutShift: targetBucket,
+                autoCheckoutRetroactive: true, // Marker
                 updatedAt: "__SERVER_TIMESTAMP__",
               },
             };
           }),
-          source: "WorkstationHub.autoCheckout",
-          actorLabel: currentUser?.email || "Operator",
+          source: "WorkstationHub.autoCheckoutRetroactive",
+          actorLabel: currentUser?.email || "System",
         });
 
-        if (toCheckout.length > 0) {
-          setCheckedInOperator(null);
-          setDismissedPromptShift(null);
-          const shiftName = SHIFT_CONFIG[targetBucket]?.label ?? targetBucket;
-          showInfo(
-            `${toCheckout.length} operator(s) automatisch uitgecheckt (einde ${shiftName}).`
-          );
-        }
+        setCheckedInOperator(null);
+        setDismissedPromptShift(null);
+        showInfo(`${toCheckout.length} operator(s) automatisch uitgecheckt vanwege verstreken shift.`);
+
       } catch (err) {
         console.error("Auto shift checkout fout:", err);
       }
@@ -1977,6 +2122,13 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
     startOptions: any = {}
   ) => {
     if (!currentUser || !customLotNumber) return;
+    
+    if (activeDowntime) {
+      showError("Machine staat momenteel in storing! Meld de storing eerst af via de knop bovenaan om productie te starten.");
+      useWorkstationStore.getState().setShowStartModal(false);
+      return;
+    }
+
     const previousTab = activeTab;
 
     // Snellere UX: direct modal sluiten en naar Wikkelen schakelen,
@@ -2528,6 +2680,21 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
               </div>
             )}
 
+            <button
+              onClick={toggleMachineStoring}
+              className={`hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg border shadow-sm transition-all active:scale-95 ${
+                activeDowntime 
+                  ? "bg-red-50 border-red-500 text-red-600 animate-pulse" 
+                  : "bg-white border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50 hover:border-red-200"
+              }`}
+              title={activeDowntime ? "Storing afmelden" : "Machine in storing melden"}
+            >
+              <AlertTriangle size={18} className={activeDowntime ? "text-red-500" : ""} />
+              <span className={`text-xs font-black uppercase tracking-widest ${activeDowntime ? "text-red-600" : ""}`}>
+                {activeDowntime ? "In Storing" : "Storing Melden"}
+              </span>
+            </button>
+
             {/* Rechts: Datum, Tijd & Week - helemaal rechts met flex-1 */}
             <div className="flex-1 hidden lg:flex justify-end items-center">
               <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
@@ -2792,6 +2959,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
         handlePostProcessingFinish={handlePostProcessingFinish}
         handleRepairComplete={handleRepairComplete}
         handleOperatorShiftCheckin={handleOperatorShiftCheckin}
+        handleOperatorCheckout={handleOperatorCheckout}
         handleSaveHourCorrection={handleSaveHourCorrection}
         onDismissPromptShift={() => setDismissedPromptShift(currentShiftKey)}
         stationOccupancy={stationOccupancy}

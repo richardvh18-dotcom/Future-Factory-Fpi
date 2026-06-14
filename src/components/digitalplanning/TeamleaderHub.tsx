@@ -123,6 +123,7 @@ import { TeamleaderModalProvider, useTeamleaderModalStore } from "./modals/Teaml
      factoryConfig: rawFactoryConfig,
      loading,
      dbError,
+     activeDowntimes,
    } = useTeamleaderFirestore({ user });
    
    const factoryConfig = rawFactoryConfig ?? undefined;
@@ -293,6 +294,7 @@ import { TeamleaderModalProvider, useTeamleaderModalStore } from "./modals/Teaml
      bezetting: bezettingList,
      archivedHistoryProducts: archivedHistoryProductsList,
      archivedRejectedProducts: archivedRejectedProductsList,
+     activeDowntimes: activeDowntimes || [],
      effectiveAllowedNorms,
      effectiveStations,
      safeScope,

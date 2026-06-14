@@ -9,6 +9,7 @@ export type UseTeamleaderMetricsArgs = {
   bezetting: any[];
   archivedHistoryProducts: any[];
   archivedRejectedProducts: any[];
+  activeDowntimes: any[];
   effectiveAllowedNorms: string[];
   effectiveStations: any[];
   safeScope: string;
@@ -34,6 +35,7 @@ export const useTeamleaderMetrics = ({
   bezetting,
   archivedHistoryProducts,
   archivedRejectedProducts,
+  activeDowntimes,
   effectiveAllowedNorms,
   effectiveStations,
   safeScope,
@@ -108,6 +110,13 @@ export const useTeamleaderMetrics = ({
         const sName = (stationName || "").toLowerCase();
 
         return (sId && sId === bId) || (sName && sName === bId) || (sName && sName === bName);
+      });
+
+      const activeDowntime = activeDowntimes.find((d: any) => {
+        const dId = (d.machineId || "").toLowerCase();
+        const sId = (stationId || "").toLowerCase();
+        const sName = (stationName || "").toLowerCase();
+        return (sId && sId === dId) || (sName && sName === dId);
       });
 
       let workedHoursThisWeek = 0;
@@ -312,6 +321,8 @@ export const useTeamleaderMetrics = ({
         operatorNames: currentOccupancy.map((o) => o.operatorName).join(", "),
         isDownstream,
         isAlgemeen,
+        status: activeDowntime ? "STORING" : (currentOccupancy.length > 0 ? "ACTIEF" : "INACTIEF"),
+        activeDowntime,
       };
     });
 
@@ -531,6 +542,7 @@ export const useTeamleaderMetrics = ({
     bezetting,
     archivedHistoryProducts,
     archivedRejectedProducts,
+    activeDowntimes,
     effectiveAllowedNorms,
     effectiveStations,
     safeScope,

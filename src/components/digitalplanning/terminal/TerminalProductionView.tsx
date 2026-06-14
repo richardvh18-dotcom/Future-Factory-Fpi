@@ -147,33 +147,13 @@ const TerminalProductionView = ({
     const productsToRelease = activeWikkelingen.filter((p: AnyRecord) => selectedMultiLots.includes(String(p.id || "")));
     if (productsToRelease.length === 0) return;
 
-    const confirmed = await showConfirm({
-      title: t("digitalplanning.terminal.bulk_release_title", "Meerdere producten gereedmelden"),
-      message: t("digitalplanning.terminal.bulk_release_confirm_message", "Je staat op het punt om {{count}} verschillende producten tegelijk gereed te melden. Weet je dit zeker?", { count: productsToRelease.length }),
-      confirmText: t("common.confirm", "Bevestigen"),
-      cancelText: t("common.back", "Terug"),
-      tone: "warning",
-    });
-
-    if (confirmed) {
-      onReleaseProduct(productsToRelease[0], productsToRelease);
-      setSelectedMultiLots([]);
-      onSelectTracked(null);
-    }
+    onReleaseProduct(productsToRelease[0], productsToRelease);
+    setSelectedMultiLots([]);
+    onSelectTracked(null);
   };
 
   const handleSeriesRelease = async (mainProduct: AnyRecord, seriesUnits: AnyRecord[]) => {
-    const confirmed = await showConfirm({
-      title: t("digitalplanning.terminal.series_release_title", "Hele serie gereedmelden"),
-      message: t("digitalplanning.terminal.series_release_confirm_message", "Je staat op het punt om de hele serie van {{count}} producten gereed te melden. Weet je dit zeker?", { count: seriesUnits.length }),
-      confirmText: t("common.confirm", "Bevestigen"),
-      cancelText: t("common.back", "Terug"),
-      tone: "warning",
-    });
-
-    if (confirmed) {
-      onReleaseProduct(mainProduct, seriesUnits);
-    }
+    onReleaseProduct(mainProduct, seriesUnits);
   };
 
   // Keyboard navigation
@@ -303,18 +283,9 @@ const TerminalProductionView = ({
               </button>
             )}
             <button 
-              onClick={async () => {
-                const confirmed = await showConfirm({
-                  title: t("digitalplanning.terminal.all_ready_title", "Alles gereedmelden"),
-                  message: t("digitalplanning.terminal.all_ready_confirm_message", "Je staat op het punt om ALLE {{count}} actieve wikkelingen in één keer gereed te melden. Weet je dit zeker?", { count: activeWikkelingen.length }),
-                  confirmText: t("common.confirm", "Bevestigen"),
-                  cancelText: t("common.back", "Terug"),
-                  tone: "danger",
-                });
-                if (confirmed) {
-                  onReleaseProduct(activeWikkelingen[0], activeWikkelingen);
-                  onSelectTracked(null);
-                }
+              onClick={() => {
+                onReleaseProduct(activeWikkelingen[0], activeWikkelingen);
+                onSelectTracked(null);
               }}
               className="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-all flex items-center gap-2"
             >

@@ -385,7 +385,8 @@ service cloud.firestore {
       allow write: if (
         collectionId in [
           'efficiency_hours',
-              'time_logs'
+          'time_logs',
+          'downtime_reports'
         ] && canOperateProduction()
       ) || (
         collectionId in [
