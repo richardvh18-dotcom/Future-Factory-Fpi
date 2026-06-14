@@ -882,7 +882,7 @@ const movePlanningOrder = withAudit('MOVE_PLANNING_ORDER', async (data, context)
   }
 });
 
-const retrievePlanningOrder = functions.https.onCall(async (data, context) => {
+const retrievePlanningOrder = functions.region('europe-west1').https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist.');
   }
@@ -2983,7 +2983,7 @@ const migrateLegacyActivityLogs = withAudit('MIGRATE_LEGACY_ACTIVITY_LOGS', asyn
  * Input: { orderId: string, machine: string }
  * Output: { ok, orderId, machine, eventLots, trackedLots, planningCounter, discrepancies }
  */
-const reconcileOrderControl = functions.https.onCall(async (data, context) => {
+const reconcileOrderControl = functions.region('europe-west1').https.onCall(async (data, context) => {
   const auth = context?.auth;
   if (!auth?.uid) throw new Error('UNAUTHENTICATED');
 

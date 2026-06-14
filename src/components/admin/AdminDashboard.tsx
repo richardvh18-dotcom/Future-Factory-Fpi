@@ -38,6 +38,7 @@ import {
   QrCode,
   Mail,
   ClipboardCheck,
+  PlayCircle,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
@@ -109,6 +110,8 @@ const QcSampleView = React.lazy(() => import("./QcSampleView"));
 // LN Stamdata import
 const ReferenceOpsImportModal = React.lazy(() => import("../digitalplanning/modals/ReferenceOpsImportModal"));
 
+const CompanyPresentation = React.lazy(() => import("./CompanyPresentation"));
+
 const AdminRefOpsImportScreen = ({ onNavigate }: { onNavigate?: (screen: string | null) => void }) => (
   <ReferenceOpsImportModal
     isOpen={true}
@@ -117,45 +120,56 @@ const AdminRefOpsImportScreen = ({ onNavigate }: { onNavigate?: (screen: string 
   />
 );
 
-const MTPresentationLauncher = () => (
-  <div className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
-    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-4">
-      <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight">
-        MT Presentatie (Tijdelijk)
-      </h3>
-      <p className="text-slate-600 text-sm leading-relaxed">
-        Open een presentatie in een nieuw tabblad. In beide presentaties staat een vaste knop om direct terug de app in te gaan.
-      </p>
-      <div className="flex flex-wrap gap-3 pt-2">
-        <a
-          href="/presentation"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-blue-700 transition-colors"
-        >
-          Open MT Presentatie
-          <ArrowRight size={14} />
-        </a>
-        <a
-          href="/presentation-teamleaders"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-emerald-700 transition-colors"
-        >
-          Open Teamleader Presentatie
-          <ArrowRight size={14} />
-        </a>
-        <a
-          href="/portal"
-          className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 text-slate-800 px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-slate-200 transition-colors"
-        >
-          Naar App Portaal
-          <ArrowRight size={14} />
-        </a>
+const MTPresentationLauncher = () => {
+  const [showSysPres, setShowSysPres] = useState(false);
+  return (
+    <div className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
+      {showSysPres && <CompanyPresentation onClose={() => setShowSysPres(false)} />}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-4">
+        <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight">
+          Presentaties & Visie
+        </h3>
+        <p className="text-slate-600 text-sm leading-relaxed">
+          Kies een presentatie om te starten.
+        </p>
+        <div className="flex flex-wrap gap-3 pt-2">
+          <button
+            onClick={() => setShowSysPres(true)}
+            className="inline-flex items-center gap-2 rounded-2xl bg-purple-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-purple-700 transition-colors shadow-sm"
+          >
+            Start Systeem Presentatie
+            <PlayCircle size={14} />
+          </button>
+          <a
+            href="/presentation"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-blue-700 transition-colors"
+          >
+            Open MT Presentatie
+            <ArrowRight size={14} />
+          </a>
+          <a
+            href="/presentation-teamleaders"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 text-white px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-emerald-700 transition-colors"
+          >
+            Open Teamleader Presentatie
+            <ArrowRight size={14} />
+          </a>
+          <a
+            href="/portal"
+            className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 text-slate-800 px-5 py-3 font-bold text-xs uppercase tracking-wider hover:bg-slate-200 transition-colors"
+          >
+            Naar App Portaal
+            <ArrowRight size={14} />
+          </a>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * AdminDashboard V5.7 - Reference Hub Integration
@@ -570,9 +584,9 @@ const AdminDashboard = () => {
         },
         {
           id: "mt_presentation",
-          title: "MT Presentatie",
-          desc: "Tijdelijke presentatiepagina met directe terugkoppeling naar de app.",
-          icon: <BookOpen size={24} className="text-blue-600" />,
+          title: "Presentaties",
+          desc: "Interactieve introducties en systeemvisie presentaties.",
+          icon: <PlayCircle size={24} className="text-blue-600" />,
           color: "bg-blue-50 border-blue-100",
           roles: ["admin", "engineer", "teamleader"],
           component: MTPresentationLauncher,

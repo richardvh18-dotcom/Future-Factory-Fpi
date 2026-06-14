@@ -12,7 +12,7 @@ const auditService = require('../services/auditService');
  * @param {Function} [callableBuilder] - Optionele builder voor region/runWith varianten.
  * @returns {Function} Firebase HTTPS Callable
  */
-const withAudit = (actionName, callableFunction, callableBuilder = (handler) => functions.https.onCall(handler)) => {
+const withAudit = (actionName, callableFunction, callableBuilder = (handler) => functions.region('europe-west1').https.onCall(handler)) => {
   return callableBuilder(async (data, context) => {
     // 1. Log Start van de actie
     await auditService.logCallable(context, `${actionName}_STARTED`, data, { severity: 'INFO' });

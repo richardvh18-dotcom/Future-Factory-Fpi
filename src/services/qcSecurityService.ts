@@ -3,7 +3,7 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import app from "../config/firebase";
 import { auth } from "../config/firebase";
 
-const functions = getFunctions(app);
+const functions = getFunctions(app, 'europe-west1');
 
 type QcCallableName = "saveQcMeasurement" | "saveQcInspection" | "updateQcMeasurement";
 

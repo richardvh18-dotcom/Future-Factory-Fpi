@@ -1,11 +1,12 @@
 /* eslint-disable */
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Send,
   Paperclip,
+  PlusCircle
 } from "lucide-react";
-import { addDoc, collection, doc, getDoc, getDocs, serverTimestamp, query, limit, orderBy } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, serverTimestamp, query, limit, orderBy, where, setDoc } from "firebase/firestore";
 import { db, auth, logActivity } from "../../config/firebase";
 import { aiService } from "../../services/aiService";
 import { createAiDocumentRecord } from "../../services/planningSecurityService";
@@ -99,8 +100,6 @@ type AiDocumentRecord = {
 type AIServiceLike = {
   chat: (messages: ChatMessage[], systemPrompt?: string | null, options?: { signal?: AbortSignal }) => Promise<string>;
   chatWithContext: (messages: ChatMessage[], systemPrompt?: string | null, includeContext?: boolean, options?: { signal?: AbortSignal }) => Promise<string>;
-  loadRecentConversation: (userId: string) => Promise<SavedConversation | null>;
-  saveConversation: (payload: { userId: string; sessionId: string; messages: ChatMessage[] }) => Promise<void>;
   saveMemory: (payload: { topic: string; content: string; sourceQuestion: string; sourceAnswer: string; userId: string | null; category: string }) => Promise<void>;
   isConfigured: () => boolean;
 };
@@ -139,7 +138,11 @@ const getWelcomeMessage = (lang: string, t?: (key: string) => string) => {
   return t ? t('ai.chat.welcome') : "Hallo! Ik ben je AI assistent. Hoe kan ik je helpen?";
 };
 
-const AiChatView = () => {
+export interface AiChatViewRef {
+  startNewConversation: () => void;
+}
+
+const AiChatView = forwardRef<AiChatViewRef, {}>((props, ref) => {
   const { t, i18n } = useTranslation();
   const { showError, showSuccess } = useNotifications();
   const location = useLocation();
@@ -210,18 +213,29 @@ const AiChatView = () => {
           setSystemContext(DEFAULT_CONTEXT);
         }
 
-        // Vorige gesprek herstellen (indien aanwezig en recenter dan 24u)
+        // Vorige gesprek herstellen (direct via Firestore, indien aanwezig en recenter dan 24u)
         try {
           const uid = auth.currentUser?.uid;
           if (uid) {
-            const saved = await ai.loadRecentConversation(uid);
-            const savedMessages = saved?.messages;
-            if (saved && savedMessages && savedMessages.length > 1) {
-              const lastUpdated = saved.lastUpdated?.toDate?.() || null;
-              const within24h = lastUpdated && (Date.now() - lastUpdated.getTime()) < 86400000;
-              if (within24h) {
-                sessionId.current = saved.sessionId || sessionId.current;
-                setMessages(savedMessages.map((m: SavedConversationMessage): ChatMessage => ({ role: m.role, content: m.content })));
+            const q = query(
+              collection(db, 'future-factory/settings/ai_conversations'),
+              where('userId', '==', uid),
+              orderBy('updatedAt', 'desc'),
+              limit(1)
+            );
+            const snapshot = await getDocs(q);
+            
+            if (!snapshot.empty) {
+              const lastConv = snapshot.docs[0];
+              const data = lastConv.data();
+              const savedMessages = data.messages;
+              if (savedMessages && savedMessages.length > 1) {
+                const lastUpdated = data.updatedAt?.toDate?.() || null;
+                const within24h = lastUpdated && (Date.now() - lastUpdated.getTime()) < 86400000;
+                if (within24h) {
+                  sessionId.current = lastConv.id;
+                  setMessages(savedMessages.map((m: any): ChatMessage => ({ role: m.role, content: m.content })));
+                }
               }
             }
           }
@@ -464,10 +478,19 @@ const AiChatView = () => {
       setMessages((prev) => [...prev, { role: "assistant", content: response } as ChatMessage]);
       showSuccess('Antwoord ontvangen!');
 
-      // Gesprek opslaan in Firestore (fire-and-forget)
+      // Gesprek opslaan in Firestore (direct)
       if (auth.currentUser?.uid) {
         const toSave: ChatMessage[] = [...messages, userMsg, { role: "assistant", content: response }];
-        ai.saveConversation({ userId: auth.currentUser.uid, sessionId: sessionId.current, messages: toSave });
+        try {
+          const conversationRef = doc(db, 'future-factory/settings/ai_conversations', sessionId.current);
+          setDoc(conversationRef, {
+            userId: auth.currentUser.uid,
+            messages: toSave,
+            updatedAt: serverTimestamp(),
+          }, { merge: true }).catch(err => console.error("Fout bij opslaan conversatie:", err));
+        } catch (e) {
+          console.error("Fout bij opslaan conversatie", e);
+        }
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -493,6 +516,10 @@ const AiChatView = () => {
     setMessages([{ role: "assistant", content: getWelcomeMessage(i18n.language, t) }]);
   };
 
+  useImperativeHandle(ref, () => ({
+    startNewConversation: handleNewConversation
+  }));
+
   if (isInitializing) {
     return (
       <div className="flex flex-col h-full bg-slate-50 items-center justify-center animate-in fade-in">
@@ -505,16 +532,6 @@ const AiChatView = () => {
 
   return (
     <div className="h-full flex flex-col max-w-4xl mx-auto">
-      <div className="flex items-center justify-between px-6 py-2 border-b border-slate-200 bg-white shrink-0">
-        <span className="text-xs text-slate-400 select-none">{t("aiChat.assistantLabel", "AI Assistent")}</span>
-        <button
-          onClick={handleNewConversation}
-          className="text-xs text-slate-500 hover:text-red-600 transition-colors"
-          title="Nieuw gesprek starten"
-        >
-          Nieuw gesprek
-        </button>
-      </div>
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.map((msg, idx) => (
           <AiMessage 
@@ -570,7 +587,7 @@ const AiChatView = () => {
       </div>
     </div>
   );
-};
+});
 
 export default AiChatView;
 

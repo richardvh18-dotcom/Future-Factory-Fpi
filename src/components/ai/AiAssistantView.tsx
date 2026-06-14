@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
@@ -6,6 +6,7 @@ import {
   BookOpen,
   Download,
   Loader2,
+  PlusCircle,
 } from "lucide-react";
 import * as XLSX from 'xlsx';
 import { collection, getDocs, query, where } from "firebase/firestore";
@@ -13,7 +14,7 @@ import { db } from "../../config/firebase";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { getRawPlanningData } from "../../services/planningContext";
 import { PATHS, getPathString } from "../../config/dbPaths";
-import AiChatView from "./AiChatView";
+import AiChatView, { AiChatViewRef } from "./AiChatView";
 import FlashcardViewer from "./FlashcardViewer";
 import { MOCK_FLASHCARDS } from "../../data/aiPrompts";
 
@@ -41,6 +42,7 @@ type NotificationApi = {
 const AiAssistantView = () => {
   const { t } = useTranslation();
   const { showError, showSuccess, showInfo } = useNotifications() as NotificationApi;
+  const chatRef = useRef<AiChatViewRef>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "flashcards">("chat");
   const [flashcards, setFlashcards] = useState<FlashcardPayload>(MOCK_FLASHCARDS as FlashcardPayload);
   const [loadingFlashcards, setLoadingFlashcards] = useState(true);
@@ -152,6 +154,17 @@ const AiAssistantView = () => {
           >
             <MessageSquare size={16} /> {t('ai.tabs.chat', 'Chat')}
           </button>
+
+          {activeTab === "chat" && (
+            <button
+              onClick={() => chatRef.current?.startNewConversation()}
+              className="px-3 py-2 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all font-bold text-sm flex items-center gap-2 border border-transparent hover:border-blue-100"
+              title={t('ai.new_chat', 'Nieuw gesprek')}
+            >
+              <PlusCircle size={18} /> <span className="hidden sm:inline">Nieuw</span>
+            </button>
+          )}
+
           <button
             onClick={() => setActiveTab("flashcards")}
             className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
@@ -165,7 +178,7 @@ const AiAssistantView = () => {
 
           <button
             onClick={handleExportExcel}
-            className="px-3 py-2 rounded-lg text-slate-500 hover:text-green-600 hover:bg-white transition-all border border-transparent hover:border-slate-200"
+            className="ml-2 px-3 py-2 rounded-lg text-slate-500 hover:text-green-600 hover:bg-white transition-all border border-transparent hover:border-slate-200"
             title={t('ai.export.tooltip', 'Exporteer huidige planning naar Excel')}
           >
             <Download size={18} />
@@ -175,7 +188,7 @@ const AiAssistantView = () => {
 
       {/* CONTENT AREA */}
       <div className={`flex-1 relative ${activeTab === 'chat' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-        {activeTab === "chat" && <AiChatView />}
+        {activeTab === "chat" && <AiChatView ref={chatRef} />}
         {activeTab === "flashcards" && (
           loadingFlashcards ? (
             <div className="flex flex-col items-center justify-center h-full gap-4">

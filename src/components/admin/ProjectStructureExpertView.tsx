@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import i18n from "i18next";
 import { 
   BookOpen, 
@@ -178,9 +179,9 @@ const fileDetails: Record<string, FileDetail> = {
  * DE VOLLEDIGE PROJECTBOOM
  * Gebaseerd op de 5e405e21 snapshot.
  */
-const projectStructure: TreeNodeData[] = [
+const getProjectStructure = (t: any): TreeNodeData[] => [
   {
-    label: "Config & Core",
+    label: t('projectStructureExpert.nodes.configAndCore', "Config & Core"),
     icon: <Shield className="w-4 h-4 text-red-500" />,
     children: [
       "src/config/dbPaths.js",
@@ -191,7 +192,7 @@ const projectStructure: TreeNodeData[] = [
     ]
   },
   {
-    label: "Digital Planning (Fittings Flow)",
+    label: t('projectStructureExpert.nodes.digitalPlanning', "Digital Planning (Fittings Flow)"),
     icon: <Zap className="w-4 h-4 text-amber-500" />,
     children: [
       "src/components/digitalplanning/BM01Hub.jsx",
@@ -199,7 +200,7 @@ const projectStructure: TreeNodeData[] = [
       "src/components/digitalplanning/Terminal.jsx",
       "src/components/digitalplanning/EfficiencyDashboard.jsx",
       {
-        label: "Modals (Interactiiv)",
+        label: t('projectStructureExpert.nodes.modalsInteractive', "Modals (Interactief)"),
         children: [
           "src/components/digitalplanning/modals/ProductionStartModal.jsx",
           "src/components/digitalplanning/modals/InspectionModal.jsx",
@@ -212,7 +213,7 @@ const projectStructure: TreeNodeData[] = [
         ]
       },
       {
-        label: "Terminal Views",
+        label: t('projectStructureExpert.nodes.terminalViews', "Terminal Views"),
         children: [
           "src/components/digitalplanning/terminal/TerminalProductionView.jsx",
           "src/components/digitalplanning/terminal/TerminalPlanningView.jsx",
@@ -222,7 +223,7 @@ const projectStructure: TreeNodeData[] = [
     ]
   },
   {
-    label: "Admin & Matrix Management",
+    label: t('projectStructureExpert.nodes.adminMatrix', "Admin & Matrix Management"),
     icon: <Settings className="w-4 h-4 text-blue-500" />,
     children: [
       "src/components/admin/AdminDashboard.jsx",
@@ -231,7 +232,7 @@ const projectStructure: TreeNodeData[] = [
       "src/components/admin/AdminDatabaseView.jsx",
       "src/components/admin/FactoryStructureManager.jsx",
       {
-        label: "Matrix Manager",
+        label: t('projectStructureExpert.nodes.matrixManager', "Matrix Manager"),
         children: [
           "src/components/admin/matrixmanager/AdminMatrixManager.jsx",
           "src/components/admin/matrixmanager/DimensionsView.jsx",
@@ -241,7 +242,7 @@ const projectStructure: TreeNodeData[] = [
     ]
   },
   {
-    label: "Utility Services (De Motor)",
+    label: t('projectStructureExpert.nodes.utilityServices', "Utility Services (De Motor)"),
     icon: <Cpu className="w-4 h-4 text-green-500" />,
     children: [
       "src/utils/infor_sync_service.js",
@@ -254,7 +255,7 @@ const projectStructure: TreeNodeData[] = [
     ]
   },
   {
-    label: "Infrastructuur (Root Files)",
+    label: t('projectStructureExpert.nodes.infraRoot', "Infrastructuur (Root Files)"),
     icon: <Layers className="w-4 h-4 text-gray-500" />,
     children: [
       "firestore.rules",
@@ -317,6 +318,8 @@ const TreeNode = ({ node, path = "", level = 0, onSelect, selectedPath }: TreeNo
 };
 
 const ProjectStructureExpertView = () => {
+  const { t } = useTranslation();
+  const projectStructure = getProjectStructure(t);
   const [selectedFile, setSelectedFile] = useState("");
   const [aiExplanation, setAiExplanation] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -338,15 +341,15 @@ const ProjectStructureExpertView = () => {
     if (!selectedFile) return;
     setIsAiLoading(true);
     try {
-      const prompt = `Je bent een senior software architect. Leg uit wat het bestand of de map '${selectedFile}' doet in deze React/Firebase applicatie. Geef een beknopte, technische maar begrijpelijke uitleg.`;
+      const prompt = t('projectStructureExpert.aiPrompt', "Je bent een senior software architect. Leg uit wat het bestand of de map '{{file}}' doet in deze React/Firebase applicatie. Geef een beknopte, technische maar begrijpelijke uitleg.", { file: selectedFile });
       const response = await aiService.chat([{ role: "user", content: prompt }]);
       setAiExplanation(response);
     } catch (error) {
       console.error("AI Error:", error);
       if (getErrorMessage(error).toLowerCase().includes('key')) {
-        setAiExplanation("Configuratie fout: backend AI sleutel ontbreekt of is ongeldig. Controleer Firebase Functions config of environment variables op de server.");
+        setAiExplanation(t('projectStructureExpert.aiConfigError', "Configuratie fout: backend AI sleutel ontbreekt of is ongeldig. Controleer Firebase Functions config of environment variables op de server."));
       } else {
-          setAiExplanation("Kon geen uitleg genereren. Controleer de console voor foutmeldingen.");
+          setAiExplanation(t('projectStructureExpert.aiGenError', "Kon geen uitleg genereren. Controleer de console voor foutmeldingen."));
       }
     } finally {
       setIsAiLoading(false);
@@ -360,19 +363,19 @@ const ProjectStructureExpertView = () => {
         <div>
           <h1 className="text-2xl font-black flex items-center tracking-tight">
             <BookOpen className="w-8 h-8 mr-3 text-blue-400" />
-            ENGINEERING PORTAL
+            {t('projectStructureExpert.portalTitle', 'ENGINEERING PORTAL')}
           </h1>
           <p className="text-slate-400 text-xs uppercase font-bold tracking-widest mt-1">
-            FPi Future Factory • Systeem Architectuur & Onboarding
+            {t('projectStructureExpert.portalSubtitle', 'FPi Future Factory • Systeem Architectuur & Onboarding')}
           </p>
         </div>
         <div className="flex items-center space-x-3">
           <div className="text-right mr-4 hidden md:block">
-            <p className="text-[10px] text-slate-500 font-mono">{i18n.t('projectStructureExpert.gitHash', 'GIT_HASH: 5e405e21')}</p>
-            <p className="text-[10px] text-green-400 font-mono italic">{i18n.t('projectStructureExpert.buildStatus', 'BUILD_STATUS: STABLE')}</p>
+            <p className="text-[10px] text-slate-500 font-mono">{t('projectStructureExpert.gitHash', 'GIT_HASH: 5e405e21')}</p>
+            <p className="text-[10px] text-green-400 font-mono italic">{t('projectStructureExpert.buildStatus', 'BUILD_STATUS: STABLE')}</p>
           </div>
           <div className="bg-blue-500/20 text-blue-400 px-4 py-2 rounded-xl border border-blue-500/30 text-xs font-black">
-            PILOT v3.0
+            {t('projectStructureExpert.pilotVersion', 'PILOT v3.0')}
           </div>
         </div>
       </div>
@@ -380,7 +383,7 @@ const ProjectStructureExpertView = () => {
       <div className="flex flex-1 overflow-hidden">
         {/* Navigatie (Linkerzijde) */}
         <div className="w-1/2 overflow-y-auto p-6 border-r border-gray-100 bg-gray-50/30 scrollbar-thin scrollbar-thumb-gray-200">
-          <h3 className="text-[10px] uppercase font-black text-gray-400 mb-4 tracking-[0.2em]">{i18n.t('projectStructureExpert.projectExplorer', 'Project Verkenner')}</h3>
+          <h3 className="text-[10px] uppercase font-black text-gray-400 mb-4 tracking-[0.2em]">{t('projectStructureExpert.projectExplorer', 'Project Verkenner')}</h3>
           {projectStructure.map((node, i) => (
             <TreeNode 
               key={i} 
@@ -400,7 +403,7 @@ const ProjectStructureExpertView = () => {
                   <Cpu className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-gray-900">{detail?.title || selectedFile.split('/').pop()}</h3>
+                  <h3 className="text-xl font-black text-gray-900">{t(`projectStructureExpert.files.${selectedFile}.title`, detail?.title || selectedFile.split('/').pop() || '')}</h3>
                   <p className="text-xs font-mono text-blue-600 break-all">{selectedFile}</p>
                 </div>
               </div>
@@ -410,21 +413,21 @@ const ProjectStructureExpertView = () => {
                   <>
                     <section>
                       <h4 className="text-[10px] uppercase font-black text-gray-400 mb-2 tracking-widest flex items-center">
-                        <Info className="w-3 h-3 mr-1" /> Functionele Beschrijving
+                        <Info className="w-3 h-3 mr-1" /> {t('projectStructureExpert.functionalDescription', 'Functionele Beschrijving')}
                       </h4>
                       <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 leading-relaxed text-gray-700 text-sm italic shadow-inner">
-                        "{detail.desc}"
+                        "{t(`projectStructureExpert.files.${selectedFile}.desc`, detail.desc)}"
                       </div>
                     </section>
 
                     <section>
                       <h4 className="text-[10px] uppercase font-black text-gray-400 mb-2 tracking-widest flex items-center">
-                        <Layers className="w-3 h-3 mr-1" /> Systeem Tags
+                        <Layers className="w-3 h-3 mr-1" /> {t('projectStructureExpert.systemTags', 'Systeem Tags')}
                       </h4>
                       <div className="flex flex-wrap gap-2">
                         {detail.tags.map((tag: string) => (
                           <span key={tag} className="px-3 py-1 bg-white text-blue-600 text-[10px] font-black rounded-full border-2 border-blue-50 shadow-sm uppercase tracking-tighter">
-                            #{tag}
+                            #{t(`projectStructureExpert.tags.${tag}`, tag)}
                           </span>
                         ))}
                       </div>
@@ -433,9 +436,9 @@ const ProjectStructureExpertView = () => {
                     <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100 flex items-start space-x-3 shadow-sm">
                       <Zap className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                       <div>
-                        <h4 className="text-xs font-black text-amber-900 uppercase tracking-tight">{i18n.t('projectStructureExpert.developerGuidance', 'Lead-raad voor Ontwikkelaars')}</h4>
+                        <h4 className="text-xs font-black text-amber-900 uppercase tracking-tight">{t('projectStructureExpert.developerGuidance', 'Lead-raad voor Ontwikkelaars')}</h4>
                         <p className="text-xs text-amber-700 mt-1 leading-normal">
-                          {i18n.t('projectStructureExpert.corePartPrefix', 'Dit bestand is een kernonderdeel van de ')}<b>{detail.tags[0]}</b>{i18n.t('projectStructureExpert.corePartSuffix', ' logica. Wijzigingen hier hebben direct impact op de gebruikerservaring van de operators. Test altijd in ')}<b>{i18n.t('projectStructureExpert.previewMode', 'Preview Mode')}</b>.
+                          {t('projectStructureExpert.corePartPrefix', 'Dit bestand is een kernonderdeel van de ')}<b>{t(`projectStructureExpert.tags.${detail.tags[0]}`, detail.tags[0])}</b>{t('projectStructureExpert.corePartSuffix', ' logica. Wijzigingen hier hebben direct impact op de gebruikerservaring van de operators. Test altijd in ')}<b>{t('projectStructureExpert.previewMode', 'Preview Mode')}</b>.
                         </p>
                       </div>
                     </div>
@@ -447,9 +450,9 @@ const ProjectStructureExpertView = () => {
                   <div className="p-4 bg-amber-50 rounded-2xl border-2 border-amber-200 flex items-start gap-3 shadow-sm">
                     <AlertTriangle className="w-8 h-8 text-amber-500 shrink-0 mt-1" />
                     <div>
-                      <h4 className="text-xs font-black text-amber-900 uppercase tracking-tight">{i18n.t('projectStructureExpert.aiNotConfigured', 'AI Assistent niet geconfigureerd')}</h4>
+                      <h4 className="text-xs font-black text-amber-900 uppercase tracking-tight">{t('projectStructureExpert.aiNotConfigured', 'AI Assistent niet geconfigureerd')}</h4>
                       <p className="text-xs text-amber-800 mt-1 leading-normal font-medium">
-                        De backend AI-configuratie ontbreekt. Configureer de AI sleutel in Firebase Functions configuratie of server environment variables.
+                        {t('projectStructureExpert.aiNotConfiguredDesc', 'De backend AI-configuratie ontbreekt. Configureer de AI sleutel in Firebase Functions configuratie of server environment variables.')}
                       </p>
                     </div>
                   </div>
@@ -457,18 +460,18 @@ const ProjectStructureExpertView = () => {
                   <div className="p-5 bg-purple-50 rounded-2xl border border-purple-100 shadow-sm">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-xs font-black text-purple-900 uppercase tracking-tight flex items-center gap-2">
-                        <Bot size={16} /> AI Architect
+                        <Bot size={16} /> {t('projectStructureExpert.aiArchitect', 'AI Architect')}
                       </h4>
                       {!aiExplanation && !isAiLoading && (
                         <button onClick={handleAskAi} className="text-[10px] font-bold bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 transition-colors shadow-sm">
-                          Genereer Uitleg
+                          {t('projectStructureExpert.generateExplanation', 'Genereer Uitleg')}
                         </button>
                       )}
                     </div>
                     
                     {isAiLoading && (
                       <div className="flex items-center gap-2 text-purple-600 text-xs font-bold py-2">
-                        <Loader2 size={14} className="animate-spin" /> Analyseren...
+                        <Loader2 size={14} className="animate-spin" /> {t('projectStructureExpert.analyzing', 'Analyseren...')}
                       </div>
                     )}
 
@@ -480,7 +483,7 @@ const ProjectStructureExpertView = () => {
                     
                     {!aiExplanation && !isAiLoading && !detail && (
                       <p className="text-xs text-purple-700/60 italic">
-                        Geen documentatie beschikbaar. Vraag de AI om dit bestand te analyseren.
+                        {t('projectStructureExpert.noDocumentation', 'Geen documentatie beschikbaar. Vraag de AI om dit bestand te analyseren.')}
                       </p>
                     )}
                   </div>
@@ -493,9 +496,9 @@ const ProjectStructureExpertView = () => {
                 <Box className="w-12 h-12 text-gray-200" />
               </div>
               <div>
-                <h4 className="text-lg font-black text-gray-300 uppercase tracking-widest">{i18n.t('projectStructureExpert.selectComponent', 'Selecteer Component')}</h4>
+                <h4 className="text-lg font-black text-gray-300 uppercase tracking-widest">{t('projectStructureExpert.selectComponent', 'Selecteer Component')}</h4>
                 <p className="text-gray-400 text-sm mt-2 max-w-[250px] mx-auto italic">
-                  Klik op een bestand in de boomstructuur om de technische fiches en logica te ontsluiten.
+                  {t('projectStructureExpert.selectComponentDesc', 'Klik op een bestand in de boomstructuur om de technische fiches en logica te ontsluiten.')}
                 </p>
               </div>
             </div>
@@ -506,11 +509,11 @@ const ProjectStructureExpertView = () => {
       {/* Industriële Footer */}
       <div className="p-3 bg-slate-100 border-t border-gray-200 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-widest">
         <div className="flex items-center space-x-6 px-4">
-          <span className="flex items-center text-blue-600"><Database className="w-3 h-3 mr-1" /> {i18n.t('projectStructureExpert.firestoreLive', 'Firestore: Live')}</span>
-          <span className="flex items-center text-green-600"><Printer className="w-3 h-3 mr-1" /> {i18n.t('projectStructureExpert.zebraDriverVersion', 'Zebra Driver: v2.1')}</span>
-          <span className="flex items-center text-amber-600"><Cpu className="w-3 h-3 mr-1" /> {i18n.t('projectStructureExpert.edgeBridgeSyncing', 'Edge-Bridge: Syncing')}</span>
+          <span className="flex items-center text-blue-600"><Database className="w-3 h-3 mr-1" /> {t('projectStructureExpert.firestoreLive', 'Firestore: Live')}</span>
+          <span className="flex items-center text-green-600"><Printer className="w-3 h-3 mr-1" /> {t('projectStructureExpert.zebraDriverVersion', 'Zebra Driver: v2.1')}</span>
+          <span className="flex items-center text-amber-600"><Cpu className="w-3 h-3 mr-1" /> {t('projectStructureExpert.edgeBridgeSyncing', 'Edge-Bridge: Syncing')}</span>
         </div>
-        <div className="px-4 opacity-50">{i18n.t('projectStructureExpert.authorizedEngineeringOnly', 'Authorized Engineering Only • FPi Fittings 2026')}</div>
+        <div className="px-4 opacity-50">{t('projectStructureExpert.authorizedEngineeringOnly', 'Authorized Engineering Only • FPi Fittings 2026')}</div>
       </div>
     </div>
   );

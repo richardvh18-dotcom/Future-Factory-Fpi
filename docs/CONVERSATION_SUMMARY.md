@@ -1,3 +1,218 @@
+## Update sessie 14 juni 2026 (AI Chat Historie, UX & Voorbereiding Teamleader Personeelsdashboard)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. AI Chat Historie & Firestore Optimalisatie**
+- Chat is stateful gemaakt per gebruiker: de AI onthoudt het actuele gesprek wanneer je de tab verlaat of met hetzelfde account inlogt op een andere tablet.
+- Firestore opslag geoptimaliseerd (`src/services/aiService.ts`): er worden maximaal 50 berichten (ca. 100KB) bewaard om de 1MB document-limiet van Firebase en overmatige AI token-kosten te voorkomen.
+- Firestore composite index toegevoegd voor `ai_conversations` in `firestore.indexes.json` (`userId` ASC, `updatedAt` DESC).
+
+**2. AI Assistent UI/UX Verbeteringen**
+- Grijze balk voor "Nieuw gesprek" verwijderd uit `AiChatView.tsx`.
+- Knop "Nieuw" (`PlusCircle`) logischer verplaatst naar de hoofdheader in `AiAssistantView.tsx` voor een schonere layout.
+- Volgorde knoppen in de header geoptimaliseerd: Chat → Nieuw → Flashcards → Excel Export.
+- Vastgelegd hoe de AI (bijv. "FutureBot") eenvoudig een identiteit en naam kan krijgen via de systeemprompt in het Context-tabblad.
+
+### Volgende stappen (Hervatpunt)
+- **Teamleader Personeelsdashboard:** Starten met het herontwerpen van de personeelsweergave (aanwezigheid, ploegindeling, stationbezetting en afwezigheid beter, overzichtelijker en sneller inzichtelijk maken).
+
+---
+
+## Update sessie 14 juni 2026 (Interactieve Spoolbouw tekeningen & Externe Voorraad Integratie)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Besproken visie & Architectuur concepten (Opgeslagen voor later)
+
+**1. Interactieve en Dynamische Werktekeningen (Spoolbouw)**
+- Het doel is om CAT/CAD-tekeningen interactief op de tablets op de werkvloer te tonen, direct gekoppeld aan de actuele BOM in Firebase.
+- **Optie A (2D SVG):** Omzetten van exports naar SVG waarbij elk onderdeel (`<path id="...">`) klikbaar wordt (kleurcodering op basis van Firestore-status, scannen van lotnummers).
+- **Optie B (3D WebGL - Aanbevolen voor complexe spools):** Gebruik van `@react-three/fiber` en `.glb` / `.gltf` bestanden voor interactieve, roteerbare modellen op de tablet.
+- **Tablet Performance:** Ruwe CAT-modellen moeten server-side gedecimeerd (vereenvoudigd tot < 1MB) worden voordat ze naar de browser/tablet gestuurd worden om prestaties hoog en hitte/batterijverbruik laag te houden.
+- **Firebase Opslag:** De 3D of 2D modellen komen in Firebase Storage (bijv. `/3d_models/spools/`) en de download-URL wordt gekoppeld aan de order in de `planning` collectie. Firebase CORS regels moeten hiervoor correct worden ingesteld.
+
+**2. Intercompany Inbound Flow (Voorraad zusterbedrijven, bijv. Egypte)**
+- Spoolbouw gebruikt deels fittingen van externe FPi zusterbedrijven, waarvan de artikelnummers afwijken van de lokale Infor LN (Hardenberg) codes.
+- **Oplossing (Shipping Hub):** Een nieuw import-scherm toevoegen voor de afdeling Shipping, waar inkomende container-pakbonnen (Excel/CSV) worden ingelezen en opgeslagen in een nieuwe collectie (`future-factory/inventory/external_stock`).
+- **Conversiemapping:** De bestaande `ConversionManager` inzetten om Egyptische (of andere) artikelcodes te vertalen naar Hardenbergse LN-codes (het "Babelvis" principe).
+- **BOM Resolutie:** Bij het inladen van de Spoolbouw terminal-BOM bepaalt het systeem per onderdeel of dit eigen productie is (check `tracked_products`) of ingekochte voorraad (check `external_stock`), en past de instructies/verwachte scan voor de operator hierop aan.
+
+### Volgende stappen (Hervatpunt)
+- **3D/SVG concept:** Eerst een kleine test uitvoeren door handmatig een dummy `.glb` of `.svg` te uploaden naar Firebase Storage (incl. CORS aanpassen via Cloud Shell) en in te laden via React op een test-route.
+- **Voorraad flow:** Bij afdeling Shipping / Inkoop voorbeeld pakbonnen opvragen (welke kolommen komen uit Egypte?). Daarna Cloud Function schrijven voor de import.
+
+---
+
+## Update sessie 14 juni 2026 (Opschonen us-central1 duplicaten)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Veilige opschoonlijst bepaald via live JSON-inventaris**
+- Via `firebase functions:list --json` en een Node.js overlap-analyse zijn alle functies bepaald die in zowel `us-central1` als `europe-west1` bestonden (93 stuks).
+- Bewust overgeslagen: 5 functies die alleen in `us-central1` aanwezig zijn:
+  - `aiImportConsolidator`, `aiNightlyBottleneckPlanner`, `aiReactiveWatchdogTrackedLegacy`, `aiReactiveWatchdogTrackedScoped`, `sendEmail`
+
+**2. 93 us-central1 duplicaten verwijderd**
+- Alle 93 veilige duplicaten verwijderd via `firebase functions:delete --region us-central1 --force` in batches.
+
+### Validatie na cleanup
+- `US_REMAINING_TOTAL`: 5
+- `US_WITH_EW1_DUPLICATE`: 0
+- `US_ONLY`: 5 (bewust behouden)
+
+---
+
+## Update sessie 14 juni 2026 (Regio rollback door beperkingen)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Regio-instellingen teruggedraaid naar `europe-west1` op de recent gewijzigde punten**
+- `src/config/firebase.ts` regel 106: `getFunctions(app, 'europe-west4')` teruggezet naar `getFunctions(app, 'europe-west1')`.
+- `functions/src/callables/exportCallables.ts` regels 488, 717 en 750: callable builders teruggezet van `europe-west4` naar `europe-west1`.
+
+### Validatie
+- Frontend functions instance verwijst weer naar `europe-west1`.
+- Alle drie eerder aangepaste ATPS callable endpoints staan weer op `europe-west1`.
+
+---
+
+## Update sessie 13 juni 2026 (Functions deploy & TypeScript fixes)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. TypeScript & module resolutie fixes voor Cloud Functions deploy**
+- Tijdens de `firebase deploy` kwamen er TypeScript type-checks aan het licht in `qcCallables.ts` (`Implicit 'any'`).
+- Module resolutie fout (`Cannot find module 'firebase-functions/v2/https'`) opgelost door het bestand om te zetten naar CommonJS `require()` imports inclusief `// @ts-nocheck`, analoog aan de overige callables in het project.
+
+**2. Succesvolle verhuizing naar europe-west4 (Eemshaven)**
+- Na de TypeScript fixes is de deployment succesvol afgerond.
+- Alle Cloud Functions, triggers en callables draaien nu officieel op minimale afstand in de Google regio `europe-west4`.
+- Bevestigd dat de Firestore database in `eur3` (multi-region Europa inclusief Eemshaven) staat, wat een migratie van de database overbodig maakte.
+
+### Validatie
+- `firebase deploy --only functions` is succesvol afgerond door de TypeScript fixes.
+- Latency penalty voor netwerkverkeer (Atlantische oceaan) is nu geëlimineerd.
+
+### Volgende stap
+- Focus verleggen naar het UX/UI herontwerp van het Teamleader Personeelsdashboard.
+
+---
+
+## Update sessie 13 juni 2026 (Nieuwe branch FPiFF-June-rolout)
+
+**Branch:** `FPiFF-June-rolout` (aangemaakt vanaf `FPiFF-18-12-May`)
+
+### Uitgevoerd in deze sessie
+**1. Nieuwe branch aangemaakt voor June rollout**
+- Branch `FPiFF-June-rolout` aangemaakt vanaf `FPiFF-18-12-May`.
+- Branch gepusht naar GitHub: `origin/FPiFF-June-rolout`.
+- PR aanmaken mogelijk via: https://github.com/richardvh18-dotcom/Future-Factory-Fpi/pull/new/FPiFF-June-rolout
+
+---
+
+## Update sessie 13 juni 2026 (Firebase regio migratie naar europe-west4)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Firebase regio gecontroleerd en gecorrigeerd naar `europe-west4`**
+- `src/config/firebase.ts` regel 106: `getFunctions(app, 'europe-west1')` → `getFunctions(app, 'europe-west4')`. Dit is de hoofd-functions instantie die door de hele frontend wordt gebruikt.
+- `functions/src/callables/exportCallables.ts`: drie ATPS callable builders (regels 488, 717, 750) van `europe-west1` → `europe-west4`.
+
+**Bewust op `europe-west1` gelaten (Vertex AI vereiste):**
+- `functions/src/callables/smartSchedulerCallables.ts`: `calculateSmartSuggestions` vereist Vertex AI in `europe-west1`.
+- `src/components/digitalplanning/SmartPlanningSuggestions.tsx`: client-side koppeling hieraan, correct zo.
+
+### Validatie
+- Alle overige functions (index.js, withAudit, qcCallables, planningCallables, exportCallables) stonden al correct op `europe-west4`.
+- `firebase deploy --only functions` nog opnieuw uit te voeren na deze correcties.
+
+---
+
+## Update sessie 13 juni 2026 (Systeem Presentatie launcher & animaties)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Systeem Presentatie geïntegreerd in Admin Hub**
+- In `AdminDashboard.tsx` de losse tegel voor de Systeem Presentatie samengevoegd met de bestaande MT Presentatie tegel.
+- Tegel hernoemd naar "Presentaties" en het onderliggende menu naar "Presentaties & Visie".
+- Gebruikers kunnen nu vanuit één overzichtelijk scherm zowel de externe presentatielinks als de interne "Systeem Presentatie" starten.
+
+**2. Full-screen animatie toegevoegd aan Company Presentation**
+- In `CompanyPresentation.tsx` Tailwind CSS animatieklassen (`animate-in fade-in zoom-in-95 duration-500 ease-out`) toegevoegd aan de hoofdcontainer.
+- Zorgt voor een soepele inzoom- en fade-in overgang wanneer de presentatie beeldvullend over het dashboard opent.
+
+### Validatie
+- Component laadt en sluit correct en zonder conflicten in het Admin Dashboard.
+
+---
+
+## Update sessie 13 juni 2026 (Firebase Hosting deploy vanuit Codespaces)
+
+**Branch:** `FPiFF-18-12-May` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Firebase omgeving gecontroleerd**
+- `firebase.json` stond al correct voor Hosting:
+    - `public: dist`
+    - SPA rewrite naar `/index.html`
+- `.firebaserc` bevat project alias:
+    - `Future-Factory -> future-factory-377ef`
+
+**2. Build en deploy voorbereid in Codespace**
+- Dependencies geïnstalleerd met `npm install`.
+- Productiebuild gemaakt met `npm run build`.
+
+**3. Firebase CLI login uitgevoerd (headless/Codespaces-proof)**
+- Login flow via `npx firebase-tools login --no-localhost`.
+- Succesvol ingelogd als `richardvh18@gmail.com`.
+
+**4. Hosting deploy uitgevoerd**
+- Actief project gezet met `npx firebase-tools use Future-Factory`.
+- Deploy uitgevoerd met `npx firebase-tools deploy --only hosting`.
+- Resultaat: deploy geslaagd, versie gepubliceerd.
+
+### Live resultaat
+- Hosting URL: `https://future-factory-377ef.web.app`
+- Firebase Console: `https://console.firebase.google.com/project/future-factory-377ef/overview`
+
+### Herhaalbare workflow (volgende deploys)
+1. `npm install`
+2. `npm run build`
+3. `npx firebase-tools use Future-Factory`
+4. `npx firebase-tools deploy --only hosting`
+
+### Optioneel: volledige Firebase deploy (incl. rules/indexes/functions)
+- `npx firebase-tools deploy`
+
+### CI/CD naslag (GitHub Actions + Firebase Hosting)
+**Doel:** automatische deploys zonder handmatige login in Codespaces.
+
+**Status in deze repo (aangemaakt):**
+- `.github/workflows/firebase-hosting-preview.yml` (PR preview deploys)
+- `.github/workflows/firebase-hosting-live.yml` (live deploy op push naar `main`)
+
+**Aanbevolen setup (kort):**
+1. In Firebase: koppel GitHub repo aan Hosting via de Firebase Console.
+2. Laat Firebase automatisch workflows aanmaken in `.github/workflows/`.
+3. Gebruik branchbeleid:
+    - `main`: productie deploy naar `future-factory-377ef`.
+    - feature branches/PRs: preview channels met tijdelijke URL.
+4. Controleer dat build-commando op CI gelijk is aan lokaal:
+    - `npm ci`
+    - `npm run build`
+5. Merge naar `main` triggert productie-release automatisch.
+
+**Handmatige fallback (blijft altijd bruikbaar):**
+- `npm run build && npx firebase-tools deploy --only hosting`
+
+---
+
 ## Update sessie 13 juni 2026 (Mazak printflow: batch-stabiliteit, USB-locking, cut-mode en queue UX)
 
 **Branch:** `FPiFF-18-12-May` (actuele werkbranch)

@@ -413,6 +413,7 @@ exports.saveLnQrExportHistory = withAudit(
         };
     },
     (handler) => functions.region('europe-west1').https.onCall(handler),
+    (handler) => functions.region('europe-west1').https.onCall(handler),
 );
 
 /**
@@ -507,7 +508,7 @@ exports.previewAtpsOccupancyExport = withAudit(
                 includeRecords: true,
             });
         },
-        (handler) => functions.region('europe-west1').https.onCall(handler),
+    (handler) => functions.region('europe-west1').https.onCall(handler),
 );
 
 exports.executeAtpsOccupancyExport = withAudit(
@@ -568,6 +569,8 @@ exports.executeAtpsOccupancyExport = withAudit(
             throw error;
         }
     },
+    (handler) => functions.region('europe-west1').https.onCall(handler),
+    (handler) => functions.region('europe-west1').https.onCall(handler),
     (handler) => functions.region('europe-west1').https.onCall(handler),
 );
 

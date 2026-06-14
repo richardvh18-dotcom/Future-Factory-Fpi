@@ -7,7 +7,7 @@
  * via Firebase Functions config/environment.
  */
 
-import { collection, collectionGroup, query, getDocs, addDoc, setDoc, getDoc, doc, limit, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, collectionGroup, query, getDocs, addDoc, setDoc, getDoc, doc, limit, orderBy, where, serverTimestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import app, { auth, db, logActivity } from '../config/firebase';
 import { PATHS, getPathString, getPlanningArchivePath } from '../config/dbPaths';
@@ -78,7 +78,7 @@ class AIService {
 
   constructor() {
     this.availableModel = 'gemini-2.5-flash';
-    this.functions = getFunctions(app);
+    this.functions = getFunctions(app, 'europe-west1');
     this.aiProxyGenerate = httpsCallable(this.functions, 'aiProxyGenerate');
     
     // Expose debug functie globally voor troubleshooting
@@ -1925,21 +1925,23 @@ class AIService {
    * Sla de volledige gesprekgeschiedenis op per gebruiker (max 50 berichten)
    */
   async saveConversation({ userId, sessionId, messages }: Record<string, any>) {
-    if (!userId) return;
+    if (!userId || !sessionId) return;
     try {
-      const userDocRef = doc(db, `${getPathString(PATHS.AI_CONVERSATIONS)}/${userId}`);
+      const conversationRef = doc(db, getPathString(PATHS.AI_CONVERSATIONS), sessionId);
+      
+      // Bewaar maximaal 50 berichten in de historie om Firestore document size limit (1MB) en AI token kosten te besparen
       const toSave = messages.slice(-50).map((m: any) => ({
         role: m.role,
         content: (m.content || '').substring(0, 2000),
-        sessionId: sessionId || '',
-        timestamp: new Date().toISOString(),
+        timestamp: m.timestamp || new Date().toISOString(),
       }));
-      await setDoc(userDocRef, {
-        messages: toSave,
-        sessionId: sessionId || '',
-        lastUpdated: serverTimestamp(),
+      
+      await setDoc(conversationRef, {
         userId,
-      });
+        messages: toSave,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
       await logActivity(
         userId,
         'AI_CONVERSATION_SAVE',
@@ -1957,10 +1959,18 @@ class AIService {
   async loadRecentConversation(userId: string) {
     if (!userId) return null;
     try {
-      const userDocRef = doc(db, `${getPathString(PATHS.AI_CONVERSATIONS)}/${userId}`);
-      const snap = await getDoc(userDocRef);
-      if (!snap.exists()) return null;
-      return snap.data();
+      const q = query(
+        collection(db, getPathString(PATHS.AI_CONVERSATIONS)),
+        where('userId', '==', userId),
+        orderBy('updatedAt', 'desc'),
+        limit(1)
+      );
+      
+      const snap = await getDocs(q);
+      if (snap.empty) return null;
+      
+      const docData = snap.docs[0];
+      return { sessionId: docData.id, ...docData.data() };
     } catch (error) {
       console.error('Error loading conversation:', error);
       return null;

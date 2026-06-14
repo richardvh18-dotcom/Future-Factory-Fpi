@@ -724,7 +724,7 @@ const TimeTrackingView = ({ initialDepartment = "ALLES" }) => {
 
     return {
       id: log?.id,
-      lotNumber: log?.lotNumber || log?.id || "Onbekend",
+      lotNumber: log?.lotNumber || log?.id || t("common.unknown", "Onbekend"),
       machine: normalizeMachine(log?.machine || log?.stationLabel || log?.currentStation || "-") || "-",
       status: log?.status || "-",
       currentStation: log?.currentStation || log?.lastStation || "-",

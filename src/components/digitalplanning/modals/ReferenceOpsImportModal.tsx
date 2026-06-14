@@ -31,7 +31,7 @@ const ReferenceOpsImportModal = ({ isOpen, onClose, onSuccess }: { isOpen: boole
   const [result, setResult] = useState<any>(null);  // { written, skipped }
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const functions = getFunctions(app);
+  const functions = getFunctions(app, 'europe-west1');
   const importReferenceOperationsCallable = httpsCallable(functions, "importReferenceOperations");
 
   if (!isOpen) return null;

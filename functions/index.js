@@ -45,7 +45,7 @@ const { executeDrawingSync } = require('./src/services/drawingSyncService');
  * Runs every day at 02:00 Amsterdam time by default.
  * Can be triggered more frequently via database settings if needed.
  */
-exports.scheduledDrawingSync = functions.pubsub
+exports.scheduledDrawingSync = functions.region('europe-west1').pubsub
   .schedule('0 2 * * *')
   .timeZone('Europe/Amsterdam')
   .onRun(async (context) => {
@@ -1254,7 +1254,7 @@ const importOrdersToFirestore = async (orders, sourceMeta = {}, options = {}) =>
 };
 
 // Sample HTTP function
-exports.helloWorld = functions.https.onRequest((request, response) => {
+exports.helloWorld = functions.region('europe-west1').https.onRequest((request, response) => {
   response.send('Hello from Firebase!');
 });
 
@@ -1273,7 +1273,7 @@ exports.helloWorld = functions.https.onRequest((request, response) => {
  *   allowedMachines?: string[] | string // bijv ["BH12", "BH18"]
  * }
  */
-exports.importPlanningFromWebhook = functions.https.onRequest(async (req, res) => {
+exports.importPlanningFromWebhook = functions.region('europe-west1').https.onRequest(async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
@@ -1414,7 +1414,7 @@ exports.importPlanningFromWebhook = functions.https.onRequest(async (req, res) =
  *   token?: string
  * }
  */
-exports.atpsPresenceWebhook = functions.https.onRequest(async (req, res) => {
+exports.atpsPresenceWebhook = functions.region('europe-west1').https.onRequest(async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
@@ -1571,7 +1571,7 @@ exports.atpsPresenceWebhook = functions.https.onRequest(async (req, res) => {
  * Firebase Storage trigger import (geen Power Automate nodig).
  * Upload een LN Excel bestand naar: imports/planning/
  */
-exports.importPlanningFromStorage = functions.storage.object().onFinalize(async (object) => {
+exports.importPlanningFromStorage = functions.region('europe-west1').storage.object().onFinalize(async (object) => {
   const objectName = String(object?.name || '');
   const bucketName = String(object?.bucket || '');
 
@@ -1666,7 +1666,7 @@ exports.importPlanningFromStorage = functions.storage.object().onFinalize(async 
  * Trigger: Wordt uitgevoerd zodra een document wordt verwijderd uit de Users collectie.
  * Actie: Verwijdert direct de bijbehorende gebruiker uit Firebase Authentication.
  */
-exports.cleanupUserAuth = functions.firestore
+exports.cleanupUserAuth = functions.region('europe-west1').firestore
   .document('future-factory/Users/Accounts/{userId}')
   .onDelete(async (snapshot, context) => {
     const { userId } = context.params;
@@ -1690,7 +1690,7 @@ exports.cleanupUserAuth = functions.firestore
 /**
  * STEP 1: Realtime aggregaties voor dashboard KPI's.
  */
-exports.aggregatePlanningStats = functions.firestore
+exports.aggregatePlanningStats = functions.region('europe-west1').firestore
   .document('future-factory/production/digital_planning/{orderId}')
   .onWrite(async (change, context) => {
     const before = change.before.exists ? change.before.data() : null;
@@ -1699,7 +1699,7 @@ exports.aggregatePlanningStats = functions.firestore
     return handlePlanningOrderWrite({ before, after, orderId });
   });
 
-exports.aggregatePlanningStatsScoped = functions.firestore
+exports.aggregatePlanningStatsScoped = functions.region('europe-west1').firestore
   .document('future-factory/production/digital_planning/{department}/machines/{machine}/orders/{orderId}')
   .onWrite(async (change, context) => {
     const before = change.before.exists ? change.before.data() : null;
@@ -1767,7 +1767,7 @@ const handleTrackedWrite = async ({ before, after, productId = '' }) => {
   return null;
 };
 
-exports.aggregateTrackedStats = functions.firestore
+exports.aggregateTrackedStats = functions.region('europe-west1').firestore
   .document('future-factory/production/tracked_products/{productId}')
   .onWrite(async (change, context) => {
     const before = change.before.exists ? change.before.data() : null;
@@ -1775,7 +1775,7 @@ exports.aggregateTrackedStats = functions.firestore
     return handleTrackedWrite({ before, after, productId: context.params?.productId });
   });
 
-exports.aggregateTrackedStatsScoped = functions.firestore
+exports.aggregateTrackedStatsScoped = functions.region('europe-west1').firestore
   .document('future-factory/production/tracked_products/{department}/machines/{machine}/items/{productId}')
   .onWrite(async (change, context) => {
     const before = change.before.exists ? change.before.data() : null;
@@ -1784,10 +1784,154 @@ exports.aggregateTrackedStatsScoped = functions.firestore
   });
 
 /**
+ * STEP 2b: Efficiency herberekening server-side na elke tracking-wijziging.
+ * Schrijft resultaat naar efficiency_hours/{orderId} zodat de tablet dit alleen
+ * nog hoeft te lezen — geen berekeningen meer in de browser.
+ */
+const recalculateOrderEfficiency = async (orderId) => {
+  if (!orderId) return;
+  try {
+    const stdRef = db.collection(EFFICIENCY_COLLECTION).doc(orderId);
+    const stdSnap = await stdRef.get();
+
+    // Haal planning order op
+    let planningOrder = null;
+    const planningRootSnap = await db.collection(PLANNING_COLLECTION).doc(orderId).get();
+    if (planningRootSnap.exists) {
+      planningOrder = planningRootSnap.data();
+    } else {
+      const scopedSnap = await db.collectionGroup('orders').where('orderId', '==', orderId).limit(1).get();
+      const planningDoc = scopedSnap.docs.find(d => d.ref.path.includes(PLANNING_COLLECTION));
+      if (planningDoc) planningOrder = planningDoc.data();
+    }
+
+    // Verzamel alle tracking docs voor deze order
+    const [rootSnap, groupSnap] = await Promise.all([
+      db.collection(TRACKING_COLLECTION).where('orderId', '==', orderId).get(),
+      db.collectionGroup('items').where('orderId', '==', orderId).get(),
+    ]);
+    const all = [...rootSnap.docs, ...groupSnap.docs].filter(d => d.ref.path.includes(TRACKING_COLLECTION));
+    const unique = new Map();
+    all.forEach(d => unique.set(d.id, d.data()));
+    const logs = Array.from(unique.values());
+
+    if (logs.length === 0 && !stdSnap.exists && !planningOrder) return;
+
+    const std = stdSnap.exists ? stdSnap.data() || {} : {};
+    const parseNum = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+    // Bepaal werkelijk bestede minuten (werkdagen ma-vr 06:00-22:00)
+    const WORK_START_H = 6, WORK_END_H = 22;
+    const workMinutes = (start, end) => {
+      if (!start || !end) return 0;
+      let total = 0, cur = new Date(start);
+      const endDate = new Date(end);
+      while (cur < endDate) {
+        const day = cur.getDay();
+        if (day >= 1 && day <= 5) {
+          const wStart = new Date(cur); wStart.setHours(WORK_START_H, 0, 0, 0);
+          const wEnd = new Date(cur); wEnd.setHours(WORK_END_H, 0, 0, 0);
+          const s = Math.max(cur.getTime(), wStart.getTime());
+          const e = Math.min(endDate.getTime(), wEnd.getTime());
+          if (e > s) total += (e - s) / 60000;
+        }
+        cur.setDate(cur.getDate() + 1); cur.setHours(WORK_START_H, 0, 0, 0);
+      }
+      return total;
+    };
+
+    const toDate = v => {
+      if (!v) return null;
+      if (v && typeof v.toDate === 'function') return v.toDate();
+      const d = new Date(v);
+      return isNaN(d) ? null : d;
+    };
+
+    let actualMinutes = 0, producedQty = 0;
+    logs.forEach(log => {
+      const ts = log.timestamps || {};
+      const start = toDate(ts.station_start || ts.started || log.startTime || log.startedAt || log.createdAt);
+      const end = toDate(ts.finished || ts.completed || log.endTime || log.completedAt || log.updatedAt) || new Date();
+      if (start) actualMinutes += workMinutes(start, end);
+      if (['completed', 'shipped', 'gereed'].includes(String(log.status || ''))) producedQty += 1;
+    });
+
+    // Fallback: gebruik opgeslagen waarde als geen tracking-duur beschikbaar
+    if (actualMinutes <= 0) {
+      const candidates = [std.actualTimeTotal, planningOrder?.totalActualHours, planningOrder?.actualHours];
+      for (const c of candidates) {
+        const v = parseNum(c);
+        if (v > 0) { actualMinutes = v > 300 ? v : v * 60; break; }
+      }
+    }
+
+    const stdQty = parseNum(std.plan || planningOrder?.plan || std.quantity || planningOrder?.quantity || 0);
+    const targetTotal = parseNum(std.standardTimeTotal) ||
+      parseNum(std.productionTimeTotal) + parseNum(std.postProcessingTimeTotal) ||
+      (parseNum(planningOrder?.plannedMinutesBH) + parseNum(planningOrder?.plannedMinutesNabewerken));
+    const normPerUnit = parseNum(std.minutesPerUnit) || (stdQty > 0 ? targetTotal / stdQty : 0);
+    const earnedMinutes = producedQty * normPerUnit;
+
+    let efficiency = 0;
+    if (actualMinutes > 0) efficiency = (earnedMinutes / actualMinutes) * 100;
+    else if (producedQty > 0) efficiency = 100;
+
+    let status = 'Nog niet gestart';
+    if (actualMinutes > 0 || producedQty > 0) {
+      status = efficiency >= 100 ? 'VOOR op schema' : efficiency >= 85 ? 'OP schema' : 'ACHTER op schema';
+    }
+
+    const payload = {
+      orderId,
+      actualTimeTotal: actualMinutes,
+      producedQty,
+      efficiency,
+      earnedMinutes,
+      status,
+      isOverrun: actualMinutes > targetTotal,
+      standardTimeTotal: targetTotal,
+      minutesPerUnit: normPerUnit,
+      quantity: stdQty,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      _calculatedBy: 'cloud_trigger',
+    };
+
+    // Kopieer meta-velden uit bestaande record of planningorder
+    for (const field of ['departmentId', 'machine', 'itemCode', 'itemDescription', 'item']) {
+      const val = std[field] || planningOrder?.[field];
+      if (val) payload[field] = val;
+    }
+
+    await stdRef.set(payload, { merge: true });
+    console.log(`[efficiency_trigger] Order ${orderId}: efficiency=${efficiency.toFixed(1)}% qty=${producedQty}/${stdQty} actual=${actualMinutes.toFixed(0)}min`);
+  } catch (err) {
+    console.error(`[efficiency_trigger] Fout bij order ${orderId}:`, err?.message || String(err));
+  }
+};
+
+exports.recalculateEfficiencyOnTrackedWrite = functions.region('europe-west1').firestore
+  .document('future-factory/production/tracked_products/{productId}')
+  .onWrite(async (change) => {
+    const after = change.after.exists ? change.after.data() : null;
+    const before = change.before.exists ? change.before.data() : null;
+    const orderId = clean(after?.orderId || before?.orderId);
+    return recalculateOrderEfficiency(orderId);
+  });
+
+exports.recalculateEfficiencyOnTrackedScopedWrite = functions.region('europe-west1').firestore
+  .document('future-factory/production/tracked_products/{department}/machines/{machine}/items/{productId}')
+  .onWrite(async (change) => {
+    const after = change.after.exists ? change.after.data() : null;
+    const before = change.before.exists ? change.before.data() : null;
+    const orderId = clean(after?.orderId || before?.orderId);
+    return recalculateOrderEfficiency(orderId);
+  });
+
+/**
  * STEP 3: TTL metadata op logs zetten.
  * Let op: TTL zelf activeer je in Firebase Console op veld `expireAt`.
  */
-exports.applyActivityLogTtl = functions.firestore
+exports.applyActivityLogTtl = functions.region('europe-west1').firestore
   .document('future-factory/audit/logs/{logId}')
   .onCreate(async (snapshot) => {
     const data = snapshot.data() || {};
@@ -1816,7 +1960,7 @@ exports.applyActivityLogTtl = functions.firestore
     return null;
   });
 
-exports.applyClientErrorTtl = functions.firestore
+exports.applyClientErrorTtl = functions.region('europe-west1').firestore
   .document('future-factory/logs/client_errors/{errorId}')
   .onCreate(async (snapshot) => {
     const retentionDays = 7;
@@ -1878,6 +2022,7 @@ exports.saveQcInspection = saveQcInspection;
 exports.updateQcMeasurement = updateQcMeasurement;
 exports.migrateLegacyQcData = migrateLegacyQcData;
 exports.archiveQcDataMonthly = functions
+  .region('europe-west1')
   .pubsub.schedule('15 3 1 * *')
   .timeZone('Europe/Amsterdam')
   .onRun(async () => {
@@ -2118,7 +2263,7 @@ exports.scheduleAtpsLiveExport = functions
  * Alleen toegankelijk voor ingelogde gebruikers, met basis rate limiting.
  */
 const googleAiApiKeySecret = functions.params.defineSecret('GOOGLE_AI_API_KEY');
-exports.aiProxyGenerate = functions.runWith({ secrets: ['GOOGLE_AI_API_KEY'] }).https.onCall(async (data, context) => {
+exports.aiProxyGenerate = functions.region('europe-west1').runWith({ secrets: ['GOOGLE_AI_API_KEY'] }).https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist voor AI requests.');
   }
@@ -2221,7 +2366,7 @@ const { sendEmail } = require('./src/callables/emailCallables');
 
 exports.sendEmail = sendEmail;
 
-exports.logClientError = functions.https.onCall(async (data, context) => {
+exports.logClientError = functions.region('europe-west1').https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Inloggen vereist voor error logging.');
   }

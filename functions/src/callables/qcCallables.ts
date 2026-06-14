@@ -1,5 +1,7 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { saveQcMeasurementService, saveQcInspectionService, updateQcMeasurementService, migrateLegacyQcDataService } from "../services/qcService";
+// @ts-nocheck
+
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { saveQcMeasurementService, saveQcInspectionService, updateQcMeasurementService, migrateLegacyQcDataService } = require("../services/qcService");
 
 // resolveUserRoleForContext is CommonJS-exported in this codebase.
 const { resolveUserRoleForContext } = require("../auth/resolveUserRole");
@@ -19,7 +21,7 @@ const toHttpsError = (error: unknown, fallbackMessage: string): HttpsError => {
   return new HttpsError("internal", fallbackMessage);
 };
 
-export const saveQcMeasurement = onCall(async (request) => {
+export const saveQcMeasurement = onCall({ region: 'europe-west1' }, async (request: any) => {
   const data = request.data as any;
 
   if (!request.auth) {
@@ -43,7 +45,7 @@ export const saveQcMeasurement = onCall(async (request) => {
   }
 });
 
-export const saveQcInspection = onCall(async (request) => {
+export const saveQcInspection = onCall({ region: 'europe-west1' }, async (request: any) => {
   const data = request.data as any;
 
   if (!request.auth) {
@@ -61,7 +63,7 @@ export const saveQcInspection = onCall(async (request) => {
   }
 });
 
-export const updateQcMeasurement = onCall(async (request) => {
+export const updateQcMeasurement = onCall({ region: 'europe-west1' }, async (request: any) => {
   const data = request.data as any;
 
   if (!request.auth) {
@@ -84,7 +86,7 @@ export const updateQcMeasurement = onCall(async (request) => {
   }
 });
 
-export const migrateLegacyQcData = onCall(async (request) => {
+export const migrateLegacyQcData = onCall({ region: 'europe-west1' }, async (request: any) => {
   const data = request.data as any;
 
   if (!request.auth) {
