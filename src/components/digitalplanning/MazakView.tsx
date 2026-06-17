@@ -24,23 +24,32 @@ import {
   Printer,
   ChevronDown,
   ChevronRight,
-  ChevronLeft,
   Search,
   Tag,
+  Calendar,
   Save,
   Trash2,
+  X,
 } from "lucide-react";
 import { db, logActivity } from "../../config/firebase";
 import { getPathString, PATHS } from "../../config/dbPaths";
 import { normalizeMachine } from "../../utils/hubHelpers";
-import { rejectTrackedProductFinal, completeTrackedProduct, tempRejectTrackedProduct, markMazakLabelsPrinted, queuePrintJob } from "../../services/planningSecurityService";
+import {
+  rejectTrackedProductFinal,
+  completeTrackedProduct,
+  tempRejectTrackedProduct,
+  markMazakLabelsPrinted,
+  queuePrintJob,
+  reassignTrackedProductOrder,
+  createProductionMessages,
+} from "../../services/planningSecurityService";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import { useLabelPreview } from "../../hooks/useLabelPreview";
 import PostProcessingFinishModal from "./modals/PostProcessingFinishModal";
 import { subscribeTrackedProducts } from "../../utils/trackedProducts";
 import AutoScaledLabelPreview from "../printer/AutoScaledLabelPreview";
 import StatusBadge from "./common/StatusBadge";
-import { getISOWeek, addWeeks, subWeeks } from "date-fns";
+import { getISOWeek } from "date-fns";
 import { filterLabelsByProduct, processLabelData } from "../../utils/labelHelpers";
 import { renderLabelToBitmapZpl } from "../../utils/unifiedLabelRenderEngine";
 import { resolveLinkedTemplateChain } from "../../utils/orderLabelTemplateUtils";
@@ -184,6 +193,23 @@ const toMillisFromMixed = (value: unknown): number => {
   return 0;
 };
 
+const getUrgencyColorClass = (value: unknown): string => {
+  const dateMillis = toMillisFromMixed(value);
+  if (!dateMillis) return "text-slate-400";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const deliveryDate = new Date(dateMillis);
+  deliveryDate.setHours(0, 0, 0, 0);
+
+  const diffInDays = Math.floor((deliveryDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffInDays <= 7) return "text-red-600 font-black";
+  if (diffInDays <= 14) return "text-blue-600 font-black";
+  return "text-slate-600 font-bold";
+};
+
 const isSeriesEligibleItem = (item: ProductItem) => {
   const statusUpper = String(item?.status || "").toUpperCase();
   const stepUpper = String(item?.currentStep || "").toUpperCase();
@@ -205,6 +231,62 @@ const getLotSeriesSequence = (lotNumber: unknown): number | null => {
   if (!match) return null;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getOrderIdFamily = (orderId: unknown): string => {
+  const raw = String(orderId || "").trim().toUpperCase();
+  if (!raw) return "";
+  const match = raw.match(/\d{3}/);
+  return match ? match[0] : "";
+};
+
+const getFlangeSizeToken = (value: unknown): string => {
+  const raw = String(value || "").toUpperCase();
+  if (!raw) return "";
+
+  const normalizeCandidate = (token: string): string => {
+    const cleaned = String(token || "").replace(/^0+/, "");
+    const parsed = Number.parseInt(cleaned || "0", 10);
+    if (!Number.isFinite(parsed) || parsed < 40 || parsed > 1200) return "";
+    return String(parsed);
+  };
+
+  // Voorbeelden die we willen kunnen lezen:
+  // "FL 350", "FL-350", "FLENS 350", "FLANGE350", "DN350", "350MM"
+  const patterns = [
+    /\bFL(?:ENS|ANGE)?\s*[-_/]*\s*(\d{2,4})\b/,
+    /\bDN\s*[-_/]*\s*(\d{2,4})\b/,
+    /\b(\d{2,4})\s*MM\b/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    const normalized = normalizeCandidate(match?.[1] || "");
+    if (normalized) return normalized;
+  }
+
+  // Fallback voor samengestelde itemcodes waar FL-maat niet als los woord staat,
+  // bijvoorbeeld "FLST...0350...". Alleen toepassen als er FL-hints aanwezig zijn.
+  const hasFlangeHint = /FL|FLS|FLST|FLENS|FLANGE/.test(raw);
+  if (!hasFlangeHint) return "";
+
+  const knownDiameters = new Set([
+    40, 50, 60, 65, 75, 80, 90, 100, 110, 125, 140, 150, 160, 180, 200,
+    225, 250, 280, 300, 315, 320, 350, 355, 400, 450, 500, 560, 600, 630,
+    700, 710, 750, 800, 900, 1000, 1100, 1200,
+  ]);
+
+  const numberMatches = raw.match(/\d{2,4}/g) || [];
+  const normalizedNumbers = numberMatches
+    .map((token) => normalizeCandidate(token))
+    .filter(Boolean);
+
+  if (normalizedNumbers.length === 0) return "";
+
+  const knownMatch = normalizedNumbers.find((token) => knownDiameters.has(Number(token)));
+  if (knownMatch) return knownMatch;
+
+  return normalizedNumbers[0] || "";
 };
 
 const stationNameFromValue = (stationValue: unknown): string => {
@@ -320,11 +402,12 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const [showActionModal, setShowActionModal] = useState(false);
   const [scanInputInbox, setScanInputInbox] = useState("");
   const [scanInputProcess, setScanInputProcess] = useState("");
+  const [scanInputAdjust, setScanInputAdjust] = useState("");
   const [scannerMode, setScannerMode] = useState(true);
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const selectedProductRef = useRef<ProductItem | null>(null);
 
-  const [activeTab, setActiveTab] = useState("inbox"); // 'inbox' of 'process'
+  const [activeTab, setActiveTab] = useState("inbox"); // 'planning' | 'inbox' | 'process' | 'adjust' | 'free'
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [bulkSeriesProducts, setBulkSeriesProducts] = useState<ProductItem[]>([]);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -343,13 +426,25 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const [planningOrders, setPlanningOrders] = useState<PlanningOrder[]>([]);
   const [selectedPlanningOrder, setSelectedPlanningOrder] = useState<PlanningOrder | null>(null);
   const [planningSearch, setPlanningSearch] = useState("");
-  const [showAllWeeks, setShowAllWeeks] = useState(true);
-  const [referenceDate, setReferenceDate] = useState(new Date());
-  const activeScanInput = activeTab === "process" ? scanInputProcess : scanInputInbox;
-
+  const [adjustSearch, setAdjustSearch] = useState("");
+  const [selectedAdjustProduct, setSelectedAdjustProduct] = useState<ProductItem | null>(null);
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustOrderSearch, setAdjustOrderSearch] = useState("");
+  const [selectedAdjustTargetOrder, setSelectedAdjustTargetOrder] = useState<PlanningOrder | null>(null);
+  const [adjustRequestNote, setAdjustRequestNote] = useState("");
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
+  const activeScanInput = activeTab === "process"
+    ? scanInputProcess
+    : activeTab === "adjust"
+      ? scanInputAdjust
+      : scanInputInbox;
   const setActiveScanInput = (value: string) => {
     if (activeTab === "process") {
       setScanInputProcess(value);
+      return;
+    }
+    if (activeTab === "adjust") {
+      setScanInputAdjust(value);
       return;
     }
     setScanInputInbox(value);
@@ -375,6 +470,18 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, [showActionModal, scannerMode]);
+
+  useEffect(() => {
+    if (activeTab !== "adjust") {
+      setScanInputAdjust("");
+      setAdjustSearch("");
+      setSelectedAdjustProduct(null);
+      setAdjustReason("");
+      setAdjustOrderSearch("");
+      setSelectedAdjustTargetOrder(null);
+      setAdjustRequestNote("");
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, getPathString(PATHS.OCCUPANCY)), (snap) => {
@@ -425,21 +532,73 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   }, [occupancy, stationId, isShiftActive]);
 
   useEffect(() => {
-    const planningQuery = query(
+    const excludedStatuses = new Set(["completed", "shipped", "deleted", "cancelled"]);
+    const rootPlanningQuery = query(
       collection(db, getPathString(PATHS.PLANNING)),
       where("status", "not-in", ["completed", "shipped", "deleted", "cancelled"])
     );
-    const unsubPlanning = onSnapshot(planningQuery, (snap) => {
-      const orders: PlanningOrder[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PlanningOrder, "id">) }));
-      const flOrders = orders.filter((o: PlanningOrder) => {
+
+    const scopedOrdersQuery = query(
+      collectionGroup(db, 'orders'),
+      where("status", "not-in", ["completed", "shipped", "deleted", "cancelled"])
+    );
+
+    let rootOrders: PlanningOrder[] = [];
+    let scopedOrders: PlanningOrder[] = [];
+    let unsubScopedFallback: (() => void) | null = null;
+
+    const combineAndSetOrders = () => {
+      const combined = [...rootOrders, ...scopedOrders];
+      const uniqueOrders = Array.from(new Map(combined.map(o => [o.id, o])).values());
+      const flOrders = uniqueOrders.filter((o: PlanningOrder) => {
          const itemStr = String(o.item || "").toUpperCase();
          const codeStr = String(o.itemCode || o.productId || o.extraCode || "").toUpperCase();
          return itemStr.includes("FL") || codeStr.includes("FL");
       });
       setPlanningOrders(flOrders);
+    };
+
+    const unsubRoot = onSnapshot(rootPlanningQuery, (snap) => {
+      rootOrders = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PlanningOrder, "id">) }));
+      combineAndSetOrders();
+    }, (error) => console.error("Error fetching root planning:", error));
+
+    const unsubScoped = onSnapshot(scopedOrdersQuery, (snap) => {
+      scopedOrders = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PlanningOrder, "id">) }));
+      combineAndSetOrders();
+    }, (error) => {
+      console.error("Error fetching scoped planning orders:", error);
+      const firestoreCode = String(error?.code || "").toLowerCase();
+      const firestoreMessage = String(error?.message || "").toLowerCase();
+      const missingIndex = firestoreCode.includes("failed-precondition") || firestoreMessage.includes("requires a collection_group");
+
+      if (!missingIndex || unsubScopedFallback) return;
+
+      // Fallback zonder status-filter in query om indexblokkade te omzeilen.
+      const scopedFallbackQuery = query(collectionGroup(db, "orders"));
+      unsubScopedFallback = onSnapshot(
+        scopedFallbackQuery,
+        (fallbackSnap) => {
+          scopedOrders = fallbackSnap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as Omit<PlanningOrder, "id">) }) as PlanningOrder)
+            .filter((order) => {
+              const status = String(order.status || "").trim().toLowerCase();
+              return !excludedStatuses.has(status);
+            });
+          combineAndSetOrders();
+        },
+        (fallbackError) => {
+          console.error("Error fetching scoped planning orders (fallback):", fallbackError);
+        }
+      );
     });
-    return () => unsubPlanning();
-  }, []);
+
+    return () => {
+      unsubRoot();
+      unsubScoped();
+      if (unsubScopedFallback) unsubScopedFallback();
+    };
+  }, [notify]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, getPathString(PATHS.LABEL_TEMPLATES)), (snap) => {
@@ -570,8 +729,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const freeLabelTemplate = useMemo<LabelTemplate>(() => {
     return {
       ...FREE_TEXT_LABEL_TEMPLATE,
-      elements: (FREE_TEXT_LABEL_TEMPLATE.elements || []).map((element) => {
-        if (element.type !== "text") return element;
+      elements: (FREE_TEXT_LABEL_TEMPLATE.elements || []).map((element: any) => {
+        if (!element || typeof element !== "object" || element.type !== "text") return element;
         return {
           ...element,
           align: freeLabelAlign,
@@ -663,6 +822,100 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
   const inboxItems = useMemo(() => items.filter((i: ProductItem) => !i.mazakLabelPrinted), [items]);
   const processItems = useMemo(() => items.filter((i: ProductItem) => i.mazakLabelPrinted), [items]);
+  const adjustCandidates = useMemo(() => {
+    const deduped = new Map<string, ProductItem>();
+    [...inboxItems, ...processItems].forEach((item) => {
+      const key = String(item.id || item.lotNumber || "").trim();
+      if (!key) return;
+      deduped.set(key, item);
+    });
+
+    return Array.from(deduped.values()).sort((a, b) => {
+      const timeA = toMillisFromMixed(a.updatedAt || a.createdAt || 0);
+      const timeB = toMillisFromMixed(b.updatedAt || b.createdAt || 0);
+      return timeB - timeA;
+    });
+  }, [inboxItems, processItems]);
+
+  const filteredAdjustProducts = useMemo(() => {
+    const term = String(adjustSearch || "").trim().toLowerCase();
+    if (!term) return adjustCandidates;
+
+    return adjustCandidates.filter((item) => {
+      const haystack = [
+        item.lotNumber,
+        item.orderId,
+        item.item,
+        item.itemCode,
+      ]
+        .map((entry) => String(entry || "").toLowerCase())
+        .join(" ");
+      return haystack.includes(term);
+    });
+  }, [adjustCandidates, adjustSearch]);
+
+  const adjustTargetOrders = useMemo(() => {
+    const sourceOrder = String(selectedAdjustProduct?.orderId || "").trim().toUpperCase();
+    const sourceFamily = getOrderIdFamily(sourceOrder);
+    const sourceFlangeSize = getFlangeSizeToken([
+      selectedAdjustProduct?.item,
+      selectedAdjustProduct?.itemCode,
+      (selectedAdjustProduct as Record<string, unknown>)?.itemDescription,
+      selectedAdjustProduct?.extraCode,
+      selectedAdjustProduct?.productId,
+    ].join(" "));
+    const term = String(adjustOrderSearch || "").trim().toLowerCase();
+
+    const rows = planningOrders.filter((order) => {
+      const orderId = String(order.orderId || "").trim().toUpperCase();
+      if (!orderId || orderId === sourceOrder) return false;
+
+      const orderFlangeSize = getFlangeSizeToken([
+        order.item,
+        order.itemCode,
+        (order as Record<string, unknown>)?.itemDescription,
+        order.extraCode,
+        order.productId,
+      ].join(" "));
+
+      if (sourceFlangeSize) {
+        if (!orderFlangeSize || orderFlangeSize !== sourceFlangeSize) return false;
+      } else if (sourceFamily && getOrderIdFamily(orderId) !== sourceFamily) {
+        // Fallback voor records zonder duidelijke FL-maat.
+        return false;
+      }
+
+      if (!term) return true;
+      const haystack = `${order.orderId || ""} ${order.item || ""} ${order.itemCode || ""}`.toLowerCase();
+      return haystack.includes(term);
+    });
+
+    return rows
+      .sort((a, b) => {
+        const aActive = a.status === "in_progress" || a.status === "In Production";
+        const bActive = b.status === "in_progress" || b.status === "In Production";
+        if (aActive && !bActive) return -1;
+        if (!aActive && bActive) return 1;
+        const yearA = Number(a.year || a.weekYear || 0);
+        const yearB = Number(b.year || b.weekYear || 0);
+        if (yearA !== yearB) return yearA - yearB;
+        const weekA = Number(a.week || a.weekNumber || 0);
+        const weekB = Number(b.week || b.weekNumber || 0);
+        if (weekA !== weekB) return weekA - weekB;
+        return toMillisFromMixed(b.createdAt || 0) - toMillisFromMixed(a.createdAt || 0);
+      })
+      .slice(0, 30);
+  }, [planningOrders, selectedAdjustProduct, adjustOrderSearch]);
+
+  const selectedAdjustFlangeSize = getFlangeSizeToken([
+    selectedAdjustProduct?.item,
+    selectedAdjustProduct?.itemCode,
+    (selectedAdjustProduct as Record<string, unknown>)?.itemDescription,
+    selectedAdjustProduct?.extraCode,
+    selectedAdjustProduct?.productId,
+  ].join(" "));
+
+  const selectedAdjustOrderFamily = getOrderIdFamily(selectedAdjustProduct?.orderId || "");
   const isBulkInboxMode = activeTab === "inbox" && bulkSeriesProducts.length > 1;
   const selectedTemplateChain = useMemo<LabelTemplate[]>(() => {
     if (!selectedLabelId) return [];
@@ -745,16 +998,6 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const filteredPlanningOrders = useMemo(() => {
     let result: PlanningOrder[] = [...planningOrders];
 
-    if (!showAllWeeks) {
-      const targetWeek = getISOWeek(referenceDate);
-      const targetYear = referenceDate.getFullYear();
-      result = result.filter((o: PlanningOrder) => {
-         const orderWeek = Number(o.week || o.weekNumber);
-         const orderYear = Number(o.year || o.weekYear || targetYear);
-         return orderWeek === targetWeek && orderYear === targetYear;
-      });
-    }
-
     if (planningSearch) {
       const term = planningSearch.toLowerCase().trim();
       result = result.filter((o: PlanningOrder) => {
@@ -781,7 +1024,74 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     });
 
     return result;
-  }, [planningOrders, showAllWeeks, referenceDate, planningSearch]);
+  }, [planningOrders, planningSearch]);
+
+  const selectedPlanningOrderMaterialBadge = useMemo(() => {
+    if (!selectedPlanningOrder) return "";
+    const combined = [
+      String(selectedPlanningOrder.extraCode || ""),
+      String(selectedPlanningOrder.item || ""),
+      String(selectedPlanningOrder.itemCode || ""),
+    ].join(" ").toUpperCase();
+
+    if (combined.includes("EMT")) return "EMT";
+    if (combined.includes("CMT")) return "CMT";
+    if (combined.includes("CST")) return "CST";
+    return "";
+  }, [selectedPlanningOrder]);
+
+  const selectedPlanningOrderQuantity = useMemo(() => {
+    if (!selectedPlanningOrder) return 0;
+    const candidates = [
+      Number((selectedPlanningOrder as Record<string, unknown>).quantity),
+      Number(selectedPlanningOrder.plan),
+      Number((selectedPlanningOrder as Record<string, unknown>).toDoQty),
+    ];
+    const valid = candidates.find((value) => Number.isFinite(value) && value > 0);
+    return Number.isFinite(valid as number) ? Number(valid) : 0;
+  }, [selectedPlanningOrder]);
+
+  const selectedPlanningOrderProduced = useMemo(() => {
+    if (!selectedPlanningOrder) return 0;
+    const candidates = [
+      Number((selectedPlanningOrder as Record<string, unknown>).trackedFinishedCount),
+      Number((selectedPlanningOrder as Record<string, unknown>).produced),
+      Number((selectedPlanningOrder as Record<string, unknown>).done),
+    ];
+    const valid = candidates.find((value) => Number.isFinite(value) && value >= 0);
+    return Number.isFinite(valid as number) ? Number(valid) : 0;
+  }, [selectedPlanningOrder]);
+
+  const selectedPlanningOrderDeliveryLabel = useMemo(() => {
+    if (!selectedPlanningOrder) return "-";
+    const record = selectedPlanningOrder as Record<string, unknown>;
+    const rawDate = record.plannedDeliveryDate || record.deliveryDate || record.plannedDate || null;
+    const dateMillis = toMillisFromMixed(rawDate);
+    if (dateMillis > 0) {
+      const deliveryDate = new Date(dateMillis);
+      const week = getISOWeek(deliveryDate);
+      const dateLabel = deliveryDate.toLocaleDateString("nl-NL", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+      return `W${String(week).padStart(2, "0")} ${dateLabel}`;
+    }
+
+    const week = String(selectedPlanningOrder.week || selectedPlanningOrder.weekNumber || "").trim();
+    const year = String(selectedPlanningOrder.year || selectedPlanningOrder.weekYear || "").trim();
+    if (!week) return "-";
+    return year ? `W${String(week).padStart(2, "0")} ${year}` : `W${String(week).padStart(2, "0")}`;
+  }, [selectedPlanningOrder]);
+
+  const activePlanningOrderProducts = useMemo<ProductItem[]>(() => {
+    const orderKey = String(selectedPlanningOrder?.orderId || "").trim().toUpperCase();
+    if (!orderKey) return [];
+
+    return items
+      .filter((item) => String(item?.orderId || "").trim().toUpperCase() === orderKey)
+      .sort((a, b) => String(a?.lotNumber || a?.id || "").localeCompare(String(b?.lotNumber || b?.id || "")));
+  }, [items, selectedPlanningOrder]);
 
   const handleItemClick = (item: ProductItem) => {
     let sameSeries: ProductItem[] = [];
@@ -841,7 +1151,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
           if (itemCodeKey && candidateItemCode && candidateItemCode !== itemCodeKey) return false;
 
           const candidateSeq = getLotSeriesSequence(candidate?.lotNumber);
-          if (!Number.isFinite(candidateSeq)) return false;
+          if (typeof candidateSeq !== "number" || !Number.isFinite(candidateSeq)) return false;
 
           return candidateSeq >= minSeq && candidateSeq <= maxSeq;
         });
@@ -869,7 +1179,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     setShowActionModal(true);
   };
 
-  const resolveQueuePrinterForPrint = useCallback(async (): Promise<PrinterConfig> => {
+  const resolveQueuePrinterForPrint = async (): Promise<PrinterConfig> => {
     if (selectedQueuePrinter?.id) return selectedQueuePrinter;
 
     if (availablePrinters.length > 0) {
@@ -889,7 +1199,108 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     }
 
     throw new Error("Geen geldige Mazak-printer geconfigureerd voor de queue.");
-  }, [selectedQueuePrinter, availablePrinters, stationId, selectedRoutingTags]);
+  };
+
+  const resolvePreferredFlangeTemplatesForProduct = (product: ProductItem): LabelTemplate[] => {
+    const productFiltered = filterLabelsByProduct(availableLabels as any, product as any, {
+      excludeTempOrderLabels: true,
+    }) as LabelTemplate[];
+
+    const flangeOnly = productFiltered.filter((template) => hasFlangeTag(template));
+    if (flangeOnly.length === 0) return [];
+
+    const preferredRoot = flangeOnly.find((template: LabelTemplate) =>
+      template.tags?.includes("FLENZEN") ||
+      template.tags?.includes("FLENS") ||
+      template.tags?.includes("FLANGE")
+    ) || flangeOnly[0];
+
+    const linked = resolveLinkedTemplateChain(availableLabels as any[], String(preferredRoot?.id || ""), { maxDepth: 4 }) as LabelTemplate[];
+    const linkedFlange = linked.filter((template) => hasFlangeTag(template));
+    return linkedFlange.length > 0 ? linkedFlange : [preferredRoot];
+  };
+
+  const handleReprintAdjustedOrderLabel = async (product: ProductItem, previousOrderId: string, newOrderId: string): Promise<string> => {
+    const queuePrinter = await resolveQueuePrinterForPrint();
+    const queuePrinterId = String(queuePrinter?.id || "").trim();
+    const queueStationId = normalizeMachine(stationId || "MAZAK") || "MAZAK";
+    if (!queuePrinterId) {
+      throw new Error("Geen geldige Mazak-printer geconfigureerd voor de queue.");
+    }
+
+    const templatesToPrint = resolvePreferredFlangeTemplatesForProduct(product);
+    if (templatesToPrint.length === 0) {
+      throw new Error("Geen flens-labeltemplate beschikbaar voor herprint na orderwijziging.");
+    }
+
+    const processedData = processLabelData(product);
+    const diameter = getItemNominalDiameter(product);
+    const copies = (diameter > 450 && diameter <= 700) ? 2 : 1;
+    const zplChunks: string[] = [];
+
+    for (let idx = 0; idx < templatesToPrint.length; idx++) {
+      const templateToUse = templatesToPrint[idx];
+      const zplCode = await renderLabelToBitmapZpl({
+        template: templateToUse as any,
+        data: processedData as any,
+        printerDpi: mazakPrinterDpi,
+        darkness: 15,
+        printSpeed: 3,
+        widthMm: Number((templateToUse as any)?.width) || 90,
+        heightMm: Number((templateToUse as any)?.height) || 40,
+      });
+
+      if (!String(zplCode || "").trim()) {
+        throw new Error(`Lege ZPL gegenereerd voor template ${String(templateToUse?.name || templateToUse?.id || "onbekend")}.`);
+      }
+
+      const isLastInBatch = idx === templatesToPrint.length - 1;
+      zplChunks.push(applyBatchCutMode(zplCode, isLastInBatch, copies));
+    }
+
+    const batchPayload = zplChunks.join("\n");
+    if (!batchPayload) {
+      throw new Error("Geen geldige printpayload voor orderwijziging opgebouwd.");
+    }
+
+    const queuedJobId = await queuePrintJob(
+      queuePrinterId,
+      batchPayload,
+      {
+        description: `Mazak Herprint na orderwijziging ${previousOrderId} -> ${newOrderId}`,
+        templateId: String(templatesToPrint[0]?.id || ""),
+        templateName: templatesToPrint.length > 1 ? "Mazak Label Batch" : (templatesToPrint[0]?.name || "Mazak Label"),
+        machineId: queueStationId,
+        stationId: queueStationId,
+        targetStation: queueStationId,
+        targetPrinterName: queuePrinter?.name || queueStationId,
+        orderId: newOrderId,
+        previousOrderId,
+        lotNumber: String(product?.lotNumber || product?.id || ""),
+        lotNumbers: [String(product?.lotNumber || product?.id || "")].filter(Boolean),
+        lotCount: 1,
+        labelCount: templatesToPrint.length * copies,
+        quantity: 1,
+        isReprint: true,
+        linkedSequenceTotal: templatesToPrint.length,
+        linkedRootTemplateId: String(templatesToPrint[0]?.id || ""),
+        cutMode: "last-only",
+        queuedAsBatch: true,
+        reason: "order-reassign",
+      }
+    );
+
+    await markMazakLabelsPrinted({
+      productIds: [String(product.id || product.lotNumber || "")].filter(Boolean),
+      stationId,
+      isReprint: true,
+      source: "MazakView:adjust-order-reprint",
+      actorLabel: user?.email || "Mazak Operator",
+    });
+
+    const normalizedJobId = extractQueuedJobId(queuedJobId);
+    return normalizedJobId;
+  };
 
   const handlePrintLabels = async () => {
     if (!selectedProduct || !selectedLabelId) return;
@@ -1292,6 +1703,186 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     }
   };
 
+  const handleSubmitOrderReassign = async () => {
+    const product = selectedAdjustProduct;
+    const targetOrder = selectedAdjustTargetOrder;
+    const reason = String(adjustReason || "").trim();
+    if (!product || !targetOrder?.orderId) {
+      notify(t("mazak.adjust_target_order_required", "Selecteer eerst een doelorder."));
+      return;
+    }
+    if (!reason) {
+      notify(t("mazak.adjust_reason_required", "Geef een opmerking/reden op."));
+      return;
+    }
+
+    const productId = String(product.id || product.lotNumber || "").trim();
+    if (!productId) {
+      notify(t("mazak.adjust_product_required", "Selecteer eerst een lot/product."));
+      return;
+    }
+
+    setAdjustSubmitting(true);
+    try {
+      const previousOrderId = String(product.orderId || "").trim();
+      const nextOrderId = String(targetOrder.orderId || "").trim();
+      await reassignTrackedProductOrder({
+        productId,
+        newOrderId: nextOrderId,
+        reason,
+        source: "MazakView:adjust-order",
+        actorLabel: user?.email || "Mazak Operator",
+      });
+
+      await logActivity(
+        user?.uid || "system",
+        "TRACKED_PRODUCT_ORDER_REASSIGN",
+        `Mazak aanpassen: lot ${product.lotNumber || productId} verplaatst van ${product.orderId || "-"} naar ${nextOrderId}`
+      );
+
+      let reprintJobId = "";
+      try {
+        const productForReprint = { ...product, orderId: nextOrderId };
+        reprintJobId = await handleReprintAdjustedOrderLabel(productForReprint, previousOrderId || "-", nextOrderId);
+      } catch (reprintErr) {
+        const reprintWarning = reprintErr instanceof Error ? reprintErr.message : String(reprintErr || "Onbekende fout");
+        console.error("Herprint na orderwijziging mislukt:", reprintErr);
+
+        if (previousOrderId && previousOrderId.toUpperCase() !== nextOrderId.toUpperCase()) {
+          try {
+            await reassignTrackedProductOrder({
+              productId,
+              newOrderId: previousOrderId,
+              reason: `Rollback na mislukte label-herprint (${reason})`,
+              source: "MazakView:adjust-order-rollback",
+              actorLabel: user?.email || "Mazak Operator",
+            });
+
+            await logActivity(
+              user?.uid || "system",
+              "TRACKED_PRODUCT_ORDER_REASSIGN_ROLLBACK",
+              `Mazak rollback: lot ${product.lotNumber || productId} teruggezet van ${nextOrderId} naar ${previousOrderId} na mislukte herprint`
+            );
+
+            notify(
+              `${t("mazak.adjust_reassign_error", "Ordernummer wijzigen is mislukt.")} ${t("mazak.adjust_reprint_warning", "Automatische label-herprint is mislukt.")}: ${reprintWarning}. ${t("mazak.adjust_rollback_done", "Wijziging is automatisch teruggedraaid.")}`
+            );
+            return;
+          } catch (rollbackErr) {
+            const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr || "Onbekende fout");
+            console.error("Rollback na mislukte herprint is ook mislukt:", rollbackErr);
+            notify(
+              `${t("mazak.adjust_reassign_success", "Ordernummer gewijzigd: lot {{lot}} is nu gekoppeld aan order {{order}}.", { lot: product.lotNumber || productId, order: nextOrderId })} ${t("mazak.adjust_reprint_warning", "Automatische label-herprint is mislukt.")}: ${reprintWarning}. ${t("mazak.adjust_rollback_failed", "Rollback is mislukt; handmatige correctie nodig.")}: ${rollbackMessage}`
+            );
+            return;
+          }
+        }
+
+        notify(
+          `${t("mazak.adjust_reassign_success", "Ordernummer gewijzigd: lot {{lot}} is nu gekoppeld aan order {{order}}.", { lot: product.lotNumber || productId, order: nextOrderId })} ${t("mazak.adjust_reprint_warning", "Automatische label-herprint is mislukt.")}: ${reprintWarning}`
+        );
+        return;
+      }
+
+      setSelectedAdjustProduct((prev) => (prev ? { ...prev, orderId: nextOrderId } : prev));
+      setSelectedAdjustTargetOrder(null);
+      setAdjustReason("");
+      notify(
+        `${t(
+          "mazak.adjust_reassign_success",
+          "Ordernummer gewijzigd: lot {{lot}} is nu gekoppeld aan order {{order}}.",
+          { lot: product.lotNumber || productId, order: nextOrderId }
+        )}${reprintJobId ? ` (${t("mazak.adjust_reprint_job", "reprint job")}: ${reprintJobId})` : ""}`
+      );
+    } catch (error) {
+      console.error("Fout bij ordernummer wijzigen in Mazak:", error);
+      const message = error instanceof Error ? error.message : String(error || "Onbekende fout");
+      notify(`${t("mazak.adjust_reassign_error", "Ordernummer wijzigen is mislukt.")}: ${message}`);
+    } finally {
+      setAdjustSubmitting(false);
+    }
+  };
+
+  const handleRequestNewOrderFromPlanner = async () => {
+    const product = selectedAdjustProduct;
+    const reason = String(adjustReason || "").trim();
+    const requestNote = String(adjustRequestNote || "").trim();
+
+    if (!product) {
+      notify(t("mazak.adjust_product_required", "Selecteer eerst een lot/product."));
+      return;
+    }
+    if (!reason) {
+      notify(t("mazak.adjust_reason_required", "Geef een opmerking/reden op."));
+      return;
+    }
+
+    const lotNumber = String(product.lotNumber || product.id || "onbekend");
+    const currentOrder = String(product.orderId || "onbekend");
+    const productType = String(product.item || product.itemCode || "onbekend");
+
+    setAdjustSubmitting(true);
+    try {
+      await createProductionMessages({
+        messages: [
+          {
+            from: user?.email || "Mazak Operator",
+            senderId: user?.uid || "system",
+            subject: `Nieuw ordernummer nodig voor lot ${lotNumber}`,
+            content: [
+              "Mazak Aanpassen: product verkeerd geboord en moet omgeboekt worden.",
+              `Lotnummer: ${lotNumber}`,
+              `Huidig ordernummer: ${currentOrder}`,
+              `Type: ${productType}`,
+              `Reden: ${reason}`,
+              requestNote ? `Extra opmerking: ${requestNote}` : null,
+            ].filter(Boolean).join("\n"),
+            title: `Nieuw ordernummer nodig (${lotNumber})`,
+            message: `Lot ${lotNumber} (${productType}) wacht op nieuw ordernummer. Reden: ${reason}`,
+            priority: "high",
+            type: "warning",
+            source: "MazakView",
+            targetRoles: ["teamleader", "planner", "admin"],
+            targetGroup: "TEAMLEADERS_AND_PLANNERS",
+            broadcastToAll: true,
+            relatedLot: lotNumber,
+            metadata: {
+              kind: "mazak_order_reassign_request",
+              lotNumber,
+              currentOrderId: currentOrder,
+              productType,
+              reason,
+              note: requestNote || null,
+              station: stationId,
+            },
+          },
+        ],
+        source: "MazakView",
+        actorLabel: user?.email || "Mazak Operator",
+      });
+
+      await logActivity(
+        user?.uid || "system",
+        "MAZAK_REASSIGN_REQUEST_NEW_ORDER",
+        `Mazak aanpassen: nieuw ordernummer aangevraagd voor lot ${lotNumber} (huidig order ${currentOrder})`
+      );
+
+      setAdjustRequestNote("");
+      notify(
+        t(
+          "mazak.adjust_request_sent",
+          "Verzoek verstuurd naar Teamleader/Planner. Dit product blijft geparkeerd tot een nieuw ordernummer beschikbaar is."
+        )
+      );
+    } catch (error) {
+      console.error("Fout bij aanvragen nieuw ordernummer:", error);
+      const message = error instanceof Error ? error.message : String(error || "Onbekende fout");
+      notify(`${t("mazak.adjust_request_error", "Versturen van verzoek is mislukt.")}: ${message}`);
+    } finally {
+      setAdjustSubmitting(false);
+    }
+  };
+
   const handleScan = async (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
 
@@ -1314,7 +1905,11 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       return;
     }
 
-    const listToSearch = activeTab === "inbox" ? inboxItems : processItems;
+    const listToSearch = activeTab === "inbox"
+      ? inboxItems
+      : activeTab === "process"
+        ? processItems
+        : adjustCandidates;
     const found = listToSearch.find(
       (item) =>
         String(item.lotNumber || "").toLowerCase() === code.toLowerCase() ||
@@ -1322,7 +1917,12 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     );
 
     if (found) {
-      handleItemClick(found);
+      if (activeTab === "adjust") {
+        setSelectedAdjustProduct(found);
+        setAdjustSearch(code);
+      } else {
+        handleItemClick(found);
+      }
       setActiveScanInput("");
       if (activeTab === "process") {
         setTimeout(() => {
@@ -1352,33 +1952,33 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     <div
       key={item.id}
       onClick={() => handleItemClick(item)}
-      className={`bg-white border-2 rounded-[35px] p-6 shadow-sm hover:border-blue-300 transition-all group animate-in slide-in-from-bottom-2 cursor-pointer ${selectedProduct?.id === item.id ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-100"}`}
+      className={`bg-white border-2 rounded-2xl p-3 shadow-sm hover:border-blue-300 transition-all group animate-in slide-in-from-bottom-2 cursor-pointer ${selectedProduct?.id === item.id ? "border-blue-400 ring-2 ring-blue-100" : "border-slate-100"}`}
     >
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex justify-between items-start mb-2">
         <div className="text-left">
           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">
-            {t("lossen.lot_number")}
+            {item.orderId}
           </span>
-          <span className="font-black text-slate-900 text-lg tracking-tighter italic">
+          <span className="font-black text-slate-900 text-base tracking-tighter">
             {item.lotNumber}
           </span>
-          <p className="text-xs font-bold text-slate-600 mt-1">
+          <p className="text-[10px] font-bold text-slate-500 mt-0.5 truncate max-w-[180px]">
             {item.item}
           </p>
         </div>
-        <div className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${activeTab === "inbox" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}>
+        <div className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase ${activeTab === "inbox" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}>
           {activeTab === "inbox" ? t("mazak.print_badge", "Printen") : t("mazak.complete_badge", "Gereedmelden")}
         </div>
       </div>
-      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+      <div className="bg-slate-50 rounded-lg p-2 border border-slate-100">
         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
           {t("lossen.manufactured_item")}
         </p>
-        <p className="text-xs font-mono font-bold text-slate-700 truncate">
+        <p className="text-[10px] font-mono font-bold text-slate-700 truncate">
           {item.itemCode}
         </p>
         {item.lastStation && (
-          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 opacity-80">
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200/60 opacity-80">
             <History size={10} className="text-blue-500" />
             <span className="text-[8px] font-black text-slate-500 uppercase italic">
               {t("mazak.from_station", "Van")}: {item.lastStation}
@@ -1389,7 +1989,15 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     </div>
   );
 
-  const currentList = activeTab === "inbox" ? inboxItems : activeTab === "process" ? processItems : activeTab === "planning" ? filteredPlanningOrders : [];
+  const currentList = activeTab === "inbox"
+    ? inboxItems
+    : activeTab === "process"
+      ? processItems
+      : activeTab === "planning"
+        ? filteredPlanningOrders
+        : activeTab === "adjust"
+          ? filteredAdjustProducts
+          : [];
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -1414,6 +2022,12 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
               className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "process" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
             >
               {t("mazak.tab_complete", "Gereedmelden")}
+            </button>
+            <button
+              onClick={() => { setActiveTab("adjust"); setSelectedProduct(null); setSelectedPlanningOrder(null); setBulkSeriesProducts([]); }}
+              className={`flex-1 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "adjust" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              {t("mazak.tab_adjust", "Aanpassen")}
             </button>
             <button
               onClick={() => { setActiveTab("free"); setSelectedProduct(null); setSelectedPlanningOrder(null); setBulkSeriesProducts([]); }}
@@ -1547,8 +2161,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <div
-          className={`w-full lg:w-5/12 p-4 pb-32 space-y-3 border-r border-slate-100 overflow-y-auto custom-scrollbar ${(selectedProduct || selectedPlanningOrder) ? "hidden lg:block" : "block"}`}
+        <div 
+          className={`w-full lg:w-7/12 p-4 pb-32 space-y-3 border-r border-slate-100 overflow-y-auto custom-scrollbar ${(selectedProduct || selectedPlanningOrder) ? "hidden lg:block" : "block"}`}
           style={{ paddingBottom: "max(8rem, env(safe-area-inset-bottom))" }}
         >
         {activeTab !== "planning" && activeTab !== "free" && (
@@ -1582,11 +2196,17 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                     setScanInputProcess(event.target.value);
                     return;
                   }
+                  if (activeTab === "adjust") {
+                    setScanInputAdjust(event.target.value);
+                    return;
+                  }
                   setScanInputInbox(event.target.value);
                 }}
                 inputMode={scannerMode ? "none" : "text"}
                 onKeyDown={handleScan}
-                placeholder={t("digitalplanning.terminal.scan_lot_or_order", "Scan lotnummer of order...")}
+                placeholder={activeTab === "adjust"
+                  ? t("mazak.adjust_scan_placeholder", "Scan of typ lotnummer / order voor aanpassen...")
+                  : t("digitalplanning.terminal.scan_lot_or_order", "Scan lotnummer of order...")}
                 className="w-full pl-14 pr-4 py-4 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-300 rounded-2xl font-bold text-lg shadow-sm outline-none transition-all placeholder:text-slate-300"
               />
             </div>
@@ -1613,6 +2233,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
                 {activeTab === "planning"
                   ? t("mazak.planned_flanges", "Geplande flenzen")
+                  : activeTab === "adjust"
+                    ? t("mazak.adjust_products", "Aanpassen: actieve lots")
                   : activeTab === "free"
                     ? t("mazak.free_label_tab_title", "Vrije labels")
                   : activeTab === "inbox"
@@ -1623,8 +2245,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
             {activeTab === "planning" ? (
               <>
-                <div className="mb-4 space-y-3">
-                  <div className="relative">
+                <div className="mb-4 flex gap-2">
+                  <div className="relative flex-1">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input
                       type="text"
@@ -1634,92 +2256,138 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                       className="w-full pl-11 pr-4 py-3 bg-white border-2 border-slate-100 focus:border-blue-500 rounded-xl font-bold text-sm outline-none transition-all placeholder:text-slate-300"
                     />
                   </div>
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button
-                      onClick={() => setShowAllWeeks(true)}
-                      className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${showAllWeeks ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-                    >
-                      {t("mazak.all_weeks", "Alle weken")}
-                    </button>
-                    <button
-                      onClick={() => setShowAllWeeks(false)}
-                      className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${!showAllWeeks ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-                    >
-                      {t("mazak.per_week", "Per week")}
-                    </button>
-                  </div>
-                  {!showAllWeeks && (
-                    <div className="flex items-center justify-between bg-white p-1 rounded-xl border border-slate-200 shadow-sm animate-in slide-in-from-top-2">
-                      <button onClick={() => setReferenceDate(d => subWeeks(d, 1))} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
-                        <ChevronLeft size={16} />
-                      </button>
-                      <div className="flex flex-col items-center cursor-pointer select-none" onDoubleClick={() => setReferenceDate(new Date())} title={t("mazak.double_click_current_week", "Dubbelklik voor huidige week")}>
-                        <span className="text-xs font-black text-blue-600 uppercase tracking-widest">{t("common.week", "Week")} {getISOWeek(referenceDate)}</span>
-                        <span className="text-[9px] font-bold text-slate-400">{referenceDate.getFullYear()}</span>
-                      </div>
-                      <button onClick={() => setReferenceDate(d => addWeeks(d, 1))} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                  )}
+                  <button
+                    onClick={() => document.getElementById("current-week-divider")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="px-4 py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-black uppercase text-[10px] tracking-widest transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-sm border border-blue-100"
+                  >
+                    <Calendar size={14} className="text-blue-500" />
+                    <span className="hidden sm:inline">{t("mazak.current_week", "Huidige Week")}</span>
+                  </button>
                 </div>
                 {(() => {
                   let lastWeekLabel: string | null = null;
+                  const currentDate = new Date();
+                  const currentWeek = getISOWeek(currentDate);
+                  const currentYear = currentDate.getFullYear();
+
                   return filteredPlanningOrders.map((order: PlanningOrder) => {
                     const isActive = order.status === 'in_progress' || order.status === 'In Production';
                     const weekLabel = isActive ? t("status.in_production", "In Productie") : `Week ${order.week || order.weekNumber || "?"}`;
+                    const orderMaterialBadge = (() => {
+                      const combined = [
+                        String(order.extraCode || ""),
+                        String(order.item || ""),
+                        String(order.itemCode || ""),
+                      ].join(" ").toUpperCase();
+
+                      if (combined.includes("EMT")) return "EMT";
+                      if (combined.includes("CMT")) return "CMT";
+                      if (combined.includes("CST")) return "CST";
+                      return "";
+                    })();
+
+                    const orderTotal = (() => {
+                      const candidates = [
+                        Number((order as Record<string, unknown>).quantity),
+                        Number(order.plan),
+                        Number((order as Record<string, unknown>).toDoQty),
+                      ];
+                      const valid = candidates.find((value) => Number.isFinite(value) && value > 0);
+                      return Number.isFinite(valid as number) ? Number(valid) : 0;
+                    })();
+
+                    const orderProduced = (() => {
+                      const candidates = [
+                        Number((order as Record<string, unknown>).trackedFinishedCount),
+                        Number((order as Record<string, unknown>).produced),
+                        Number((order as Record<string, unknown>).done),
+                      ];
+                      const valid = candidates.find((value) => Number.isFinite(value) && value >= 0);
+                      return Number.isFinite(valid as number) ? Number(valid) : 0;
+                    })();
+
+                    const orderDeliveryLabel = (() => {
+                      const record = order as Record<string, unknown>;
+                      const rawDate = record.plannedDeliveryDate || record.deliveryDate || record.plannedDate || null;
+                      const dateMillis = toMillisFromMixed(rawDate);
+                      if (dateMillis > 0) {
+                        const deliveryDate = new Date(dateMillis);
+                        const week = getISOWeek(deliveryDate);
+                        const dateLabel = deliveryDate.toLocaleDateString("nl-NL", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        });
+                        return `W${String(week).padStart(2, "0")} ${dateLabel}`;
+                      }
+
+                      const fallbackWeek = String(order.week || order.weekNumber || "").trim();
+                      const fallbackYear = String(order.year || order.weekYear || "").trim();
+                      if (!fallbackWeek) return "-";
+                      return fallbackYear
+                        ? `W${String(fallbackWeek).padStart(2, "0")} ${fallbackYear}`
+                        : `W${String(fallbackWeek).padStart(2, "0")}`;
+                    })();
+                    const orderDeliveryRaw = (() => {
+                      const record = order as Record<string, unknown>;
+                      return record.plannedDeliveryDate || record.deliveryDate || record.plannedDate || null;
+                    })();
+                    const orderDeliveryColorClass = getUrgencyColorClass(orderDeliveryRaw);
                     
-                    const showDivider = showAllWeeks && weekLabel !== lastWeekLabel;
+                    const showDivider = weekLabel !== lastWeekLabel;
                     if (showDivider) {
                       lastWeekLabel = weekLabel;
                     }
 
+                    const orderWeek = Number(order.week || order.weekNumber);
+                    const orderYear = Number(order.year || order.weekYear || currentYear);
+                    const isCurrentWeek = !isActive && Number.isFinite(orderWeek) && orderWeek === currentWeek && orderYear === currentYear;
+                    const isPastWeek = !isActive && Number.isFinite(orderWeek) && (orderYear < currentYear || (orderYear === currentYear && orderWeek < currentWeek));
+
                     return (
                       <React.Fragment key={String(order.id || order.orderId || "") }>
                         {showDivider && (
-                          <div className="flex items-center gap-4 my-6 first:mt-2 ml-2 mr-2">
-                            <div className="h-px bg-slate-200 flex-1"></div>
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{weekLabel}</span>
-                            <div className="h-px bg-slate-200 flex-1"></div>
+                          <div id={isCurrentWeek ? "current-week-divider" : undefined} className={`flex items-center gap-3 px-1 pt-2 pb-2 my-4 first:mt-0 ${isPastWeek && !isCurrentWeek ? "opacity-50" : ""}`}>
+                            <div className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${isCurrentWeek ? "bg-blue-600 text-white shadow-md shadow-blue-200" : isPastWeek ? "bg-slate-200 text-slate-500" : "bg-slate-100 text-slate-500"}`}>
+                              {weekLabel}
+                              {isCurrentWeek && <span className="ml-1 opacity-70"> • Nu</span>}
+                            </div>
+                            <div className="flex-1 h-px bg-slate-200"></div>
                           </div>
                         )}
                         <div
                           onClick={() => setSelectedPlanningOrder(order)}
-                          className={`bg-white border-2 rounded-[35px] p-6 shadow-sm hover:border-blue-300 transition-all group animate-in slide-in-from-bottom-2 cursor-pointer ${selectedPlanningOrder?.id === order.id ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-100"}`}
+                          className={`min-h-[100px] px-4 py-3 rounded-3xl border-2 transition-all flex items-center justify-between relative overflow-hidden cursor-pointer ${
+                            selectedPlanningOrder?.id === order.id
+                              ? "bg-emerald-50 border-emerald-500 shadow-md shadow-emerald-100 translate-x-1"
+                              : "bg-white border-slate-100 hover:border-blue-300"
+                          }`}
                         >
-                          <div className="flex justify-between items-start mb-4">
-                            <div className="text-left">
-                              <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">
-                                {t("mazak.order_number", "Ordernummer")}
-                              </span>
-                              <span className="font-black text-slate-900 text-lg tracking-tighter italic">
-                                {String(order.orderId || "-")}
-                              </span>
-                              <p className="text-xs font-bold text-slate-600 mt-1">
+                          <div className="flex items-center gap-4 flex-1 overflow-hidden">
+                            <div className="flex-1 overflow-hidden">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="inline-block px-3 py-1 bg-slate-200 text-slate-800 rounded-lg text-sm font-black uppercase tracking-wider border border-slate-300 shadow-sm">
+                                  {t("productionStartModal.labels.order", "Order")}: {String(order.orderId || "-")}
+                                </span>
+                                {orderMaterialBadge && (
+                                  <span className="inline-block px-2.5 py-1 bg-sky-100 text-sky-700 border border-sky-200 rounded-lg text-[11px] font-black uppercase tracking-wide">
+                                    {orderMaterialBadge}
+                                  </span>
+                                )}
+                              </div>
+                              <h4 className="font-black text-base sm:text-lg leading-tight uppercase text-slate-900 mb-1 line-clamp-2">
                                 {String(order.item || "-")}
-                              </p>
-                            </div>
-                            <div>
-                              <StatusBadge status={order.status} />
+                              </h4>
                             </div>
                           </div>
-                          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex justify-between items-center">
-                            <div>
-                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                                {t("mazak.winding_machine", "Wikkelmachine")}
-                              </p>
-                              <p className="text-xs font-mono font-bold text-slate-700 truncate">
-                                {String(order.machine || t("common.unknown", "Onbekend"))}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                                {t("mazak.quantity", "Aantal")}
-                              </p>
-                              <p className="text-xs font-mono font-black text-blue-600">
-                                {String(order.plan || "-")} {t("digitalplanning.terminal.piece", "st.")}
-                              </p>
-                            </div>
+                          <div className="flex flex-col items-end gap-1.5 text-right shrink-0 ml-4">
+                            <StatusBadge status={order.status} />
+                            <span className="text-xs font-black text-slate-700 uppercase tracking-tighter">
+                              {t("digitalplanning.terminal.made", "Gemaakt")}: {orderProduced} / {orderTotal} ST
+                            </span>
+                            <span className={`text-xs uppercase tracking-tighter ${orderDeliveryColorClass}`}>
+                              {orderDeliveryLabel}
+                            </span>
                           </div>
                         </div>
                       </React.Fragment>
@@ -1766,6 +2434,51 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
               return renderItem(item);
               })
+            ) : activeTab === "adjust" ? (
+              <>
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      placeholder={t("mazak.adjust_search_placeholder", "Zoek op lot, order, item of type...")}
+                      value={adjustSearch}
+                      onChange={(e) => setAdjustSearch(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3 bg-white border-2 border-slate-100 focus:border-blue-500 rounded-xl font-bold text-sm outline-none transition-all placeholder:text-slate-300"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {filteredAdjustProducts.map((item) => {
+                    const key = String(item.id || item.lotNumber || "");
+                    const isSelected = String(selectedAdjustProduct?.id || selectedAdjustProduct?.lotNumber || "") === key;
+                    const stage = item.mazakLabelPrinted
+                      ? t("mazak.complete_badge", "Gereedmelden")
+                      : t("mazak.print_badge", "Printen");
+
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setSelectedAdjustProduct(item)}
+                        className={`w-full text-left bg-white border-2 rounded-2xl p-4 shadow-sm transition-all ${isSelected ? "border-blue-400 ring-2 ring-blue-100" : "border-slate-100 hover:border-blue-200"}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{item.orderId || "-"}</p>
+                            <p className="text-base font-black text-slate-900">{item.lotNumber || item.id || "-"}</p>
+                            <p className="text-xs font-bold text-slate-600 mt-1 truncate">{item.item || "-"}</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase mt-1">{item.itemCode || "-"}</p>
+                          </div>
+                          <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase ${item.mazakLabelPrinted ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>
+                            {stage}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             ) : activeTab === "free" ? (
               <div className="space-y-3">
                 {savedFreeLabelTemplates.length === 0 ? (
@@ -1813,7 +2526,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
         )}
         </div>
 
-      <div className={`flex-1 bg-slate-50 p-6 md:p-8 overflow-y-auto custom-scrollbar ${(!selectedProduct && !selectedPlanningOrder && activeTab !== "free") ? "hidden lg:flex" : "flex"} flex-col`}>
+      <div className={`flex-1 bg-slate-50 p-6 md:p-8 overflow-y-auto custom-scrollbar ${(!selectedProduct && !selectedPlanningOrder && !selectedAdjustProduct && activeTab !== "free" && activeTab !== "adjust") ? "hidden lg:flex" : "flex"} flex-col`}>
         {activeTab === "free" ? (
           <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left w-full">
             <div className="bg-slate-900 rounded-[35px] p-6 text-white border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
@@ -1958,92 +2671,337 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
               </div>
             </div>
           </div>
-        ) : selectedPlanningOrder ? (
-          <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left w-full">
-            <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
-              <button onClick={() => setSelectedPlanningOrder(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
-              <div className="text-left flex-1">
-                <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("mazak.future_flange_order", "Toekomstige flens-order")}</span>
-                <h2 className="text-3xl font-black italic leading-none text-left">
-                  {selectedPlanningOrder.orderId}
-                </h2>
-                <p className="text-xs font-bold text-white/70 mt-2">{selectedPlanningOrder.item}</p>
+        ) : activeTab === "adjust" ? (
+          <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 w-full">
+            {!selectedAdjustProduct ? (
+              <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm">
+                <h3 className="text-xl font-black uppercase italic text-slate-800 mb-3">
+                  {t("mazak.adjust_title", "Aanpassen verkeerd product")}
+                </h3>
+                <p className="text-sm font-bold text-slate-600">
+                  {t("mazak.adjust_pick_product", "Scan of selecteer eerst een lot uit Inbox of Gereedmelden om het ordernummer aan te passen.")}
+                </p>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
+                  <div className="mb-4">
+                    <span className="inline-block px-4 py-1.5 bg-white/25 text-white rounded-xl text-base font-black uppercase tracking-widest border border-white/40 shadow-sm">
+                      {t("productionStartModal.labels.order", "Order")}: {selectedAdjustProduct.orderId || "-"}
+                    </span>
+                  </div>
+                  <h2 className="text-2xl md:text-3xl font-black text-white leading-tight uppercase italic max-w-3xl mb-1.5">
+                    {selectedAdjustProduct.item || "-"}
+                  </h2>
+                  <p className="text-xs font-bold text-white/60 mt-1">{selectedAdjustProduct.itemCode || "-"}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-white/10 pt-6 mt-6">
+                    <div>
+                      <p className="text-[10px] font-black text-white/40 uppercase mb-1">Lotnummer</p>
+                      <p className="text-lg font-black text-sky-300">{selectedAdjustProduct.lotNumber || selectedAdjustProduct.id || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-white/40 uppercase mb-1">Huidige fase</p>
+                      <p className="text-lg font-black text-amber-300">
+                        {selectedAdjustProduct.mazakLabelPrinted
+                          ? t("mazak.complete_badge", "Gereedmelden")
+                          : t("mazak.print_badge", "Printen")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-            <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-5 text-left">
-              <h3 className="font-black uppercase tracking-widest text-slate-400 text-xs mb-4">{t("mazak.order_details", "Orderdetails")}</h3>
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("mazak.quantity_to_produce", "Aantal te produceren")}</p>
-                  <p className="font-black text-lg text-slate-800">{selectedPlanningOrder.plan} {t("digitalplanning.terminal.pieces", "stuks")}</p>
-                 </div>
-                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("mazak.winding_station", "Wikkelstation")}</p>
-                  <p className="font-black text-lg text-slate-800">{selectedPlanningOrder.machine || t("common.unknown", "Onbekend")}</p>
-                 </div>
-                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t("digitalplanning.status", "Status")}</p>
-                    <StatusBadge status={selectedPlanningOrder.status} />
-                 </div>
-                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t("mazak.delivery_week", "Leverdatum / week")}</p>
-                  <p className="font-black text-lg text-slate-800">{t("common.week", "Week")} {selectedPlanningOrder.week || selectedPlanningOrder.weekNumber || "?"}</p>
-                 </div>
-              </div>
-            </div>
+                <div className="bg-white rounded-[2.5rem] p-6 border border-slate-100 shadow-sm space-y-4">
+                  <h4 className="text-sm font-black uppercase tracking-widest text-slate-500">
+                    {t("mazak.adjust_existing_order", "1) Koppel aan bestaand ordernummer")}
+                  </h4>
+
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      value={adjustOrderSearch}
+                      onChange={(e) => setAdjustOrderSearch(e.target.value)}
+                      placeholder={t("mazak.adjust_target_search", "Zoek doelorder (ordernummer of type)...")}
+                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 focus:border-blue-500 rounded-xl font-bold text-sm outline-none transition-all placeholder:text-slate-300"
+                    />
+                  </div>
+
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">
+                    {selectedAdjustFlangeSize
+                      ? t("mazak.adjust_size_filter_active", "Filter actief: alleen flensmaat FL {{size}}", { size: selectedAdjustFlangeSize })
+                      : selectedAdjustOrderFamily
+                        ? t("mazak.adjust_family_filter_active", "Filter actief: alleen orders met ID-reeks {{family}}", { family: selectedAdjustOrderFamily })
+                        : t("mazak.adjust_family_filter_missing", "Geen FL-maat of 3-cijferige ID-reeks gevonden op bronorder; filter niet toegepast")}
+                  </p>
+
+                  <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                    {adjustTargetOrders.length === 0 ? (
+                      <p className="text-xs font-bold text-slate-500 italic px-1">
+                        {selectedAdjustOrderFamily
+                          ? selectedAdjustFlangeSize
+                            ? t("mazak.adjust_no_target_order_size", "Geen passende order gevonden in huidige planning voor flensmaat FL {{size}}.", { size: selectedAdjustFlangeSize })
+                            : t("mazak.adjust_no_target_order_family", "Geen passende order gevonden in huidige planning voor ID-reeks {{family}}.", { family: selectedAdjustOrderFamily })
+                          : t("mazak.adjust_no_target_order", "Geen passende order gevonden in huidige planning.")}
+                      </p>
+                    ) : (
+                      adjustTargetOrders.map((order) => {
+                        const orderKey = String(order.id || order.orderId || "");
+                        const isSelected = String(selectedAdjustTargetOrder?.id || selectedAdjustTargetOrder?.orderId || "") === orderKey;
+                        return (
+                          <button
+                            key={orderKey}
+                            type="button"
+                            onClick={() => setSelectedAdjustTargetOrder(order)}
+                            className={`w-full text-left px-3 py-2 rounded-xl border transition-all ${isSelected ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white hover:border-blue-200"}`}
+                          >
+                            <p className="text-xs font-black text-slate-800 uppercase tracking-wide">{order.orderId || "-"}</p>
+                            <p className="text-[11px] font-bold text-slate-600 truncate">{order.item || "-"}</p>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                      {t("mazak.adjust_reassign_preview", "Wijzigingsoverzicht")}
+                    </p>
+                    <p className="text-xs font-bold text-slate-700">
+                      {t("mazak.adjust_from", "Van")}: {selectedAdjustProduct.orderId || "-"} ({selectedAdjustProduct.item || selectedAdjustProduct.itemCode || "-"})
+                    </p>
+                    <p className="text-xs font-bold text-slate-700 mt-1">
+                      {t("mazak.adjust_to", "Naar")}: {selectedAdjustTargetOrder?.orderId || "-"} ({selectedAdjustTargetOrder?.item || selectedAdjustTargetOrder?.itemCode || "-"})
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">
+                      {t("mazak.adjust_reason", "Opmerking / waarom")}
+                    </label>
+                    <textarea
+                      value={adjustReason}
+                      onChange={(e) => setAdjustReason(e.target.value)}
+                      rows={3}
+                      maxLength={300}
+                      placeholder={t("mazak.adjust_reason_placeholder", "Waarom wordt dit lot aan een ander ordernummer gekoppeld?")}
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500 resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleSubmitOrderReassign}
+                    disabled={adjustSubmitting || !selectedAdjustTargetOrder || !adjustReason.trim()}
+                    className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {adjustSubmitting ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
+                    {t("mazak.adjust_apply_existing", "Ordernummer wijzigen")}
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] p-6 border border-amber-200 shadow-sm space-y-4">
+                  <h4 className="text-sm font-black uppercase tracking-widest text-amber-700">
+                    {t("mazak.adjust_no_existing_order", "2) Geen bestaand order? Meld aan planner/teamleader")}
+                  </h4>
+                  <p className="text-xs font-bold text-slate-600">
+                    {t("mazak.adjust_no_existing_order_help", "Als er nog geen passende order in de planning staat, stuur je een bericht voor een nieuw ordernummer. Dit product blijft geparkeerd totdat het nieuwe order bestaat en je de aanpassing kunt uitvoeren.")}
+                  </p>
+                  <textarea
+                    value={adjustRequestNote}
+                    onChange={(e) => setAdjustRequestNote(e.target.value)}
+                    rows={3}
+                    maxLength={500}
+                    placeholder={t("mazak.adjust_request_note", "Extra toelichting voor planner/teamleader (optioneel)")}
+                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-amber-400 resize-none"
+                  />
+                  <button
+                    onClick={handleRequestNewOrderFromPlanner}
+                    disabled={adjustSubmitting || !adjustReason.trim()}
+                    className="w-full py-4 bg-amber-500 text-white rounded-xl font-black uppercase text-sm hover:bg-amber-600 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {adjustSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Tag size={18} />}
+                    {t("mazak.adjust_send_request", "Verzoek nieuw ordernummer versturen")}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         ) : selectedProduct ? (
-          <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 text-left w-full">
-            <div className="bg-slate-900 rounded-[35px] p-6 text-white flex justify-between items-center border-4 border-blue-500/20 relative overflow-hidden shadow-xl text-left">
-              <button onClick={() => setSelectedProduct(null)} className="lg:hidden p-2 text-white/50 mr-2"><ArrowLeft size={20} /></button>
-              <div className="text-left flex-1">
-                <span className="text-[8px] font-black text-blue-400 uppercase block mb-1 text-left">{t("mazak.title", "Mazak")}</span>
-                <h2 className="text-3xl font-black italic leading-none text-left">
-                  {isBulkInboxMode ? (() => {
-                    const sortedLots = bulkSeriesProducts.map(p => String(p.lotNumber || "")).sort();
-                    const firstLot = sortedLots[0];
-                    const lastLot = sortedLots[sortedLots.length - 1];
-                    return `${firstLot} / ${lastLot.slice(-3)}`;
-                  })() : selectedProduct.lotNumber}
-                </h2>
-                <p className="text-xs font-bold text-white/70 mt-2">{selectedProduct.item}</p>
+          <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 w-full">
+            <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
+              <div className="flex justify-between items-start mb-8 relative z-10">
+                <div>
+                  <button
+                    onClick={() => setSelectedProduct(null)}
+                    className="lg:hidden p-2 bg-white/10 rounded-full mb-4 inline-block"
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                  <div className="mb-2">
+                    <span className="inline-block px-4 py-1.5 bg-white/25 text-white rounded-xl text-base font-black uppercase tracking-widest border border-white/40 shadow-sm">
+                      {t("productionStartModal.labels.order", "Order")}: {selectedProduct.orderId}
+                    </span>
+                  </div>
+                  <h2 className="text-2xl md:text-3xl font-black text-white leading-tight uppercase italic max-w-3xl mb-1.5">
+                    {selectedProduct.item || "-"}
+                  </h2>
+                  <p className="text-xs font-bold text-white/60 mt-1">
+                    {selectedProduct.itemCode || "-"}
+                  </p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <StatusBadge status={selectedProduct.status} />
+                  <button onClick={() => setSelectedProduct(null)} className="p-2 rounded-full text-slate-300 hover:bg-white/10">
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-white/10 pt-8 relative z-10">
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">Lotnummer</p>
+                  <p className="text-lg font-black text-sky-300">{selectedProduct.lotNumber || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">Wikkelmachine</p>
+                  <p className="text-lg font-black text-amber-300">{selectedProduct.lastStation || "Onbekend"}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">Status</p>
+                  <p className="text-lg font-black text-blue-300 uppercase">{String(selectedProduct.status || "-")}</p>
+                </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-5 text-left">
+            <div className="bg-white rounded-[2.5rem] p-6 border border-slate-100 shadow-sm space-y-3">
               {activeTab === "inbox" ? (
                 <>
                   <button 
                     onClick={() => setShowPrintModal(true)} 
                     disabled={printing}
-                    className="w-full py-4 bg-blue-50 text-blue-700 rounded-[22px] font-black uppercase text-sm hover:bg-blue-100 transition-all flex items-center justify-center gap-3 active:scale-95 group border border-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-3 active:scale-95 group disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <Printer size={20} /> {t("mazak.print_labels", "Labels printen")}
+                    <Printer size={20} /> {t("mazak.print_labels_forward", "Labels printen / Doorsturen")}
                   </button>
                   <button
                     onClick={handleManualPrintForward}
                     disabled={printing}
-                    className="w-full py-4 bg-amber-50 text-amber-800 rounded-[22px] font-black uppercase text-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-3 active:scale-95 group border border-amber-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase text-xs hover:bg-slate-200 transition-all flex items-center justify-center gap-2 active:scale-95 group disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {printing ? <Loader2 size={20} className="animate-spin" /> : <ArrowRight size={20} />}
-                    {t("mazak.manual_print_and_forward", "Labels handmatig printen")}
+                    {printing ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                    {t("mazak.manual_print_and_forward", "Handmatig doorsturen")}
                   </button>
                 </>
               ) : (
                 <>
+                  <button onClick={handleOpenActionModal} className="w-full py-5 bg-emerald-600 text-white rounded-xl font-black uppercase text-sm shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                    <ClipboardCheck size={24} /> {t("mazak.process", "Verwerken")}
+                  </button>
                   <button 
                     onClick={() => setShowPrintModal(true)} 
-                    className="w-full py-4 bg-slate-100 text-slate-700 rounded-[22px] font-black uppercase text-sm hover:bg-slate-200 transition-all flex items-center justify-center gap-3 active:scale-95 group border border-slate-200"
+                    className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase text-xs hover:bg-slate-200 transition-all flex items-center justify-center gap-2 active:scale-95 group"
                   >
-                    <Printer size={20} /> {t("mazak.reprint_label", "Label herprinten")}
-                  </button>
-                  <button onClick={handleOpenActionModal} className="w-full py-6 bg-slate-900 text-white rounded-[30px] font-black uppercase text-base shadow-xl hover:bg-blue-600 transition-all flex items-center justify-center gap-4 active:scale-95 group">
-                    <ClipboardCheck size={28} /> {t("mazak.process", "Verwerken")}
+                    <Printer size={16} /> {t("mazak.reprint_label", "Label herprinten")}
                   </button>
                 </>
               )}
             </div>
+          </div>
+        ) : selectedPlanningOrder ? (
+          <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 w-full">
+            <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
+              <div className="flex justify-between items-start mb-8 relative z-10">
+                <div>
+                  <button
+                    onClick={() => setSelectedPlanningOrder(null)}
+                    className="lg:hidden p-2 bg-white/10 rounded-full mb-4 inline-block"
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                  <div className="mb-2">
+                    <span className="inline-block px-4 py-1.5 bg-white/25 text-white rounded-xl text-base font-black uppercase tracking-widest border border-white/40 shadow-sm">
+                      {t("productionStartModal.labels.order", "Order")}: {selectedPlanningOrder.orderId}
+                    </span>
+                  </div>
+                  <h2 className="text-2xl md:text-3xl font-black text-white leading-tight uppercase italic max-w-3xl mb-1.5">
+                    {selectedPlanningOrder.item || "-"}
+                  </h2>
+                  <p className="text-xs font-bold text-white/60 mt-1">
+                    {selectedPlanningOrder.itemCode || "-"}
+                  </p>
+                  {selectedPlanningOrderMaterialBadge && (
+                    <div className="mt-2">
+                      <span className="inline-block px-2.5 py-1 bg-sky-300 text-sky-950 rounded-lg text-[11px] font-black uppercase tracking-wide">
+                        {selectedPlanningOrderMaterialBadge}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <StatusBadge status={selectedPlanningOrder.status} />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-white/10 pt-8 relative z-10">
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">
+                    {t("digitalplanning.order_detail.delivery_date_aq", "Leverdatum (AQ)")}
+                  </p>
+                  <p className="text-lg font-black text-sky-300">
+                    {selectedPlanningOrderDeliveryLabel}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">
+                    {t("digitalplanning.order_detail.total_plan", "Orderhoeveelheid")}
+                  </p>
+                  <p className="text-lg font-black text-amber-300">
+                    {selectedPlanningOrderQuantity} {t("digitalplanning.terminal.pieces", "stuks")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-white/40 uppercase mb-1">
+                    {t("digitalplanning.terminal.made", "Gemaakt")}
+                  </p>
+                  <p className="text-lg font-black text-blue-300">
+                    {selectedPlanningOrderProduced} {t("digitalplanning.terminal.pieces", "stuks")}
+                  </p>
+                </div>
+              </div>
+
+              <div className="border-t border-white/10 pt-6 mt-6 relative z-10">
+                <p className="text-[10px] font-black text-white/40 uppercase mb-3 tracking-widest">
+                  {t("digitalplanning.terminal.active_lots", "Actieve lotnummers")} ({activePlanningOrderProducts.length})
+                </p>
+                {activePlanningOrderProducts.length === 0 ? (
+                  <p className="text-xs font-bold text-white/60 italic">
+                    {t("mazak.no_active_lots_for_order", "Nog geen actieve lotnummers voor deze order.")}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {activePlanningOrderProducts.map((product) => {
+                      const lotKey = String(product?.lotNumber || product?.id || "-");
+                      return (
+                        <button
+                          key={String(product?.id || lotKey)}
+                          type="button"
+                          onClick={() => {
+                            setSelectedPlanningOrder(null);
+                            setBulkSeriesProducts([]);
+                            setSelectedProduct(product);
+                            setActiveTab(product?.mazakLabelPrinted ? "process" : "inbox");
+                          }}
+                          className="text-left px-3 py-2 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition-all"
+                        >
+                          <p className="text-xs font-black text-white uppercase tracking-wide">{lotKey}</p>
+                          <p className="text-[10px] font-bold text-white/70 truncate">
+                            {String(product?.item || product?.itemCode || "-")}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center opacity-30 text-center text-left">
@@ -2057,7 +3015,15 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                <ClipboardCheck size={80} className="mb-6 text-slate-200" />
             )}
             <h4 className="text-2xl font-black uppercase italic text-slate-300 text-left">
-              {activeTab === "inbox" ? t("mazak.select_to_print", "Selecteer order om te printen") : activeTab === "planning" ? t("mazak.select_planned_order", "Selecteer geplande order") : activeTab === "free" ? t("mazak.free_label_ready", "Vrij label gereed om te printen") : t("mazak.select_to_process", "Selecteer order om te verwerken")}
+              {activeTab === "inbox"
+                ? t("mazak.select_to_print", "Selecteer order om te printen")
+                : activeTab === "planning"
+                  ? t("mazak.select_planned_order", "Selecteer geplande order")
+                  : activeTab === "adjust"
+                    ? t("mazak.adjust_pick_product", "Selecteer lot voor aanpassen")
+                    : activeTab === "free"
+                      ? t("mazak.free_label_ready", "Vrij label gereed om te printen")
+                      : t("mazak.select_to_process", "Selecteer order om te verwerken")}
             </h4>
           </div>
         )}

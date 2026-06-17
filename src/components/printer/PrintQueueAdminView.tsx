@@ -149,6 +149,11 @@ const stationNameFromValue = (stationValue: unknown): string => {
 };
 
 const normalizeStationKey = (value: unknown): string => String(value || '').trim().toUpperCase();
+const normalizeQueueStatus = (value: unknown): string => String(value || 'pending').trim().toLowerCase();
+const isQueuedJobStatus = (value: unknown): boolean => {
+  const status = normalizeQueueStatus(value);
+  return status === 'pending' || status === 'queued' || status === 'processing' || status === 'printing';
+};
 const normalizeDepartmentKey = (value: unknown): string =>
   String(value || '').trim().toUpperCase().replace(/\s+/g, '');
 
@@ -195,15 +200,23 @@ const getPrinterAllowedStationKeys = (printer: PrinterConfig | null | undefined)
 
 const getJobStationKeys = (job: PrintJob): string[] => {
   const metadata = (job?.metadata || {}) as AnyRecord;
+  const refPath = String((job as AnyRecord)?.__refPath || '');
+  const pathMatch = refPath.match(/\/machines\/([^/]+)\/items\//i);
+  const stationFromPath = pathMatch?.[1] || '';
   const candidates = [
     metadata.stationId,
     metadata.station,
     metadata.currentStation,
+    metadata.targetStation,
+    metadata.targetStationId,
+    metadata.machineId,
     metadata.machine,
     metadata.targetPrinterName,
+    job.machineId,
     job.stationId,
     job.currentStation,
     job.machine,
+    stationFromPath,
   ];
 
   return Array.from(new Set(
@@ -1363,9 +1376,20 @@ const PrintQueueAdminView = () => {
     const normalizeJob = (docSnap: any): PrintJob | null => {
       const data = (docSnap.data() || {}) as AnyRecord;
       const metadata = (data.metadata || {}) as AnyRecord;
-      const isQueueJob = Boolean(data.printerId || data.zpl || data.status || metadata.description);
+      const isQueueJob = Boolean(
+        String(data._scopeType || '').trim() === 'print_queue'
+        || data.printerId
+        || data.zpl
+        || data.printData
+        || data.labelZPL
+        || data.status
+        || data.machineId
+        || metadata.description
+        || metadata.stationId
+        || metadata.targetStation
+      );
       if (!isQueueJob) return null;
-      return { id: docSnap.id, ...data } as PrintJob;
+      return { id: docSnap.id, ...data, __refPath: String(docSnap.ref?.path || '') } as PrintJob;
     };
 
     const tsToMillis = (ts: unknown) => {
@@ -1375,7 +1399,12 @@ const PrintQueueAdminView = () => {
       return Number.isFinite(parsed.getTime()) ? parsed.getTime() : 0;
     };
 
-    const printQueuePathFragment = `/${PATHS.PRINT_QUEUE.join('/')}/`;
+    const printQueuePathFragment = `${PATHS.PRINT_QUEUE.join('/')}/`;
+    const isScopedPrintQueuePath = (refPath: unknown): boolean => {
+      const normalizedPath = String(refPath || '').replace(/^\/+/, '').toLowerCase();
+      const normalizedFragment = String(printQueuePathFragment || '').replace(/^\/+/, '').toLowerCase();
+      return normalizedPath.includes(normalizedFragment);
+    };
 
     const mergeJobs = () => {
       const byId = new Map<string, PrintJob>();
@@ -1404,9 +1433,13 @@ const PrintQueueAdminView = () => {
     const scopedQ = collectionGroup(db, 'items');
     const unsubscribeScoped = onSnapshot(scopedQ, (snapshot) => {
       scopedJobs = snapshot.docs
-        .filter((docSnap) => String(docSnap.ref?.path || '').includes(printQueuePathFragment))
+        .filter((docSnap) => isScopedPrintQueuePath(docSnap.ref?.path))
         .map(normalizeJob)
-        .filter((job): job is PrintJob => Boolean(job) && String((job as PrintJob)._scopeType || 'print_queue').trim() === 'print_queue');
+        .filter((job): job is PrintJob => {
+          if (!job) return false;
+          const scopeType = String((job as PrintJob)._scopeType || '').trim().toLowerCase();
+          return !scopeType || scopeType === 'print_queue';
+        });
       mergeJobs();
     }, (err) => {
       console.error('Error fetching scoped print jobs:', err);
@@ -1519,13 +1552,12 @@ const PrintQueueAdminView = () => {
     if (!autoPrint || !usbDevice || isProcessing || !currentPrinterId) return;
 
     const pendingJobs = printJobs.filter((j) => {
-      if (j.status !== 'pending') return false;
+      if (!isQueuedJobStatus(j.status)) return false;
       if (j.printerId !== currentPrinterId) return false;
       if (!selectedStation) return true;
       const selectedKey = normalizeStationKey(selectedStation);
-      const stationKey = normalizeStationKey(j.metadata?.stationId);
-      const targetKey = normalizeStationKey(j.metadata?.targetPrinterName);
-      return stationKey === selectedKey || targetKey === selectedKey;
+      const jobStationKeys = getJobStationKeys(j);
+      return jobStationKeys.includes(selectedKey);
     }).sort((a, b) => getTimestampMillis(a.createdAt) - getTimestampMillis(b.createdAt));
 
     if (pendingJobs.length > 0) {
@@ -1575,9 +1607,8 @@ const PrintQueueAdminView = () => {
     if (selectedStation) {
       const selectedKey = normalizeStationKey(selectedStation);
       jobs = jobs.filter((j) => {
-        const stationKey = normalizeStationKey(j.metadata?.stationId);
-        const targetKey = normalizeStationKey(j.metadata?.targetPrinterName);
-        return stationKey === selectedKey || targetKey === selectedKey;
+        const jobStationKeys = getJobStationKeys(j);
+        return jobStationKeys.includes(selectedKey);
       });
     } else if (role !== 'admin') {
       // Standaard filter voor niet-admins
@@ -2220,11 +2251,10 @@ const PrintQueueAdminView = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {stationGroups.map(station => {
             const pendingCount = printJobs.filter((j) => {
-              if (j.status !== 'pending') return false;
+              if (!isQueuedJobStatus(j.status)) return false;
               const stationKey = normalizeStationKey(station);
-              const jobStationKey = normalizeStationKey(j.metadata?.stationId);
-              const targetKey = normalizeStationKey(j.metadata?.targetPrinterName);
-              return jobStationKey === stationKey || targetKey === stationKey;
+              const jobStationKeys = getJobStationKeys(j);
+              return jobStationKeys.includes(stationKey);
             }).length;
             
             return (

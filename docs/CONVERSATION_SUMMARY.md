@@ -1,3 +1,23 @@
+## Update sessie 17 juni 2026 (Mazak-tegel Print Queue zichtbaar)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. MAZAK-tegel in Print Stations gefixt voor bestaande queue-items**
+- Filtering in `PrintQueueAdminView.tsx` robuuster gemaakt voor scoped print queue data.
+- Station-detectie uitgebreid met meerdere bronnen:
+    - metadata velden (`stationId`, `targetStation`, etc.)
+    - top-level velden (`machineId`)
+    - fallback via documentpad (`.../machines/{machine}/items/...`).
+- Status-filter aangepast zodat ook oudere/afwijkende queue-statussen correct als actieve wachtrij worden behandeld.
+- Path-matching voor scoped queue docs gecorrigeerd (leading slash normalisatie), waardoor bestaande records niet meer onterecht werden weggefilterd.
+
+### Resultaat
+- De bestaande print queue is nu zichtbaar op de **MAZAK** tegel onder Print Stations.
+- Door gebruiker bevestigd: **"het werkt"**.
+
+---
+
 ## Update sessie 17 juni 2026 (Systeem Presentatie UI/UX & Animaties)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)

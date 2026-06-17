@@ -4277,9 +4277,12 @@ const reassignTrackedProductOrderService = async ({
     }
     batch.set(targetOrderDoc.ref, targetUpdates, { merge: true });
   } else {
-    const stationField = getStartedCounterFieldServer(
-      clean(productData.originMachine) || clean(productData.machine) || clean(productData.currentStation)
-    );
+    const stationForCounter =
+      clean(productData.originMachine) ||
+      clean(productData.lastStation) ||
+      clean(productData.machine) ||
+      clean(productData.currentStation);
+    const stationField = getStartedCounterFieldServer(stationForCounter);
 
     if (stationField) {
       if (sourceOrderDoc) {
