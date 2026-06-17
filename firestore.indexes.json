@@ -86,6 +86,14 @@
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "updatedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "items",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "id", "order": "ASCENDING" },
+        { "fieldPath": "_scopeType", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
