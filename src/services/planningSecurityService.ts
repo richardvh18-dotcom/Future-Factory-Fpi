@@ -1000,6 +1000,8 @@ export const editTrackedProductLotNumber = async ({
 export const reassignTrackedProductOrder = async ({
   productId,
   newOrderId,
+  targetOrderDocId = "",
+  targetOrderPath = "",
   reason,
   source = "",
   actorLabel = "",
@@ -1007,6 +1009,8 @@ export const reassignTrackedProductOrder = async ({
   const payload = {
     productId: String(productId || "").trim(),
     newOrderId: String(newOrderId || "").trim(),
+    targetOrderDocId: String(targetOrderDocId || "").trim(),
+    targetOrderPath: String(targetOrderPath || "").trim(),
     reason: String(reason || "").trim(),
     source: String(source || "").trim(),
     actorLabel: String(actorLabel || "").trim(),

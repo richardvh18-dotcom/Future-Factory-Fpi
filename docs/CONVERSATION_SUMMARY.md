@@ -1,3 +1,55 @@
+## Update sessie 18 juni 2026 (Mazak aanpassen: UI, labelkeuze en order-reassign live)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Mazak detail-UI uitgebreid met orderwijzig-acties**
+- In het rechter detailpaneel onder de zwarte producttegel zijn 2 knoppen toegevoegd:
+    - `Ordernummer wijzigen`
+    - `Verzoek nieuw ordernummer`
+- Beide knoppen openen de bestaande aanpas-flow met verplichte opmerking en labelvoorbeeld.
+
+**2. Popup labelvoorbeeld verbeterd**
+- Preview in de orderwijzig-popup is verkleind zodat deze netjes binnen het modalvenster past.
+- Preview gebruikt nu dezelfde algemene bitmap-accurate previewflow als de overige label-schermen.
+
+**3. Labelselectie voor flenzen aangescherpt (materiaal/drukklasse)**
+- Templatekeuze in Mazak-aanpasflow rankt nu expliciet op materiaal-intentie/tags:
+    - `EST/CST/EWT` => voorkeur `Wavistrong`
+    - `EMT/CMT` => voorkeur `Fibermar`
+- Hiermee wordt de fallback naar onjuiste standaardlabels (zoals Fibermar bij EST) verminderd.
+
+**4. Reassign-gedrag in backend gecorrigeerd**
+- `reassignTrackedProductOrderService` aangepast zodat bij orderwijziging een nieuw tracked document-id wordt opgebouwd met:
+    - nieuw ordernummer
+    - doel `itemCode`
+    - bestaand lotnummer
+- Doelorder-productvelden worden tegelijk in de nieuwe record gezet (`item`, `itemCode`, `productId`, `extraCode`, beschrijving/technische velden).
+- Bestaande history blijft behouden met expliciete regel `Ordernummer gewijzigd: oud -> nieuw` inclusief reden.
+- Oude record wordt verwijderd wanneer het document-id wijzigt.
+
+**5. Deploy uitgevoerd**
+- Gerichte productie-deploy succesvol afgerond:
+    - `firebase deploy --only functions:reassignTrackedProductOrder`
+- Functie `reassignTrackedProductOrder(europe-west1)` staat live met de nieuwe reassign-logica.
+
+## Update sessie 17 juni 2026 (Open incident Mazak aanpassen/herprint)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Gemelde situatie (door gebruiker)
+- Order-omnummering in Mazak Aanpassen is functioneel nog niet correct afgerond.
+- Er wordt wel geprint na de wijziging, maar het label toont nog hetzelfde (oude) ordernummer.
+- Voor een EST-flens wordt nu een Fibermar-label gekozen, terwijl dit Wavistrong moet zijn.
+
+### Prioriteit voor morgen
+- Reproduceer-case met dezelfde orderwissel en lotgegevens doorlopen.
+- Controleren of herprintdata altijd het nieuwe `orderId/orderNumber` gebruikt in `processLabelData` + ZPL-renderpad.
+- Template-selectie voor EST-flens expliciet valideren op materiaal/productlijn zodat Wavistrong gekozen wordt en niet Fibermar.
+- Resultaat vastleggen met concrete before/after (gekozen template-id, template-naam, ordernummer op printjob/meta).
+
+---
+
 ## Update sessie 17 juni 2026 (Mazak-tegel Print Queue zichtbaar)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)

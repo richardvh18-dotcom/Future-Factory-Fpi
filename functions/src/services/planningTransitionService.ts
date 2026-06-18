@@ -81,19 +81,27 @@ const toFirestoreSegment = (value, fallback) => {
 const buildReassignedTrackedDocId = ({
   currentDocId,
   newOrderId,
+  targetItemCode,
   lotNumber,
 }) => {
   const safeCurrentDocId = clean(currentDocId);
   const safeNewOrderId = clean(newOrderId).toUpperCase();
+  const safeTargetItemCode = clean(targetItemCode).toUpperCase();
   const safeLotNumber = clean(lotNumber);
 
   if (!safeCurrentDocId || !safeNewOrderId) return safeCurrentDocId;
 
+  if (safeTargetItemCode && safeLotNumber) {
+    return toFirestoreSegment(`${safeNewOrderId}_${safeTargetItemCode}_${safeLotNumber}`, safeCurrentDocId);
+  }
+
+  if (safeLotNumber) {
+    return toFirestoreSegment(`${safeNewOrderId}_${safeLotNumber}`, safeCurrentDocId);
+  }
+
   const segments = safeCurrentDocId.split('_').filter(Boolean);
   if (segments.length <= 1) {
-    const fallback = safeLotNumber
-      ? `${safeNewOrderId}_${safeLotNumber}`
-      : `${safeNewOrderId}_${safeCurrentDocId}`;
+    const fallback = `${safeNewOrderId}_${safeCurrentDocId}`;
     return toFirestoreSegment(fallback, safeCurrentDocId);
   }
 
@@ -4152,6 +4160,8 @@ const editTrackedProductLotNumberService = async ({
 const reassignTrackedProductOrderService = async ({
   productId,
   newOrderId,
+  targetOrderDocId,
+  targetOrderPath,
   reason,
   actorLabel,
   source,
@@ -4160,15 +4170,33 @@ const reassignTrackedProductOrderService = async ({
 }) => {
   const ctx = dbCtx || resolveDbContext(null);
   const safeProductId = clean(productId);
-  const safeNewOrderId = clean(newOrderId).toUpperCase();
+  const rawOrderInput = clean(newOrderId).toUpperCase();
+  const safeNewOrderId = (rawOrderInput.match(/[A-Z]\d{6,}/)?.[0] || rawOrderInput).trim();
+  const safeTargetOrderDocId = clean(targetOrderDocId);
+  const safeTargetOrderPath = clean(targetOrderPath);
   const safeReason = clampText(reason, 300);
 
   if (!safeProductId || !safeNewOrderId || !safeReason) {
     throw new Error('INVALID_ORDER_REASSIGN_PAYLOAD');
   }
 
-  const targetOrderDoc = await getPlanningOrderDocByOrderId(safeNewOrderId, ctx._rds);
+  let targetOrderDoc = null;
+  if (safeTargetOrderPath) {
+    targetOrderDoc = await getPlanningOrderDocById(safeTargetOrderPath, ctx._rds);
+  }
+  if (!targetOrderDoc && safeTargetOrderDocId) {
+    targetOrderDoc = await getPlanningOrderDocById(safeTargetOrderDocId, ctx._rds);
+  }
   if (!targetOrderDoc) {
+    targetOrderDoc = await getPlanningOrderDocByOrderId(safeNewOrderId, ctx._rds);
+  }
+  if (!targetOrderDoc) {
+    console.warn('[reassignTrackedProductOrderService] target order not found', {
+      productId: safeProductId,
+      safeNewOrderId,
+      safeTargetOrderDocId,
+      safeTargetOrderPath,
+    });
     throw new Error('NOT_FOUND_TARGET_ORDER');
   }
 
@@ -4201,9 +4229,16 @@ const reassignTrackedProductOrderService = async ({
   const userLabel = getActorLabel(auth, actorLabel);
   const nowIso = new Date().toISOString();
   const lotNumber = clean(productData.lotNumber) || productDoc.id;
+  const nextItemCode =
+    clean(targetOrderData.itemCode) ||
+    clean(targetOrderData.productId) ||
+    clean(targetOrderData.extraCode) ||
+    clean(productData.itemCode) ||
+    clean(productData.productId);
   const nextProductDocId = buildReassignedTrackedDocId({
     currentDocId: productDoc.id,
     newOrderId: safeNewOrderId,
+    targetItemCode: nextItemCode,
     lotNumber,
   });
   const shouldMoveProductDoc = Boolean(nextProductDocId && nextProductDocId !== productDoc.id);
@@ -4232,6 +4267,18 @@ const reassignTrackedProductOrderService = async ({
   const productUpdates = {
     id: nextProductRef.id,
     orderId: safeNewOrderId,
+    item: clean(targetOrderData.item) || clean(targetOrderData.itemDescription) || clean(productData.item) || null,
+    itemCode: nextItemCode || clean(productData.itemCode) || null,
+    productId: clean(targetOrderData.productId) || nextItemCode || clean(productData.productId) || null,
+    extraCode: clean(targetOrderData.extraCode) || clean(productData.extraCode) || null,
+    description: clean(targetOrderData.description) || clean(targetOrderData.itemDescription) || clean(productData.description) || null,
+    itemDescription: clean(targetOrderData.itemDescription) || clean(targetOrderData.description) || clean(productData.itemDescription) || null,
+    articleDescription: clean(targetOrderData.articleDescription) || clean(productData.articleDescription) || null,
+    specs: targetOrderData.specs || productData.specs || null,
+    pn: targetOrderData.pn || productData.pn || null,
+    dn: targetOrderData.dn || productData.dn || null,
+    diameter: targetOrderData.diameter || productData.diameter || null,
+    project: clean(targetOrderData.project) || clean(productData.project) || null,
     originalOrderId: clean(productData.originalOrderId) || currentOrderId,
     reassignedFromOrderId: currentOrderId,
     reassignedToOrderId: safeNewOrderId,

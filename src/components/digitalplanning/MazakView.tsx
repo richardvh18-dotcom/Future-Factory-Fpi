@@ -107,6 +107,8 @@ type OccupancyEntry = {
 
 type PlanningOrder = {
   id?: string;
+  orderDocId?: string;
+  orderDocPath?: string;
   orderId?: string;
   item?: string;
   itemCode?: string;
@@ -308,6 +310,80 @@ const hasFlangeTag = (template: LabelTemplate): boolean => {
   return tags.includes("FLANGE");
 };
 
+const getMaterialIntentTags = (product: ProductItem): Set<string> => {
+  const combined = [
+    product?.item,
+    product?.itemCode,
+    product?.productId,
+    product?.extraCode,
+    (product as Record<string, unknown>)?.itemDescription,
+    (product as Record<string, unknown>)?.description,
+    (product as Record<string, unknown>)?.articleDescription,
+  ]
+    .map((value) => String(value || "").toUpperCase())
+    .join(" ");
+
+  const tags = new Set<string>();
+
+  if (/\bEST\d*\b/.test(combined)) {
+    tags.add("EST");
+    tags.add("WAVISTRONG");
+  }
+  if (/\bCST\d*\b/.test(combined)) {
+    tags.add("CST");
+    tags.add("WAVISTRONG");
+    tags.add("CONDUCTIVE");
+  }
+  if (/\bEWT\d*\b/.test(combined)) {
+    tags.add("EWT");
+    tags.add("WAVISTRONG");
+  }
+  if (/\bEMT\d*\b/.test(combined)) {
+    tags.add("EMT");
+    tags.add("FIBERMAR");
+  }
+  if (/\bCMT\d*\b/.test(combined)) {
+    tags.add("CMT");
+    tags.add("FIBERMAR");
+    tags.add("CONDUCTIVE");
+  }
+
+  if (combined.includes("WAVISTRONG")) tags.add("WAVISTRONG");
+  if (combined.includes("FIBERMAR")) tags.add("FIBERMAR");
+
+  return tags;
+};
+
+const scoreTemplateForProductIntent = (template: LabelTemplate, intentTags: Set<string>): number => {
+  const tags = Array.isArray(template?.tags)
+    ? template.tags.map((tag) => String(tag || "").toUpperCase().trim()).filter(Boolean)
+    : [];
+  const tagSet = new Set(tags);
+  const nameUpper = String(template?.name || "").toUpperCase();
+
+  let score = 0;
+
+  if (tagSet.has("FLANGE") || tagSet.has("FLENS") || tagSet.has("FLENZEN")) score += 30;
+
+  if (intentTags.has("EST") && tagSet.has("EST")) score += 140;
+  if (intentTags.has("CST") && tagSet.has("CST")) score += 140;
+  if (intentTags.has("EWT") && tagSet.has("EWT")) score += 140;
+  if (intentTags.has("EMT") && tagSet.has("EMT")) score += 140;
+  if (intentTags.has("CMT") && tagSet.has("CMT")) score += 140;
+
+  if (intentTags.has("WAVISTRONG") && tagSet.has("WAVISTRONG")) score += 90;
+  if (intentTags.has("FIBERMAR") && tagSet.has("FIBERMAR")) score += 90;
+  if (intentTags.has("CONDUCTIVE") && tagSet.has("CONDUCTIVE")) score += 50;
+
+  if (intentTags.has("WAVISTRONG") && !intentTags.has("FIBERMAR") && tagSet.has("FIBERMAR")) score -= 120;
+  if (intentTags.has("FIBERMAR") && !intentTags.has("WAVISTRONG") && tagSet.has("WAVISTRONG")) score -= 120;
+
+  if (intentTags.has("WAVISTRONG") && nameUpper.includes("WAVISTRONG")) score += 25;
+  if (intentTags.has("FIBERMAR") && nameUpper.includes("FIBERMAR")) score += 25;
+
+  return score;
+};
+
 const selectQueuePrinterForStation = (
   printers: PrinterConfig[],
   stationId: string,
@@ -432,6 +508,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const [adjustOrderSearch, setAdjustOrderSearch] = useState("");
   const [selectedAdjustTargetOrder, setSelectedAdjustTargetOrder] = useState<PlanningOrder | null>(null);
   const [adjustRequestNote, setAdjustRequestNote] = useState("");
+  const [showAdjustOrderModal, setShowAdjustOrderModal] = useState(false);
+  const [showRequestNewOrderModal, setShowRequestNewOrderModal] = useState(false);
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
   const activeScanInput = activeTab === "process"
     ? scanInputProcess
@@ -480,6 +558,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       setAdjustOrderSearch("");
       setSelectedAdjustTargetOrder(null);
       setAdjustRequestNote("");
+      setShowAdjustOrderModal(false);
+      setShowRequestNewOrderModal(false);
     }
   }, [activeTab]);
 
@@ -538,10 +618,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       where("status", "not-in", ["completed", "shipped", "deleted", "cancelled"])
     );
 
-    const scopedOrdersQuery = query(
-      collectionGroup(db, 'orders'),
-      where("status", "not-in", ["completed", "shipped", "deleted", "cancelled"])
-    );
+    const scopedOrdersQuery = query(collectionGroup(db, 'orders'));
 
     let rootOrders: PlanningOrder[] = [];
     let scopedOrders: PlanningOrder[] = [];
@@ -559,28 +636,44 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     };
 
     const unsubRoot = onSnapshot(rootPlanningQuery, (snap) => {
-      rootOrders = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PlanningOrder, "id">) }));
+      rootOrders = snap.docs.map((d) => ({
+        id: d.id,
+        orderDocId: d.id,
+        orderDocPath: d.ref.path,
+        ...(d.data() as Omit<PlanningOrder, "id">),
+      }));
       combineAndSetOrders();
     }, (error) => console.error("Error fetching root planning:", error));
 
     const unsubScoped = onSnapshot(scopedOrdersQuery, (snap) => {
-      scopedOrders = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PlanningOrder, "id">) }));
+      scopedOrders = snap.docs
+        .map((d) => ({
+          id: d.id,
+          orderDocId: d.id,
+          orderDocPath: d.ref.path,
+          ...(d.data() as Omit<PlanningOrder, "id">),
+        }) as PlanningOrder)
+        .filter((order) => {
+          const status = String(order.status || "").trim().toLowerCase();
+          return !excludedStatuses.has(status);
+        });
       combineAndSetOrders();
     }, (error) => {
       console.error("Error fetching scoped planning orders:", error);
-      const firestoreCode = String(error?.code || "").toLowerCase();
-      const firestoreMessage = String(error?.message || "").toLowerCase();
-      const missingIndex = firestoreCode.includes("failed-precondition") || firestoreMessage.includes("requires a collection_group");
+      if (unsubScopedFallback) return;
 
-      if (!missingIndex || unsubScopedFallback) return;
-
-      // Fallback zonder status-filter in query om indexblokkade te omzeilen.
+      // Extra fallback houdt listener actief bij tijdelijke watch-fouten.
       const scopedFallbackQuery = query(collectionGroup(db, "orders"));
       unsubScopedFallback = onSnapshot(
         scopedFallbackQuery,
         (fallbackSnap) => {
           scopedOrders = fallbackSnap.docs
-            .map((d) => ({ id: d.id, ...(d.data() as Omit<PlanningOrder, "id">) }) as PlanningOrder)
+            .map((d) => ({
+              id: d.id,
+              orderDocId: d.id,
+              orderDocPath: d.ref.path,
+              ...(d.data() as Omit<PlanningOrder, "id">),
+            }) as PlanningOrder)
             .filter((order) => {
               const status = String(order.status || "").trim().toLowerCase();
               return !excludedStatuses.has(status);
@@ -724,6 +817,70 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
   const { previewData: mazakPreviewData } = useLabelPreview(
     previewProductData as Record<string, unknown> | null,
     selectedLabelId
+  );
+
+  const resolvePreferredFlangeTemplatesForProduct = useCallback((product: ProductItem): LabelTemplate[] => {
+    const productFiltered = filterLabelsByProduct(availableLabels as any, product as any, {
+      excludeTempOrderLabels: true,
+    }) as LabelTemplate[];
+
+    const flangeOnly = productFiltered.filter((template) => hasFlangeTag(template));
+    if (flangeOnly.length === 0) return [];
+
+    const intentTags = getMaterialIntentTags(product);
+    const rankedFlange = [...flangeOnly].sort((a, b) => {
+      const scoreDiff = scoreTemplateForProductIntent(b, intentTags) - scoreTemplateForProductIntent(a, intentTags);
+      if (scoreDiff !== 0) return scoreDiff;
+      return String(a?.name || a?.id || "").localeCompare(String(b?.name || b?.id || ""));
+    });
+
+    const preferredRoot = rankedFlange[0];
+
+    const linked = resolveLinkedTemplateChain(availableLabels as any[], String(preferredRoot?.id || ""), { maxDepth: 4 }) as LabelTemplate[];
+    const allowedIds = new Set(flangeOnly.map((template) => String(template.id || "")));
+    const linkedFlange = linked.filter((template) => hasFlangeTag(template) && allowedIds.has(String(template.id || "")));
+    if (linkedFlange.length > 0) return linkedFlange;
+
+    return [preferredRoot];
+  }, [availableLabels]);
+
+  const adjustPreviewProductData = useMemo(() => {
+    if (!selectedAdjustProduct || !selectedAdjustTargetOrder) return null;
+    const targetOrder = selectedAdjustTargetOrder;
+    const product = selectedAdjustProduct;
+    return {
+      ...product,
+      item: targetOrder.item || product.item,
+      itemCode: targetOrder.itemCode || product.itemCode,
+      productId: targetOrder.productId || product.productId,
+      extraCode: targetOrder.extraCode || product.extraCode,
+      
+      description: targetOrder.description || "",
+      itemDescription: targetOrder.itemDescription || "",
+      articleDescription: targetOrder.articleDescription || "",
+      specs: targetOrder.specs || null,
+      pn: targetOrder.pn || null,
+      dn: targetOrder.dn || null,
+      diameter: targetOrder.diameter || null,
+      project: targetOrder.project || "",
+
+      orderId: targetOrder.orderId,
+      orderNumber: targetOrder.orderId,
+      Order: targetOrder.orderId,
+      order: targetOrder.orderId,
+      originalOrderId: targetOrder.orderId,
+      Productieorder: targetOrder.orderId
+    } as Record<string, unknown>;
+  }, [selectedAdjustProduct, selectedAdjustTargetOrder]);
+
+  const adjustPreviewTemplates = useMemo(() => {
+    if (!adjustPreviewProductData) return [];
+    return resolvePreferredFlangeTemplatesForProduct(adjustPreviewProductData as ProductItem);
+  }, [adjustPreviewProductData, resolvePreferredFlangeTemplatesForProduct]);
+
+  const { previewData: adjustPreviewData } = useLabelPreview(
+    adjustPreviewProductData as Record<string, unknown> | null,
+    adjustPreviewTemplates[0]?.id || ""
   );
 
   const freeLabelTemplate = useMemo<LabelTemplate>(() => {
@@ -1179,6 +1336,21 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     setShowActionModal(true);
   };
 
+  const handleOpenAdjustOrderFromSelectedProduct = () => {
+    if (!selectedProduct) return;
+    setSelectedAdjustProduct(selectedProduct);
+    setAdjustOrderSearch("");
+    setSelectedAdjustTargetOrder(null);
+    setShowAdjustOrderModal(true);
+  };
+
+  const handleOpenRequestNewOrderFromSelectedProduct = () => {
+    if (!selectedProduct) return;
+    setSelectedAdjustProduct(selectedProduct);
+    setAdjustRequestNote("");
+    setShowRequestNewOrderModal(true);
+  };
+
   const resolveQueuePrinterForPrint = async (): Promise<PrinterConfig> => {
     if (selectedQueuePrinter?.id) return selectedQueuePrinter;
 
@@ -1199,25 +1371,6 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
     }
 
     throw new Error("Geen geldige Mazak-printer geconfigureerd voor de queue.");
-  };
-
-  const resolvePreferredFlangeTemplatesForProduct = (product: ProductItem): LabelTemplate[] => {
-    const productFiltered = filterLabelsByProduct(availableLabels as any, product as any, {
-      excludeTempOrderLabels: true,
-    }) as LabelTemplate[];
-
-    const flangeOnly = productFiltered.filter((template) => hasFlangeTag(template));
-    if (flangeOnly.length === 0) return [];
-
-    const preferredRoot = flangeOnly.find((template: LabelTemplate) =>
-      template.tags?.includes("FLENZEN") ||
-      template.tags?.includes("FLENS") ||
-      template.tags?.includes("FLANGE")
-    ) || flangeOnly[0];
-
-    const linked = resolveLinkedTemplateChain(availableLabels as any[], String(preferredRoot?.id || ""), { maxDepth: 4 }) as LabelTemplate[];
-    const linkedFlange = linked.filter((template) => hasFlangeTag(template));
-    return linkedFlange.length > 0 ? linkedFlange : [preferredRoot];
   };
 
   const handleReprintAdjustedOrderLabel = async (product: ProductItem, previousOrderId: string, newOrderId: string): Promise<string> => {
@@ -1729,6 +1882,8 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
       await reassignTrackedProductOrder({
         productId,
         newOrderId: nextOrderId,
+        targetOrderDocId: String(targetOrder.id || targetOrder.orderDocId || "").trim(),
+        targetOrderPath: String(targetOrder.orderDocPath || "").trim(),
         reason,
         source: "MazakView:adjust-order",
         actorLabel: user?.email || "Mazak Operator",
@@ -1742,7 +1897,30 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
 
       let reprintJobId = "";
       try {
-        const productForReprint = { ...product, orderId: nextOrderId };
+        const productForReprint = { 
+          ...product, 
+          item: targetOrder.item || product.item,
+          itemCode: targetOrder.itemCode || product.itemCode,
+          productId: targetOrder.productId || product.productId,
+          extraCode: targetOrder.extraCode || product.extraCode,
+          
+          // Wis verouderde productvelden zodat de label-parser zuiver de nieuwe orderdata pakt
+          description: targetOrder.description || "",
+          itemDescription: targetOrder.itemDescription || "",
+          articleDescription: targetOrder.articleDescription || "",
+          specs: targetOrder.specs || null,
+          pn: targetOrder.pn || null,
+          dn: targetOrder.dn || null,
+          diameter: targetOrder.diameter || null,
+          project: targetOrder.project || "",
+
+          orderId: nextOrderId,
+          orderNumber: nextOrderId,
+          Order: nextOrderId,
+          order: nextOrderId,
+          originalOrderId: nextOrderId,
+          Productieorder: nextOrderId
+        };
         reprintJobId = await handleReprintAdjustedOrderLabel(productForReprint, previousOrderId || "-", nextOrderId);
       } catch (reprintErr) {
         const reprintWarning = reprintErr instanceof Error ? reprintErr.message : String(reprintErr || "Onbekende fout");
@@ -1874,6 +2052,7 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
           "Verzoek verstuurd naar Teamleader/Planner. Dit product blijft geparkeerd tot een nieuw ordernummer beschikbaar is."
         )
       );
+      setShowRequestNewOrderModal(false);
     } catch (error) {
       console.error("Fout bij aanvragen nieuw ordernummer:", error);
       const message = error instanceof Error ? error.message : String(error || "Onbekende fout");
@@ -2710,116 +2889,28 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-[2.5rem] p-6 border border-slate-100 shadow-sm space-y-4">
-                  <h4 className="text-sm font-black uppercase tracking-widest text-slate-500">
-                    {t("mazak.adjust_existing_order", "1) Koppel aan bestaand ordernummer")}
-                  </h4>
-
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input
-                      type="text"
-                      value={adjustOrderSearch}
-                      onChange={(e) => setAdjustOrderSearch(e.target.value)}
-                      placeholder={t("mazak.adjust_target_search", "Zoek doelorder (ordernummer of type)...")}
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 focus:border-blue-500 rounded-xl font-bold text-sm outline-none transition-all placeholder:text-slate-300"
-                    />
-                  </div>
-
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">
-                    {selectedAdjustFlangeSize
-                      ? t("mazak.adjust_size_filter_active", "Filter actief: alleen flensmaat FL {{size}}", { size: selectedAdjustFlangeSize })
-                      : selectedAdjustOrderFamily
-                        ? t("mazak.adjust_family_filter_active", "Filter actief: alleen orders met ID-reeks {{family}}", { family: selectedAdjustOrderFamily })
-                        : t("mazak.adjust_family_filter_missing", "Geen FL-maat of 3-cijferige ID-reeks gevonden op bronorder; filter niet toegepast")}
-                  </p>
-
-                  <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
-                    {adjustTargetOrders.length === 0 ? (
-                      <p className="text-xs font-bold text-slate-500 italic px-1">
-                        {selectedAdjustOrderFamily
-                          ? selectedAdjustFlangeSize
-                            ? t("mazak.adjust_no_target_order_size", "Geen passende order gevonden in huidige planning voor flensmaat FL {{size}}.", { size: selectedAdjustFlangeSize })
-                            : t("mazak.adjust_no_target_order_family", "Geen passende order gevonden in huidige planning voor ID-reeks {{family}}.", { family: selectedAdjustOrderFamily })
-                          : t("mazak.adjust_no_target_order", "Geen passende order gevonden in huidige planning.")}
-                      </p>
-                    ) : (
-                      adjustTargetOrders.map((order) => {
-                        const orderKey = String(order.id || order.orderId || "");
-                        const isSelected = String(selectedAdjustTargetOrder?.id || selectedAdjustTargetOrder?.orderId || "") === orderKey;
-                        return (
-                          <button
-                            key={orderKey}
-                            type="button"
-                            onClick={() => setSelectedAdjustTargetOrder(order)}
-                            className={`w-full text-left px-3 py-2 rounded-xl border transition-all ${isSelected ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white hover:border-blue-200"}`}
-                          >
-                            <p className="text-xs font-black text-slate-800 uppercase tracking-wide">{order.orderId || "-"}</p>
-                            <p className="text-[11px] font-bold text-slate-600 truncate">{order.item || "-"}</p>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
-                      {t("mazak.adjust_reassign_preview", "Wijzigingsoverzicht")}
-                    </p>
-                    <p className="text-xs font-bold text-slate-700">
-                      {t("mazak.adjust_from", "Van")}: {selectedAdjustProduct.orderId || "-"} ({selectedAdjustProduct.item || selectedAdjustProduct.itemCode || "-"})
-                    </p>
-                    <p className="text-xs font-bold text-slate-700 mt-1">
-                      {t("mazak.adjust_to", "Naar")}: {selectedAdjustTargetOrder?.orderId || "-"} ({selectedAdjustTargetOrder?.item || selectedAdjustTargetOrder?.itemCode || "-"})
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">
-                      {t("mazak.adjust_reason", "Opmerking / waarom")}
-                    </label>
-                    <textarea
-                      value={adjustReason}
-                      onChange={(e) => setAdjustReason(e.target.value)}
-                      rows={3}
-                      maxLength={300}
-                      placeholder={t("mazak.adjust_reason_placeholder", "Waarom wordt dit lot aan een ander ordernummer gekoppeld?")}
-                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500 resize-none"
-                    />
-                  </div>
-
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                   <button
-                    onClick={handleSubmitOrderReassign}
-                    disabled={adjustSubmitting || !selectedAdjustTargetOrder || !adjustReason.trim()}
-                    className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={() => setShowAdjustOrderModal(true)}
+                    className="p-6 bg-white rounded-3xl border-2 border-slate-100 hover:border-blue-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group"
                   >
-                    {adjustSubmitting ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
-                    {t("mazak.adjust_apply_existing", "Ordernummer wijzigen")}
+                    <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                      <ArrowRight size={32} />
+                    </div>
+                    <span className="text-sm font-black uppercase tracking-widest text-slate-700 group-hover:text-blue-700">
+                      Ordernummer wijzigen
+                    </span>
                   </button>
-                </div>
-
-                <div className="bg-white rounded-[2.5rem] p-6 border border-amber-200 shadow-sm space-y-4">
-                  <h4 className="text-sm font-black uppercase tracking-widest text-amber-700">
-                    {t("mazak.adjust_no_existing_order", "2) Geen bestaand order? Meld aan planner/teamleader")}
-                  </h4>
-                  <p className="text-xs font-bold text-slate-600">
-                    {t("mazak.adjust_no_existing_order_help", "Als er nog geen passende order in de planning staat, stuur je een bericht voor een nieuw ordernummer. Dit product blijft geparkeerd totdat het nieuwe order bestaat en je de aanpassing kunt uitvoeren.")}
-                  </p>
-                  <textarea
-                    value={adjustRequestNote}
-                    onChange={(e) => setAdjustRequestNote(e.target.value)}
-                    rows={3}
-                    maxLength={500}
-                    placeholder={t("mazak.adjust_request_note", "Extra toelichting voor planner/teamleader (optioneel)")}
-                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-amber-400 resize-none"
-                  />
                   <button
-                    onClick={handleRequestNewOrderFromPlanner}
-                    disabled={adjustSubmitting || !adjustReason.trim()}
-                    className="w-full py-4 bg-amber-500 text-white rounded-xl font-black uppercase text-sm hover:bg-amber-600 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={() => setShowRequestNewOrderModal(true)}
+                    className="p-6 bg-white rounded-3xl border-2 border-slate-100 hover:border-amber-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group"
                   >
-                    {adjustSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Tag size={18} />}
-                    {t("mazak.adjust_send_request", "Verzoek nieuw ordernummer versturen")}
+                    <div className="p-4 bg-amber-50 text-amber-600 rounded-2xl group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                      <Tag size={32} />
+                    </div>
+                    <span className="text-sm font-black uppercase tracking-widest text-slate-700 group-hover:text-amber-700">
+                      Verzoek nieuw ordernummer
+                    </span>
                   </button>
                 </div>
               </>
@@ -2869,6 +2960,33 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
                   <p className="text-[10px] font-black text-white/40 uppercase mb-1">Status</p>
                   <p className="text-lg font-black text-blue-300 uppercase">{String(selectedProduct.status || "-")}</p>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-[2.5rem] p-6 border border-slate-100 shadow-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={handleOpenAdjustOrderFromSelectedProduct}
+                  className="p-5 bg-white rounded-3xl border-2 border-slate-100 hover:border-blue-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group"
+                >
+                  <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <ArrowRight size={28} />
+                  </div>
+                  <span className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-700 group-hover:text-blue-700 text-center">
+                    Ordernummer wijzigen
+                  </span>
+                </button>
+                <button
+                  onClick={handleOpenRequestNewOrderFromSelectedProduct}
+                  className="p-5 bg-white rounded-3xl border-2 border-slate-100 hover:border-amber-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group"
+                >
+                  <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                    <Tag size={28} />
+                  </div>
+                  <span className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-700 group-hover:text-amber-700 text-center">
+                    Verzoek nieuw ordernummer
+                  </span>
+                </button>
               </div>
             </div>
 
@@ -3028,6 +3146,229 @@ const MazakView = ({ stationId = "Mazak", products = [] }: MazakViewProps) => {
           </div>
         )}
       </div>
+
+      {/* Adjust Order Modal */}
+      {showAdjustOrderModal && selectedAdjustProduct && (
+        <div className="fixed inset-0 z-[500] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-[30px] shadow-2xl w-full max-w-4xl p-6 sm:p-8 max-h-[95vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center mb-6 shrink-0">
+              <div>
+                <h3 className="text-2xl font-black text-slate-800 uppercase italic">
+                  Ordernummer wijzigen
+                </h3>
+                <p className="text-sm text-slate-500 font-bold mt-1">
+                  Lot: {selectedAdjustProduct.lotNumber || selectedAdjustProduct.id}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAdjustOrderModal(false)}
+                className="p-2 rounded-full text-slate-400 hover:bg-slate-100 transition-colors"
+                disabled={adjustSubmitting}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col lg:flex-row gap-6">
+              {/* Left side: Search & Input */}
+              <div className="flex-1 space-y-4">
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      value={adjustOrderSearch}
+                      onChange={(e) => setAdjustOrderSearch(e.target.value)}
+                      placeholder={t("mazak.adjust_target_search", "Zoek doelorder (ordernummer of type)...")}
+                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 focus:border-blue-500 rounded-xl font-bold text-sm outline-none transition-all placeholder:text-slate-300"
+                    />
+                  </div>
+
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">
+                    {selectedAdjustFlangeSize
+                      ? t("mazak.adjust_size_filter_active", "Filter actief: alleen flensmaat FL {{size}}", { size: selectedAdjustFlangeSize })
+                      : selectedAdjustOrderFamily
+                        ? t("mazak.adjust_family_filter_active", "Filter actief: alleen orders met ID-reeks {{family}}", { family: selectedAdjustOrderFamily })
+                        : t("mazak.adjust_family_filter_missing", "Geen FL-maat of 3-cijferige ID-reeks gevonden op bronorder; filter niet toegepast")}
+                  </p>
+
+                  <div className="max-h-48 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {adjustTargetOrders.length === 0 ? (
+                      <p className="text-xs font-bold text-slate-500 italic px-1">
+                        Geen passende order gevonden.
+                      </p>
+                    ) : (
+                      adjustTargetOrders.map((order) => {
+                        const orderKey = String(order.id || order.orderId || "");
+                        const isSelected = String(selectedAdjustTargetOrder?.id || selectedAdjustTargetOrder?.orderId || "") === orderKey;
+                        return (
+                          <button
+                            key={orderKey}
+                            type="button"
+                            onClick={() => setSelectedAdjustTargetOrder(order)}
+                            className={`w-full text-left px-3 py-2 rounded-xl border transition-all ${isSelected ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white hover:border-blue-200"}`}
+                          >
+                            <p className="text-xs font-black text-slate-800 uppercase tracking-wide">{order.orderId || "-"}</p>
+                            <p className="text-[11px] font-bold text-slate-600 truncate">{order.item || "-"}</p>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">
+                      {t("mazak.adjust_reason", "Opmerking / waarom (Verplicht)")}
+                    </label>
+                    <textarea
+                      value={adjustReason}
+                      onChange={(e) => setAdjustReason(e.target.value)}
+                      rows={3}
+                      maxLength={300}
+                      placeholder={t("mazak.adjust_reason_placeholder", "Waarom wordt dit lot aan een ander ordernummer gekoppeld?")}
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500 resize-none"
+                    />
+                  </div>
+              </div>
+
+              {/* Right side: Preview */}
+              <div className="flex-1 min-h-0 bg-slate-50 rounded-2xl p-6 border border-slate-100 flex flex-col">
+                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">
+                   Nieuw Label Voorbeeld
+                 </p>
+                 {selectedAdjustTargetOrder ? (
+                   <div className="flex-1 min-h-0 flex flex-col">
+                     {adjustPreviewTemplates.length > 0 ? (
+                       <div className="space-y-4 overflow-y-auto custom-scrollbar pr-2 max-h-[42vh]">
+                         {adjustPreviewTemplates.map((template, idx) => (
+                            <div key={template.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                              <p className="text-[9px] font-bold text-slate-400 mb-2 uppercase">{template.name}</p>
+                              <AutoScaledLabelPreview
+                                label={template}
+                                data={adjustPreviewData}
+                                printerDpi={mazakPrinterDpi}
+                                maxScale={0.36}
+                                exactBitmapPreview
+                              />
+                            </div>
+                         ))}
+                       </div>
+                     ) : (
+                       <p className="text-xs text-slate-400 font-bold italic">Geen geschikt flens-template gevonden.</p>
+                     )}
+                   </div>
+                 ) : (
+                   <div className="flex-1 flex items-center justify-center">
+                     <p className="text-xs text-slate-400 font-bold italic text-center">
+                       Selecteer een doelorder om het nieuwe label te zien.
+                     </p>
+                   </div>
+                 )}
+              </div>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-slate-100 flex justify-end gap-3 shrink-0">
+               <button
+                 onClick={() => setShowAdjustOrderModal(false)}
+                 className="px-6 py-3 rounded-xl bg-slate-100 text-slate-600 font-black uppercase text-xs hover:bg-slate-200 transition-all disabled:opacity-50"
+                 disabled={adjustSubmitting}
+               >
+                 Annuleren
+               </button>
+               <button
+                 onClick={async () => {
+                   await handleSubmitOrderReassign();
+                   if (adjustSubmitting) return; // wait till finish
+                   setShowAdjustOrderModal(false);
+                 }}
+                 disabled={adjustSubmitting || !selectedAdjustTargetOrder || !adjustReason.trim()}
+                 className="px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-xs hover:bg-blue-700 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed shadow-lg"
+               >
+                 {adjustSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
+                 Wijzigen & Printen
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request New Order Modal */}
+      {showRequestNewOrderModal && selectedAdjustProduct && (
+        <div className="fixed inset-0 z-[500] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-[30px] shadow-2xl w-full max-w-xl p-6 sm:p-8 flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-black text-slate-800 uppercase italic">
+                  Verzoek nieuw ordernummer
+                </h3>
+                <p className="text-sm text-slate-500 font-bold mt-1">
+                  Lot: {selectedAdjustProduct.lotNumber || selectedAdjustProduct.id}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowRequestNewOrderModal(false)}
+                className="p-2 rounded-full text-slate-400 hover:bg-slate-100 transition-colors"
+                disabled={adjustSubmitting}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6">
+                  <p className="text-xs font-bold text-slate-600">
+                    {t("mazak.adjust_no_existing_order_help", "Als er nog geen passende order in de planning staat, stuur je een bericht voor een nieuw ordernummer. Dit product blijft geparkeerd totdat het nieuwe order bestaat en je de aanpassing kunt uitvoeren.")}
+                  </p>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">
+                      Reden (Verplicht)
+                    </label>
+                    <textarea
+                      value={adjustReason}
+                      onChange={(e) => setAdjustReason(e.target.value)}
+                      rows={3}
+                      maxLength={300}
+                      placeholder="Waarom is een nieuw ordernummer nodig?"
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-amber-400 resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">
+                      Opmerking
+                    </label>
+                    <textarea
+                      value={adjustRequestNote}
+                      onChange={(e) => setAdjustRequestNote(e.target.value)}
+                      rows={2}
+                      maxLength={500}
+                      placeholder={t("mazak.adjust_request_note", "Extra toelichting voor planner/teamleader (optioneel)")}
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-amber-400 resize-none"
+                    />
+                  </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+               <button
+                 onClick={() => setShowRequestNewOrderModal(false)}
+                 className="px-6 py-3 rounded-xl bg-slate-100 text-slate-600 font-black uppercase text-xs hover:bg-slate-200 transition-all disabled:opacity-50"
+                 disabled={adjustSubmitting}
+               >
+                 Annuleren
+               </button>
+               <button
+                 onClick={async () => {
+                   await handleRequestNewOrderFromPlanner();
+                   if (adjustSubmitting) return; // will wait
+                   setShowRequestNewOrderModal(false);
+                 }}
+                 disabled={adjustSubmitting || !adjustReason.trim()}
+                 className="px-6 py-3 bg-amber-500 text-white rounded-xl font-black uppercase text-xs hover:bg-amber-600 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed shadow-lg"
+               >
+                 {adjustSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Tag size={16} />}
+                 {t("mazak.adjust_send_request", "Verzoek nieuw ordernummer versturen")}
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

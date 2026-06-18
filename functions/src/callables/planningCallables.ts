@@ -1696,6 +1696,8 @@ const reassignTrackedProductOrder = withAudit('REASSIGN_TRACKED_PRODUCT_ORDER', 
 
   const productId = clean(data?.productId);
   const newOrderId = clean(data?.newOrderId);
+  const targetOrderDocId = clean(data?.targetOrderDocId);
+  const targetOrderPath = clean(data?.targetOrderPath);
   const reason = clampText(data?.reason, 300);
   const actorLabel = clampText(data?.actorLabel, 120);
 
@@ -1707,6 +1709,8 @@ const reassignTrackedProductOrder = withAudit('REASSIGN_TRACKED_PRODUCT_ORDER', 
     const result = await reassignTrackedProductOrderService({
       productId,
       newOrderId,
+      targetOrderDocId,
+      targetOrderPath,
       reason,
       actorLabel,
       source,

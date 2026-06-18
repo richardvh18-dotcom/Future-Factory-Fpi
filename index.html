@@ -6,7 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     
     <!-- PWA & Mobile Settings -->
-    <link rel="manifest" href="/manifest.json?v=4" />
+    <script>
+      (function attachManifest() {
+        var host = String(window.location.hostname || "");
+        if (host.endsWith("app.github.dev")) return;
+        var link = document.createElement("link");
+        link.rel = "manifest";
+        link.href = "/manifest.json?v=4";
+        document.head.appendChild(link);
+      })();
+    </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="FPi Factory" />

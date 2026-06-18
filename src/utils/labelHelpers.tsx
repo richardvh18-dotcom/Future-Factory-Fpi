@@ -150,6 +150,13 @@ const barToPsi = (bar: unknown): number | string => {
 
 // Zoekt drukklasse (EST20, CST16, EMT25, EDF11)
 const parsePressure = (text: string): string => {
+  // 1. Check specifiek op EMT/CMT met de xx/xx notatie (bijv. EMT 10/10)
+  const emtMatch = text.match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i);
+  if (emtMatch) {
+    const val = emtMatch[2].replace(/\s/g, '').replace('-', '/');
+    return `${emtMatch[1].toUpperCase()} ${val}`;
+  }
+
   // Zoek naar patroon: EST, CST, EMT, EDF, EWT gevolgd door cijfers
   const match = text.match(/\b(EST|CST|EMT|EDF|EWT)\s*(\d+(?:\.\d+)?)\b/i);
 
@@ -162,6 +169,10 @@ const parsePressure = (text: string): string => {
     if (!["EST", "CST", "EMT", "EWT"].includes(type)) {
       type = "EST";
     }
+    
+    if (type === "EMT" || type === "CMT") {
+        return `${type} ${bar}`;
+    }
 
     const psi = barToPsi(bar);
     const barDisplay = type === "EST" && Number.isFinite(barNum) ? getEstBarDisplay(barNum) : bar;
@@ -173,6 +184,12 @@ const parsePressure = (text: string): string => {
   if (fallbackMatch) {
     const bar = fallbackMatch[1];
     const barNum = parseFloat(bar);
+    
+    const isEmt = /\b(EMT|CMT)\b/i.test(text);
+    if (isEmt) {
+        return `EMT ${bar}`;
+    }
+    
     const psi = barToPsi(bar);
     const barDisplay = Number.isFinite(barNum) ? getEstBarDisplay(barNum) : bar;
     return `EST ${barDisplay} (${psi} psi)`;
@@ -367,15 +384,15 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
   // Bepaal Pressure Line EMT (zoekt specifiek naar waarden zoals "EMT 30/10" of "EMT30/10")
   let pressureLineEmt = "";
   const emtLikeMatch =
-    desc.match(/(EMT|CMT)\s*(\d+\/\d+)/i) ||
-    String(rawData.productId || "").match(/(EMT|CMT)\s*(\d+\/\d+)/i) ||
-    String(rawData.itemCode || "").match(/(EMT|CMT)\s*(\d+\/\d+)/i);
+    desc.match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i) ||
+    String(rawData.productId || "").match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i) ||
+    String(rawData.itemCode || "").match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i);
   if (emtLikeMatch) {
       const materialCode = String(emtLikeMatch[1] || "EMT").toUpperCase();
-      pressureLineEmt = `${materialCode} ${emtLikeMatch[2]}`;
-      if (!pressureLine) {
-        pressureLine = pressureLineEmt;
-      }
+      const val = emtLikeMatch[2].replace(/\s/g, '').replace('-', '/');
+      pressureLineEmt = `${materialCode} ${val}`;
+      // Altijd overschrijven voor EMT/CMT omdat dit het specifieke "xx/xx" formaat forceert
+      pressureLine = pressureLineEmt;
   }
 
   let materialLine = "";
@@ -383,6 +400,10 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
     materialLine = "Fibermar Conductive";
   } else if (upperDesc.includes("EMT") || upperDesc.includes("FIBERMAR")) {
     materialLine = "Fibermar";
+  } else if (upperDesc.includes("CST")) {
+    materialLine = "Wavistrong Conductive";
+  } else if (upperDesc.includes("EST") || upperDesc.includes("EWT") || upperDesc.includes("WAVISTRONG")) {
+    materialLine = "Wavistrong";
   }
 
   // 3. Bepaal Connecties
@@ -427,26 +448,46 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
     }
 
     // 2. Flange Pressure Line
-    const fPressMatch = desc.match(/\b(EST|CST|EMT|EWT|EDF)\s*(\d+(?:\.\d+)?)\b/i);
-    if (fPressMatch) {
-      let t = fPressMatch[1].toUpperCase();
-      if (t === "EDF") t = "EST";
-      const b = fPressMatch[2];
-      const barNum = parseFloat(b);
-      const barDisplay = t === "EST" && Number.isFinite(barNum) ? getEstBarDisplay(barNum) : b;
-      flangePressureLine = `${t} ${barDisplay} (${barToPsi(b)} PSI)`;
+    if (pressureLineEmt) {
+      flangePressureLine = pressureLineEmt;
     } else {
-      const fPnMatch = desc.match(/\b(?:PN|BAR)\s*(\d+(?:\.\d+)?)\b/i);
-      if (fPnMatch) {
-        const b = fPnMatch[1];
+      const fPressMatch = desc.match(/\b(EST|CST|EMT|EWT|EDF)\s*(\d+(?:\.\d+)?)\b/i);
+      if (fPressMatch) {
+        let t = fPressMatch[1].toUpperCase();
+        if (t === "EDF") t = "EST";
+        const b = fPressMatch[2];
         const barNum = parseFloat(b);
-        const barDisplay = Number.isFinite(barNum) ? getEstBarDisplay(barNum) : b;
-        flangePressureLine = `EST ${barDisplay} (${barToPsi(b)} PSI)`;
-      } else if (specs?.pressure) {
-        const b = specs.pressure;
-        const barNum = parseFloat(String(b));
-        const barDisplay = Number.isFinite(barNum) ? getEstBarDisplay(barNum) : String(b);
-        flangePressureLine = `EST ${barDisplay} (${barToPsi(b)} PSI)`;
+        
+        if (t === "EMT" || t === "CMT") {
+            flangePressureLine = `${t} ${b}`;
+        } else {
+            const barDisplay = t === "EST" && Number.isFinite(barNum) ? getEstBarDisplay(barNum) : b;
+            flangePressureLine = `${t} ${barDisplay} (${barToPsi(b)} PSI)`;
+        }
+      } else {
+        const isEmtProduct = /\b(EMT|CMT)\b/i.test(desc) || /\b(EMT|CMT)\b/i.test(String(rawData.itemCode || ""));
+        const defaultType = isEmtProduct ? "EMT" : "EST";
+        
+        const fPnMatch = desc.match(/\b(?:PN|BAR)\s*(\d+(?:\.\d+)?)\b/i);
+        if (fPnMatch) {
+          const b = fPnMatch[1];
+          const barNum = parseFloat(b);
+          if (isEmtProduct) {
+              flangePressureLine = `${defaultType} ${b}`;
+          } else {
+              const barDisplay = Number.isFinite(barNum) ? getEstBarDisplay(barNum) : b;
+              flangePressureLine = `${defaultType} ${barDisplay} (${barToPsi(b)} PSI)`;
+          }
+        } else if (specs?.pressure) {
+          const b = specs.pressure;
+          const barNum = parseFloat(String(b));
+          if (isEmtProduct) {
+              flangePressureLine = `${defaultType} ${b}`;
+          } else {
+              const barDisplay = Number.isFinite(barNum) ? getEstBarDisplay(barNum) : String(b);
+              flangePressureLine = `${defaultType} ${barDisplay} (${barToPsi(b)} PSI)`;
+          }
+        }
       }
     }
 
@@ -733,6 +774,8 @@ export const filterLabelsByProduct = (
       })
     : labels;
   
+  const MATERIAL_TAGS = ["FIBERMAR", "WAVISTRONG", "CONDUCTIVE", "EST", "CST", "EMT", "CMT", "EWT"];
+
   // 1. Normaliseer product data naar tags (Set voor unieke waarden)
   const productTags = new Set<string>();
   const desc = [
@@ -776,11 +819,12 @@ export const filterLabelsByProduct = (
   // Detecteer specifieke productlijnen uit omschrijving/data
   if (desc.includes("WAVISTRONG") || type.includes("WAVISTRONG")) productTags.add("WAVISTRONG");
   if (desc.includes("FIBERMAR") || type.includes("FIBERMAR")) productTags.add("FIBERMAR");
-  if (desc.includes("EST")) productTags.add("EST");
-  if (desc.includes("CST")) productTags.add("CST");
-  if (desc.includes("EMT")) productTags.add("EMT");
-  if (desc.includes("CMT")) productTags.add("CMT");
-  if (desc.includes("EWT")) productTags.add("EWT");
+  
+  if (desc.includes("EST")) { productTags.add("EST"); productTags.add("WAVISTRONG"); }
+  if (desc.includes("CST")) { productTags.add("CST"); productTags.add("WAVISTRONG"); productTags.add("CONDUCTIVE"); }
+  if (desc.includes("EMT")) { productTags.add("EMT"); productTags.add("FIBERMAR"); }
+  if (desc.includes("CMT")) { productTags.add("CMT"); productTags.add("FIBERMAR"); productTags.add("CONDUCTIVE"); }
+  if (desc.includes("EWT")) { productTags.add("EWT"); productTags.add("WAVISTRONG"); }
 
   if (desc.includes("CMT")) {
     productTags.add("FIBERMAR");
@@ -805,6 +849,14 @@ export const filterLabelsByProduct = (
       // REGEL 1: Als een label GEEN tags heeft -> Altijd tonen (Generiek label)
       if (labelTags.length === 0) return true; 
       
+      // REGEL: Materiaal uitsluiting. Als het label specifieke materiaaltags heeft (FIBERMAR, WAVISTRONG etc),
+      // mag het alleen gekozen worden als het product óók op dat materiaal matcht.
+      const labelMaterialTags = labelTags.filter(t => MATERIAL_TAGS.includes(t));
+      if (labelMaterialTags.length > 0) {
+         const hasMatchingMaterial = labelMaterialTags.some(t => productTags.has(t));
+         if (!hasMatchingMaterial) return false;
+      }
+
       // REGEL 2: Als een label WEL tags heeft -> Toon alleen als product minstens 1 matching tag heeft
       return labelTags.some(tag => productTags.has(tag));
   });

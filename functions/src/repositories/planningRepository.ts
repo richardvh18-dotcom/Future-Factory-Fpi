@@ -40,32 +40,72 @@ const resolveRuntimeDataPaths = () => {
     trackingCollection: TRACKING_COLLECTION,
     planningCollection: PLANNING_COLLECTION,
     planningLegacyCollection: PLANNING_COLLECTION_LEGACY,
+    planningScopedRoot: `${BASE}/production/data/digital_planning/scoped`,
+    planningLegacyRoot: `${BASE}/production/data/digital_planning`,
   };
+};
+
+const isPlanningOrderPath = (docRef, paths = {}) => {
+  return isUnderPath(docRef, paths.planningCollection)
+    || isUnderPath(docRef, paths.planningLegacyCollection)
+    || isUnderPath(docRef, paths.planningScopedRoot)
+    || isUnderPath(docRef, paths.planningLegacyRoot);
 };
 
 const getPlanningOrderDocByOrderId = async (orderId) => {
   const normalizedOrderId = clean(orderId);
   if (!normalizedOrderId) return null;
 
-  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths();
+  const paths = resolveRuntimeDataPaths();
+  const { planningCollection, planningLegacyCollection } = paths;
 
-  const primarySnap = await db
-    .collection(planningCollection)
-    .where('orderId', '==', normalizedOrderId)
-    .limit(1)
-    .get();
+  const candidateOrderIds = Array.from(new Set([
+    normalizedOrderId,
+    normalizedOrderId.toUpperCase(),
+    normalizedOrderId.toLowerCase(),
+  ].filter(Boolean)));
 
-  if (!primarySnap.empty) return primarySnap.docs[0];
+  const candidateFields = ['orderId', 'orderNumber', 'Ordernummer'];
+
+  for (const field of candidateFields) {
+    for (const candidate of candidateOrderIds) {
+      const primarySnap = await db
+        .collection(planningCollection)
+        .where(field, '==', candidate)
+        .limit(1)
+        .get();
+
+      if (!primarySnap.empty) return primarySnap.docs[0];
+    }
+  }
+
+  // Fallback: sommige datasets gebruiken ordernummer als document-id.
+  const primaryDocRef = db.collection(planningCollection).doc(normalizedOrderId);
+  const primaryDocSnap = await primaryDocRef.get();
+  if (primaryDocSnap.exists) return primaryDocSnap;
 
   try {
-    const scopedSnap = await db
+    for (const field of candidateFields) {
+      for (const candidate of candidateOrderIds) {
+        const scopedSnap = await db
+          .collectionGroup('orders')
+          .where(field, '==', candidate)
+          .limit(5)
+          .get();
+
+        const scopedDoc = scopedSnap.docs.find((doc) => isPlanningOrderPath(doc.ref, paths));
+        if (scopedDoc) return scopedDoc;
+      }
+    }
+
+    const scopedByDocIdSnap = await db
       .collectionGroup('orders')
-      .where('orderId', '==', normalizedOrderId)
-      .limit(1)
+      .where(admin.firestore.FieldPath.documentId(), '==', normalizedOrderId)
+      .limit(5)
       .get();
 
-    const scopedDoc = scopedSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
-    if (scopedDoc) return scopedDoc;
+    const scopedByDocId = scopedByDocIdSnap.docs.find((doc) => isPlanningOrderPath(doc.ref, paths));
+    if (scopedByDocId) return scopedByDocId;
   } catch (error) {
     // Niet-fataal: root/legacy paden kunnen nog steeds een geldig document opleveren.
     console.warn('[planningRepository] scoped order lookup overgeslagen:', error?.message || String(error));
@@ -73,13 +113,22 @@ const getPlanningOrderDocByOrderId = async (orderId) => {
 
   if (!planningLegacyCollection) return null;
 
-  const legacySnap = await db
-    .collection(planningLegacyCollection)
-    .where('orderId', '==', normalizedOrderId)
-    .limit(1)
-    .get();
+  for (const field of candidateFields) {
+    for (const candidate of candidateOrderIds) {
+      const legacySnap = await db
+        .collection(planningLegacyCollection)
+        .where(field, '==', candidate)
+        .limit(1)
+        .get();
 
-  if (!legacySnap.empty) return legacySnap.docs[0];
+      if (!legacySnap.empty) return legacySnap.docs[0];
+    }
+  }
+
+  const legacyDocRef = db.collection(planningLegacyCollection).doc(normalizedOrderId);
+  const legacyDocSnap = await legacyDocRef.get();
+  if (legacyDocSnap.exists) return legacyDocSnap;
+
   return null;
 };
 
@@ -148,7 +197,8 @@ const getPlanningOrderDocById = async (orderDocId) => {
   const lookupId = extractDocId(cleanId);
   if (!cleanId) return null;
 
-  const { planningCollection, planningLegacyCollection } = resolveRuntimeDataPaths();
+  const paths = resolveRuntimeDataPaths();
+  const { planningCollection, planningLegacyCollection } = paths;
 
   if (safePathInput.includes('/')) {
     const pathRef = db.doc(safePathInput);
@@ -171,7 +221,7 @@ const getPlanningOrderDocById = async (orderDocId) => {
       .limit(5)
       .get();
 
-    const scopedByDocIdDoc = scopedByDocIdSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
+    const scopedByDocIdDoc = scopedByDocIdSnap.docs.find((doc) => isPlanningOrderPath(doc.ref, paths));
     if (scopedByDocIdDoc) return scopedByDocIdDoc;
   } catch (error) {
     console.warn('[planningRepository] scoped planning docId-lookup overgeslagen:', error?.message || String(error));
@@ -185,7 +235,7 @@ const getPlanningOrderDocById = async (orderDocId) => {
       .where('orderId', '==', lookupId)
       .limit(5)
       .get();
-    const scopedByOrderIdDoc = scopedByOrderIdSnap.docs.find((doc) => isUnderPath(doc.ref, planningCollection));
+    const scopedByOrderIdDoc = scopedByOrderIdSnap.docs.find((doc) => isPlanningOrderPath(doc.ref, paths));
     if (scopedByOrderIdDoc) return scopedByOrderIdDoc;
   } catch (error) {
     console.warn('[planningRepository] scoped planning id-lookup overgeslagen:', error?.message || String(error));
