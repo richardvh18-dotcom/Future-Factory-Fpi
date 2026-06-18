@@ -1,0 +1,466 @@
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { getAuth, signOut } from "firebase/auth"; // Nodig voor werkend uitloggen
+import {
+  Package,
+  Factory,
+  LogOut,
+  ArrowRight,
+  Settings,
+  MessageSquare, // Nieuw icoon voor berichten
+  Globe, // Taalwissel icoon
+  Smartphone,
+  Check,
+  ShieldCheck,
+  FlaskConical,
+} from "lucide-react";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { db } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
+import { updateUserLanguage } from "../services/planningSecurityService";
+import { useAdminAuth } from "../hooks/useAdminAuth";
+import { useMessages } from "../hooks/useMessages"; // Voor badge count
+import packageJson from '../../package.json';
+
+const PortalView = () => {
+  const { t, i18n } = useTranslation();
+  const { user, isAdmin, role } = useAdminAuth();
+  const navigate = useNavigate();
+  const [isMobile, setIsMobile] = useState(false);
+  const [showLangMenu, setShowLangMenu] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string>("");
+
+  const normalizedRole = String(role || "").toLowerCase();
+  const isTeamleader = normalizedRole === "teamleader";
+  const isPlanner = normalizedRole === "planner";
+  const isQc = normalizedRole === "qc";
+  const showPlannerDashboardTile = isPlanner || isAdmin;
+  const showQsheTile = isAdmin || isQc;
+
+  // Select Language
+  const handleLanguageSelect = async (lang: string) => {
+    i18n.changeLanguage(lang);
+    setShowLangMenu(false);
+    
+    // Sla voorkeur op via backend callable
+    if (user?.uid) {
+      try {
+        await updateUserLanguage(lang);
+      } catch (error) {
+        console.error("Kon taalvoorkeur niet opslaan:", error);
+      }
+    }
+  };
+
+  // Laad taalvoorkeur bij mounten
+  useEffect(() => {
+    const loadLanguagePreference = async () => {
+      if (user?.uid) {
+        try {
+          const userRef = doc(db, ...(PATHS.USERS as [string, ...string[]]), user.uid);
+          const snap = await getDoc(userRef);
+          if (snap.exists() && snap.data().language) {
+            i18n.changeLanguage(snap.data().language);
+          }
+        } catch (error) {
+          console.error("Fout bij laden taalvoorkeur:", error);
+        }
+      }
+    };
+    loadLanguagePreference();
+  }, [user, i18n]);
+
+  // Laad dynamisch logo uit Systeem Instellingen
+  useEffect(() => {
+    try {
+      const docRef = doc(db, ...(PATHS.GENERAL_SETTINGS as [string, ...string[]]));
+      const unsubscribe = onSnapshot(
+        docRef,
+        (snap) => {
+          if (snap.exists() && snap.data().logoUrl) {
+            setLogoUrl(snap.data().logoUrl);
+          } else {
+            setLogoUrl("");
+          }
+        },
+        (err) => console.error("Fout bij laden logo:", err)
+      );
+      return () => unsubscribe();
+    } catch (err) {
+      console.error("Kon logo instellingen niet laden:", err);
+    }
+  }, []);
+
+  // Ophalen ongelezen berichten voor badge
+  const firebaseUser = getAuth().currentUser;
+  const { messages } = useMessages(firebaseUser);
+  const unreadCount = messages
+    ? messages.filter((m) => !m.read && m.status !== 'read' && !m.archived).length
+    : 0;
+
+  // Mobiel detectie
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || String((window as unknown as Record<string, unknown>).opera ?? "");
+      const isTouchDevice = /android|ipad|iphone|ipod/i.test(userAgent);
+      const isSmallScreen = window.innerWidth < 1024;
+      return isTouchDevice || isSmallScreen;
+    };
+
+    setIsMobile(checkMobile());
+
+    const handleResize = () => setIsMobile(checkMobile());
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const displayName = user?.displayName
+    ? String(user.displayName).split(" ")[0]
+    : user?.email?.split("@")[0] || t('common.employee', 'Medewerker');
+
+  // FIX: Werkende uitlog functie
+  const handleLogout = async () => {
+    const auth = getAuth();
+    try {
+      await signOut(auth);
+      navigate("/login");
+    } catch (error) {
+      console.error("Uitloggen mislukt", error);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-orange-950 overflow-y-auto">
+      {/* Language Switch & Logout - Top Right */}
+      <div className="absolute top-6 right-6 flex items-center gap-4 z-50">
+        <div className="relative">
+          <button
+            onClick={() => setShowLangMenu(!showLangMenu)}
+            className="p-3 bg-white/5 hover:bg-cyan-500/20 rounded-full border border-white/10 hover:border-cyan-400/50 text-cyan-300 hover:text-cyan-200 transition-all hover:scale-110 active:scale-95"
+            title={t('common.language_selection')}
+          >
+            <Globe size={20} />
+          </button>
+          
+          {/* Dropdown Menu */}
+          {showLangMenu && (
+            <div className="absolute top-full right-0 mt-2 w-40 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              <button
+                onClick={() => handleLanguageSelect('nl')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'nl' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>{t('portal.languageDutch', '🇳🇱 Nederlands')}</span>
+                {i18n.language === 'nl' && <Check size={14} />}
+              </button>
+              <button
+                onClick={() => handleLanguageSelect('en')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'en' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>{t('portal.languageEnglish', '🇬🇧 English')}</span>
+                {i18n.language === 'en' && <Check size={14} />}
+              </button>
+              <button
+                onClick={() => handleLanguageSelect('ar')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'ar' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>🇦🇪 العربية</span>
+                {i18n.language === 'ar' && <Check size={14} />}
+              </button>
+              <button
+                onClick={() => handleLanguageSelect('de')}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.language === 'de' ? 'text-cyan-400' : 'text-slate-400'}`}
+              >
+                <span>{t('portal.languageGerman', '🇩🇪 Deutsch')}</span>
+                {i18n.language === 'de' && <Check size={14} />}
+              </button>
+            </div>
+          )}
+        </div>
+        <button
+          onClick={handleLogout}
+          className="p-3 bg-white/5 hover:bg-white/10 hover:bg-rose-500/20 rounded-full border border-white/10 hover:border-rose-500/50 text-slate-300 hover:text-rose-400 transition-all hover:scale-110 active:scale-95"
+          title={t('buttons.logout')}
+        >
+          <LogOut size={20} />
+        </button>
+      </div>
+
+      <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
+        {/* Welkomsttekst */}
+        <div className="text-center mb-8 md:mb-12 mt-4 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
+          <div className="flex items-center justify-center gap-3 md:gap-4 mb-2">
+            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight uppercase italic">
+              {t('common.welcome')},{" "}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 block md:inline">
+                {displayName}
+              </span>
+            </h1>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
+              {t('portal.welcome_sub')}
+            </p>
+          </div>
+        </div>
+
+        {/* Keuze Tegels */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 w-full max-w-7xl px-2 md:px-0 shrink-0 mb-12">
+          {/* Tegel 1: Catalogus */}
+          <button
+            type="button"
+            onClick={() => navigate("/products")}
+            className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-emerald-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-emerald-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+          >
+            <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+              <Package className="text-white w-24 h-24 md:w-32 md:h-32" />
+            </div>
+
+            <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+              <div className="p-3 md:p-4 bg-emerald-500/20 w-fit rounded-2xl mb-4 group-hover:bg-emerald-500 group-hover:text-white transition-colors text-emerald-400">
+                <Package size={24} className="md:w-8 md:h-8" />
+              </div>
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                  {t('portal.tiles.catalog.title')}
+                </h2>
+                <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                  {t('portal.tiles.catalog.desc')}
+                </p>
+              </div>
+              <div className="mt-4 md:mt-6 flex items-center text-emerald-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                {t('portal.tiles.catalog.action')} <ArrowRight size={16} />
+              </div>
+            </div>
+          </button>
+
+          {/* Tegel 2: Planning & MES */}
+          <button
+            type="button"
+            onClick={() => navigate("/planning")}
+            className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-blue-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-blue-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+          >
+            <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+              <Factory className="text-white w-24 h-24 md:w-32 md:h-32" />
+            </div>
+            <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+              <div className="p-3 md:p-4 bg-blue-500/20 w-fit rounded-2xl mb-4 group-hover:bg-blue-500 group-hover:text-white transition-colors text-blue-400">
+                <Factory size={24} className="md:w-8 md:h-8" />
+              </div>
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                  {t('portal.tiles.planning.title')}
+                </h2>
+                <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                  {t('portal.tiles.planning.desc')}
+                </p>
+              </div>
+              <div className="mt-4 md:mt-6 flex items-center text-blue-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                {t('portal.tiles.planning.action')} <ArrowRight size={16} />
+              </div>
+            </div>
+          </button>
+
+          {/* Extra tegel: Teamleader Dashboard */}
+          {isTeamleader && (
+            <button
+              type="button"
+              onClick={() => navigate("/planning", { state: { initialView: "TEAMLEADER" } })}
+              className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-cyan-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-cyan-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+            >
+              <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                <Factory className="text-white w-24 h-24 md:w-32 md:h-32" />
+              </div>
+              <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+                <div className="p-3 md:p-4 bg-cyan-500/20 w-fit rounded-2xl mb-4 group-hover:bg-cyan-500 group-hover:text-white transition-colors text-cyan-400">
+                  <Factory size={24} className="md:w-8 md:h-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                    {t('portal.tiles.teamleader_dashboard.title', 'Teamleader Dashboard')}
+                  </h2>
+                  <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                    {t('portal.tiles.teamleader_dashboard.desc', 'Direct naar teamleader-overzicht en KPI\'s.')}
+                  </p>
+                </div>
+                <div className="mt-4 md:mt-6 flex items-center text-cyan-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                  {t('portal.tiles.teamleader_dashboard.action', 'Open Dashboard')} <ArrowRight size={16} />
+                </div>
+              </div>
+            </button>
+          )}
+
+          {/* Extra tegel: Planner Dashboard (ook zichtbaar voor admin) */}
+          {showPlannerDashboardTile && (
+            <button
+              type="button"
+              onClick={() =>
+                navigate("/planning", {
+                  state: { initialView: isPlanner ? "PLANNER" : "TEAMLEADER" },
+                })
+              }
+              className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-amber-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-amber-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+            >
+              <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                <Settings className="text-white w-24 h-24 md:w-32 md:h-32" />
+              </div>
+              <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+                <div className="p-3 md:p-4 bg-amber-500/20 w-fit rounded-2xl mb-4 group-hover:bg-amber-500 group-hover:text-white transition-colors text-amber-400">
+                  <Settings size={24} className="md:w-8 md:h-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                    {t('portal.tiles.planner_dashboard.title', 'Planner Dashboard')}
+                  </h2>
+                  <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                    {t('portal.tiles.planner_dashboard.desc', 'Direct naar centrale planner weergave en capaciteit.')}
+                  </p>
+                </div>
+                <div className="mt-4 md:mt-6 flex items-center text-amber-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                  {t('portal.tiles.planner_dashboard.action', 'Open Dashboard')} <ArrowRight size={16} />
+                </div>
+              </div>
+            </button>
+          )}
+
+          {/* Tegel 3: Berichten (NIEUW) */}
+          <button
+            type="button"
+            onClick={() => navigate("/messages")}
+            className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-rose-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-rose-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+          >
+            <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+              <MessageSquare className="text-white w-24 h-24 md:w-32 md:h-32" />
+            </div>
+
+            {/* Badge */}
+            {unreadCount > 0 && (
+              <div className="absolute top-6 right-6 bg-red-500 text-white font-bold text-xs px-3 py-1 rounded-full animate-pulse shadow-lg z-20">
+                {unreadCount} {t('portal.tiles.messages.badge_new')}
+              </div>
+            )}
+
+            <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+              <div className="p-3 md:p-4 bg-rose-500/20 w-fit rounded-2xl mb-4 group-hover:bg-rose-500 group-hover:text-white transition-colors text-rose-400">
+                <MessageSquare size={24} className="md:w-8 md:h-8" />
+              </div>
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                  {t('portal.tiles.messages.title')}
+                </h2>
+                <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                  {t('portal.tiles.messages.desc')}
+                </p>
+              </div>
+              <div className="mt-4 md:mt-6 flex items-center text-rose-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                {t('portal.tiles.messages.action')} <ArrowRight size={16} />
+              </div>
+            </div>
+          </button>
+
+          {/* Tegel 4: Mobile Inspector (Mobiel) - Vervangt Workstation */}
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => navigate("/inspector")}
+              className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-indigo-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+            >
+              <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                <Smartphone className="text-white w-24 h-24 md:w-32 md:h-32" />
+              </div>
+
+              <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+                <div className="p-3 md:p-4 bg-indigo-500/20 w-fit rounded-2xl mb-4 group-hover:bg-indigo-500 group-hover:text-white transition-colors text-indigo-400">
+                  <Smartphone size={24} className="md:w-8 md:h-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                    {t('portal.tiles.mobile_inspector.title')}
+                  </h2>
+                  <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                    {t('portal.tiles.mobile_inspector.desc')}
+                  </p>
+                </div>
+                <div className="mt-4 md:mt-6 flex items-center text-indigo-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                  {t('portal.tiles.mobile_inspector.action')} <ArrowRight size={16} />
+                </div>
+              </div>
+            </button>
+          )}
+
+          {showQsheTile && (
+            <button
+              type="button"
+              onClick={() => navigate("/planning", { state: { initialView: "QC" } })}
+              className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-cyan-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-cyan-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+            >
+              <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                <FlaskConical className="text-white w-24 h-24 md:w-32 md:h-32" />
+              </div>
+
+              <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+                <div className="p-3 md:p-4 bg-cyan-500/20 w-fit rounded-2xl mb-4 group-hover:bg-cyan-500 group-hover:text-white transition-colors text-cyan-400">
+                  <FlaskConical size={24} className="md:w-8 md:h-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                  {t('portal.tiles.qc_stations.title', 'QC Stations')}
+                  </h2>
+                  <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                  {t('portal.tiles.qc_stations.desc', 'Kwaliteitscontroles, labmetingen en QC steekproeven.')}
+                  </p>
+                </div>
+                <div className="mt-4 md:mt-6 flex items-center text-cyan-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                {t('portal.tiles.qc_stations.action', 'Open QC Stations')} <ArrowRight size={16} />
+                </div>
+              </div>
+            </button>
+          )}
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => navigate("/admin")}
+              className="group relative bg-white/5 hover:bg-white/10 active:bg-white/15 border-2 border-white/10 hover:border-slate-500/50 rounded-[30px] md:rounded-[40px] p-6 md:p-8 text-left transition-all duration-300 hover:shadow-2xl hover:shadow-slate-900/50 md:hover:-translate-y-1 overflow-hidden w-full active:scale-95"
+            >
+              <div className="absolute top-0 right-0 p-6 md:p-8 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                <Settings className="text-white w-24 h-24 md:w-32 md:h-32" />
+              </div>
+
+              <div className="relative z-10 flex flex-col h-full justify-between min-h-[160px] md:min-h-[200px] pointer-events-none">
+                <div className="p-3 md:p-4 bg-slate-500/20 w-fit rounded-2xl mb-4 group-hover:bg-slate-500 group-hover:text-white transition-colors text-slate-400">
+                  <Settings size={24} className="md:w-8 md:h-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mb-2">
+                    {t('portal.tiles.admin.title')}
+                  </h2>
+                  <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed max-w-xs">
+                    {t('portal.tiles.admin.desc')}
+                  </p>
+                </div>
+                <div className="mt-4 md:mt-6 flex items-center text-slate-400 font-bold text-xs uppercase tracking-widest gap-2 group-hover:gap-4 transition-all">
+                  {t('portal.tiles.admin.action')} <ArrowRight size={16} />
+                </div>
+              </div>
+            </button>
+          )}
+
+        </div>
+
+        {/* Footer / Branding */}
+        <div className="mt-4 flex flex-col items-center justify-center text-center animate-in fade-in slide-in-from-bottom-4 duration-700 delay-300 fill-mode-both">
+          <div className="flex items-center justify-center gap-2.5">
+            <img src={logoUrl || "/logo512.svg"} alt="Logo" className="h-5 w-auto object-contain brightness-125" />
+            <span className="text-lg font-black text-cyan-200/60 uppercase tracking-widest leading-none">Future Factory</span>
+          </div>
+          <p className="text-xs font-mono text-cyan-200/40 mt-1.5 opacity-70">
+            v{packageJson.version}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default PortalView;

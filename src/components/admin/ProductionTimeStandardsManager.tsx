@@ -1,0 +1,761 @@
+/* eslint-disable */
+import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  Clock,
+  Upload,
+  Download,
+  Trash2,
+  Plus,
+  Save,
+  FileSpreadsheet,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Edit2,
+  Brain,
+  TrendingUp,
+  RefreshCw
+} from "lucide-react";
+import {
+  collection,
+  query,
+  onSnapshot,
+  doc,
+  setDoc,
+  deleteDoc,
+  serverTimestamp,
+  addDoc,
+  getDocs,
+  getDoc
+} from "firebase/firestore";
+import { db, auth, logActivity } from "../../config/firebase";
+import { PATHS, getPathString } from "../../config/dbPaths";
+import { formatMinutes } from "../../utils/efficiencyCalculator";
+import { analyzeAndUpdateStandards } from "../../utils/autoLearningService";
+import { useNotifications } from "../../contexts/NotificationContext";
+
+type StandardRecord = {
+  id: string;
+  itemCode: string;
+  machine: string;
+  standardMinutes: number;
+  description?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+type StatusState = {
+  type: "success" | "error";
+  message: string;
+};
+
+type NewEntryState = {
+  itemCode: string;
+  machine: string;
+  standardMinutes: string;
+  description: string;
+};
+
+type AutoLearningRecommendation = {
+  itemCode: string;
+  machine: string;
+  sampleCount: number;
+  deviation: number;
+  currentStandard: number;
+  recommendedStandard: number;
+  change: number;
+};
+
+type AutoLearningResult = {
+  recommendations: AutoLearningRecommendation[];
+  updated: number;
+};
+
+const colPath = (path: string[]) => collection(db, getPathString(path));
+const docPath = (path: string[], id: string) => doc(db, `${getPathString(path)}/${id}`);
+
+/**
+ * ProductionTimeStandardsManager
+ * Beheer standaard productietijden per product per machine
+ */
+const ProductionTimeStandardsManager = () => {
+  const { t } = useTranslation();
+  const { showConfirm } = useNotifications();
+  const [standards, setStandards] = useState<StandardRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<StatusState | null>(null);
+  const [filter, setFilter] = useState("");
+  const [editMode, setEditMode] = useState<string | null>(null);
+  const [availableItemCodes, setAvailableItemCodes] = useState<string[]>([]);
+  const [availableMachines, setAvailableMachines] = useState<string[]>([]);
+  const [learningRecommendations, setLearningRecommendations] = useState<AutoLearningRecommendation[]>([]);
+  const [isLearning, setIsLearning] = useState(false);
+  const [showRecommendations, setShowRecommendations] = useState(false);
+  
+  // New entry form
+  const [newEntry, setNewEntry] = useState<NewEntryState>({
+    itemCode: "",
+    machine: "",
+    standardMinutes: "",
+    description: ""
+  });
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Load item codes from conversion mapping
+        const conversionSnapshot = await getDocs(colPath(PATHS.CONVERSION_MATRIX));
+        const itemCodes = new Set<string>();
+        conversionSnapshot.docs.forEach((entryDoc) => {
+          const data = entryDoc.data() as { itemCode?: unknown; productCode?: unknown };
+          if (data.itemCode) itemCodes.add(String(data.itemCode));
+          if (data.productCode) itemCodes.add(String(data.productCode));
+        });
+        setAvailableItemCodes([...itemCodes].sort());
+
+        // Load machines from factory config
+        const factoryDoc = await getDoc(doc(db, getPathString(PATHS.FACTORY_CONFIG)));
+        if (factoryDoc.exists()) {
+          const config = factoryDoc.data() as { departments?: unknown };
+          const machines = new Set<string>();
+          const rawDepartments = config.departments;
+          const departmentsArray: unknown[] = Array.isArray(rawDepartments)
+            ? rawDepartments
+            : Object.values((rawDepartments as Record<string, unknown>) || {});
+          
+          // Extract all stations from all departments
+          departmentsArray.forEach((dept) => {
+            const stations = (dept as { stations?: Array<{ id?: string; name?: string; isAvailableForPlanning?: boolean }> }).stations || [];
+            stations.forEach((station) => {
+              if (station.isAvailableForPlanning === false) return;
+              if (station.id) machines.add(station.id);
+              if (station.name && station.name !== station.id) machines.add(station.name);
+            });
+          });
+          
+          setAvailableMachines([...machines].sort());
+        }
+      } catch (error) {
+        console.error("Error loading reference data:", error);
+      }
+    };
+
+    loadData();
+
+    // Listen to standards collection
+    const q = query(colPath(PATHS.PRODUCTION_STANDARDS));
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const data: StandardRecord[] = snapshot.docs.map((entryDoc) => ({
+          id: entryDoc.id,
+          ...(entryDoc.data() as Omit<StandardRecord, "id">)
+        }));
+        setStandards(data);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Error loading standards:", err);
+        setStatus({ type: "error", message: t('productionStandards.error_loading', "Fout bij laden van standaarden") });
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  const filteredStandards = standards.filter(std => {
+    if (!filter) return true;
+    const term = filter.toLowerCase();
+    return (
+      std.itemCode?.toLowerCase().includes(term) ||
+      std.machine?.toLowerCase().includes(term) ||
+      std.description?.toLowerCase().includes(term)
+    );
+  });
+
+  const handleAddNew = async () => {
+    if (!newEntry.itemCode || !newEntry.machine || !newEntry.standardMinutes) {
+      setStatus({ type: "error", message: t('productionStandards.error_required', "Item code, machine en tijd zijn verplicht") });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await addDoc(colPath(PATHS.PRODUCTION_STANDARDS), {
+        itemCode: newEntry.itemCode.trim(),
+        machine: newEntry.machine.trim(),
+        standardMinutes: parseFloat(newEntry.standardMinutes),
+        description: newEntry.description.trim(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      await logActivity(auth.currentUser?.uid || "system", "SETTINGS_UPDATE", `Production standard added: ${newEntry.itemCode} (${newEntry.machine})`);
+
+      setNewEntry({ itemCode: "", machine: "", standardMinutes: "", description: "" });
+      setStatus({ type: "success", message: t('productionStandards.success_added', "Standaard toegevoegd") });
+      setTimeout(() => setStatus(null), 3000);
+    } catch (error) {
+      console.error("Error adding standard:", error);
+      setStatus({ type: "error", message: t('productionStandards.error_adding', "Fout bij toevoegen") });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdate = async (id: string, updates: Partial<StandardRecord>) => {
+    setSaving(true);
+    try {
+      await setDoc(
+        docPath(PATHS.PRODUCTION_STANDARDS, id),
+        { ...updates, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+
+      await logActivity(auth.currentUser?.uid || "system", "SETTINGS_UPDATE", `Production standard updated: ${id}`);
+
+      setEditMode(null);
+      setStatus({ type: "success", message: t('productionStandards.success_updated', "Standaard bijgewerkt") });
+      setTimeout(() => setStatus(null), 3000);
+    } catch (error) {
+      console.error("Error updating standard:", error);
+      setStatus({ type: "error", message: t('productionStandards.error_updating', "Fout bij bijwerken") });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const confirmed = await showConfirm({
+      title: t('productionStandards.deleteTitle', 'Standaard verwijderen'),
+      message: t('productionStandards.confirm_delete', "Weet je zeker dat je deze standaard wilt verwijderen?"),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    
+    try {
+      await deleteDoc(docPath(PATHS.PRODUCTION_STANDARDS, id));
+      await logActivity(auth.currentUser?.uid || "system", "SETTINGS_UPDATE", `Production standard deleted: ${id}`);
+      setStatus({ type: "success", message: t('productionStandards.success_deleted', "Standaard verwijderd") });
+      setTimeout(() => setStatus(null), 3000);
+    } catch (error) {
+      console.error("Error deleting standard:", error);
+      setStatus({ type: "error", message: t('productionStandards.error_deleting', "Fout bij verwijderen") });
+    }
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event: ProgressEvent<FileReader>) => {
+      try {
+        const text = event.target?.result;
+        if (typeof text !== "string") {
+          setStatus({ type: "error", message: t('productionStandards.error_importing', "Fout bij importeren CSV") });
+          return;
+        }
+        const lines = text.split('\n');
+        const headers = lines[0].split(',').map((h: string) => h.trim().toLowerCase());
+        
+        // Expected headers: itemCode, machine, standardMinutes, description
+        const itemCodeIdx = headers.indexOf('itemcode') >= 0 ? headers.indexOf('itemcode') : 0;
+        const machineIdx = headers.indexOf('machine') >= 0 ? headers.indexOf('machine') : 1;
+        const minutesIdx = headers.indexOf('standardminutes') >= 0 ? headers.indexOf('standardminutes') : 2;
+        const descIdx = headers.indexOf('description') >= 0 ? headers.indexOf('description') : 3;
+
+        setSaving(true);
+        let imported = 0;
+        
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          const values = line.split(',').map((v: string) => v.trim());
+          const itemCode = values[itemCodeIdx];
+          const machine = values[machineIdx];
+          const minutes = parseFloat(values[minutesIdx]);
+          const description = values[descIdx] || "";
+
+          if (itemCode && machine && !isNaN(minutes)) {
+            await addDoc(colPath(PATHS.PRODUCTION_STANDARDS), {
+              itemCode,
+              machine,
+              standardMinutes: minutes,
+              description,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            });
+            imported++;
+          }
+        }
+
+        if (imported > 0) {
+          await logActivity(auth.currentUser?.uid || "system", "SETTINGS_UPDATE", `Production standards imported: ${imported} records`);
+        }
+
+        setStatus({ 
+          type: "success", 
+          message: t('productionStandards.success_imported', { count: imported, defaultValue: `${imported} standaarden geïmporteerd` })
+        });
+        setTimeout(() => setStatus(null), 3000);
+      } catch (error) {
+        console.error("CSV import error:", error);
+        setStatus({ type: "error", message: t('productionStandards.error_importing', "Fout bij importeren CSV") });
+      } finally {
+        setSaving(false);
+        if (e.target) e.target.value = "";
+      }
+    };
+    
+    reader.readAsText(file);
+  };
+
+  const handleExportCSV = () => {
+    const csv = [
+      "itemCode,machine,standardMinutes,description",
+      ...standards.map(std => 
+        `${std.itemCode},${std.machine},${std.standardMinutes},${std.description || ""}`
+      )
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `production_standards_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleAutoLearn = async (applyUpdates = false) => {
+    setIsLearning(true);
+    try {
+      const results = (await analyzeAndUpdateStandards({
+        minSamples: 5,
+        maxDeviation: 50,
+        learningRate: 0.3,
+        dryRun: !applyUpdates
+      })) as AutoLearningResult;
+
+      setLearningRecommendations(results.recommendations);
+      setShowRecommendations(true);
+
+      if (applyUpdates) {
+        await logActivity(auth.currentUser?.uid || "system", "SETTINGS_UPDATE", `Production standards auto-updated: ${results.updated} records`);
+        setStatus({ 
+          type: "success", 
+          message: t('productionStandards.success_auto_updated', { count: results.updated, defaultValue: `${results.updated} standaarden automatisch bijgewerkt` })
+        });
+      } else {
+        setStatus({ 
+          type: "success", 
+          message: t('productionStandards.success_recommendations', { count: results.recommendations.length, defaultValue: `${results.recommendations.length} aanbevelingen gevonden` })
+        });
+      }
+      setTimeout(() => setStatus(null), 5000);
+    } catch (error) {
+      console.error("Auto-learning error:", error);
+      setStatus({ type: "error", message: t('productionStandards.error_auto_learning', "Fout bij auto-learning analyse") });
+    } finally {
+      setIsLearning(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="bg-slate-900 p-8 rounded-[40px] text-white relative overflow-hidden shadow-xl border border-white/5">
+        <div className="absolute top-0 right-0 p-8 opacity-5 rotate-12">
+          <Clock size={150} />
+        </div>
+        <div className="relative z-10">
+          <h2 className="text-2xl font-black uppercase italic tracking-tighter leading-none">
+            {t('productionStandards.title', 'Productie Tijd Standaarden').split(' ')[0]} <span className="text-blue-500">{t('productionStandards.title', 'Productie Tijd Standaarden').split(' ').slice(1).join(' ')}</span>
+          </h2>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">
+            {t('productionStandards.subtitle', 'Verwachte productietijden per product per machine')}
+          </p>
+          <div className="mt-4 flex items-center gap-2">
+            <span className="text-xs font-mono text-emerald-400">
+              📊 {t('productionStandards.count_standards', { count: standards.length, defaultValue: `${standards.length} standaarden` })}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Status */}
+      {status && (
+        <div className={`flex items-center gap-3 p-4 rounded-2xl border ${
+          status.type === 'success' 
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            : 'bg-rose-50 border-rose-200 text-rose-700'
+        }`}>
+          {status.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+          <span className="text-sm font-bold">{status.message}</span>
+        </div>
+      )}
+
+      {/* Actions Bar */}
+      <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="inline-flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest cursor-pointer hover:bg-blue-700 transition">
+            <Upload size={16} />
+            {t('productionStandards.import_csv', 'Import CSV')}
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleImportCSV}
+              disabled={saving}
+              className="hidden"
+            />
+          </label>
+          
+          <button
+            onClick={handleExportCSV}
+            className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 transition"
+          >
+            <Download size={16} />
+            {t('productionStandards.export_csv', 'Export CSV')}
+          </button>
+
+          <button
+            onClick={() => handleAutoLearn(false)}
+            disabled={isLearning}
+            className="inline-flex items-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-purple-700 transition disabled:opacity-50"
+          >
+            {isLearning ? <Loader2 className="animate-spin" size={16} /> : <Brain size={16} />}
+            {t('productionStandards.analysis', 'Analyse')}
+          </button>
+
+          <div className="flex-1 min-w-[200px]">
+            <input
+              type="text"
+              placeholder={t('productionStandards.search_placeholder', 'Zoeken...')}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="flex items-start gap-2 text-xs text-blue-700">
+              <FileSpreadsheet size={16} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <div className="font-bold">{t('productionStandards.csv_format', 'CSV Format:')}</div>
+                <code className="text-[10px] block mt-1">{t('productionStandards.csv_columns', 'itemCode,machine,standardMinutes,description')}</code>
+                <div className="text-[10px] mt-1">{t('productionStandards.example', 'Voorbeeld: A2E5,BH11,45,Wavistrong 160mm DN125')}</div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <div className="flex items-start gap-2 text-xs text-emerald-700">
+              <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <div className="font-bold">{t('productionStandards.auto_fetch', 'Automatisch Ophalen:')}</div>
+                <div className="text-[10px] mt-1">
+                  {t('productionStandards.item_codes_source', 'Item Codes worden automatisch geladen uit')} <code className="bg-emerald-100 px-1 rounded">/conversions/mapping</code>
+                  <br />
+                  {t('productionStandards.machines_source', 'Machines worden geladen uit')} <code className="bg-emerald-100 px-1 rounded">/factory_config</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+            <div className="flex items-start gap-2 text-xs text-purple-700">
+              <Brain size={16} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <div className="font-bold">{t('productionStandards.self_learning_system', 'Zelflerend Systeem:')}</div>
+                <div className="text-[10px] mt-1">
+                  <span dangerouslySetInnerHTML={{ __html: t('productionStandards.click_analysis', { analysis: t('productionStandards.analysis'), defaultValue: 'Klik op <strong>{{analysis}}</strong> om het systeem historische data te laten analyseren.' }) }} />
+                  {t('productionStandards.system_comparison', 'Het systeem vergelijkt standaard tijden met werkelijke gemeten tijden en stelt updates voor.')}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Auto-Learning Recommendations */}
+      {showRecommendations && learningRecommendations.length > 0 && (
+        <div className="bg-white border-2 border-purple-200 rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Brain className="text-purple-600" size={20} />
+              <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
+                {t('productionStandards.recommendations_title', { count: learningRecommendations.length, defaultValue: `Zelflerend Aanbevelingen (${learningRecommendations.length})` })}
+              </h3>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleAutoLearn(true)}
+                disabled={isLearning}
+                className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-purple-700 transition disabled:opacity-50"
+              >
+                <RefreshCw size={14} className="inline mr-1" />
+                {t('productionStandards.apply_all', 'Alles Toepassen')}
+              </button>
+              <button
+                onClick={() => setShowRecommendations(false)}
+                className="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition"
+              >
+                {t('productionStandards.close', 'Sluiten')}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {learningRecommendations.map((rec, idx) => (
+              <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3">
+                    <div className="font-bold text-slate-800">{rec.itemCode}</div>
+                    <div className="text-xs text-slate-500">→</div>
+                    <div className="text-sm text-slate-600">{rec.machine}</div>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {t('productionStandards.measurements', { count: rec.sampleCount, defaultValue: `${rec.sampleCount} metingen` })} • {t('productionStandards.deviation', { value: (rec.deviation > 0 ? '+' : '') + rec.deviation, defaultValue: `${rec.deviation}% afwijking` })}
+                  </div>
+                </div>
+                <div className="flex items-center gap-6">
+                  <div className="text-right">
+                    <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">{t('productionStandards.current', 'Huidig')}</div>
+                    <div className="text-lg font-black text-slate-600">
+                      {formatMinutes(rec.currentStandard)}
+                    </div>
+                  </div>
+                  <div className="text-slate-400">→</div>
+                  <div className="text-right">
+                    <div className="text-xs text-purple-500 uppercase tracking-widest mb-1">{t('productionStandards.recommended', 'Aanbevolen')}</div>
+                    <div className="text-lg font-black text-purple-600">
+                      {formatMinutes(rec.recommendedStandard)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      rec.change < 0 
+                        ? 'bg-emerald-100 text-emerald-700' 
+                        : 'bg-rose-100 text-rose-700'
+                    }`}>
+                      {rec.change > 0 ? '+' : ''}{rec.change}m
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+            <div className="flex items-start gap-2 text-xs text-purple-700">
+              <TrendingUp size={16} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <div className="font-bold">{t('productionStandards.how_it_works', 'Hoe werkt het?')}</div>
+                <div className="text-[10px] mt-1">
+                  {t('productionStandards.analysis_explanation', 'Het systeem analyseert voltooide producties en vergelijkt werkelijke tijden met standaard tijden.')}
+                  {t('productionStandards.deviation_explanation', 'Bij significante afwijkingen (>5%) wordt een aanpassing voorgesteld.')}
+                  {t('productionStandards.color_explanation', 'Groene cijfers = sneller dan verwacht, rode cijfers = langzamer.')}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add New Form */}
+      <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Plus className="text-blue-600" size={20} />
+          <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">
+            {t('productionStandards.add_new_title', 'Nieuwe Standaard Toevoegen')}
+          </h3>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <input
+              type="text"
+              list="itemCodeList"
+              placeholder={t('productionStandards.item_code_placeholder', 'Item Code *')}
+              value={newEntry.itemCode}
+              onChange={(e) => setNewEntry({ ...newEntry, itemCode: e.target.value })}
+              className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
+            />
+            <datalist id="itemCodeList">
+              {availableItemCodes.map(code => (
+                <option key={code} value={code} />
+              ))}
+            </datalist>
+            <div className="text-[10px] text-slate-500 mt-1">
+              {t('productionStandards.codes_available', { count: availableItemCodes.length, defaultValue: `${availableItemCodes.length} codes beschikbaar` })}
+            </div>
+          </div>
+          <div>
+            <input
+              type="text"
+              list="machineList"
+              placeholder={t('productionStandards.machine_placeholder', 'Machine *')}
+              value={newEntry.machine}
+              onChange={(e) => setNewEntry({ ...newEntry, machine: e.target.value })}
+              className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
+            />
+            <datalist id="machineList">
+              {availableMachines.map(machine => (
+                <option key={machine} value={machine} />
+              ))}
+            </datalist>
+            <div className="text-[10px] text-slate-500 mt-1">
+              {t('productionStandards.machines_available', { count: availableMachines.length, defaultValue: `${availableMachines.length} machines beschikbaar` })}
+            </div>
+          </div>
+          <input
+            type="number"
+            placeholder={t('productionStandards.minutes_placeholder', 'Minuten *')}
+            value={newEntry.standardMinutes}
+            onChange={(e) => setNewEntry({ ...newEntry, standardMinutes: e.target.value })}
+            className="px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
+          />
+          <input
+            type="text"
+            placeholder={t('productionStandards.description_placeholder', 'Beschrijving')}
+            value={newEntry.description}
+            onChange={(e) => setNewEntry({ ...newEntry, description: e.target.value })}
+            className="px-4 py-3 rounded-xl border-2 border-slate-200 text-sm focus:border-blue-500 outline-none"
+          />
+        </div>
+
+        <button
+          onClick={handleAddNew}
+          disabled={saving}
+          className="mt-4 inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+          {t('productionStandards.add_button', 'Toevoegen')}
+        </button>
+      </div>
+
+      {/* Standards List */}
+      <div className="bg-white border-2 border-slate-200 rounded-2xl p-6">
+        <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 mb-4">
+          {t('productionStandards.current_standards_title', { count: filteredStandards.length, defaultValue: `Huidige Standaarden (${filteredStandards.length})` })}
+        </h3>
+
+        {filteredStandards.length === 0 ? (
+          <div className="text-center py-12 text-slate-400">
+            <Clock size={48} className="mx-auto mb-4 opacity-50" />
+            <p className="text-sm font-bold">{t('productionStandards.no_standards_found', 'Geen standaarden gevonden')}</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredStandards.map(std => (
+              <div
+                key={std.id}
+                className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100"
+              >
+                {editMode === std.id ? (
+                  // Edit mode
+                  <div className="flex-1 grid grid-cols-4 gap-3">
+                    <input
+                      type="text"
+                      defaultValue={std.itemCode}
+                      id={`edit-item-${std.id}`}
+                      className="px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                    />
+                    <input
+                      type="text"
+                      defaultValue={std.machine}
+                      id={`edit-machine-${std.id}`}
+                      className="px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                    />
+                    <input
+                      type="number"
+                      defaultValue={std.standardMinutes}
+                      id={`edit-minutes-${std.id}`}
+                      className="px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          const itemCodeInput = document.getElementById(`edit-item-${std.id}`) as HTMLInputElement | null;
+                          const machineInput = document.getElementById(`edit-machine-${std.id}`) as HTMLInputElement | null;
+                          const minutesInput = document.getElementById(`edit-minutes-${std.id}`) as HTMLInputElement | null;
+                          const itemCode = itemCodeInput?.value || "";
+                          const machine = machineInput?.value || "";
+                          const minutes = parseFloat(minutesInput?.value || "0");
+                          handleUpdate(std.id, { itemCode, machine, standardMinutes: minutes });
+                        }}
+                        className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
+                      >
+                        <Save size={14} />
+                      </button>
+                      <button
+                        onClick={() => setEditMode(null)}
+                        className="px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
+                      >
+                        {t('productionStandards.cancel', 'Annuleren')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // View mode
+                  <>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <div className="font-bold text-slate-800">{std.itemCode}</div>
+                        <div className="text-xs text-slate-500">→</div>
+                        <div className="text-sm text-slate-600">{std.machine}</div>
+                      </div>
+                      {std.description && (
+                        <div className="text-xs text-slate-500 mt-1">{std.description}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <div className="text-2xl font-black text-blue-600">
+                          {formatMinutes(std.standardMinutes)}
+                        </div>
+                        <div className="text-[10px] text-slate-500 uppercase tracking-widest">
+                          {t('productionStandards.standard_time', 'Standaard Tijd')}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setEditMode(std.id)}
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(std.id)}
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ProductionTimeStandardsManager;

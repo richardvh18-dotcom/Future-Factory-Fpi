@@ -1,0 +1,103 @@
+const CSS_PIXELS_PER_POINT = 96 / 72;
+// CALIBRATION FIX: Must match zplHelper.ts for print/preview parity
+// CSS fontSize (pt) -> Zebra dots conversion: 10pt CSS ≈ 26 dots @ 203DPI
+const CSS_PT_TO_DOTS_RATIO = 2.834;
+
+export const ZEBRA_FONT0_PREVIEW_STACK = '"Lucida Console", "Courier New", monospace';
+
+interface PreviewElementLike {
+  width?: number;
+  height?: number;
+  fontSize?: number;
+  maxLines?: number;
+}
+
+export const resolvePreviewFontFamily = (fontFamily: unknown): string => {
+  const value = String(fontFamily || '').toLowerCase();
+  if (!value || value.includes('arial') || value.includes('helvetica') || value.includes('sans')) {
+    return ZEBRA_FONT0_PREVIEW_STACK;
+  }
+  return String(fontFamily);
+};
+
+export const getPixelsPerMm = (printerDpi: number = 300): number => {
+  return (printerDpi || 300) / 25.4;
+};
+
+const getLongestPreviewLineLength = (value: unknown): number => {
+  const lines = String(value || '').split(/\r?\n/);
+  return lines.reduce((maxLen, line) => Math.max(maxLen, line.length), 0);
+};
+
+const getResolvedPreviewMaxLines = (
+  element: PreviewElementLike,
+  baseFontPx: number,
+  rotation: number = 0,
+  zoom: number = 1,
+  pixelsPerMm: number = 8.0
+): number => {
+  const explicitMaxLines = Number(element.maxLines);
+  if (Number.isFinite(explicitMaxLines) && explicitMaxLines > 0) {
+    return Math.max(1, Math.floor(explicitMaxLines));
+  }
+
+  const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+  const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
+  const blockHeightMm = isVerticalRotation
+    ? (element.width || element.height || 0)
+    : (element.height || 0);
+
+  if (!blockHeightMm || !baseFontPx) return 1;
+
+  const blockHeightPx = blockHeightMm * pixelsPerMm * zoom;
+  const estimatedLineHeightPx = Math.max(1, baseFontPx * 1.05);
+  return Math.max(1, Math.floor((blockHeightPx * 0.92) / estimatedLineHeightPx));
+};
+
+export const getPreviewTextStyle = (
+  element: PreviewElementLike,
+  content: unknown,
+  zoom: number,
+  rotation: number = 0,
+  pixelsPerMm: number = 8.0
+): { fontSize: number; lineHeight: string } => {
+  const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+  const isVerticalRotation = normalizedRotation === 90 || normalizedRotation === 270;
+  const baseFontPx = (element.fontSize || 10) * CSS_PIXELS_PER_POINT * zoom;
+  const maxLines = getResolvedPreviewMaxLines(element, baseFontPx, normalizedRotation, zoom, pixelsPerMm);
+
+  if (isVerticalRotation) {
+    const runLengthMm = element.height || element.width || 0;
+    const runLengthPx = runLengthMm * pixelsPerMm * zoom;
+    const lineBudgetMm = element.width || element.height || 0;
+    const lineBudgetPx = lineBudgetMm * pixelsPerMm * zoom;
+
+    if (runLengthPx > 0) {
+      const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
+      const estimatedLongestWrappedLine = Math.max(1, Math.ceil(longestLineLength / maxLines));
+      // Character width is 52% of height for monospace fonts (Zebra standard)
+      const widthLimitedFontPx = (runLengthPx * 0.92) / (estimatedLongestWrappedLine * 0.52);
+      const heightLimitedFontPx = lineBudgetPx ? (lineBudgetPx * 0.9) / maxLines : baseFontPx;
+      const fittedFontPx = Math.max(1, Math.min(baseFontPx, widthLimitedFontPx, heightLimitedFontPx));
+      return { fontSize: fittedFontPx, lineHeight: '1.05' };
+    }
+
+    return { fontSize: baseFontPx, lineHeight: '1.05' };
+  }
+
+  const effectiveWidthMm = element.width || 0;
+  const blockWidthPx = effectiveWidthMm * pixelsPerMm * zoom;
+  const blockHeightPx = element.height ? element.height * pixelsPerMm * zoom : null;
+
+  if (!blockWidthPx) {
+    return { fontSize: baseFontPx, lineHeight: '1.05' };
+  }
+
+  const longestLineLength = Math.max(1, getLongestPreviewLineLength(content));
+  const estimatedLongestWrappedLine = Math.max(1, Math.ceil(longestLineLength / maxLines));
+  const widthLimitedFontPx = (blockWidthPx * 0.92) / (estimatedLongestWrappedLine * 0.52);
+  const heightLimitedFontPx = blockHeightPx ? (blockHeightPx * 0.9) / maxLines : baseFontPx;
+  const fittedFontPx = Math.max(1, Math.min(baseFontPx, widthLimitedFontPx, heightLimitedFontPx));
+
+  return { fontSize: fittedFontPx, lineHeight: '1.05' };
+};

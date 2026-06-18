@@ -1,0 +1,202 @@
+/* Shake animation for login form */
+.shake {
+  animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-8px); }
+  40%, 60% { transform: translateX(8px); }
+}
+/* Basis styles voor de FPi Future Factory Portal */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: #f8fafc; /* slate-50 */
+  /* Voorkomt zoomen op iOS bij input focus. */
+  -webkit-text-size-adjust: 100%;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+/* Responsive Typography */
+@media (max-width: 768px) {
+  :root {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 475px) {
+  :root {
+    font-size: 13px;
+  }
+}
+
+/* Touch-friendly minimum sizes */
+@layer utilities {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .mobile-padding {
+    @apply px-4 py-3;
+  }
+  
+  .tablet-padding {
+    @apply md:px-6 md:py-4;
+  }
+  
+  /* Prevent text selection on touch interfaces for buttons */
+  .touch-action-none {
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Mobile-specific optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Touch devices */
+  button, a {
+    -webkit-tap-highlight-color: rgba(59, 130, 246, 0.1);
+  }
+
+  /* Maak numerieke velden op touchscreens beter bruikbaar: geen kleine spinner-knoppen. */
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  
+  /* Larger hit areas for touch */
+  .nav-item, button {
+    padding: 0.75rem;
+  }
+}
+
+/* Tablet optimizations */
+@media (min-width: 768px) and (max-width: 1023px) {
+  /* Increase spacing for tablet */
+  .container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* Algemene Scrollbar Styling - FPI Navy/Blue */
+.ff-custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ff-custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ff-custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3b82f6; /* Blue-500 */
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.ff-custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #2563eb; /* Blue-600 */
+}
+
+.ff-custom-scrollbar {
+  /* Styling voor de scrollbar zelf */
+  scrollbar-width: thin;
+  scrollbar-color: #3b82f6 transparent;
+}
+
+/* No Scrollbar Utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Animaties */
+.animate-in {
+  animation: animateIn 0.3s ease-out;
+}
+
+
+
+@keyframes animateIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shrink-width {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+/* iOS/Safari Optimalisaties */
+html, body {
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Enable momentum scrolling op iOS */
+.custom-scrollbar,
+[style*="WebkitOverflowScrolling"] {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Preventeer zoom op input focus op iOS */
+input, textarea, select {
+  font-size: 16px;
+}
+
+/* Fix voor fixed positioning op iOS */
+@supports (-webkit-appearance: none) {
+  @media (max-width: 768px) {
+    header[class*="fixed"] {
+      position: fixed !important;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+    }
+  }
+}
+
+/* Einde van het bestand */

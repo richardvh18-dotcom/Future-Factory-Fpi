@@ -1,0 +1,29 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDocPath() {
+      return /databases/(default)/documents/future-factory/Users/Accounts/$(request.auth.uid);
+    }
+
+    function hasUserRecord() {
+      return isSignedIn() && exists(userDocPath());
+    }
+
+    function hasAnyRole(roles) {
+      return hasUserRecord() && get(userDocPath()).data.role in roles;
+    }
+
+    function isUploader() {
+      return hasAnyRole(['admin', 'qc', 'engineer', 'planner', 'teamleader']);
+    }
+
+    match /{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isUploader();
+    }
+  }
+}

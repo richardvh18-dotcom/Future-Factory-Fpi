@@ -1,0 +1,83 @@
+
+> fpi-future-factory@0.1.7 type-check
+> tsc --noEmit --pretty false
+
+src/utils/teamleaderDerived.ts(25,38): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(30,43): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(43,41): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(59,50): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(67,52): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(70,10): error TS18047: 'deliveredQty' is possibly 'null'.
+src/utils/teamleaderDerived.ts(73,38): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(73,47): error TS7031: Binding element 'currentWeek' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(73,60): error TS7031: Binding element 'currentYear' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(81,3): error TS7031: Binding element 'rawOrders' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(82,3): error TS7031: Binding element 'rawProducts' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(83,3): error TS7031: Binding element 'getOrderIdFromTrackedRecord' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(84,3): error TS7031: Binding element 'getFinishedQtyForOrder' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(85,3): error TS7031: Binding element 'isInactiveTrackedProduct' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(89,38): error TS7006: Parameter 'orderId' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(93,30): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(99,28): error TS7006: Parameter 'order' implicitly has an 'any' type.
+src/utils/teamleaderDerived.ts(168,44): error TS2339: Property 'toMillis' does not exist on type 'string | number | { toMillis?: (() => number) | undefined; }'.
+  Property 'toMillis' does not exist on type 'string'.
+src/utils/teamleaderDerived.ts(169,27): error TS2339: Property 'toMillis' does not exist on type 'string | number | { toMillis?: (() => number) | undefined; }'.
+  Property 'toMillis' does not exist on type 'string'.
+src/utils/teamleaderDerived.ts(170,18): error TS2769: No overload matches this call.
+  Overload 1 of 5, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | number | { toMillis?: (() => number) | undefined; }' is not assignable to parameter of type 'string | number | Date'.
+      Type '{ toMillis?: (() => number) | undefined; }' is not assignable to type 'string | number | Date'.
+  Overload 2 of 5, '(vd: VarDate): Date', gave the following error.
+    Argument of type 'string | number | { toMillis?: (() => number) | undefined; }' is not assignable to parameter of type 'VarDate'.
+      Type 'string' is not assignable to type 'VarDate'.
+  Overload 3 of 5, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | number | { toMillis?: (() => number) | undefined; }' is not assignable to parameter of type 'string | number'.
+      Type '{ toMillis?: (() => number) | undefined; }' is not assignable to type 'string | number'.
+src/utils/zplHelper.test.ts(7,1): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/utils/zplHelper.test.ts(8,3): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/utils/zplHelper.test.ts(34,5): error TS2304: Cannot find name 'expect'.
+src/utils/zplHelper.test.ts(35,5): error TS2304: Cannot find name 'expect'.
+src/utils/zplHelper.test.ts(39,3): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/utils/zplHelper.test.ts(42,14): error TS2322: Type 'string' is not assignable to type 'never'.
+src/utils/zplHelper.test.ts(42,25): error TS2322: Type 'string' is not assignable to type 'never'.
+src/utils/zplHelper.test.ts(51,5): error TS2304: Cannot find name 'expect'.
+src/utils/zplHelper.test.ts(55,3): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/utils/zplHelper.test.ts(79,7): error TS2304: Cannot find name 'expect'.
+src/utils/zplHelper.test.ts(105,7): error TS2304: Cannot find name 'expect'.
+src/utils/zplHelper.test.ts(111,3): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/utils/zplHelper.test.ts(157,5): error TS2304: Cannot find name 'expect'.
+src/utils/zplHelper.test.ts(158,5): error TS2304: Cannot find name 'expect'.
+src/utils/zplHelper.ts(17,19): error TS7006: Parameter 'mm' implicitly has an 'any' type.
+src/utils/zplHelper.ts(20,31): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/zplHelper.ts(25,26): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/utils/zplHelper.ts(29,11): error TS7034: Variable 'wrapped' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/utils/zplHelper.ts(31,23): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/utils/zplHelper.ts(83,30): error TS7005: Variable 'wrapped' implicitly has an 'any[]' type.
+src/utils/zplHelper.ts(89,34): error TS7006: Parameter 'el' implicitly has an 'any' type.
+src/utils/zplHelper.ts(89,38): error TS7006: Parameter 'requestedHeight' implicitly has an 'any' type.
+src/utils/zplHelper.ts(105,25): error TS7006: Parameter 'el' implicitly has an 'any' type.
+src/utils/zplHelper.ts(105,29): error TS7006: Parameter 'content' implicitly has an 'any' type.
+src/utils/zplHelper.ts(165,23): error TS7006: Parameter 'text' implicitly has an 'any' type.
+src/utils/zplHelper.ts(165,29): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(167,40): error TS7006: Parameter '_' implicitly has an 'any' type.
+src/utils/zplHelper.ts(167,43): error TS7006: Parameter 'key' implicitly has an 'any' type.
+src/utils/zplHelper.ts(177,14): error TS7023: 'generatePrintData' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/utils/zplHelper.ts(177,35): error TS7006: Parameter 'template' implicitly has an 'any' type.
+src/utils/zplHelper.ts(177,45): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(225,22): error TS7006: Parameter 'el' implicitly has an 'any' type.
+src/utils/zplHelper.ts(230,18): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/utils/zplHelper.ts(232,32): error TS2349: This expression is not callable.
+  Type 'never' has no call signatures.
+src/utils/zplHelper.ts(240,21): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ 0: string; 90: string; 180: string; 270: string; }'.
+src/utils/zplHelper.ts(283,31): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ left: string; center: string; right: string; justify: string; }'.
+src/utils/zplHelper.ts(424,21): error TS7006: Parameter 'mm' implicitly has an 'any' type.
+src/utils/zplHelper.ts(472,7): error TS7023: 'generateLegacyZPL' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/utils/zplHelper.ts(472,28): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(472,34): error TS7006: Parameter 'options' implicitly has an 'any' type.
+src/utils/zplHelper.ts(511,29): error TS7006: Parameter 'zpl' implicitly has an 'any' type.
+src/utils/zplHelper.ts(523,38): error TS7006: Parameter 'user' implicitly has an 'any' type.
+src/utils/zplHelper.ts(523,44): error TS7006: Parameter 'labelName' implicitly has an 'any' type.
+src/utils/zplHelper.ts(523,55): error TS7006: Parameter 'printerIp' implicitly has an 'any' type.
+src/utils/zplHelper.ts(523,66): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/utils/zplHelper.ts(536,42): error TS7006: Parameter 'ip' implicitly has an 'any' type.

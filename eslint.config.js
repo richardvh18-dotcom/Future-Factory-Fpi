@@ -1,0 +1,72 @@
+import js from '@eslint/js';
+import tsParser from '@typescript-eslint/parser';
+
+export default [
+  {
+    ignores: ['node_modules/**', 'dist/**', 'src/lang/*.js', 'src/components/language/*.js'],
+    linterOptions: {
+      reportUnusedDisableDirectives: 'off',
+    },
+  },
+  js.configs.recommended,
+  {
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    languageOptions: {
+      parser: tsParser,
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
+      },
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        localStorage: 'readonly',
+        confirm: 'readonly',
+        AbortController: 'readonly',
+        URLSearchParams: 'readonly',
+        Notification: 'readonly',
+        prompt: 'readonly',
+        __app_id: 'readonly',
+        alert: 'readonly',
+        fetch: 'readonly',
+        FileReader: 'readonly',
+        Blob: 'readonly',
+        URL: 'readonly',
+        FormData: 'readonly',
+        btoa: 'readonly',
+        atob: 'readonly',
+        ResizeObserver: 'readonly',
+        TextEncoder: 'readonly',
+        HTMLInputElement: 'readonly',
+        HTMLSelectElement: 'readonly',
+        HTMLTextAreaElement: 'readonly',
+        HTMLButtonElement: 'readonly',
+        HTMLFormElement: 'readonly',
+        HTMLElement: 'readonly',
+        Event: 'readonly',
+        MouseEvent: 'readonly',
+        KeyboardEvent: 'readonly',
+        TouchEvent: 'readonly',
+        FocusEvent: 'readonly',
+        PointerEvent: 'readonly',
+        ClipboardEvent: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        console: 'readonly',
+      },
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-unused-vars': 'off',
+      'no-useless-assignment': 'off',
+      'preserve-caught-error': 'off',
+      'no-case-declarations': 'warn',
+    },
+  },
+];

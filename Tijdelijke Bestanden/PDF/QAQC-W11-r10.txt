@@ -1,0 +1,369 @@
+                                                          Procescontrole                                            Document number             QAQC-W11
+                                                                                                                    Version                      10
+                                                       Responsible: QC Manager                                      Date                         17-04-2025
+
+
+Wijzigingen:
+    • Veranderingen in hoofdstuk 5 betreffende de te controleren weegschalen.
+
+
+1.          Procescontrole
+
+            Deze werkinstructie is een aanvulling op de actuele Wavistrong Test Manual WS QAC W001.
+
+
+2.          Aanvullende informatie procescontrole
+
+2.1         Mengverhouding hars/harder
+
+            De mengverhouding hars/harder wordt gecontroleerd door bepaling van de brekingsindex of
+            door controle op gewicht.
+            Controle wordt uitgevoerd door Productie, er wordt toezicht gehouden door QC. De resultaten
+            worden vastgelegd op formulier FPI BV-R22 (IPD) en FPI BV-R70 (buis verharder). Zie
+            hoofdstuk 3 voor procedurele uitvoering.
+
+2.2         Soortelijke massa schuim
+
+            Bij productie van drijvers wordt dagelijks de soortelijke massa van het schuim bepaald.
+            Production levert het monster aan, controle wordt uitgevoerd door QC. De resultaten worden
+            vastgelegd op formulier FPI-BV R23. Zie hoofdstuk 4 voor procedurele uitvoering.
+
+2.3         Controle weegschalen doseerunits
+
+            Controle wordt uitgevoerd door Productie. Zie hoofdstuk 5 voor procedurele uitvoering.
+
+
+
+
+QHSE Managementsysteem FPI BV                                                                                                                    Pagina 1 van 7
+Dit document maakt deel uit van het digitale managementsysteem van Future Pipe Industries BV. Check geldigheid van geprinte onderdelen voor gebruik (zie FPI BV-I01
+Index QHSE managementsysteem). Gecontroleerde handboeken (op geregistreerde locaties) bevatten de geldige versie van alle documenten in de index.
+                                                          Procescontrole                                            Document number             QAQC-W11
+                                                                                                                    Version                      10
+                                                       Responsible: QC Manager                                      Date                         17-04-2025
+
+
+
+3.          Mengverhouding hars/harder
+
+3.1         Tabellen brekingsindex met bijbehorende mengverhouding
+            Nadat de brekingsindex is bepaald wordt met behulp van de hieronder gegeven tabellen de
+            bijbehorende mengverhouding opgezocht. Aan de hand van de tabel in paragraaf 3.2 wordt
+            vervolgens bepaald in welk gebied het resultaat valt. Afhankelijk van het resultaat worden de
+            in paragraaf 3.3. beschreven acties ondernomen.
+
+            Omdat de brekingsindices van de hars en harder per levering kunnen verschillen, worden de
+            onderstaande tabellen bij een levering waarvan brekingsindex van de grondstof afwijkt van
+            voorgaande leveringen opnieuw bepaald.
+            Bij de refractometer hangt de lijst met de actuele waarden. Deze lijst wordt gearchiveerd.
+
+            Voor de verharders van de buizen (IPD+DETDA) wordt alleen een tabel gegeven met de
+            acceptatieniveaus. Dit omdat bij deze verharders de mengverhouding gecontroleerd wordt met
+            wegen en niet met de refractometer in verband met te weinig verschil tussen brekingsindex
+            epoxy en verharder.
+
+3.1.1       Epoxyhars: IPD+DETDA (30eqW+70eqW))
+
+              Mengverhouding
+                                                      Acceptatieniveau
+              (Epoxyhars: Elastan)
+                         100 : 22.4                   C
+                         100 : 22.5                   B
+                         100 : 23.7                   B
+                         100 : 23.8                   A
+                         100 : 25.0                   A
+                         100 : 26.2                   A
+                         100 : 26.3                   B
+                         100 : 27.5                   B
+                         100 : 27.6                   C
+            * afronden op 1 decimaal
+
+            N.B.         1.           Indien de gemeten waarde buiten "A" valt, zie hoofdstuk 3.3 voor de te
+                                      ondernemen acties.
+
+
+
+
+QHSE Managementsysteem FPI BV                                                                                                                    Pagina 2 van 7
+Dit document maakt deel uit van het digitale managementsysteem van Future Pipe Industries BV. Check geldigheid van geprinte onderdelen voor gebruik (zie FPI BV-I01
+Index QHSE managementsysteem). Gecontroleerde handboeken (op geregistreerde locaties) bevatten de geldige versie van alle documenten in de index.
+                                                          Procescontrole                                            Document number             QAQC-W11
+                                                                                                                    Version                      10
+                                                       Responsible: QC Manager                                      Date                         17-04-2025
+
+
+
+3.1.2       Epoxyhars: IPD
+
+Tabel 1              n=1,5738         n IPD= 1.4888        Tabel 3     n=1,5736          n IPD= 1.4888
+Brekingsin           Meng-            Acceptatie           Brekingsi Meng-               Acceptatie
+dex                  verhouding       niveau               ndex        verhouding        niveau
+1,5564               100:21,4         C                    1,5562      100:21,4          C
+1,5560               100:21,6         C                    1,5558      100:21,6          C
+1,5558               100:21,8         B                    1,5556      100:21,8          B
+1,5556               100:22,1         B                    1,5554      100:22,1          B
+1,5554               100:22,8         A                    1,5552      100:22,8          A
+1,5552               100:23,1         A                    1,5550      100:23,1          A
+1,5550               100:23,4         A                    1,5548      100:23,4          A
+1,5548               100:23,7         A                    1,5546      100:23,7          A
+1,5546               100:24,0         A                    1,5544      100:24,0          A
+1,5544               100:24,4         A                    1,5542      100:24,4          A
+1,5541               100:24,8         A                    1,5540      100:24,8          A
+1,5538               100:25,2         A                    1,5536      100:25,2          A
+1,5536               100:25,6         B                    1,5534      100:25,6          B
+1,5534               100:26,0         B                    1,5532      100:26,0          B
+1,5532               100:26,3         B                    1,5530      100:26,3          B
+1,5530               100:26,7         C                    1,5528      100:26,7          C
+1,5528               100:27,0         C                    1,5526      100:27,0          C
+Tabel 4              n=1,5741         n IPD= 1.4888        Tabel 5     n=1,5732          n IPD= 1.4888
+Brekingsin           Meng-            Acceptatie           Brekingsi Meng-               Acceptatie
+dex                  verhouding       niveau               ndex        verhouding        niveau
+1,5566               100:21,4         C                    1,5557      100:21,4          C
+1,5562               100:21,6         C                    1,5555      100:21,6          C
+1,5560               100:21,8         B                    1,5553      100:21,8          B
+1,5558               100:22,1         B                    1,5551      100:22,1          B
+1,5556               100:22,8         A                    1,5549      100:22,8          A
+1,5554               100:23,1         A                    1,5547      100:23,1          A
+1,5552               100:23,4         A                    1,5545      100:23,4          A
+1,5550               100:23,7         A                    1,5543      100:23,7          A
+1,5548               100:24,0         A                    1,5541      100:24,0          A
+1,5546               100:24,4         A                    1,5539      100:24,4          A
+1,5543               100:24,8         A                    1,5537      100:24,8          A
+1,5540               100:25,2         A                    1,5534      100:25,2          A
+1,5538               100:25,6         B                    1,5532      100:25,6          B
+1,5536               100:26,0         B                    1,5530      100:26,0          B
+1,5534               100:26,3         B                    1,5528      100:26,3          B
+1,5532               100:26,7         C                    1,5526      100:26,7          C
+1,5530               100:27,0         C                    1,5524      100:27,0          C
+N.B.    1.             Indien de gemeten waarde buiten "A" valt, zie hoofdstuk 3.3 voor de te ondernemen
+                       acties.
+            2.         Voor procescontrole wordt gekeken welke brekingsindex de hars in de harskeuken
+                       heeft. De bijbehorende tabel wordt gebruikt.
+            3.         epoxyhars = Epikote 828, Der 336, Nan Ya NPEL 127H of equivalent
+
+
+
+
+QHSE Managementsysteem FPI BV                                                                                                                    Pagina 3 van 7
+Dit document maakt deel uit van het digitale managementsysteem van Future Pipe Industries BV. Check geldigheid van geprinte onderdelen voor gebruik (zie FPI BV-I01
+Index QHSE managementsysteem). Gecontroleerde handboeken (op geregistreerde locaties) bevatten de geldige versie van alle documenten in de index.
+                                                          Procescontrole                                            Document number             QAQC-W11
+                                                                                                                    Version                      10
+                                                       Responsible: QC Manager                                      Date                         17-04-2025
+
+
+
+3.2         Toelaatbare afwijking in mengverhoudingen epoxy.
+
+            In onderstaande tabel gaan we ervan uit dat de eerstgenoemde component " een vaste
+            waarde " is.
+
+                                                             Gebied A:                Gebied B:                             Gebied C:
+
+              Materiaal                      Opti-           Tolerantie               correctie tot binnen                  stop apparatuur,
+                                             maal            akkoord                  tolerantie                            blokkering productie
+              Epoxy/MDA                     100:27           Min. : 26.0               24.5-<26.0                           <24.5
+                                                             Max.: 29.0               >29.0- 30.5                           >30.5
+
+              Epoxy /IPD                   100 : 24          Min. : 22.5               21.5-<22.5                           <21.5
+                                                             Max.: 25.5               >25.5- 26.5                           >26.5
+
+              Epoxy/                       100 : 25          Min.: 23.75              22.5-<23.75                           <22.5
+              DETDA+IPD                                      Max.:26.25               >26.25-27.5                           >27.5
+
+              Epoxy/                        100:27           Min.: 25.65              24.3-<25.65                           <24.3
+              DETDA+PACM                                     Max.:28.35               >28.35-29.7                           >29.7
+
+              Epoxy/Elastan                100:23.5          Min.: 22.33              21.15-<22.33                          <21.15
+                                                             Max.:24.67               >24.67-25.85                          >25.85
+
+              Easyfit                      100 : 25          Min. : 23.5                22.5-<23.5                          <22.5
+              adhesive
+                                                             Max.: 26.5               >26.5-<27.5                           >27.5
+
+              Epoxy /XE 14                 100 : 40          Min. : 38.0               36.0-<38.0                           <36.0
+                                                             Max.: 42.0               >42.0- 44.0                           >44.0
+
+              Epoxy /PACM                  100 : 28          Min. : 26.6               25.2-<26.6                           <25.2
+                                                             Max.: 29.4               >29.4- 30.8                           >30.8
+
+              Rust Oleum                   100 : 40
+                                         Min. : 38.0   36.0-<38.0            <36.0
+                                         Max.: 42.0   >42.0- 44.0            >44.0
+            epoxyhars = Epikote 828, Der 336, Nan Ya NPEL 127H of equivalent
+
+
+
+
+QHSE Managementsysteem FPI BV                                                                                                                    Pagina 4 van 7
+Dit document maakt deel uit van het digitale managementsysteem van Future Pipe Industries BV. Check geldigheid van geprinte onderdelen voor gebruik (zie FPI BV-I01
+Index QHSE managementsysteem). Gecontroleerde handboeken (op geregistreerde locaties) bevatten de geldige versie van alle documenten in de index.
+                                                          Procescontrole                                            Document number             QAQC-W11
+                                                                                                                    Version                      10
+                                                       Responsible: QC Manager                                      Date                         17-04-2025
+
+
+
+3.3         Actiepunten a.d.h.v. resultaten:
+
+            Correctie tot binnen tolerantie (Gebied B) betekent dat zodra er een waarde vastgesteld is die
+            buiten "tolerantie akkoord (gebied A)" valt, echter binnen de waardes van gebied B, de
+            volgende acties worden opgestart:
+
+            1.      Aansluitend een nieuw monster nemen en bepalen.
+                    Valt deze binnen de tolerantie (gebied A), dan beide waardes vastleggen en geen
+                    verdere actie.
+
+            2.      Is het tweede monster eveneens buiten de tolerantie (buiten gebied A), dan de shiftleader
+                    de apparatuur laten corrigeren.
+                    Na melding dat correctie is uitgevoerd opnieuw bemonsteren en gegevens vastleggen.
+
+            3.      Is het monster wat na de correctie is genomen binnen de tolerantie (binnen gebied A),
+                    dan gegevens vastleggen en geen verdere actie.
+                    Indien de waardes nog niet in het A-gebied vallen, actie verder vervolgen volgens
+                    stappen 1-2-3.
+
+            Indien een testresultaat zich bevindt tussen de onder "Stop apparatuur, blokkering productie"
+            (gebied C) vermelde waardes: dan worden de volgende acties uitgevoerd:
+
+            1.      de doseerunit onmiddellijk buiten bedrijf stellen, melding van QC aan shiftleader. (Na
+                    reparatie van doseerunit monster nemen, voldoet monster aan toleranties (valt in gebied
+                    A) volgt vrijgave voor productie door QC, gegevens vastleggen).
+
+            2.      Vervolgens dient er vastgesteld te worden welke producten sinds de vorige bemonstering
+                    zijn gefabriceerd; deze producten markeren en separaat opslaan, uitvoering en registratie
+                    door productie.
+
+
+3.3.1       Verwerking separaat opgeslagen partij goederen:
+
+            M.b.v. de DSC-methode zal bepaald worden, uit separaat opgeslagen producten, welke
+            producten binnen/ buiten gestelde eisen vallen.
+
+            Binnen gestelde eisen :                             Goedkeur met registratie door QC
+                                                                (partijkeuring).
+            Buiten gestelde eisen :                             Afkeur tot afval.
+
+            Verwerking van de separaat opgeslagen producten wordt gecoördineerd door QC
+            (autorisatie door QA manager).
+            .
+
+
+
+
+QHSE Managementsysteem FPI BV                                                                                                                    Pagina 5 van 7
+Dit document maakt deel uit van het digitale managementsysteem van Future Pipe Industries BV. Check geldigheid van geprinte onderdelen voor gebruik (zie FPI BV-I01
+Index QHSE managementsysteem). Gecontroleerde handboeken (op geregistreerde locaties) bevatten de geldige versie van alle documenten in de index.
+                                                          Procescontrole                                            Document number             QAQC-W11
+                                                                                                                    Version                      10
+                                                       Responsible: QC Manager                                      Date                         17-04-2025
+
+
+
+4.          Bepaling soortelijke massa PU-schuim
+
+4.1         Apparatuur:
+            - lintzaag in Spoolbouw
+            - weegschaal
+            - schuifmaat
+
+4.2         Monstername:
+
+            Twee mogelijkheden:
+            1) Tijdens productie wordt er een blok uit de drijver gesneden.
+            2) Tijdens productie wordt er met een holboor een cilinder uit de drijver geboord.
+            In beide gevallen geldt dat het monster niet uit de kopse kanten mag komen.
+
+4.3         Werkwijze:
+
+            1) Zaag met behulp van de lintzaag en rechthoekig blok van het PU-schuim.
+               Meet de lengte, breedte en hoogte (in dm) van dit blok. Weeg het blok (m in g)
+            2) Zaag met behulp van zaag en verstekbak de uiteinden van de cilinder recht.
+               Meet de lengte (l in dm) en diameter. Bereken de straal (r in dm) van de cilinder.
+               Weeg de cilinder (m in g).
+
+4.4         Berekening:
+                                                                                massa blok (g)
+            1) Soortelijke massa  (g/dm ) =
+                                                            3
+
+                                                                    lengte(dm) * breedte(dm) * hoogte(dm)
+
+                                                                            m( g )
+            2) Soortelijke massa  ( g / dm ) =
+                                                             3
+
+                                                                      * r (dm) * l (dm)
+                                                                              2
+
+
+
+4.5         Toleranties:
+
+            Nestaan ISO 30 met Nestaan Poly SD382/28:
+                   A gebied:     40  ρ  50 g/dm3
+                   B gebied:     32  ρ < 40 g/dm3 & 50 < ρ  60 g/dm3
+                   C gebied:     ρ < 32 g/dm3 & ρ > 60 g/dm3
+
+            A gebied:                 product goed, geen verdere actie.
+            B gebied:                 product goed, apparatuur bijstellen.
+            C gebied:                 product niet goed, productie stop zetten. Alle geproduceerde drijvers sinds
+                                      vorige bemonstering separaat opslaan.
+                                      Verwerking van de separaat opgeslagen drijvers wordt gecoördineerd door
+                                      QC (autorisatie door QA-manager).
+
+
+
+
+QHSE Managementsysteem FPI BV                                                                                                                    Pagina 6 van 7
+Dit document maakt deel uit van het digitale managementsysteem van Future Pipe Industries BV. Check geldigheid van geprinte onderdelen voor gebruik (zie FPI BV-I01
+Index QHSE managementsysteem). Gecontroleerde handboeken (op geregistreerde locaties) bevatten de geldige versie van alle documenten in de index.
+                                                          Procescontrole                                            Document number             QAQC-W11
+                                                                                                                    Version                      10
+                                                       Responsible: QC Manager                                      Date                         17-04-2025
+
+
+5.          Controle Weegschalen
+
+            Standaard monster                                   : ijkgewichten van resp. 10, 100, 1000 ,2000 en 5000 gram.
+            Tolerantie                                          : +/- 0,5 %
+            Lijst weegschalen                                   : PG 8000 in Spoolbouw
+                                                                : IPD aftap in de Spoolbouw, bij de Fittingen en bij de buizen
+                                                                  (bij WM5/7 en WM8/9)
+                                                                : WE-03 bij de fittingen (bij de inspectiehoek)
+                                                                : WE-06 bij de Fittingen (bij WM12)
+                                                                : WE-17 in Spoolbouw (PACM, Fithars, etc)
+                                                                  Mettler Toledo IND 425-B150 in Buizen
+                                                                  WE-25 bij de fittingen (bij WM15)
+                                                                :
+
+            Frequentie                                          : wekelijks en na afplakken weegapparatuur, uit te voeren
+                                                                  door operator.
+
+            Procedure                                           :Plaats de gewichten op de weegschaal, lees het gewicht af.
+
+            Aandachtspunten                                     : ijkgewichten moeten schoon zijn
+                                                                : door het afplakken mag geen wrijving ontstaan tussen
+                                                                   deksel en weegschaal
+                                                                : display moet goed afleesbaar zijn
+                                                                : evt. afwijking moet binnen tolerantie vallen.
+
+            Registratie :
+
+                                      Bij goedkeur              : gemeten waarden invullen op formulier FPI-BV R21
+
+                                      Bij afkeur                : gemeten waarden invullen op formulier FPI BV R21
+                                                                : wanneer de weegschaal niet goed is afgeplakt deze opnieuw
+                                                                   afplakken en hierna opnieuw controleren
+                                                                : is dit niet het geval dan Maintenance waarschuwen, na
+                                                                   reparatie opnieuw controleren
+                                                                : alle metingen moeten worden ingevuld op het formulier, ook
+                                                                   als ze buiten de toleranties vallen.
+
+
+
+
+QHSE Managementsysteem FPI BV                                                                                                                    Pagina 7 van 7
+Dit document maakt deel uit van het digitale managementsysteem van Future Pipe Industries BV. Check geldigheid van geprinte onderdelen voor gebruik (zie FPI BV-I01
+Index QHSE managementsysteem). Gecontroleerde handboeken (op geregistreerde locaties) bevatten de geldige versie van alle documenten in de index.
+

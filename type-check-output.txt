@@ -1,0 +1,4 @@
+
+> fpi-future-factory@0.1.7 type-check
+> tsc --noEmit --pretty false
+

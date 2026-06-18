@@ -1,0 +1,14 @@
+node_modules
+.env
+.env.*
+desktop.ini
+dist
+coverage
+.vercel
+.env*.local
+functions/lib
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

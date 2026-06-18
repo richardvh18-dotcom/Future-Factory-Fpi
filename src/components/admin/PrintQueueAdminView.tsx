@@ -1,0 +1,257 @@
+import React, { useState, useEffect } from 'react';
+import { db } from '../../config/firebase';
+import { collection, collectionGroup, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { PATHS } from '../../config/dbPaths';
+import { formatDistanceToNow } from 'date-fns';
+import { nl } from 'date-fns/locale';
+import { Loader2, RefreshCw, Trash2, Wifi, WifiOff, AlertTriangle, CheckCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { useNotifications } from '../../contexts/NotificationContext';
+import { requeuePrintQueueJob, deletePrintQueueJob } from '../../services/planningSecurityService';
+
+type TimestampLike = {
+  toDate: () => Date;
+};
+
+type PrintJob = {
+  id: string;
+  printerId?: string;
+  zpl?: string;
+  status?: 'pending' | 'printing' | 'completed' | 'error' | string;
+  metadata?: {
+    description?: string;
+    requesterEmail?: string;
+    requesterName?: string;
+  };
+  description?: string;
+  requesterEmail?: string;
+  timestamp?: TimestampLike | string | null;
+  createdAt?: TimestampLike | string | null;
+  stationId?: string;
+  error?: string;
+  _scopeType?: string;
+  [key: string]: unknown;
+};
+
+type ListenerItem = {
+  id: string;
+  lastSeen?: TimestampLike;
+  [key: string]: unknown;
+};
+
+const StatusBadge = ({ status }: { status?: string }) => {
+  const { t } = useTranslation();
+  const config: Record<string, { icon: React.ReactNode; text: string; color: string }> = {
+    pending: { icon: <Loader2 className="animate-spin text-yellow-500" size={16} />, text: t('printQueue.waiting', 'Wachtend'), color: 'bg-yellow-100 text-yellow-800' },
+    printing: { icon: <RefreshCw className="animate-spin text-blue-500" size={16} />, text: t('printQueue.printing', 'Printen'), color: 'bg-blue-100 text-blue-800' },
+    completed: { icon: <CheckCircle className="text-green-500" size={16} />, text: t('printQueue.completed', 'Voltooid'), color: 'bg-green-100 text-green-800' },
+    error: { icon: <AlertTriangle className="text-red-500" size={16} />, text: t('printQueue.error', 'Fout'), color: 'bg-red-100 text-red-800' },
+  };
+  const current = config[status || 'pending'] || config.pending;
+  return (
+    <span className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium ${current.color}`}>
+      {current.icon}
+      {current.text}
+    </span>
+  );
+};
+
+const PrintQueueAdminView = () => {
+  const { t } = useTranslation();
+  const { showError, showConfirm } = useNotifications();
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
+  const [listeners, setListeners] = useState<ListenerItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let rootJobs: PrintJob[] = [];
+    let scopedJobs: PrintJob[] = [];
+
+    const normalizeJob = (docSnap: { id: string; data: () => Record<string, unknown> }): PrintJob | null => {
+      const data = (docSnap.data() || {}) as PrintJob;
+      const isQueueJob = Boolean(data.printerId || data.zpl || data.status || data.metadata?.description);
+      if (!isQueueJob) return null;
+      const normalizedTimestamp = data.timestamp || data.createdAt || null;
+      return {
+        ...data,
+        id: docSnap.id,
+        description: data.description || data.metadata?.description || '',
+        requesterEmail: data.requesterEmail || data.metadata?.requesterEmail || data.metadata?.requesterName || '-',
+        timestamp: normalizedTimestamp,
+      } as PrintJob;
+    };
+
+    const tsToMillis = (ts: TimestampLike | string | null | undefined): number => {
+      if (!ts) return 0;
+      if (typeof ts === 'object' && 'toDate' in ts && typeof ts.toDate === 'function') return ts.toDate().getTime();
+      const parsed = new Date(ts as string);
+      return Number.isFinite(parsed.getTime()) ? parsed.getTime() : 0;
+    };
+
+    const printQueuePathFragment = `/${PATHS.PRINT_QUEUE.join('/')}/`;
+
+    const mergeJobs = () => {
+      const byId = new Map();
+      rootJobs.forEach((job: PrintJob) => {
+        if (job?.id) byId.set(job.id, job);
+      });
+      // Scoped jobs krijgen voorrang op legacy root docs.
+      scopedJobs.forEach((job: PrintJob) => {
+        if (job?.id) byId.set(job.id, job);
+      });
+
+      const merged = Array.from(byId.values()).sort((a: PrintJob, b: PrintJob) => tsToMillis(b.timestamp) - tsToMillis(a.timestamp));
+      setPrintJobs(merged);
+      setLoading(false);
+    };
+
+    const rootQ = query(collection(db, PATHS.PRINT_QUEUE.join('/')), orderBy('createdAt', 'desc'));
+    const unsubscribeRoot = onSnapshot(rootQ, (snapshot) => {
+      rootJobs = snapshot.docs.map(normalizeJob).filter((job): job is PrintJob => Boolean(job));
+      mergeJobs();
+    }, () => {
+      rootJobs = [];
+      mergeJobs();
+    });
+
+    const scopedQ = collectionGroup(db, 'items');
+    const unsubscribeScoped = onSnapshot(scopedQ, (snapshot) => {
+      scopedJobs = snapshot.docs
+        .filter((docSnap) => String(docSnap.ref?.path || '').includes(printQueuePathFragment))
+        .map(normalizeJob)
+        .filter((job): job is PrintJob => Boolean(job) && String(job?._scopeType || 'print_queue').trim() === 'print_queue');
+      mergeJobs();
+    }, () => {
+      scopedJobs = [];
+      mergeJobs();
+    });
+
+    const listenersRef = collection(db, PATHS.PRINT_LISTENERS.join('/'));
+    const unsubscribeListeners = onSnapshot(listenersRef, (snapshot) => {
+      setListeners(snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) })) as ListenerItem[]);
+    });
+
+    return () => {
+      unsubscribeRoot();
+      unsubscribeScoped();
+      unsubscribeListeners();
+    };
+  }, []);
+
+  const handleReprint = async (jobId: string) => {
+    const confirmed = await showConfirm({
+      title: t('printQueue.reprintTask', 'Taak opnieuw printen'),
+      message: t('printQueue.reprintConfirm', 'Weet u zeker dat u deze taak opnieuw wilt printen?'),
+      confirmText: t('printQueue.reprint', 'Opnieuw printen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'warning',
+    });
+    if (!confirmed) return;
+    try {
+      await requeuePrintQueueJob({
+        jobId,
+        source: 'AdminPrintQueueAdminView',
+      });
+    } catch (error) {
+      console.error(error);
+      showError(t('printQueue.reprintError', 'Fout bij opnieuw printen'));
+    }
+  };
+
+  const handleDelete = async (jobId: string) => {
+    const confirmed = await showConfirm({
+      title: t('printQueue.deleteTask', 'Printtaak verwijderen'),
+      message: t('printQueue.deleteConfirm', 'Weet u zeker dat u deze taak permanent wilt verwijderen?'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await deletePrintQueueJob({
+        jobId,
+        source: 'AdminPrintQueueAdminView',
+      });
+    } catch (error) {
+      console.error(error);
+      showError(t('printQueue.deleteError', 'Fout bij verwijderen'));
+    }
+  };
+
+  return (
+    <div className="p-4 md:p-8">
+      <h1 className="text-3xl font-bold mb-2">{t('printQueue.managementTitle', 'Print Wachtrij Beheer')}</h1>
+      <p className="text-slate-600 mb-6">{t('printQueue.managementSubtitle', 'Monitor de status van printopdrachten en verbonden printer listeners.')}</p>
+
+      <div className="mb-8">
+        <h2 className="text-xl font-bold mb-3">{t('printQueue.printerListeners', 'Printer Listeners')}</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {listeners.length > 0 ? listeners.map((listener) => {
+            const isOnline = !!listener.lastSeen?.toDate && listener.lastSeen.toDate() > new Date(Date.now() - 30000); // Online if seen in last 30s
+            return (
+              <div key={listener.id} className={`p-4 rounded-lg border ${isOnline ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-lg">{listener.id}</h3>
+                  {isOnline ? <Wifi className="text-green-500" /> : <WifiOff className="text-red-500" />}
+                </div>
+                <p className={`text-sm ${isOnline ? 'text-green-700' : 'text-red-700'}`}>
+                  Status: {isOnline ? 'Online' : 'Offline'}
+                </p>
+                <p className="text-xs text-slate-500 mt-2">
+                  {t('printQueue.lastSeen', 'Laatst gezien')}: {listener.lastSeen?.toDate ? formatDistanceToNow(listener.lastSeen.toDate(), { addSuffix: true, locale: nl }) : t('printQueue.never', 'nooit')}
+                </p>
+              </div>
+            );
+          }) : <p className="text-slate-500">{t('printQueue.noActiveListeners', 'Geen actieve listeners gevonden.')}</p>}
+        </div>
+      </div>
+
+      <h2 className="text-xl font-bold mb-3">{t('printQueue.printTasks', 'Print Taken')}</h2>
+      <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+        <table className="w-full text-sm text-left text-slate-500">
+          <thead className="text-xs text-slate-700 uppercase bg-slate-50">
+            <tr>
+              <th scope="col" className="px-6 py-3">{t('common.status', 'Status')}</th>
+              <th scope="col" className="px-6 py-3">{t('common.description', 'Beschrijving')}</th>
+              <th scope="col" className="px-6 py-3">{t('printQueue.requestedBy', 'Aangevraagd door')}</th>
+              <th scope="col" className="px-6 py-3">{t('printQueue.timestamp', 'Tijdstip')}</th>
+              <th scope="col" className="px-6 py-3">{t('common.actions', 'Acties')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan={5} className="text-center p-8"><Loader2 className="animate-spin inline-block" /></td></tr>}
+            {!loading && printJobs.length === 0 && <tr><td colSpan={5} className="text-center p-8">{t('printQueue.empty', 'De print wachtrij is leeg.')}</td></tr>}
+            {printJobs.map((job) => (
+              <tr key={job.id} className="bg-white border-b hover:bg-slate-50">
+                <td className="px-6 py-4">
+                  <StatusBadge status={job.status} />
+                </td>
+                <td className="px-6 py-4 font-medium text-slate-900">
+                  {job.description}
+                  {job.stationId && <span className="ml-2 text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-bold">{job.stationId}</span>}
+                  {job.status === 'error' && <p className="text-red-600 text-xs mt-1">{job.error}</p>}
+                </td>
+                <td className="px-6 py-4">{job.requesterEmail}</td>
+                <td className="px-6 py-4">
+                  {job.timestamp ? formatDistanceToNow(typeof job.timestamp === 'object' && 'toDate' in job.timestamp ? job.timestamp.toDate() : new Date(job.timestamp as string), { addSuffix: true, locale: nl }) : '-'}
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleReprint(job.id)} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-100 rounded-full" title="Opnieuw printen">
+                      <RefreshCw size={16} />
+                    </button>
+                    <button onClick={() => handleDelete(job.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-100 rounded-full" title="Verwijderen">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default PrintQueueAdminView;

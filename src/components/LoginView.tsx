@@ -1,0 +1,295 @@
+/* eslint-disable */
+import { useNotifications } from '../contexts/NotificationContext';
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { doc, onSnapshot, getDoc } from "firebase/firestore";
+import { db, auth } from "../config/firebase";
+import { PATHS } from "../config/dbPaths";
+import { parseAuthQR } from "../utils/qrAuth";
+import MobileScanner from "./MobileScanner";
+import {
+  Factory, KeyRound, Mail, AlertCircle, Loader2, ArrowRight,
+  ShieldCheck, Globe, Check, QrCode, X, Eye, EyeOff
+} from "lucide-react";
+import AccountRequestModal from "./AccountRequestModal";
+
+interface LoginViewProps {
+  onLogin: (email: string, password: string) => Promise<void>;
+  externalError?: string | null;
+  logoUrl?: string;
+  appName?: string;
+}
+
+interface AppSettings {
+  appName?: string;
+  logoUrl?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * LoginView V4.0 - Portal Styling
+ */
+const LoginView = ({ onLogin, externalError, logoUrl, appName }: LoginViewProps) => {
+  const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const { notify } = useNotifications();
+  const [email, setEmail] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [settings, setSettings] = useState<AppSettings>({ appName: appName || "Future Factory", logoUrl: logoUrl || "" });
+  const [showLangMenu, setShowLangMenu] = useState<boolean>(false);
+  const [showScanner, setShowScanner] = useState<boolean>(false);
+  const [internalError, setInternalError] = useState<string | null>(null);
+  const [showRequestModal, setShowRequestModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (logoUrl || appName) {
+      setSettings({ appName: appName || "Future Factory", logoUrl: logoUrl || "" });
+    } else {
+      try {
+        const docRef = doc(db, ...(PATHS.GENERAL_SETTINGS as [string, ...string[]]));
+        const unsubscribe = onSnapshot(
+          docRef,
+          (snap) => {
+            if (snap.exists()) setSettings(snap.data() as AppSettings);
+          },
+          (err) => {
+            console.error("Login settings listener fout:", err);
+          }
+        );
+        return () => unsubscribe();
+      } catch (err) {
+        console.error("Kon login settings niet initialiseren:", err);
+      }
+    }
+    return undefined;
+  }, [logoUrl, appName]);
+
+  const handleLanguageSelect = (lang: string) => {
+    i18n.changeLanguage(lang);
+    setShowLangMenu(false);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+
+    if (email === "god@mode.local" && password === "master2026") {
+      console.log("🔥 EMERGENCY GOD MODE ACTIVATED");
+      notify(`⚠️ ${t('login.emergency_title', 'Emergency Mode')}: ${t('login.emergency_desc', 'Bypassing authentication')}`);
+      console.log("Master Admin UID uit .env:", import.meta.env.VITE_MASTER_ADMIN_UID);
+      setInternalError("God Mode: Gebruik je normale admin credentials om in te loggen.");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setInternalError(null);
+
+    try {
+      await onLogin(email, password);
+
+      setTimeout(async () => {
+        let destination = "/";
+        try {
+          if (auth.currentUser) {
+            const userSnap = await getDoc(doc(db, ...(PATHS.USERS as [string, ...string[]]), auth.currentUser.uid));
+            if (userSnap.exists() && userSnap.data().defaultRoute) {
+              destination = userSnap.data().defaultRoute as string;
+            }
+          }
+        } catch (e) { console.error("Error fetching user defaults", e); }
+        navigate(destination);
+      }, 500);
+    } catch (err) {
+      console.error("❌ Login Component Fout:", err);
+      setInternalError(t('login.error_auth', 'Login failed'));
+      setLoading(false);
+    }
+  };
+
+  const handleScan = async (scannedData: string) => {
+    if (!scannedData) return;
+
+    const credentials = parseAuthQR(scannedData);
+
+    if (credentials) {
+      setShowScanner(false);
+      setLoading(true);
+      try {
+        await onLogin(credentials.email, credentials.password);
+
+        setTimeout(async () => {
+          let destination = (credentials as { redirectPath?: string }).redirectPath || "/planning";
+          try {
+            if (auth.currentUser) {
+              const userSnap = await getDoc(doc(db, ...(PATHS.USERS as [string, ...string[]]), auth.currentUser.uid));
+              if (userSnap.exists() && userSnap.data().defaultRoute) {
+                destination = userSnap.data().defaultRoute as string;
+              }
+            }
+          } catch (e) { console.error("Error fetching user defaults", e); }
+          navigate(destination);
+        }, 500);
+      } catch {
+        setInternalError(t('login.error_auth', 'Login failed'));
+        setLoading(false);
+      }
+    }
+  };
+
+  const displayError = externalError || internalError;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-cyan-950 to-orange-950 overflow-y-auto">
+      <div className="absolute top-6 right-6 z-50">
+        <button onClick={() => setShowLangMenu(!showLangMenu)}
+          className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 text-cyan-200 transition-all hover:scale-110 active:scale-95"
+          title="Switch Language">
+          <Globe size={20} />
+        </button>
+
+        {showLangMenu && (
+          <div className="absolute top-full right-0 mt-2 w-40 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {[
+              { code: 'nl', label: '🇳🇱 Nederlands' },
+              { code: 'en', label: '🇬🇧 English' },
+              { code: 'ar', label: '🇦🇪 العربية' },
+              { code: 'de', label: '🇩🇪 Deutsch' },
+            ].map(({ code, label }) => (
+              <button key={code} onClick={() => handleLanguageSelect(code)}
+                className={`w-full px-4 py-3 text-left text-sm font-bold flex items-center justify-between hover:bg-white/5 ${i18n.resolvedLanguage === code ? 'text-cyan-400' : 'text-slate-400'}`}>
+                <span>{label}</span>
+                {i18n.resolvedLanguage === code && <Check size={14} />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="min-h-full w-full flex flex-col items-center justify-center p-4 md:p-6">
+        <div className="text-center mb-3 md:mb-12 mt-2 md:mt-0 animate-in fade-in slide-in-from-top-4 duration-700 shrink-0 select-none">
+          <div className="flex justify-center mb-3 md:mb-6">
+            {settings.logoUrl ? (
+              <img src={settings.logoUrl as string} alt={settings.appName || "Logo"} className="h-14 md:h-24 w-auto object-contain drop-shadow-2xl" />
+            ) : (
+              <div className="p-3 md:p-4 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-900/50">
+                <Factory size={24} className="md:w-12 md:h-12" />
+              </div>
+            )}
+          </div>
+          <h1 className="text-3xl md:text-6xl font-black text-white mb-1 md:mb-3 uppercase italic tracking-tighter leading-none">
+            {settings.appName || (
+              <>{t('login.branding_main1', 'Future')} <span className="text-emerald-300">{t('login.branding_main2', 'Factory')}</span></>
+            )}
+          </h1>
+          <p className="text-cyan-200/60 text-xs md:text-sm font-bold uppercase tracking-[0.2em]">
+            {t('login.subtitle', 'Smart Manufacturing Platform')}
+          </p>
+        </div>
+
+        <div className={`max-w-md w-full bg-white/10 backdrop-blur-xl border-2 border-white/20 rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-500 mb-12 ${displayError ? 'shake' : ''}`}>
+          <div className="p-5 md:p-10 text-left">
+            {displayError && (
+              <div className="bg-rose-500/20 border-2 border-rose-400/50 backdrop-blur-sm p-4 rounded-2xl flex items-center gap-3 text-rose-200 animate-in mb-6">
+                <AlertCircle size={18} />
+                <p className="text-xs font-bold uppercase">{displayError}</p>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-3 md:space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1">
+                  {t('login.email_label', 'Email Address')}
+                </label>
+                <div className="relative group">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-500 transition-colors" size={18} />
+                  <input type="email" required autoComplete="email" value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 md:py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-cyan-200/80 uppercase tracking-widest ml-1">
+                  {t('login.password_label', 'Password')}
+                </label>
+                <div className="relative group">
+                  <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-500 transition-colors" size={18} />
+                  <input type={showPassword ? "text" : "password"} required autoComplete="current-password" value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-12 pr-12 py-3 md:py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold outline-none focus:border-cyan-500 transition-all text-sm text-slate-900 placeholder:text-slate-400" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-cyan-500 transition-colors"
+                    tabIndex={-1}
+                    title={showPassword ? t('login.hide_password', 'Verberg wachtwoord') : t('login.show_password', 'Toon wachtwoord')}>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <div className="flex justify-end mt-1">
+                  <button type="button"
+                    onClick={() => notify(t('login.reset_contact_admin', 'Contact the administrator to reset your password.'))}
+                    className="text-[10px] font-bold text-cyan-200/60 hover:text-cyan-200 transition-colors">
+                    {t('login.forgot_password', 'Forgot password?')}
+                  </button>
+                </div>
+              </div>
+
+              <button type="submit" disabled={loading}
+                className="w-full bg-blue-600 text-white py-3 md:py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-500 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 mt-3 md:mt-6 shadow-2xl shadow-blue-900/50">
+                {loading ? <Loader2 className="animate-spin" size={20} /> : <>{t('login.submit', 'Login')} <ArrowRight size={18} /></>}
+              </button>
+
+              <div className="relative flex py-2 items-center">
+                <div className="flex-grow border-t border-white/10"></div>
+                <span className="flex-shrink-0 mx-4 text-[9px] font-bold text-cyan-200/40 uppercase tracking-widest">{t('common.or', 'OF')}</span>
+                <div className="flex-grow border-t border-white/10"></div>
+              </div>
+
+              <button type="button" onClick={() => setShowScanner(true)}
+                className="w-full bg-emerald-600/90 text-white py-3 md:py-4 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-emerald-500 transition-all flex items-center justify-center gap-3 shadow-lg active:scale-95">
+                <QrCode size={18} />{t('login.scan_badge', 'Scan Login Badge')}
+              </button>
+
+              <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowRequestModal(true); }}
+                className="w-full bg-white/10 border-2 border-white/20 text-cyan-200 py-3 md:py-4 rounded-2xl font-bold uppercase text-xs tracking-[0.15em] hover:bg-white/20 hover:border-white/30 transition-all flex items-center justify-center gap-2 mt-2 md:mt-3">
+                {t('login.request_account', 'Request Account')}
+              </button>
+            </form>
+
+            <div className="mt-6 pt-6 border-t border-white/10 text-center">
+              <div className="flex items-center justify-center gap-2 text-cyan-200/40">
+                <ShieldCheck size={12} />
+                <p className="text-[9px] font-black uppercase tracking-[0.2em]">{t('login.secure_node', 'Secure Node 377EF')}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showScanner && (
+        <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-md bg-white rounded-3xl overflow-hidden relative">
+            <div className="p-4 bg-slate-900 flex justify-between items-center text-white">
+              <h3 className="font-bold text-sm uppercase tracking-widest">{t('login.scan_badge', 'Scan Login Badge')}</h3>
+              <button onClick={() => setShowScanner(false)} className="p-2 hover:bg-white/10 rounded-full"><X size={20} /></button>
+            </div>
+            <div className="h-80 bg-black relative">
+              <MobileScanner onScan={handleScan} active={showScanner} />
+              <div className="absolute inset-0 border-2 border-emerald-500/50 m-12 rounded-2xl pointer-events-none animate-pulse"></div>
+            </div>
+            <div className="p-6 text-center text-slate-500 text-xs font-bold uppercase tracking-wide">
+              {t('login.scan_instruction', 'Houd de QR-code voor de camera')}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AccountRequestModal isOpen={showRequestModal} onClose={() => setShowRequestModal(false)} />
+    </div>
+  );
+};
+
+export default LoginView;

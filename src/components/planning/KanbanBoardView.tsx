@@ -1,0 +1,301 @@
+import React, { useState, useEffect } from "react";
+import i18n from "i18next";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "react-beautiful-dnd";
+import { 
+  Clock, 
+  AlertCircle, 
+  Package,
+  User,
+  Calendar
+} from "lucide-react";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db, auth, logActivity } from "../../config/firebase";
+import { PATHS, getPathString } from "../../config/dbPaths";
+import { format } from "date-fns";
+import { updateOrderKanbanStatus } from "../../services/planningSecurityService";
+import { useNotifications } from '../../contexts/NotificationContext';
+
+type KanbanStatus = "pending" | "in_progress" | "quality_check" | "completed" | "shipped";
+
+type TimestampLike = {
+  seconds: number;
+};
+
+type KanbanOrder = {
+  id: string;
+  status?: KanbanStatus | string;
+  orderId?: string;
+  item?: string;
+  itemCode?: string;
+  extraCode?: string;
+  plan?: number | string;
+  machine?: string;
+  plannedDate?: TimestampLike;
+  [key: string]: unknown;
+};
+
+type KanbanColumn = {
+  id: KanbanStatus;
+  title: string;
+  color: string;
+  icon: React.ComponentType<{ size?: number | string; className?: string }>;
+  wipLimit: number | null;
+};
+
+/**
+ * KanbanBoardView - Order Workflow Visualization
+ * Statussen: Gepland → In Productie → Controle → Verzonden
+ */
+const KanbanBoardView = () => {
+  const { notify } = useNotifications() as { notify: (message: string) => void };
+  const [orders, setOrders] = useState<KanbanOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Helper om statussen te normaliseren naar de kolommen
+  const normalizeStatus = (status: unknown): KanbanStatus => {
+    if (!status) return "pending";
+    const s = String(status).toLowerCase();
+    
+    if (s === "planned" || s === "pending" || s === "open") return "pending";
+    if (s === "in_production" || s === "in_progress" || s === "active" || s === "started") return "in_progress";
+    if (s === "quality_check" || s === "inspection" || s === "check") return "quality_check";
+    if (s === "ready_to_ship" || s === "completed" || s === "finished" || s === "gereed") return "completed";
+    if (s === "shipped" || s === "verzonden") return "shipped";
+    
+    return "pending";
+  };
+
+  const columns: KanbanColumn[] = [
+    { 
+      id: "pending", 
+      title: "📅 Gepland", 
+      color: "bg-blue-50 border-blue-200",
+      icon: Clock,
+      wipLimit: null
+    },
+    { 
+      id: "in_progress", 
+      title: "⚙️ In Productie", 
+      color: "bg-orange-50 border-orange-200",
+      icon: Package,
+      wipLimit: 10
+    },
+    { 
+      id: "quality_check", 
+      title: "🔍 Controle", 
+      color: "bg-purple-50 border-purple-200",
+      icon: AlertCircle,
+      wipLimit: 5
+    }
+  ];
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, getPathString(PATHS.PLANNING)),
+      (snapshot) => {
+        const ordersData = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...(doc.data() as Record<string, unknown>),
+          status: normalizeStatus(doc.data().status)
+        })) as KanbanOrder[];
+        setOrders(ordersData);
+        setLoading(false);
+      },
+      (error: unknown) => {
+        console.error("Error loading orders:", error);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const onDragEnd = async (result: DropResult) => {
+    const { source, destination, draggableId } = result;
+
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId) return;
+
+    // Check WIP limit
+    const destColumn = columns.find((c) => c.id === destination.droppableId);
+    const destOrders = orders.filter((o) => o.status === destination.droppableId);
+    if (!destColumn) return;
+
+    if (destColumn.wipLimit && destOrders.length >= destColumn.wipLimit) {
+      notify(`⚠️ WIP Limiet bereikt! Max ${destColumn.wipLimit} orders in ${destColumn.title}`);
+      return;
+    }
+
+    try {
+      // Update order status via callable
+      await updateOrderKanbanStatus({
+        orderId: draggableId,
+        status: destination.droppableId,
+      });
+      await logActivity(
+        auth.currentUser?.uid || "system",
+        "ORDER_STATUS_MOVE",
+        `Kanban status gewijzigd voor order ${draggableId}: ${source.droppableId} -> ${destination.droppableId}`
+      );
+
+      // Optimistic UI update
+      setOrders((prev) => prev.map((order) => 
+        order.id === draggableId 
+          ? { ...order, status: destination.droppableId as KanbanStatus }
+          : order
+      ));
+    } catch (error: unknown) {
+      console.error("Error updating order status:", error);
+      notify("Fout bij het verplaatsen van order");
+    }
+  };
+
+  const getOrdersByStatus = (status: KanbanStatus): KanbanOrder[] => {
+    return orders.filter((order) => order.status === status);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 bg-slate-50 h-screen flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="mb-6 shrink-0">
+        <h1 className="text-3xl font-black text-slate-800">
+          {i18n.t('kanban.board', 'Kanban Board')} <span className="text-blue-600">{i18n.t('planning.title', 'Planning')}</span>
+        </h1>
+        <p className="text-sm text-slate-600 mt-1">
+          Sleep orders tussen kolommen om status te wijzigen
+        </p>
+      </div>
+
+      {/* Kanban Board */}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div className="grid grid-cols-3 gap-4 flex-1 min-h-0">
+          {columns.map((column) => {
+            const columnOrders = getOrdersByStatus(column.id);
+            const Icon = column.icon;
+            
+            return (
+              <div key={column.id} className="flex flex-col h-full">
+                {/* Column Header */}
+                <div className={`${column.color} border-2 rounded-t-2xl p-4 shrink-0`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Icon size={16} className="text-slate-700" />
+                      <h3 className="font-bold text-sm text-slate-800">
+                        {column.title}
+                      </h3>
+                    </div>
+                    <span className="px-2 py-0.5 bg-white rounded-full text-xs font-bold text-slate-700">
+                      {columnOrders.length}
+                    </span>
+                  </div>
+                  
+                  {column.wipLimit && (
+                    <div className="text-xs text-slate-600">
+                      {i18n.t('kanban.wipLimit', 'WIP Limiet')}: {columnOrders.length}/{column.wipLimit}
+                      {columnOrders.length >= column.wipLimit && (
+                        <span className="text-red-600 font-bold ml-1">⚠️ {i18n.t('kanban.full', 'VOL')}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Column Content */}
+                <Droppable droppableId={column.id}>
+                  {(provided: any, snapshot: any) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={`flex-1 ${column.color} border-x-2 border-b-2 rounded-b-2xl p-3 overflow-y-auto custom-scrollbar ${
+                        snapshot.isDraggingOver ? "bg-blue-100" : ""
+                      }`}
+                    >
+                      <div className="space-y-3">
+                        {columnOrders.map((order, index) => (
+                          <Draggable
+                            key={order.id}
+                            draggableId={order.id}
+                            index={index}
+                          >
+                            {(provided: any, snapshot: any) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={`bg-white rounded-xl p-3 shadow-sm border-2 ${
+                                  snapshot.isDragging
+                                    ? "border-blue-500 shadow-lg"
+                                    : "border-slate-200"
+                                } hover:shadow-md transition-shadow cursor-move`}
+                              >
+                                {/* Order Info */}
+                                <div className="mb-2">
+                                  <div className="font-bold text-sm text-slate-800 mb-1">
+                                    {order.orderId || order.item}
+                                  </div>
+                                  <div className="text-xs text-slate-600">
+                                    {order.itemCode || order.extraCode}
+                                  </div>
+                                </div>
+
+                                {/* Meta Info */}
+                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                  <Package size={12} />
+                                  <span>{order.plan || 0} stuks</span>
+                                </div>
+
+                                {order.machine && (
+                                  <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                                    <User size={12} />
+                                    <span>{order.machine}</span>
+                                  </div>
+                                )}
+
+                                {order.plannedDate && (
+                                  <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                                    <Calendar size={12} />
+                                    <span>{format(new Date(order.plannedDate.seconds * 1000), 'dd-MM-yyyy')}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            );
+          })}
+        </div>
+      </DragDropContext>
+
+      {/* Stats Footer */}
+      <div className="mt-6 grid grid-cols-3 gap-4 shrink-0">
+        {columns.map((column) => {
+          const columnOrders = getOrdersByStatus(column.id);
+          const totalPlan = columnOrders.reduce((sum, o) => sum + (parseInt(String(o.plan || 0), 10) || 0), 0);
+          
+          return (
+            <div key={column.id} className="bg-white rounded-xl p-4 border-2 border-slate-200">
+              <div className="text-xs text-slate-600 mb-1">{column.title}</div>
+              <div className="font-bold text-lg text-slate-800">{totalPlan} stuks</div>
+              <div className="text-xs text-slate-500">{columnOrders.length} orders</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+export default KanbanBoardView;

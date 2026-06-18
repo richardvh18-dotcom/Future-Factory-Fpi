@@ -1,0 +1,1099 @@
+/* eslint-disable */
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Mail,
+  Archive,
+  Trash2,
+  CheckCircle,
+  Inbox,
+  User,
+  Plus,
+  X,
+  Send,
+  Clock,
+  ChevronRight,
+  Reply,
+  ShieldCheck,
+  Loader2,
+  AlertTriangle,
+  MessageSquare,
+  Quote,
+  Edit3,
+  Download,
+} from "lucide-react";
+import {
+  doc,
+  updateDoc,
+  deleteDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+  onSnapshot,
+  query,
+  where,
+  orderBy,
+  getDocs,
+  getDoc,
+  or,
+  type DocumentData,
+} from "firebase/firestore";
+import { db, storage, logActivity } from "../../config/firebase";
+import { PATHS, isValidPath, getPathString } from "../../config/dbPaths";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+import { useNotifications } from "../../contexts/NotificationContext";
+import { useFormPersistence } from "../../hooks/useFormPersistence";
+import { format } from "date-fns";
+import { nl } from "date-fns/locale";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useTranslation } from "react-i18next";
+
+/**
+ * AdminMessagesView V6.0 - Master Communication Hub
+ * Beheert de inbox en verzending via de root: /future-factory/production/messages/
+ */
+type AppUser = {
+  id?: string;
+  uid?: string;
+  email?: string | null;
+  name?: string;
+  displayName?: string;
+  department?: string;
+  receivesCrashReports?: boolean;
+  role?: string;
+  [key: string]: unknown;
+};
+
+type MessageAttachmentMeta = {
+  name?: string;
+  type?: string;
+  size?: number;
+};
+
+type AdminMessage = {
+  id: string;
+  to?: string;
+  toName?: string;
+  from?: string;
+  senderId?: string;
+  senderName?: string;
+  subject?: string;
+  content: string;
+  priority?: string;
+  type?: string;
+  targetGroup?: string;
+  read?: boolean;
+  archived?: boolean;
+  attachmentUrl?: string | null;
+  attachmentMeta?: MessageAttachmentMeta | null;
+  timestamp: Date;
+  data?: unknown;
+  errorDetails?: unknown;
+  stack?: unknown;
+  [key: string]: unknown;
+};
+
+type MessageThread = {
+  id: string;
+  subject: string;
+  messages: AdminMessage[];
+  lastMessage: AdminMessage;
+  hasUnread: boolean;
+  timestamp: Date;
+  participants: Set<string>;
+};
+
+const toDate = (value: unknown): Date => {
+  if (value instanceof Date) return value;
+  if (typeof (value as { toDate?: () => Date })?.toDate === "function") {
+    return (value as { toDate: () => Date }).toDate();
+  }
+  const parsed = new Date(typeof value === "string" || typeof value === "number" ? value : String(value));
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
+const getErrorMessage = (err: unknown): string => {
+  if (err instanceof Error) return err.message;
+  return String(err);
+};
+
+const AdminMessagesView = ({ user: propUser }: { user?: AppUser | null }) => {
+  const { t } = useTranslation();
+  const { user: authUser, isAdmin } = useAdminAuth();
+  const { showSuccess, showError, showConfirm } = useNotifications();
+  const user = (propUser || authUser || null) as AppUser | null;
+  
+  // Live user profile sync om instellingen (zoals receivesCrashReports) direct toe te passen
+  const [liveUser, setLiveUser] = useState<AppUser | null | undefined>(user);
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(doc(db, `${getPathString(PATHS.USERS)}/${user.uid}`), (snap) => {
+      if (snap.exists()) {
+        setLiveUser({ ...user, ...(snap.data() as DocumentData) });
+      }
+    });
+    return () => unsub();
+  }, [user?.uid]);
+
+  const [messages, setMessages] = useState<AdminMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"inbox" | "archived">("inbox"); // 'inbox', 'archived'
+  const [filterType, setFilterType] = useState<"all" | "crash">('all'); // 'all', 'crash'
+  const [selectedThread, setSelectedThread] = useState<MessageThread | null>(null);
+  const [isComposeOpen, setIsComposeOpen] = useState(false);
+  const [replyContext, setReplyContext] = useState<AdminMessage | null>(null);
+
+  // Bepaal relevante groepen voor de huidige gebruiker (voor filtering en query)
+  const userGroups = useMemo(() => {
+    if (!liveUser?.email) return [];
+    const groups = [liveUser.email];
+    
+    if (liveUser.department) {
+        const dept = liveUser.department.toLowerCase();
+        if (dept.includes('spools')) groups.push('SPOOLS_TEAM');
+        if (dept.includes('fittings')) groups.push('FITTINGS_TEAM');
+        if (dept.includes('pipes')) groups.push('PIPES_TEAM');
+    }
+    return groups;
+  }, [liveUser]);
+
+  // 1. Live Sync met de Root Messages collectie
+  useEffect(() => {
+    if (!isValidPath("MESSAGES")) return;
+
+    setLoading(true);
+    const messagesRef = collection(db, getPathString(PATHS.MESSAGES));
+
+    let q;
+    setError(null);
+
+    if (isAdmin) {
+      // Admins mogen alles ophalen (security rule checkt role == 'admin')
+      q = query(messagesRef, orderBy("timestamp", "desc"));
+    } else {
+      // Niet-admins mogen alleen eigen berichten zien (security rule checkt senderId/to)
+      // Dit voorkomt 'Missing or insufficient permissions' errors
+      if (!liveUser?.email) return;
+      
+      q = query(
+        messagesRef,
+        // We verwijderen orderBy hier om de index-fout te voorkomen. Sortering gebeurt nu client-side.
+        or(where("to", "in", userGroups), where("senderId", "==", liveUser.uid))
+      );
+    }
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const msgs: AdminMessage[] = snapshot.docs.map((messageDoc) => {
+          const data = messageDoc.data() as DocumentData;
+          return {
+            ...data,
+            id: messageDoc.id,
+            content: String(data.content || ""),
+            timestamp: toDate(data.timestamp),
+          };
+        });
+
+        // Client-side sorteren (nieuwste eerst)
+        msgs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+        // Filteren op basis van rechten
+        const visibleMsgs = msgs.filter((m) => {
+          const isForMe = userGroups.includes(m.to || "");
+          const isFromMe = m.senderId === liveUser?.uid;
+          // Admin berichten zijn voor 'admin', de groep 'admins' of systeem errors
+          const isForAdmins = m.to === "admin" || m.targetGroup === "admins";
+          
+          // Admins zien alles voor admins + eigen berichten
+          if (isAdmin) {
+            if (m.type === "SYSTEM_ERROR") {
+              return liveUser?.receivesCrashReports === true;
+            }
+            return isForMe || isFromMe || isForAdmins;
+          }
+          
+          // Niet-admins zien alleen eigen berichten
+          return isForMe || isFromMe;
+        });
+
+        setMessages(visibleMsgs);
+        setLoading(false);
+      },
+      (err: unknown) => {
+        console.error("Fout bij laden berichten:", err);
+        setError(getErrorMessage(err));
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [liveUser, isAdmin, userGroups]);
+
+  // 2. Bericht Acties
+  const handleMarkAsRead = async (thread: MessageThread) => {
+    const unreadMessages = thread.messages.filter((m) => !m.read && m.senderId !== liveUser?.uid);
+    if (unreadMessages.length === 0) return;
+
+    try {
+      await Promise.all(
+        unreadMessages.map((msg) =>
+          updateDoc(doc(db, `${getPathString(PATHS.MESSAGES)}/${msg.id}`), { read: true })
+        )
+      );
+      await logActivity(
+        liveUser?.uid || "system",
+        "MESSAGE_MARK_READ",
+        `Berichten als gelezen gemarkeerd in thread ${thread.id}: ${unreadMessages.length}`
+      );
+    } catch (err: unknown) {
+      console.error(err);
+    }
+  };
+
+  const handleArchive = async (thread: MessageThread) => {
+    try {
+      const targetStatus = activeTab === "inbox"; // Als in inbox -> archiveer (true). Anders herstel (false).
+      await Promise.all(thread.messages.map((msg) => 
+        updateDoc(doc(db, `${getPathString(PATHS.MESSAGES)}/${msg.id}`), { archived: targetStatus })
+      ));
+      await logActivity(
+        liveUser?.uid || "system",
+        targetStatus ? "MESSAGE_ARCHIVE" : "MESSAGE_UNARCHIVE",
+        `Conversatie ${thread.id} ${targetStatus ? "gearchiveerd" : "hersteld"}`
+      );
+      
+      if (selectedThread?.id === thread.id) setSelectedThread(null);
+      showSuccess(targetStatus ? t('adminMessagesView.conversationArchived') : t('adminMessagesView.conversationRestored'));
+    } catch (err: unknown) {
+      console.error(err);
+      showError(t('adminMessagesView.actionFailed') + getErrorMessage(err));
+    }
+  };
+
+  const handleDelete = async (thread: MessageThread) => {
+    const confirmed = await showConfirm({
+      title: t('adminMessagesView.deleteConversationTitle', 'Conversatie verwijderen'),
+      message: t('adminMessagesView.deleteConversationConfirm'),
+      confirmText: t('common.delete', 'Verwijderen'),
+      cancelText: t('common.cancel', 'Annuleren'),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await Promise.all(thread.messages.map((msg) => 
+        deleteDoc(doc(db, `${getPathString(PATHS.MESSAGES)}/${msg.id}`))
+      ));
+      await logActivity(
+        liveUser?.uid || "system",
+        "MESSAGE_DELETE_THREAD",
+        `Conversatie verwijderd: ${thread.id}, berichten: ${thread.messages.length}`
+      );
+      if (selectedThread?.id === thread.id) setSelectedThread(null);
+      showSuccess(t('adminMessagesView.conversationDeleted'));
+    } catch (err: unknown) {
+      console.error(err);
+      showError(t('adminMessagesView.deleteFailed') + getErrorMessage(err));
+    }
+  };
+
+  const handleSaveConversation = (thread: MessageThread | null) => {
+    if (!thread) return;
+    
+    const lines = [];
+    lines.push(`${t('adminMessagesView.subject')}: ${thread.subject}`);
+    lines.push(`${t('adminMessagesView.lastUpdate')}: ${format(thread.timestamp, "dd-MM-yyyy HH:mm")}`);
+    lines.push(`${t('adminMessagesView.participants')}: ${Array.from(thread.participants).join(", ")}`);
+    lines.push("-".repeat(50));
+    lines.push("");
+    
+    const sortedMessages = [...thread.messages].sort((a, b) => {
+      const tA = toDate(a.timestamp);
+      const tB = toDate(b.timestamp);
+      return tA.getTime() - tB.getTime();
+    });
+
+    sortedMessages.forEach(msg => {
+      const time = toDate(msg.timestamp);
+      const timeStr = format(time, "dd-MM-yyyy HH:mm");
+      const sender = msg.senderName || msg.from || t('common.unknown');
+      
+      lines.push(`[${timeStr}] ${sender}:`);
+      lines.push(msg.content);
+      if (msg.attachmentUrl) {
+          lines.push(`[${t('adminMessagesView.attachment')}: ${msg.attachmentMeta?.name || t('adminMessagesView.file')}]`);
+      }
+      lines.push("");
+    });
+    
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `conversatie_${thread.id}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // 3. Grouping Logic (Threads)
+  const threads = useMemo<MessageThread[]>(() => {
+    const groups: Record<string, MessageThread> = {};
+    
+    messages.forEach((m) => {
+      // Filter logic inline
+      if (activeTab === "inbox" && m.archived) return;
+      if (activeTab === "archived" && !m.archived) return;
+      if (filterType === "crash" && m.type !== "SYSTEM_ERROR") return;
+      
+      // Normalize subject (remove RE:, FW:, etc.)
+      const subject = (m.subject || t('adminMessagesView.noSubject')).replace(/^(RE:|FW:|FWD:)\s*/i, "").trim();
+      const key = subject.toLowerCase();
+
+      if (!groups[key]) {
+        groups[key] = {
+          id: key,
+          subject: subject,
+          messages: [],
+          lastMessage: m,
+          hasUnread: false,
+          timestamp: new Date(0), // Voor sortering
+          participants: new Set<string>()
+        };
+      }
+
+      const group = groups[key];
+      
+      // Deduplicate identical messages (e.g. broadcasts sent to multiple admins)
+      const isDuplicate = group.messages.some(
+        (existingMsg) => 
+          existingMsg.content === m.content && 
+          existingMsg.senderId === m.senderId &&
+          Math.abs(existingMsg.timestamp.getTime() - m.timestamp.getTime()) < 5000
+      );
+
+      if (!isDuplicate) {
+        group.messages.push(m);
+      }
+      
+      // Update stats
+      if (m.timestamp.getTime() > group.timestamp.getTime()) {
+        group.timestamp = m.timestamp;
+        group.lastMessage = m;
+      }
+      if (!m.read && m.senderId !== liveUser?.uid) {
+        group.hasUnread = true;
+      }
+      if (m.senderName && m.senderId !== liveUser?.uid) {
+        group.participants.add(m.senderName);
+      }
+    });
+
+    // Convert to array and sort by latest message
+    return Object.values(groups).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }, [messages, activeTab, filterType]);
+
+  if (loading)
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-4">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
+          {t('adminMessagesView.syncingHub')}
+        </p>
+      </div>
+    );
+
+  if (error) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-4 p-8 text-center">
+        <AlertTriangle className="text-red-500" size={48} />
+        <h3 className="text-lg font-black text-slate-700 uppercase tracking-widest">{t('common.errorLoading')}</h3>
+        <p className="text-xs text-slate-500 font-mono bg-white p-4 rounded-xl border border-slate-200 shadow-sm max-w-lg">
+          {error}
+        </p>
+        {error.includes("index") && (
+          <div className="bg-blue-50 text-blue-700 p-4 rounded-xl text-xs font-bold max-w-md border border-blue-100">
+            <p className="uppercase tracking-widest mb-1">{t('adminMessagesView.databaseIndexRequired')}</p>
+            {t('adminMessagesView.databaseIndexHelp')}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col md:flex-row h-full bg-slate-50 overflow-hidden animate-in fade-in text-left">
+      {/* SIDEBAR: MESSAGES LIST */}
+      <div
+        className={`w-full md:w-1/3 xl:w-1/4 border-r border-slate-200 flex flex-col bg-white ${
+          selectedThread ? "hidden md:flex" : "flex"
+        }`}
+      >
+        {/* Header Tools */}
+        <div className="p-6 border-b border-slate-100 bg-white sticky top-0 z-10 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">
+              {t('common.messages')}
+            </h2>
+            <button
+              onClick={() => {
+                setReplyContext(null);
+                setIsComposeOpen(true);
+              }}
+              className="p-2.5 bg-blue-600 text-white rounded-xl shadow-lg hover:bg-blue-700 transition-all active:scale-95"
+            >
+              <Plus size={20} strokeWidth={3} />
+            </button>
+          </div>
+
+          {/* Filter Knoppen (Crash Reports) */}
+          {isAdmin && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setFilterType('all')}
+                className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border ${
+                  filterType === 'all' 
+                    ? 'bg-slate-800 text-white border-slate-800' 
+                    : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <MessageSquare size={12} /> {t('common.all')}
+              </button>
+              <button
+                onClick={() => setFilterType('crash')}
+                className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border ${
+                  filterType === 'crash' 
+                    ? 'bg-red-600 text-white border-red-600 shadow-sm' 
+                    : 'bg-white text-red-400 border-red-100 hover:bg-red-50'
+                }`}
+              >
+                <AlertTriangle size={12} /> {t('adminMessagesView.crashes')}
+              </button>
+            </div>
+          )}
+
+          <div className="flex bg-slate-100 p-1 rounded-2xl">
+            <button
+              onClick={() => {
+                setActiveTab("inbox");
+                setSelectedThread(null);
+              }}
+              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                activeTab === "inbox"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-500"
+              }`}
+            >
+              <Inbox size={14} /> {t('adminMessagesView.inbox')}
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("archived");
+                setSelectedThread(null);
+              }}
+              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                activeTab === "archived"
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500"
+              }`}
+            >
+              <Archive size={14} /> {t('adminMessagesView.archive')}
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable List */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {threads.length === 0 ? (
+            <div className="p-12 text-center flex flex-col items-center text-slate-300 opacity-40">
+              <Mail size={48} strokeWidth={1} className="mb-4" />
+              <p className="text-[10px] font-black uppercase tracking-widest italic">
+                {t('adminMessagesView.noMessages')}
+              </p>
+            </div>
+          ) : (
+            threads.map((thread) => {
+              const lastMsg = thread.lastMessage;
+              const isFromMe = lastMsg.senderId === liveUser?.uid;
+              const isUnread = thread.hasUnread;
+              const participants = Array.from(thread.participants).join(", ") || (isFromMe ? `${t('adminMessagesView.to')}: ${lastMsg.toName || lastMsg.to}` : t('common.unknown'));
+
+              return (
+                <div
+                  key={thread.id}
+                  onClick={() => {
+                    setSelectedThread(thread);
+                    handleMarkAsRead(thread);
+                  }}
+                  className={`p-6 border-b border-slate-50 cursor-pointer transition-all hover:bg-slate-50 group relative
+                    ${isUnread ? "bg-blue-50/40" : ""}
+                    ${lastMsg.type === 'SYSTEM_ERROR' ? "bg-red-50/30 hover:bg-red-50/50" : ""}
+                    ${
+                      selectedThread?.id === thread.id
+                        ? "bg-blue-50 border-l-4 border-l-blue-600"
+                        : "border-l-4 border-l-transparent"
+                    }
+                  `}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <span
+                      className={`text-[11px] uppercase italic tracking-tighter truncate max-w-[70%] ${
+                        isUnread
+                          ? "font-black text-slate-900"
+                          : "font-bold text-slate-500"
+                      }`}
+                    >
+                      {participants}
+                      {thread.messages.length > 1 && <span className="ml-1 text-slate-400">({thread.messages.length})</span>}
+                    </span>
+                    <span className="text-[9px] font-bold text-slate-300 whitespace-nowrap ml-2">
+                      {format(thread.timestamp, "HH:mm")}
+                    </span>
+                  </div>
+                  <h4
+                    className={`text-sm truncate mb-1 leading-none ${
+                      isUnread
+                        ? "font-black text-blue-700"
+                        : "font-bold text-slate-700"
+                    } ${lastMsg.type === 'SYSTEM_ERROR' ? "text-red-700" : ""}`}
+                  >
+                    {lastMsg.type === 'SYSTEM_ERROR' && "🔥 "}
+                    {thread.subject}
+                  </h4>
+                  <p className="text-xs text-slate-400 line-clamp-1 font-medium italic">
+                    {String(lastMsg.content || "")}
+                  </p>
+                  {isUnread && (
+                    <div className="absolute top-6 right-3 w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse"></div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* MAIN VIEW: MESSAGE CONTENT */}
+      <div
+        className={`flex-1 flex-col bg-slate-50 transition-all duration-500 ${
+          !selectedThread ? "hidden md:flex" : "flex"
+        }`}
+      >
+        {selectedThread ? (
+          <>
+            {/* Detail Header */}
+            <div className="p-8 bg-white border-b border-slate-200 shadow-sm z-10 text-left">
+              <div className="flex justify-between items-start mb-6">
+                <button
+                  onClick={() => setSelectedThread(null)}
+                  className="md:hidden p-2 bg-slate-100 rounded-xl text-slate-400 mr-4"
+                >
+                  <X size={20} />
+                </button>
+                <div className="flex-1 text-left">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="bg-slate-900 text-blue-400 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest italic border border-white/5 shadow-lg">
+                      {t('adminMessagesView.conversation')}
+                    </span>
+                    {selectedThread.lastMessage.priority === "urgent" && (
+                      <span className="bg-rose-100 text-rose-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase animate-pulse border border-rose-200">
+                        {t('adminMessagesView.urgent')}
+                      </span>
+                    )}
+                    {selectedThread.lastMessage.type === "SYSTEM_ERROR" && (
+                      <span className="bg-red-600 text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-red-700 shadow-sm">
+                        {t('adminMessagesView.systemCrash')}
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-3xl font-black text-slate-900 leading-tight italic tracking-tighter uppercase">
+                    {selectedThread.subject}
+                  </h2>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleSaveConversation(selectedThread)}
+                    className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
+                    title={t('adminMessagesView.saveAsTextFile')}
+                  >
+                    <Download size={20} />
+                  </button>
+                  <button
+                    onClick={() => handleArchive(selectedThread)}
+                    className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
+                    title={t('adminMessagesView.archiveAction')}
+                  >
+                    <Archive size={20} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(selectedThread)}
+                    className="p-3 bg-slate-50 text-slate-400 hover:text-rose-600 rounded-[18px] border border-slate-100 transition-all shadow-sm"
+                    title={t('common.delete')}
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-[25px] border border-slate-100 shadow-inner">
+                <div className="flex items-center gap-4 text-left">
+                  <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-100">
+                    <User size={24} />
+                  </div>
+                  <div className="text-left">
+                    <span className="font-black text-slate-800 block text-sm uppercase italic leading-none mb-1">
+                      {Array.from(selectedThread.participants).join(", ") || t('adminMessagesView.multiple')}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {t('adminMessagesView.messagesCount', { count: selectedThread.messages.length })}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right flex flex-col gap-1 pr-2">
+                  <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                    <Clock size={12} className="text-blue-500" />
+                    {format(selectedThread.timestamp, "eeee dd MMMM", {
+                      locale: nl,
+                    })}
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-300 font-mono">
+                    {t('adminMessagesView.lastUpdate')}: {format(selectedThread.timestamp, "HH:mm")}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Detail Body */}
+            <div className="p-6 overflow-y-auto flex-1 text-left bg-slate-50/50">
+              <div className="max-w-4xl mx-auto space-y-6">
+                {selectedThread.messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()).map((msg) => {
+                  const isMe = msg.senderId === liveUser?.uid;
+                  const technicalDetails = msg.data || msg.errorDetails || msg.stack;
+                  const technicalDetailsText =
+                    typeof technicalDetails === "object"
+                      ? JSON.stringify(technicalDetails, null, 2)
+                      : String(technicalDetails || "");
+                  return (
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className={`max-w-[85%] p-6 rounded-[24px] shadow-sm border ${
+                        isMe 
+                          ? 'bg-blue-600 text-white border-blue-500 rounded-tr-none' 
+                          : 'bg-white text-slate-700 border-slate-100 rounded-tl-none'
+                      }`}>
+                        <div className="flex justify-between items-center mb-2 gap-4">
+                          <span className={`text-[10px] font-black uppercase tracking-widest ${isMe ? 'text-blue-200' : 'text-slate-400'}`}>
+                            {isMe ? t('adminMessagesView.me') : String(msg.senderName || msg.from || t('common.employee'))}
+                          </span>
+                          <span className={`text-[9px] font-mono ${isMe ? 'text-blue-200' : 'text-slate-300'}`}>
+                            {format(msg.timestamp, "dd MMM HH:mm")}
+                          </span>
+                        </div>
+                        
+                        {msg.type === 'SYSTEM_ERROR' ? (
+                          <div className="space-y-3">
+                            <pre className="bg-black/20 p-3 rounded-xl text-[10px] font-mono whitespace-pre-wrap overflow-x-auto">
+                              {String(msg.content || "")}
+                            </pre>
+                            {Boolean(technicalDetails) && (
+                              <div className="bg-red-50 border border-red-100 p-3 rounded-xl">
+                                <p className="text-[9px] font-black text-red-700 uppercase tracking-widest mb-2">{t('adminMessagesView.technicalDetails')}</p>
+                                <pre className="text-[9px] font-mono text-red-600 whitespace-pre-wrap overflow-x-auto">
+                                  {technicalDetailsText}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="whitespace-pre-wrap text-sm font-medium leading-relaxed">
+                            {String(msg.content || "")}
+                          </div>
+                        )}
+
+                        {msg.attachmentUrl && (
+                          <div className="mt-3 pt-3 border-t border-white/10">
+                            <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-2 text-xs font-bold underline ${isMe ? 'text-white' : 'text-blue-600'}`}>
+                              {t('adminMessagesView.openAttachment')}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {selectedThread.lastMessage.type === "validation_alert" && (
+                  <div className="mt-8 p-6 bg-emerald-50 border-2 border-emerald-100 rounded-[24px] flex flex-col md:flex-row items-center gap-6 shadow-sm mx-auto max-w-2xl">
+                    <div className="bg-white p-3 rounded-full shadow-md text-emerald-500">
+                      <CheckCircle size={24} />
+                    </div>
+                    <div className="text-left flex-1">
+                      <h4 className="font-black text-emerald-900 text-sm uppercase italic tracking-tighter">
+                        {t('adminMessagesView.validationRequest')}
+                      </h4>
+                      <p className="text-xs text-emerald-700/80 font-bold mt-1">
+                        {t('adminMessagesView.validationRequestHelp')}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => window.location.href = "/admin/products"}
+                      className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center gap-2 shrink-0"
+                    >
+                      {t('adminMessagesView.toCatalog')} <ChevronRight size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-8 bg-white border-t border-slate-100 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <ShieldCheck size={18} className="text-emerald-500" />
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                  {t('adminMessagesView.secureHubSync')}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  // Simpele reply mock
+                  setReplyContext(selectedThread.lastMessage);
+                  setIsComposeOpen(true);
+                }}
+                className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all flex items-center gap-3 active:scale-95"
+              >
+                <Reply size={18} /> {t('adminMessagesView.reply')}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-300 p-20 text-center opacity-40">
+            <div className="bg-white p-10 rounded-[60px] shadow-inner mb-8 border border-slate-200/50">
+              <Mail size={100} strokeWidth={1} className="text-slate-200" />
+            </div>
+            <h3 className="text-2xl font-black text-slate-400 uppercase italic tracking-tighter mb-2">
+              {t('adminMessagesView.communicationHub')}
+            </h3>
+            <p className="text-xs font-bold uppercase tracking-widest max-w-xs leading-relaxed text-slate-400">
+              {t('adminMessagesView.selectConversationHint')}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* COMPOSE MODAL INTEGRATION */}
+      {isComposeOpen && (
+        <ComposeModal onClose={() => setIsComposeOpen(false)} user={user} replyTo={replyContext} />
+      )}
+    </div>
+  );
+};
+
+/**
+ * SUB-COMPONENT: ComposeModal
+ * Wordt binnen hetzelfde bestand gedefinieerd voor stabiliteit.
+ */
+type ComposeModalProps = {
+  onClose: () => void;
+  user: AppUser | null;
+  replyTo: AdminMessage | null;
+};
+
+type ComposeFormState = {
+  to: string;
+  subject: string;
+  content: string;
+  priority: "normal" | "urgent";
+};
+
+const ComposeModal = ({ onClose, user, replyTo }: ComposeModalProps) => {
+  const { t } = useTranslation();
+  const { showSuccess, showError } = useNotifications();
+  const [formData, setFormData, clearPersistedComposeForm] = useFormPersistence<ComposeFormState>(
+    "admin_messages_compose_form",
+    {
+      to: replyTo?.from || "admin",
+      subject: replyTo ? (String(replyTo.subject || "").startsWith("RE:") ? String(replyTo.subject || "") : `RE: ${String(replyTo.subject || "")}`) : "",
+      content: `\n\n${t('adminMessagesView.kindRegards')}\n${user?.name || user?.displayName || user?.email || t('common.employee')}`,
+      priority: "normal",
+    }
+  );
+  const [sending, setSending] = useState(false);
+  const [userList, setUserList] = useState<AppUser[]>([]);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
+  const [uploadProgress] = useState(0);
+  const [customSignature, setCustomSignature] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      // 1. Users ophalen voor dropdown
+      const q = collection(db, getPathString(PATHS.USERS));
+      const snap = await getDocs(q);
+      setUserList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) }) as AppUser));
+
+      // 2. Handtekening ophalen van huidige gebruiker
+      if (user?.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, `${getPathString(PATHS.USERS)}/${user.uid}`));
+          if (userDoc.exists() && userDoc.data().signature) {
+            setCustomSignature(String(userDoc.data().signature));
+          }
+        } catch (e) {
+          console.error("Fout bij ophalen handtekening:", e);
+        }
+      }
+    };
+    fetchData();
+  }, [user]);
+
+  useEffect(() => {
+    if (customSignature) {
+      setFormData(prev => {
+        const defaultSig = `\n\n${t('adminMessagesView.kindRegards')}\n${user?.name || user?.displayName || user?.email || t('adminMessagesView.userFallback')}`;
+        if (!prev.content || prev.content.trim() === defaultSig.trim() || prev.content.trim() === "") {
+          return { ...prev, content: `\n\n${customSignature}` };
+        }
+        return prev;
+      });
+    }
+  }, [customSignature, user, t]);
+
+  const handleInsertQuote = () => {
+    if (!replyTo) return;
+    const quote = `\n\n> ${t('adminMessagesView.onDate')} ${new Date(replyTo.timestamp).toLocaleString()} ${t('adminMessagesView.wrote')} ${replyTo.senderName || t('common.employee')}:\n> ${(replyTo.content || "").replace(/\n/g, "\n> ")}`;
+    setFormData(prev => ({ ...prev, content: prev.content + quote }));
+  };
+
+  const handleSend = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!formData.subject || !formData.content) return;
+    setSending(true);
+
+    try {
+      let attachmentUrl = null;
+      let attachmentMeta = null;
+
+      if (attachment) {
+        const fileRef = storageRef(storage, `messages/${Date.now()}_${attachment.name}`);
+        await uploadBytes(fileRef, attachment);
+        attachmentUrl = await getDownloadURL(fileRef);
+        attachmentMeta = {
+          name: attachment.name,
+          type: attachment.type,
+          size: attachment.size
+        };
+      }
+
+      await addDoc(collection(db, getPathString(PATHS.MESSAGES)), {
+        ...formData,
+        senderId: user?.uid,
+        senderName: user?.name || user?.displayName || user?.email,
+        from: user?.email,
+        timestamp: serverTimestamp(),
+        read: false,
+        archived: false,
+        type: "user_message",
+        attachmentUrl: attachmentUrl || null,
+        attachmentMeta: attachmentMeta || null,
+      });
+      await logActivity(
+        user?.uid || "system",
+        "MESSAGE_SEND",
+        `Bericht verzonden aan ${formData.to} met onderwerp '${formData.subject}'`
+      );
+      showSuccess(t('adminMessagesView.messageSent'));
+      clearPersistedComposeForm();
+      onClose();
+    } catch (err: unknown) {
+      showError(t('adminMessagesView.sendFailed') + getErrorMessage(err));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Preview tonen voor afbeeldingen
+  useEffect(() => {
+    if (attachment && attachment.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e: ProgressEvent<FileReader>) => setAttachmentPreview(typeof e.target?.result === "string" ? e.target.result : null);
+      reader.readAsDataURL(attachment);
+    } else {
+      setAttachmentPreview(null);
+    }
+  }, [attachment]);
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+      <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10 flex flex-col">
+        <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+          <div className="text-left">
+            <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
+              {t('common.new')} <span className="text-blue-600">{t('common.messages')}</span>
+            </h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">
+              {t('adminMessagesView.internalCommunication')}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-3 hover:bg-white rounded-2xl transition-all shadow-sm group border border-transparent hover:border-slate-100"
+          >
+            <X
+              size={20}
+              className="text-slate-400 group-hover:text-slate-900"
+            />
+          </button>
+        </div>
+
+        <form onSubmit={handleSend} className="p-10 space-y-6 text-left">
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                {t('adminMessagesView.recipient')}
+              </label>
+              <select
+                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 text-sm appearance-none cursor-pointer"
+                value={formData.to}
+                onChange={(e) =>
+                  setFormData({ ...formData, to: e.target.value })
+                }
+              >
+                <option value="admin">{t('adminMessagesView.adminGroup')}</option>
+                {userList
+                  .filter((u) => u.email !== user?.email)
+                  .map((u) => (
+                    <option key={String(u.id || u.email || "")} value={String(u.email || "")}> 
+                      {String(u.name || u.email || t('common.unknown'))} ({String(u.role || "-")})
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                {t('adminMessagesView.priority')}
+              </label>
+              <select
+                className={`w-full p-4 border-2 rounded-2xl font-black outline-none transition-all text-sm appearance-none cursor-pointer ${
+                  formData.priority === "urgent"
+                    ? "bg-rose-50 border-rose-100 text-rose-600"
+                    : "bg-slate-50 border-slate-100 text-slate-700"
+                }`}
+                value={formData.priority}
+                onChange={(e) =>
+                  setFormData({ ...formData, priority: e.target.value as ComposeFormState["priority"] })
+                }
+              >
+                <option value="normal">{t('adminMessagesView.priorityNormal')}</option>
+                <option value="urgent">{t('adminMessagesView.priorityUrgentAction')}</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+              {t('adminMessagesView.subject')}
+            </label>
+            <input
+              required
+              className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 focus:bg-white transition-all text-sm"
+              placeholder={t('adminMessagesView.subjectPlaceholder')}
+              value={formData.subject}
+              onChange={(e) =>
+                setFormData({ ...formData, subject: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                {t('adminMessagesView.content')}
+              </label>
+              {replyTo && (
+                <button
+                  type="button"
+                  onClick={handleInsertQuote}
+                  className="text-[10px] font-bold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                >
+                  <Quote size={12} /> {t('adminMessagesView.quotePreviousMessage')}
+                </button>
+              )}
+            </div>
+            <textarea
+              required
+              rows={5}
+              className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-[30px] font-medium outline-none focus:border-blue-500 focus:bg-white transition-all text-sm shadow-inner resize-none italic"
+              placeholder={t('adminMessagesView.contentPlaceholder')}
+              value={formData.content}
+              onChange={(e) =>
+                setFormData({ ...formData, content: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+              {t('adminMessagesView.attachmentLabel')}
+            </label>
+            <input
+              type="file"
+              accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.csv,.txt,.zip,.rar,.7z,.doc,.docx,.xls,.xlsx"
+              className="w-full p-2 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-blue-500 transition-all text-xs"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAttachment(e.target.files?.[0] ?? null)}
+            />
+            {attachmentPreview && (
+              <img src={attachmentPreview} alt={t('adminMessagesView.preview')} className="mt-2 max-h-40 rounded-xl border border-slate-200 shadow" />
+            )}
+            {attachment && !attachmentPreview && (
+              <div className="mt-2 text-xs text-slate-500">{t('adminMessagesView.fileSelected')}: {attachment.name}</div>
+            )}
+            {sending && attachment && (
+              <div className="mt-3">
+                <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase mb-1">
+                  <span>{t('adminMessagesView.uploading')}</span>
+                  <span>{Math.round(uploadProgress)}%</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out" 
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end mt-1">
+            <a href="/profile" className="text-[9px] font-bold text-slate-400 hover:text-blue-600 flex items-center gap-1.5 transition-colors">
+              <Edit3 size={10} /> {t('adminMessagesView.editSignatureInProfile')}
+            </a>
+          </div>
+
+          <div className="pt-6 border-t border-slate-100 flex justify-end gap-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-8 py-4 rounded-2xl font-black text-slate-400 hover:text-slate-600 transition-all text-[10px] uppercase tracking-widest"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={sending}
+              className="px-12 py-5 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-3"
+            >
+              {sending ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <Send size={16} />
+              )}{" "}
+              {t('adminMessagesView.sendToHub')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default AdminMessagesView;
