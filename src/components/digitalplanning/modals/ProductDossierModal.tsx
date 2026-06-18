@@ -353,6 +353,7 @@ const ProductDossierModal = ({
     "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
     "rejection.incorrectLabel": "Onjuist label",
     "rejection.linerDamaged": "Liner beschadigd",
+    "rejection.qcSample": "QC Steekproef",
     "rejection.other": "Overig",
   };
 
@@ -1224,7 +1225,7 @@ const ProductDossierModal = ({
                       </span>
                       <ul className="list-disc list-inside text-sm font-bold text-rose-700">
                         {product.inspection.reasons.map((r, i) => (
-                          <li key={i}>{r}</li>
+                          <li key={i}>{REJECTION_REASON_LABELS[r] || r}</li>
                         ))}
                       </ul>
                     </div>

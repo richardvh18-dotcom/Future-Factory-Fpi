@@ -588,12 +588,12 @@ const ProductionStartModal = ({
         if (ruleOutput.templateIds.length === 1) {
           setSelectedLabelId(ruleOutput.templateIds[0]);
         }
-        return; // Stop hier, de regel heeft het overgenomen
+        return; // Stop hier, de regel heeft hard de specifieke templates overgenomen
       }
 
       try {
         if (availableLabels.length > 0) {
-          const isFlange = shouldUseFlangeLabelFlow;
+          const isFlange = ruleOutput.labelSizeId === "Flange" ? true : shouldUseFlangeLabelFlow;
 
           if (isFlange) {
             // Zoek eerst naar labels met de tag FLANGE, FLENS of FLENZEN
@@ -648,10 +648,17 @@ const ProductionStartModal = ({
             return;
           }
 
-          // Voor niet-FL: eerst operatorregel (groot/klein), daarna BH18 fallback.
-          let preferLarge = matchedOperatorPrintRule?.labelSize
-            ? matchedOperatorPrintRule.labelSize === "large"
-            : stationId === 'BH18' || isBh12Station;
+          // Voor niet-FL: eerst regel (groot/klein), daarna operatorregel, daarna BH18 fallback.
+          let preferLarge = false;
+          if (ruleOutput.labelSizeId === "Large") {
+             preferLarge = true;
+          } else if (ruleOutput.labelSizeId === "Small") {
+             preferLarge = false;
+          } else if (matchedOperatorPrintRule?.labelSize) {
+             preferLarge = matchedOperatorPrintRule.labelSize === "large";
+          } else {
+             preferLarge = stationId === 'BH18' || isBh12Station;
+          }
           
           if (stationId === 'BH18' && !matchedOperatorPrintRule?.labelSize) {
              const itemIdentifier = [order?.item, order?.itemCode, order?.itemDescription].join(' ').toUpperCase();

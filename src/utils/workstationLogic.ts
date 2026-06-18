@@ -16,6 +16,7 @@ export const REJECTION_REASONS = [
   "rejection.qualityInsufficient",
   "rejection.incorrectLabel",
   "rejection.linerDamaged",
+  "rejection.qcSample",
   "rejection.other",
 ];
 

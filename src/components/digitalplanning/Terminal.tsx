@@ -49,7 +49,7 @@ import { startProductionLots } from "../../services/planningSecurityService";
 import { completeTrackedProductRepair } from "../../services/planningSecurityService";
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
-const GEREED_TAB_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"]);
+const GEREED_TAB_SOURCE_STATIONS = new Set(["BH11", "BH12", "BH15", "BH16", "BH17", "BH18", "BH31"]);
 
 declare const __app_id: string | undefined;
 

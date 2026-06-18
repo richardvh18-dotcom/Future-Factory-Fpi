@@ -1887,9 +1887,21 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
           </div>
           <div className="flex gap-5">
             <button onClick={onClose} className="px-10 py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-100 transition-all">{t("digitalplanning.planning_import.cancel", "Annuleren")}</button>
-            <button onClick={startImport} disabled={importableCount === 0} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-2xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center gap-4 disabled:opacity-50 disabled:bg-slate-300">
-              <ShieldCheck size={24} />
-              {t("digitalplanning.planning_import.import_orders", { count: importableCount, defaultValue: "Importeer {{count}} Orders" })}
+            <button onClick={startImport} disabled={importableCount === 0 || importing} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-2xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center justify-center gap-4 disabled:opacity-50 disabled:bg-slate-300 min-w-[280px]">
+              {importing ? (
+                <>
+                  <Loader2 className="animate-spin" size={24} />
+                  <span className="flex flex-col items-start leading-tight">
+                    <span>{importProgressLabel || t("digitalplanning.planning_import.importing", "Bezig met importeren...")}</span>
+                    {importEtaLabel && <span className="text-[10px] text-blue-200">{importEtaLabel}</span>}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck size={24} />
+                  {t("digitalplanning.planning_import.import_orders", { count: importableCount, defaultValue: "Importeer {{count}} Orders" })}
+                </>
+              )}
             </button>
           </div>
         </div>

@@ -151,7 +151,7 @@ const barToPsi = (bar: unknown): number | string => {
 // Zoekt drukklasse (EST20, CST16, EMT25, EDF11)
 const parsePressure = (text: string): string => {
   // 1. Check specifiek op EMT/CMT met de xx/xx notatie (bijv. EMT 10/10)
-  const emtMatch = text.match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i);
+  const emtMatch = text.match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i);
   if (emtMatch) {
     const val = emtMatch[2].replace(/\s/g, '').replace('-', '/');
     return `${emtMatch[1].toUpperCase()} ${val}`;
@@ -213,15 +213,15 @@ const parsePressure = (text: string): string => {
   return ""; // Leeg laten als echt niets gevonden is
 };
 
-// Zoekt connecties (CB-CB, FL-TB, TBTB, etc)
+// Zoekt connecties (CB-CB, FL-TB, TBTB, AB/CB, etc)
 const parseConnections = (text: string): string => {
-  // Zoekt patronen zoals CB-CB, TB-TB, of aan elkaar TBTB, FLTB
+  // Zoekt patronen zoals CB-CB, TB-TB, AB/CB of aan elkaar TBTB, FLTB
   const match = text.match(
-    /\b(TB|CB|FL|AM|AB|CS|CF|FB)-?(TB|CB|FL|AM|AB|CS|CF|FB)(-?(TB|CB|FL|AM|AB|CS|CF|FB))?\b/i
+    /\b(TB|CB|FL|AM|AB|CS|CF|FB|LB|SB)(?:-|\/|\s)?(TB|CB|FL|AM|AB|CS|CF|FB|LB|SB)(?:(?:-|\/|\s)?(TB|CB|FL|AM|AB|CS|CF|FB|LB|SB))?\b/i
   );
 
   if (match) {
-    const parts = [match[1], match[2], match[4]].filter(Boolean);
+    const parts = [match[1], match[2], match[3]].filter(Boolean);
     return parts.join("-").toUpperCase();
   }
   return "";
@@ -384,9 +384,9 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
   // Bepaal Pressure Line EMT (zoekt specifiek naar waarden zoals "EMT 30/10" of "EMT30/10")
   let pressureLineEmt = "";
   const emtLikeMatch =
-    desc.match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i) ||
-    String(rawData.productId || "").match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i) ||
-    String(rawData.itemCode || "").match(/(EMT|CMT)\s*(\d+\s*[\/\-]\s*\d+)/i);
+    desc.match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i) ||
+    String(rawData.productId || "").match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i) ||
+    String(rawData.itemCode || "").match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i);
   if (emtLikeMatch) {
       const materialCode = String(emtLikeMatch[1] || "EMT").toUpperCase();
       const val = emtLikeMatch[2].replace(/\s/g, '').replace('-', '/');
@@ -409,7 +409,7 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
   // 3. Bepaal Connecties
   let connectionLine = parseConnections(desc);
   if (!connectionLine) {
-    const compactConnectionMatch = upperDesc.match(/\b((?:FB|LB|TB|CB|FL|AM|AB|CS|CF){2,3})\b/);
+    const compactConnectionMatch = upperDesc.match(/\b((?:FB|LB|TB|CB|FL|AM|AB|CS|CF|SB){2,3})\b/);
     if (compactConnectionMatch) {
       connectionLine = compactConnectionMatch[1];
     }
@@ -422,7 +422,8 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
 
   // 4. Bepaal Afmetingen
   let idLine = parseDimensions(desc, productType, data);
-  const diameterVal = parseInt(String(rawData.diameter || rawData.dn || 0), 10);
+  const diaMatch = desc.toUpperCase().match(/\b(\d{2,4})\s*(?:MM|-|R|X|\b)/);
+  const diameterVal = diaMatch ? parseInt(diaMatch[1], 10) : parseInt(String(rawData.diameter || rawData.dn || 0), 10);
 
   // 5. Radius logic
   let radiusText = "";
@@ -593,6 +594,7 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
     date: format(new Date(), "dd-MM-yyyy"),
     
     // Pro velden
+    diameterVal,
     diameterInch,
     diameterWithInches: diameterVal > 0 ? `${diameterVal}mm ${diameterInch}` : "",
     isHeavyLoad,

@@ -1,3 +1,45 @@
+## Update sessie 18 juni 2026 (Label print regels vereenvoudigd, Label parsing uitgebreid)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Label Print Regels Admin-UI vereenvoudigd**
+- In `AdminLabelPrintRules.tsx` is de complexe lijst met specifieke label-templates vervangen door een simpele dropdown: "Soort Label".
+- Opties: Automatisch, Forceer Fitting Klein, Forceer Fitting Groot, Forceer Flens Label.
+- Hierdoor hoeft de beheerder geen specifieke templates meer te kennen.
+
+**2. Dynamische label template selectie geactiveerd voor regels**
+- In `ProductionStartModal.tsx` is de fallback logica gekoppeld aan de "Soort Label" regel-output (`labelSizeId`).
+- Zodra de beheerder "Fitting Groot" kiest, snapt het systeem dat het een groot label moet zijn, en gebruikt de bestaande interne logica om exact het juiste template (Wavistrong/Fibermar, met of zonder extra code) te selecteren.
+
+**3. Diameter parsing voor regels verbeterd**
+- In `labelHelpers.tsx` (`processLabelData`) is de logica voor het bepalen van de `diameterVal` robuuster gemaakt. Hij haalt deze nu ook uit de producttekst (bijv. "100 MM") als er geen los diameter-veld is.
+- De `diameterVal` wordt nu expliciet in het `productData` object doorgegeven, zodat regels zoals `diameterVal > 80` foutloos evalueren.
+
+**4. Aansluitingen parsing (Connections) uitgebreid voor 'SB' en alternatieve scheidingstekens**
+- `parseConnections` en de bijbehorende fallback regex in `labelHelpers.tsx` zijn uitgebreid om ook `SB` te herkennen.
+- Connecties gescheiden door `/` of een spatie (bijv. `AB/CB` of `SB/SB`) worden nu herkend en netjes op het label geformatteerd met de standaard streepjes (bijv. `AB-CB`).
+
+---
+
+## Update sessie 18 juni 2026 (Admin berichten ontdubbeling & Import loading UI)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Admin Inbox: dubbele berichten door meervoudige ontvangers ontdubbeld**
+- Bij de functie "Verzoek nieuw ordernummer" in Mazak kregen meerdere admins hetzelfde bericht (één document per ontvanger). In de `AdminMessagesView` leidde dit tot meerdere identieke meldingen onder elkaar.
+- Ontdubbeling (deduplication) logica toegevoegd in de frontend. Berichten met exact dezelfde tekst (`message`), ordernummer en afzender, die binnen 5 seconden na elkaar verstuurd zijn, worden nu visueel samengevoegd tot één thread.
+- Hierdoor ziet de admin de melding maar één keer, wat de inbox overzichtelijker maakt.
+
+**2. Visuele feedback (loading state) bij de Teamleader Import knop**
+- Het importeren van de planning gebeurt in hapklare blokken op de achtergrond, wat voorheen visueel niet altijd even duidelijk was.
+- In `PlanningImportModal.tsx` is visuele feedback toegevoegd aan de importeerknop.
+- Zodra de import gestart is, wordt de knop tijdelijk onbruikbaar gemaakt (disabled), verschijnt er een draaiende spinner en verandert de tekst naar "Bezig met importeren...".
+- De actuele voortgang en geschatte resterende tijd worden ook in de knop weergegeven, zodat de gebruiker ziet dat er iets gebeurt.
+
+---
+
 ## Update sessie 18 juni 2026 (Mazak aanpassen: UI, labelkeuze en order-reassign live)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)

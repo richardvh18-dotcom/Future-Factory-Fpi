@@ -363,7 +363,18 @@ const AdminMessagesView = ({ user: propUser }: { user?: AppUser | null }) => {
       }
 
       const group = groups[key];
-      group.messages.push(m);
+      
+      // Deduplicate identical messages (e.g. broadcasts sent to multiple admins)
+      const isDuplicate = group.messages.some(
+        (existingMsg) => 
+          existingMsg.content === m.content && 
+          existingMsg.senderId === m.senderId &&
+          Math.abs(existingMsg.timestamp.getTime() - m.timestamp.getTime()) < 5000
+      );
+
+      if (!isDuplicate) {
+        group.messages.push(m);
+      }
       
       // Update stats
       if (m.timestamp.getTime() > group.timestamp.getTime()) {

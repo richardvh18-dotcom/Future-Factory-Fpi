@@ -45,6 +45,7 @@ const REJECTION_REASON_FALLBACKS = {
   "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
   "rejection.incorrectLabel": "Onjuist label",
   "rejection.linerDamaged": "Liner beschadigd",
+  "rejection.qcSample": "QC Steekproef",
   "rejection.other": "Overig",
 };
 

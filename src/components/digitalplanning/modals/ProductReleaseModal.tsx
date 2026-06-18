@@ -18,10 +18,11 @@ const REJECTION_REASON_FALLBACKS = {
   "rejection.qualityInsufficient": "Kwaliteit onvoldoende",
   "rejection.incorrectLabel": "Onjuist label",
   "rejection.linerDamaged": "Liner beschadigd",
+  "rejection.qcSample": "QC Steekproef",
   "rejection.other": "Overig",
 };
 
-const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17"]);
+const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12"]);
 const LOSSEN_1218_STATION_NAME = "LOSSEN 12/18";
 const LOSSEN_1218_ORIGIN_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"]);
 const MOLD_CHANGE_THRESHOLD_DAYS = 21;
@@ -97,11 +98,27 @@ const getOrderDateMillis = (data: Record<string, unknown> = {}) => {
 
 const getLossenRoute = (itemText: unknown, originStation = "") => {
   const originNorm = String(originStation || "").toUpperCase().replace(/\s/g, "");
+  const text = String(itemText || "").toUpperCase();
+  const hasFlange = text.includes("FL") || text.includes("FLANGE");
+
+  if (originNorm === "BH31" || originNorm === "BH16") return { mode: "STATION", station: "LOSSEN" };
+  if (originNorm === "BH17") return { mode: "STATION", station: "MAZAK" };
+  
+  if (originNorm === "BH15") {
+    if (hasFlange) return { mode: "STATION", station: "MAZAK" };
+    return { mode: "STATION", station: LOSSEN_1218_STATION_NAME };
+  }
+  
+  if (originNorm === "BH11") {
+    if (hasFlange) return { mode: "STATION", station: "MAZAK" };
+    return { mode: "STATION", station: "LOSSEN" };
+  }
+
   if (LOSSEN_1218_SOURCE_STATIONS.has(originNorm)) {
     return { mode: "STATION", station: LOSSEN_1218_STATION_NAME };
   }
 
-  const text = String(itemText || "").toUpperCase();
+
   const isTB = text.includes("TB");
   const isCB = text.includes("CB");
   const isELB = text.includes("ELB");
@@ -133,6 +150,8 @@ type ProductReleaseModalProps = {
   appId?: string;
   activeOperators?: string[];
   autoFocus?: boolean;
+  defaultStatus?: string;
+  defaultReasons?: string[];
 };
 
 /**
@@ -141,7 +160,7 @@ type ProductReleaseModalProps = {
  * Stuurt het product door naar de volgende stap (bijv. van Wikkelen -> Lossen).
  * UPDATE: Uitgebreide functionaliteit voor Lossen (metingen, afkeur opties).
  */
-const ProductReleaseModal = ({ isOpen, product, bulkProducts = [], onClose, onComplete, autoApproveTrigger = 0, forceLossenMode = false, appId, activeOperators, autoFocus }: ProductReleaseModalProps) => {
+const ProductReleaseModal = ({ isOpen, product, bulkProducts = [], onClose, onComplete, autoApproveTrigger = 0, forceLossenMode = false, appId, activeOperators, autoFocus, defaultStatus, defaultReasons }: ProductReleaseModalProps) => {
   const maybeShowLossen1218MoldNotice = async (processedTargets: any[] = []) => {
     if (!Array.isArray(processedTargets) || processedTargets.length === 0) return;
 
@@ -276,11 +295,23 @@ const ProductReleaseModal = ({ isOpen, product, bulkProducts = [], onClose, onCo
     selectedReasons: string[];
     comment: string;
   }>("product_release_modal_form", {
-    status: "approved",
+    status: defaultStatus || "approved",
     measurements: {},
-    selectedReasons: [],
+    selectedReasons: defaultReasons || [],
     comment: "",
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      if (defaultStatus || (defaultReasons && defaultReasons.length > 0)) {
+        setFormState(prev => ({
+          ...prev,
+          status: defaultStatus || prev.status,
+          selectedReasons: (defaultReasons && defaultReasons.length > 0) ? defaultReasons : prev.selectedReasons
+        }));
+      }
+    }
+  }, [isOpen, defaultStatus, defaultReasons, setFormState]);
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [selectedBulkLotIds, setSelectedBulkLotIds] = useState<string[]>([]);
   const [toleranceConfig, setToleranceConfig] = useState<any>(null);

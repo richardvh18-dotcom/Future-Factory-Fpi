@@ -14,6 +14,7 @@ import { isOpenOrRunningOrder } from "../../utils/teamleaderDerived";
 import { generateLotBatchZPL } from "../../utils/zplHelper";
 import { useFormPersistence } from "../../hooks/useFormPersistence";
 import { resolvePrinterForRouting } from "../../utils/printRouting";
+import ProductReleaseModal from "../digitalplanning/modals/ProductReleaseModal";
 
 type TeamleaderOrder = {
   id?: string;
@@ -124,6 +125,7 @@ const QcSampleView = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [lastIssued, setLastIssued] = useState<{lot: string, orderId: string, itemCode: string, itemDescription: string} | null>(null);
+  const [createdProductForModal, setCreatedProductForModal] = useState<any>(null);
 
   const machine = formState.machine;
   const orderId = formState.orderId;
@@ -373,6 +375,45 @@ const QcSampleView = () => {
       } catch (printError) {
         console.error("QC virtueel lot printqueue mislukt:", printError);
         showWarning("Virtueel lot is aangemaakt, maar label kon niet naar BM01 printqueue worden verstuurd.");
+      }
+
+      try {
+        const trackingRef = collection(db, getPathString(PATHS.TRACKING as any));
+        const itemsGroupRef = collectionGroup(db, "items");
+        let found = false;
+        let retries = 0;
+        
+        while (!found && retries < 4) {
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 800)); // wait before retry
+          }
+          
+          // Zoek eerst in de root tracking
+          let qSnap = await getDocs(query(trackingRef, where("lotNumber", "==", finalLot)));
+          if (qSnap.empty) {
+            // Zoek anders in de items subcollecties
+            qSnap = await getDocs(query(itemsGroupRef, where("lotNumber", "==", finalLot)));
+          }
+          
+          if (!qSnap.empty) {
+            const docSnap = qSnap.docs[0];
+            const docData = docSnap.data();
+            docData.id = docSnap.id;
+            docData.__docPath = docSnap.ref.path;
+            setCreatedProductForModal(docData);
+            found = true;
+            showSuccess(`Lot ${finalLot} gevonden, pop-up opent...`);
+          }
+          retries++;
+        }
+        
+        if (!found) {
+          showWarning(`Lot ${finalLot} niet gevonden in de database. Herlaad de pagina of zoek het handmatig op.`);
+          console.warn("Kon aangemaakt lot niet onmiddellijk ophalen voor Vrijgeven modal na meerdere pogingen.");
+        }
+      } catch (err) {
+        console.error("Kon aangemaakt lot niet ophalen voor Vrijgeven modal:", err);
+        showWarning("Fout bij ophalen lot voor pop-up.");
       }
 
       clearPersistedForm();
@@ -664,6 +705,17 @@ const QcSampleView = () => {
           </div>
         )}
       </div>
+
+      {createdProductForModal && (
+        <ProductReleaseModal
+          isOpen={!!createdProductForModal}
+          product={createdProductForModal}
+          onClose={() => setCreatedProductForModal(null)}
+          defaultStatus="rejected"
+          defaultReasons={["rejection.qcSample"]}
+          forceLossenMode={true}
+        />
+      )}
     </div>
   );
 };

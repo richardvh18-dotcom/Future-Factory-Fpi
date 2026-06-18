@@ -168,7 +168,7 @@ const getAppId = () => {
   return "fittings-app-v1";
 };
 
-const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17"]);
+const LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12"]);
 const LOSSEN_1218_STATION_NAME = "LOSSEN 12/18";
 // Stations waarbij operators ook automatisch worden ingelogd bij LOSSEN 12/18
 const AUTO_LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"]);
@@ -180,11 +180,27 @@ const AUTO_LOSSEN_1218_SOURCE_STATIONS = new Set(["BH12", "BH15", "BH17", "BH18"
 // CB >= 350mm  → station LOSSEN (centraal)
 const getLossenRoute = (itemText: unknown, originStation = "") => {
   const originNorm = String(originStation || "").toUpperCase().replace(/\s/g, "");
+  const text = String(itemText || "").toUpperCase();
+  const hasFlange = text.includes("FL") || text.includes("FLANGE");
+
+  if (originNorm === "BH31" || originNorm === "BH16") return { mode: "STATION", station: "LOSSEN" };
+  if (originNorm === "BH17") return { mode: "STATION", station: "MAZAK" };
+  
+  if (originNorm === "BH15") {
+    if (hasFlange) return { mode: "STATION", station: "MAZAK" };
+    return { mode: "STATION", station: LOSSEN_1218_STATION_NAME };
+  }
+  
+  if (originNorm === "BH11") {
+    if (hasFlange) return { mode: "STATION", station: "MAZAK" };
+    return { mode: "STATION", station: "LOSSEN" };
+  }
+
   if (LOSSEN_1218_SOURCE_STATIONS.has(originNorm)) {
     return { mode: "STATION", station: LOSSEN_1218_STATION_NAME };
   }
 
-  const text = String(itemText || "").toUpperCase();
+
   const isTB = text.includes("TB");
   const isCB = text.includes("CB");
   const isELB = text.includes("ELB");

@@ -207,38 +207,25 @@ export default function AdminLabelPrintRules() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div><label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Aantal Labels</label><input type="number" min="1" value={editingRule.output.labelCount || 1} onChange={(e) => setEditingRule({...editingRule, output: {...editingRule.output, labelCount: parseInt(e.target.value)}})} className="w-full bg-white border border-blue-200 rounded-xl px-4 py-3 font-bold text-sm outline-none focus:border-blue-500" /></div>
                   <div>
-                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Label Template</label>
-                    <div className="w-full bg-white border border-blue-200 rounded-xl p-2 max-h-40 overflow-y-auto custom-scrollbar">
-                      <label className="flex items-center gap-2 p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors">
-                        <input 
-                          type="checkbox" 
-                          checked={(!editingRule.output.templateIds || editingRule.output.templateIds.length === 0) && !editingRule.output.templateId} 
-                          onChange={() => setEditingRule({...editingRule, output: {...editingRule.output, templateId: "", templateIds: []}})} 
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-bold italic">- Dynamisch via Tags -</span>
-                      </label>
-                      {labelTemplates?.map((tpl: any) => {
-                        const isSelected = editingRule.output.templateIds?.includes(tpl.id) || editingRule.output.templateId === tpl.id;
-                        return (
-                          <label key={tpl.id} className="flex items-center gap-2 p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors">
-                            <input 
-                              type="checkbox" 
-                              checked={isSelected} 
-                              onChange={(e) => {
-                                let currentIds = editingRule.output.templateIds || [];
-                                if (!currentIds.length && editingRule.output.templateId) currentIds = [editingRule.output.templateId];
-                                if (e.target.checked) currentIds = [...currentIds, tpl.id];
-                                else currentIds = currentIds.filter((id) => id !== tpl.id);
-                                setEditingRule({...editingRule, output: {...editingRule.output, templateIds: currentIds, templateId: currentIds.length === 1 ? currentIds[0] : ""}});
-                              }} 
-                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="text-sm font-bold text-slate-700">{tpl.name || tpl.id} <span className="text-xs text-slate-400 font-normal">({tpl.width}x{tpl.height}mm)</span></span>
-                          </label>
-                        );
+                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Soort Label</label>
+                    <select 
+                      value={editingRule.output.labelSizeId || ""}
+                      onChange={(e) => setEditingRule({
+                        ...editingRule, 
+                        output: {
+                          ...editingRule.output, 
+                          labelSizeId: e.target.value as any,
+                          templateId: "",
+                          templateIds: []
+                        }
                       })}
-                    </div>
+                      className="w-full bg-white border border-blue-200 rounded-xl px-4 py-3 font-bold text-sm outline-none focus:border-blue-500"
+                    >
+                      <option value="">Automatisch (Systeem beslist)</option>
+                      <option value="Small">Forceer: Fitting Klein</option>
+                      <option value="Large">Forceer: Fitting Groot</option>
+                      <option value="Flange">Forceer: Flens Label</option>
+                    </select>
                   </div>
                   <div><label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Verplichte Tags</label><input type="text" placeholder="bijv: FLENS, CODE" value={(editingRule.output.requiredTags || []).join(", ")} onChange={(e) => { const tags = e.target.value.split(",").map(t => t.trim()).filter(Boolean); setEditingRule({...editingRule, output: {...editingRule.output, requiredTags: tags}}); }} className="w-full bg-white border border-blue-200 rounded-xl px-4 py-3 font-bold text-sm outline-none focus:border-blue-500" /></div>
                 </div>
