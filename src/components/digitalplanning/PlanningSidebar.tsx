@@ -116,6 +116,29 @@ const PlanningSidebar = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMachine, setSelectedMachine] = useState("ALL");
   const [sortMode, setSortMode] = useState("week_backlog");
+
+  // NIEUW: Bepaal de meest recente importtijd om "onlangs toegevoegd" te kunnen filteren/resetten
+  const latestImportTimestamp = useMemo(() => {
+    let maxMs = 0;
+    orders.forEach((o) => {
+      const val = o.createdAt || o.importDate;
+      if (!val) return;
+      const ms = typeof val?.toMillis === 'function' ? val.toMillis() : new Date(val).getTime();
+      if (Number.isFinite(ms) && ms > maxMs) {
+        maxMs = ms;
+      }
+    });
+    return maxMs;
+  }, [orders]);
+
+  const [prevLatestImport, setPrevLatestImport] = useState(latestImportTimestamp);
+
+  useEffect(() => {
+    if (latestImportTimestamp && prevLatestImport && latestImportTimestamp !== prevLatestImport) {
+      setSortMode("week_backlog");
+    }
+    setPrevLatestImport(latestImportTimestamp);
+  }, [latestImportTimestamp]);
   const [dataScope, setDataScope] = useState("active");
   const [rejectPeriod, setRejectPeriod] = useState("this_week");
   const [completedRangeMode, setCompletedRangeMode] = useState("day");
@@ -551,6 +574,15 @@ const PlanningSidebar = ({
     return Number.isFinite(ms) && ms > fortyEightHoursAgo;
   };
 
+  // Helper om te bepalen of een order tot de meest recente import behoort (binnen 5 minuten van de nieuwste order in de lijst)
+  const isOrderRecentlyAdded = (order: SidebarRecord) => {
+    if (!latestImportTimestamp) return false;
+    const val = order.createdAt || order.importDate;
+    if (!val) return false;
+    const ms = typeof val?.toMillis === 'function' ? val.toMillis() : new Date(val).getTime();
+    return Number.isFinite(ms) && (latestImportTimestamp - ms) < 5 * 60 * 1000;
+  };
+
   const orderStationMap = useMemo(() => {
     const byOrder = new Map<string, Set<string>>();
 
@@ -914,6 +946,9 @@ const PlanningSidebar = ({
         isOrderNew(order) ? "new" : "",
         isOrderNew(order) ? "last48h" : "",
         isOrderNew(order) ? "laatste48u" : "",
+        isOrderRecentlyAdded(order) ? "onlangs" : "",
+        isOrderRecentlyAdded(order) ? "recent" : "",
+        isOrderRecentlyAdded(order) ? "recent toegevoegd" : "",
       ]
         .filter((v) => v !== null && v !== undefined)
         .map((v) => String(v).toLowerCase());
@@ -965,6 +1000,40 @@ const PlanningSidebar = ({
       const priorityRankA = getPriorityRank(a);
       const priorityRankB = getPriorityRank(b);
       if (priorityRankA !== priorityRankB) return priorityRankB - priorityRankA;
+
+      if (sortMode === "recently_added") {
+        const isNewA = isOrderRecentlyAdded(a);
+        const isNewB = isOrderRecentlyAdded(b);
+        if (isNewA && !isNewB) return -1;
+        if (!isNewA && isNewB) return 1;
+
+        if (isNewA) {
+          const valA = a.createdAt || a.importDate;
+          const valB = b.createdAt || b.importDate;
+          const msA = typeof valA?.toMillis === 'function' ? valA.toMillis() : new Date(valA || 0).getTime();
+          const msB = typeof valB?.toMillis === 'function' ? valB.toMillis() : new Date(valB || 0).getTime();
+          if (msA !== msB) return msB - msA;
+        }
+
+        const weekA = Number(a.weekNumber || a.week || 999);
+        const yearA = Number(a.weekYear || a.year || currentYear);
+        const weekB = Number(b.weekNumber || b.week || 999);
+        const yearB = Number(b.weekYear || b.year || currentYear);
+        
+        const absWeekA = yearA * 52 + weekA;
+        const absWeekB = yearB * 52 + weekB;
+        const absCurrent = currentYear * 52 + currentWeek;
+        
+        const isBacklogA = absWeekA < absCurrent;
+        const isBacklogB = absWeekB < absCurrent;
+        
+        if (isBacklogA && !isBacklogB) return 1;
+        if (!isBacklogA && isBacklogB) return -1;
+        
+        if (absWeekA !== absWeekB) return absWeekA - absWeekB;
+        
+        return (a.orderId || "").localeCompare(b.orderId || "");
+      }
 
       if (sortMode === "in_progress_first") {
         const inProgressA = isInProgress(a);
@@ -1867,6 +1936,7 @@ const PlanningSidebar = ({
                   <option value="in_progress_first">{t("digitalplanning.sidebar.sort_in_progress_first", "In behandeling eerst")}</option>
                   <option value="date_asc">{t("digitalplanning.sidebar.sort_date_asc", "Datum oplopend")}</option>
                   <option value="date_desc">{t("digitalplanning.sidebar.sort_date_desc", "Datum aflopend")}</option>
+                  <option value="recently_added">{t("digitalplanning.sidebar.sort_recently_added", "Onlangs toegevoegd")}</option>
                 </select>
               )}
             </div>
@@ -1952,9 +2022,13 @@ const PlanningSidebar = ({
                   const status = String(order?.status || "").toLowerCase().trim();
                   const inProgress = ["in_progress", "in progress", "in-behandeling", "in behandeling", "active", "processing", "running", "lopend"].includes(status);
                   currentLabel = inProgress ? "In behandeling" : "Gepland";
+                } else if (sortMode === "recently_added") {
+                  currentLabel = isOrderRecentlyAdded(order)
+                    ? t("digitalplanning.sidebar.recently_added_label", "Onlangs toegevoegd")
+                    : t("digitalplanning.sidebar.other_label", "Overige");
                 }
 
-                const showDivider = (sortMode === "week_backlog" || sortMode === "in_progress_first") && currentLabel !== lastLabel;
+                const showDivider = (sortMode === "week_backlog" || sortMode === "in_progress_first" || sortMode === "recently_added") && currentLabel !== lastLabel;
                 if (showDivider) {
                   lastLabel = currentLabel;
                 }

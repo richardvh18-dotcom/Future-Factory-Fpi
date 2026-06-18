@@ -159,7 +159,20 @@ const toWikkelenCompletionDate = (entry: EntryRecord): Date | null => {
   return null;
 };
 
-const normalizeStation = (value: unknown = "") => String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+const normalizeStation = (value: unknown = "") => {
+  const raw = String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (!raw) return "";
+  if (raw === "STATION BM01" || raw === "STATIONBM01") return "BM01";
+  if (raw.includes("BM01") || raw.includes("INSPECTIE")) return "BM01";
+  if (raw.includes("MAZAK")) return "MAZAK";
+  if (raw.includes("NABEWERK")) return "NABEWERKEN";
+  if (raw.includes("LOSSEN")) return "LOSSEN";
+  let result = raw;
+  if (raw.startsWith("40")) {
+    result = raw.slice(2);
+  }
+  return result.replace(/\s+/g, "");
+};
 
 const toSafeNumber = (value: unknown): number => {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
