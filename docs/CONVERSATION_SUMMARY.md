@@ -1,3 +1,30 @@
+## Update sessie 18 juni 2026 (Onlangs toegevoegd filter & Gereedlijst Eindinspectie bugfix)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Onlangs toegevoegd filter & Auto-reset**
+- Vertalingen toegevoegd voor `"Onlangs toegevoegd"` (`sort_recently_added`, `recently_added_label`, `other_label`) in `nl.ts` en `en.ts`.
+- In `PlanningSidebar.tsx` een check toegevoegd die de nieuwste aanmaak/importtijd van de orders detecteert (`latestImportTimestamp`) en een flag `isOrderRecentlyAdded` bepaalt.
+- Een effect toegevoegd dat de selectie reset naar `"week_backlog"` zodra er een nieuwe import wordt waargenomen.
+- Sorteer- en groeperingslogica ingebouwd voor `"recently_added"`.
+
+**2. Gereedlijst Eindinspectie normalisatie-fix**
+- De helperfunctie `normalizeStation` in `ImportExportDashboard.tsx` aangepast zodat de `"40"`-prefix (bijv. `"40BM01"`) correct wordt gestript en synoniemen voor BM01/Inspectie correct worden genormaliseerd naar `"BM01"`.
+- Dit herstelt de werking van de scope-filter (`inAllowedScope`) en de voltooid-check (`lastStation === "BM01"`), waardoor de gereedgemelde inspectie-items weer correct verschijnen in de dag/week weergaven.
+
+**Aangepaste bestanden:**
+- `src/components/digitalplanning/ImportExportDashboard.tsx`
+- `src/components/digitalplanning/PlanningSidebar.tsx`
+- `src/lang/en.ts`
+- `src/lang/nl.ts`
+
+**Validatie:**
+- TypeScript compilatie- en typecheck-controle succesvol (geen nieuwe fouten geïntroduceerd).
+- Git push naar branch `origin/FPiFF-June-rolout` succesvol uitgevoerd.
+
+---
+
 ## Update sessie 18 juni 2026 (Label print regels vereenvoudigd, Label parsing uitgebreid)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
