@@ -1,4 +1,33 @@
+## Update sessie 19 juni 2026 (AI Presentatie Slides & Naamwedstrijd)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. AI-integratie & Vraagbaak Slide Toegevoegd (Slide 6)**
+- Geplaatst direct na Slide 5 ("Jouw Input is de Motor").
+- Introduceert de AI-assistent en centrale kennisbank aan de machine met twee aparte kaarten: "Slimme AI Co-Pilot" (met `Brain` icoon) en "Directe Kennisbank" (met `HelpCircle` icoon).
+- Gebruikt GPU-versnelde `translateY` en `opacity` transities voor een soepele slide-up en fade-in bij het doorklikken.
+
+**2. Naamwedstrijd Slide Toegevoegd (Slide 7)**
+- Geplaatst na Slide 6 en direct voor de live demonstratie slide.
+- Vraagt de operators om mee te denken over een passende naam voor de AI-assistent, met als beloning een cadeaubon voor de winnaar.
+- Bevat de kaarten: "Verzin een Naam!" (met pulserend `Sparkles` icoon) en "Win een Cadeaubon" (met een subtiel stuiterend `Gift` icoon).
+
+**3. Animatie- en Transitie-synchronisatie**
+- `getHeaderStyle` en `getContentStyle` bijgewerkt voor index 3 t/m 6 (slides 4 t/m 7) zodat de PowerPoint-stijl slide-up animatie stabiel en overlap-vrij werkt bij alle 3-staps slides.
+- Nodige iconen (`Brain`, `HelpCircle`, `Sparkles`, `Gift`) geïmporteerd uit `lucide-react`.
+
+**4. Versiebeheer & Git Push**
+- Wijzigingen gecommit en gepusht naar de hoofdtak `FPiFF-June-rolout`.
+- Tijdelijke git-branches lokaal opgeschoond.
+
+**Aangepaste bestanden:**
+- `src/components/admin/CompanyPresentation.tsx`
+
+---
+
 ## Update sessie 18 juni 2026 (Onlangs toegevoegd filter & Gereedlijst Eindinspectie bugfix)
+
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
 
