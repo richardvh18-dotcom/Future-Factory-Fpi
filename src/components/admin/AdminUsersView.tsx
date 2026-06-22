@@ -258,6 +258,13 @@ const AdminUsersView = () => {
         { id: "scenarios", label: "Scenario Planning", description: "What-if analyse simulator" },
       ]
     },
+    printer_center: {
+      label: "Printers",
+      description: "Toegang tot de printerknop in de sidebar en de printwachtrij.",
+      features: [
+        { id: "printer_queue_access", label: "Printerwachtrij", description: "Printers openen via de sidebar en printjobs beheren" },
+      ]
+    },
     ai_assistant: {
       label: t('modules.ai', "AI Assistent (Volledig)"),
       description: t('modules.aiDesc', "Volledige AI helper buiten de catalogus"),

@@ -35,6 +35,8 @@ type Props = {
 const USB_PRINTER_VENDOR_KEY = 'usb_printer_vendor';
 const USB_PRINTER_PRODUCT_KEY = 'usb_printer_product';
 const USB_PRINTER_ID_KEY = 'usb_printer_id';
+const PRINT_STATION_SELECTED_KEY = 'print_station_selected_station';
+const PRINT_STATION_BINDINGS_KEY = 'print_station_printer_bindings_v1';
 
 const isInvalidPrintQueueTransitionError = (error: unknown): boolean => {
   const message = String(
@@ -59,6 +61,23 @@ const stationNameFromValue = (stationValue: unknown): string => {
 };
 
 const normalizeStationKey = (value: unknown): string => String(value || '').trim().toUpperCase();
+const normalizeStationBindingKey = (value: unknown): string => String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+
+const readStationBindings = (): Record<string, string> => {
+  try {
+    const raw = String(localStorage.getItem(PRINT_STATION_BINDINGS_KEY) || '').trim();
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed || {})
+        .map(([key, value]) => [normalizeStationBindingKey(key), String(value || '').trim()])
+        .filter(([key, value]) => Boolean(key) && Boolean(value))
+    );
+  } catch {
+    return {};
+  }
+};
 
 const getPrinterAllowedStationKeys = (printer: PrinterConfig | null | undefined): string[] => {
   if (!printer) return [];
@@ -191,6 +210,17 @@ const normalizeJob = (docSnap: { id: string; data: () => unknown }): PrintJob | 
 };
 
 const getCurrentPrinterId = (printers: PrinterConfig[], usbDevice: USBDevice | null): string | null => {
+  const selectedStation = String(localStorage.getItem(PRINT_STATION_SELECTED_KEY) || '').trim();
+  const stationKey = normalizeStationBindingKey(selectedStation);
+  if (stationKey) {
+    const stationBindings = readStationBindings();
+    const boundPrinterId = String(stationBindings[stationKey] || '').trim();
+    if (boundPrinterId) {
+      const boundPrinter = printers.find((printer) => printer.id === boundPrinterId);
+      if (boundPrinter?.id) return boundPrinter.id;
+    }
+  }
+
   const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
   if (savedPrinterId) {
     const savedPrinter = printers.find((printer) => printer.id === savedPrinterId);

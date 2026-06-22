@@ -1,3 +1,80 @@
+## Update sessie 22 juni 2026 (Printerrechten/operator fixes + globale auto-print)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Sidebar printertoegang losgekoppeld en beveiligd**
+- Nieuwe permissiemodule toegevoegd voor printertoegang (`printer_center` met feature `printer_queue_access`) in gebruikersbeheer.
+- Sidebar toont Printers nu op basis van expliciete printerrechten, met fallback voor bestaande `digital_planning` toewijzingen.
+- Route-guard toegevoegd op `/printer-queue`, zodat directe URL-toegang zonder rechten wordt geblokkeerd.
+
+**2. Print Station Wizard voor operators hersteld**
+- Wizardknop zichtbaar gemaakt zonder WebUSB-afhankelijkheid.
+- Station-selectie in wizard robuuster gemaakt met fallback op beschikbare stations, ook bij late data-initialisatie.
+- Afdelingsscope voor operators verbeterd met tolerante department-matching (o.a. `Afdeling Fittings` vs `Productie - Fittings`) en ondersteuning voor `title` in factory departments.
+
+**3. Operator printflow verbeterd**
+- Queue-herprint toegestaan voor rol `operator` (zonder delete-rechten open te zetten).
+- Regel toegevoegd: `ELB 125 90 graden` print automatisch **2x** (zowel direct USB als queued labels via quantity/payload).
+
+**4. Globale auto-print opgelost (app-breed)**
+- `PrintQueueAutoProcessor` staat nu altijd aan voor ingelogde gebruikers (niet meer uit op de Print Stations pagina).
+- Processor gebruikt nu ook station→printer bindings uit localStorage om juiste printer te resolven zonder dat de Print Stations pagina eerst geopend hoeft te worden.
+
+**5. Releases en deploys in deze sessie**
+- Meerdere patch bumps en deploys uitgevoerd; laatste live versie staat op **0.1.34**.
+- Hosting deploys succesvol afgerond op project `future-factory-377ef`.
+
+**Belangrijkste aangepaste bestanden in deze sessie:**
+- `src/hooks/useHasFeature.ts`
+- `src/components/Sidebar.tsx`
+- `src/components/admin/AdminUsersView.tsx`
+- `src/App.tsx`
+- `src/components/printer/PrintQueueAdminView.tsx`
+- `src/components/printer/PrintQueueAutoProcessor.tsx`
+- `package.json`
+- `package-lock.json`
+- `public/version.json`
+- `.firebase/hosting.ZGlzdA.cache`
+- `docs/CONVERSATION_SUMMARY.md`
+
+---
+
+## Update sessie 19 juni 2026 (LN To do fix, naharding-aftrek, deploy en release)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Gereed voor LN: To do-teller gecorrigeerd op gewikkeld per order**
+- In de LN exportlogica is To do aangepast zodat reeds gewikkelde aantallen per order in mindering worden gebracht.
+- Voor de aftrek wordt nu robuuster gekeken naar meerdere bronnen (tracking-signalen, station-startcounters en order-produced), zodat orders met aantoonbaar gestart/gewikkeld werk niet onterecht op volledig To do blijven staan.
+
+**2. Naharding ook in mindering op To do**
+- To do wordt nu ook verminderd met aantallen die al de status naharden/oven hebben bereikt.
+- Hiermee sluit de teller aan op de operationele verwachting: stukken in naharding hoeven niet opnieuw als LN-boeking in To do te blijven staan.
+
+**3. Exporthistorie bevestiging**
+- LN exporthistorie blijft ingesteld op een bewaartermijn van 5 dagen (lokaal en in backend-query venster).
+
+**4. Deploys en versiebeheer**
+- Patch bump uitgevoerd naar 0.1.26.
+- Vervolgens volledige deployflow uitgevoerd (bump + build + hosting deploy), waardoor versie 0.1.27 live is gezet.
+- Hosting deploy succesvol afgerond op project `future-factory-377ef`.
+
+**5. Git commit en push**
+- Wijzigingen gecommit met release/fix inhoud voor LN To do en versie-updates.
+- Push succesvol naar `origin/FPiFF-June-rolout`.
+- Branchstatus na push: schoon en in sync met remote.
+
+**Aangepaste bestanden in deze sessie:**
+- `src/components/digitalplanning/ImportExportDashboard.tsx`
+- `package.json`
+- `package-lock.json`
+- `public/version.json`
+- `.firebase/hosting.ZGlzdA.cache`
+
+---
+
 ## Update sessie 19 juni 2026 (AI Presentatie Slides & Naamwedstrijd)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)

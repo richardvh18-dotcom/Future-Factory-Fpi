@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useMessages } from "../hooks/useMessages";
+import { checkFeature } from "../hooks/useHasFeature";
 import { updateUserLanguage } from '../services/planningSecurityService';
 import {
   LayoutGrid, Package, Search, Calculator, Bot, Settings, LogOut,
@@ -35,6 +36,7 @@ interface NavItem {
   badge?: number;
   adminOnly?: boolean;
   requiredModule?: string;
+  canAccess?: (user: AppUser | null, isAdmin: boolean) => boolean;
 }
 
 /**
@@ -85,19 +87,24 @@ const Sidebar = ({
     { path: "/inventory", label: t('sidebar.nav.common.inventory'), icon: Package, requiredModule: "inventory_management" },
     { path: "/assistant", label: t('sidebar.nav.common.ai_training'), icon: Bot, requiredModule: "ai_assistant" },
     { path: "/calculator", label: t('sidebar.nav.common.calculator'), icon: Calculator },
-    { path: "/printer-queue", label: t('sidebar.nav.common.printers', 'Printers'), icon: Printer, requiredModule: "digital_planning" },
+    {
+      path: "/printer-queue",
+      label: t('sidebar.nav.common.printers', 'Printers'),
+      icon: Printer,
+      canAccess: (currentUser, currentIsAdmin) =>
+        currentIsAdmin ||
+        checkFeature(currentUser, "printer_center") ||
+        checkFeature(currentUser, "digital_planning"),
+    },
     { path: "/admin", label: t('sidebar.nav.common.admin'), icon: Settings, adminOnly: true },
   ];
 
   const visibleItems = navItems.filter((item) => {
     if (item.adminOnly && !isAdmin) return false;
     if (isAdmin) return true;
+    if (item.canAccess) return item.canAccess(user, isAdmin);
     if (!item.requiredModule) return true;
-    const perms = user?.permissions || {};
-    const modulePerms = perms[item.requiredModule] || [];
-    if (modulePerms.length > 0) return true;
-    if (user?.modules?.includes(item.requiredModule)) return true;
-    return false;
+    return checkFeature(user, item.requiredModule);
   });
 
   const expanded = isExpanded || !!isMobileMenuOpen || isPinned;

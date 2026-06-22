@@ -33,6 +33,7 @@ import { useProductsData } from "./hooks/useProductsData";
 import { useSettingsData } from "./hooks/useSettingsData";
 import { useMessages } from "./hooks/useMessages";
 import { useAutoLogout } from "./hooks/useAutoLogout";
+import { checkFeature } from "./hooks/useHasFeature";
 import { PATHS, getPathString, getArchiveItemsPath } from "./config/dbPaths";
 
 // Lazy Loading Modules
@@ -86,6 +87,8 @@ const App = () => {
 
   // Data fetching via Hooks
   const { user, isAdmin, role, loading: authLoading } = useAdminAuth();
+  const canAccessPrinters =
+    checkFeature(user, "printer_center") || checkFeature(user, "digital_planning");
   const firebaseUser = user as any;
   const { products = [] } = useProductsData(firebaseUser);
   const { generalConfig } = useSettingsData(firebaseUser);
@@ -492,7 +495,10 @@ const App = () => {
                 <Route path="/assistant" element={<AiAssistantView />} />
                 <Route path="/qc/*" element={<QCHub />} />
                 <Route path="/messages" element={<AdminMessagesView user={user as any} />} />
-                <Route path="/printer-queue" element={<PrintQueueAdminView />} />
+                <Route
+                  path="/printer-queue"
+                  element={canAccessPrinters ? <PrintQueueAdminView /> : <Navigate to="/" replace />}
+                />
                 <Route path="/admin/*" element={<AdminDashboard />} />
                 <Route path="/logs" element={<AdminLogView />} />
                 <Route path="/login" element={<LoginView onLogin={handleLogin} externalError={loginError} logoUrl={logoUrl} appName={appName} />} />
@@ -539,7 +545,7 @@ const App = () => {
           <ConfirmDialog />
           <BackgroundTaskOverlay />
           <ProgressToast />
-          <PrintQueueAutoProcessor enabled={Boolean(user && role !== "guest" && pathname !== "/printer-queue")} />
+          <PrintQueueAutoProcessor enabled={Boolean(user && role !== "guest")} />
           {content}
         </BackgroundTaskProvider>
     </NotificationProvider>
