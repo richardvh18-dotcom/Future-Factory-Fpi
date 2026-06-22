@@ -25,27 +25,6 @@
 
 ---
 
-## Update sessie 22 juni 2026 (Label code-keuze, ProductionStartModal defaultfixes, routering en releases)
-
-**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
-
-### Uitgevoerd in deze sessie
-**1. Tijdelijke orderlabel-logica uitgebreid (ELB specifieke regels)**
-- `ELB 100mm` regel aangescherpt: default naar klein label en 1x print.
-- `ELB 100mm` met code: voorkeur voor `CODE -> KLEIN` keten (waar beschikbaar).
-- `ELB 200mm` met code: voorkeur voor `CODE -> GROOT` en 2x print.
-
-**2. Placeholder/code-fallback robuust gemaakt**
-- In `labelHelpers` werken placeholders `{code}` en `{extraCode}` nu met alias-fallbacks (`code -> extraCode -> itemCode/productId` en omgekeerd).
-- Hierdoor krijgen labels met code-velden consistent data, ook bij afwijkende orderpayloads.
-
-**3. Label-logica beheerscherm uitgebreid met code-keuze**
-- In `AdminLabelLogic` is bij operator printregels een expliciete `Code`-keuze toegevoegd (ANY of codes uit settings).
-- Deze codefilter is ook runtime gekoppeld in `ProductionStartModal` (`resolveOperatorPrintRule`).
-
-**4. ProductionStartModal default label selectie gefixt**
-- Oorzaken aangepakt waardoor modal bleef defaulten op groot/A1S1 ondanks A2G3-klein regel:
-    - Dynamische rule engine forceerde niet langer impliciet `Large` als default zonder match.
     - Regelcode (bijv. `A2G3`) krijgt nu prioriteit in candidate selectie.
     - Dropdown/keuzelijst wordt gefilterd op regelcode wanneer specifieke code ingesteld is.
     - Small fallback is aangescherpt zodat bij `Small` voorkeur niet teruggevallen wordt op groot door kandidaatset-volgorde.
@@ -55,7 +34,12 @@
 - `targetPrinterName` verwijderd als stationbron in routing-checks.
 - Auto-processor zet station-mismatch jobs niet meer direct op `error`, maar slaat ze over zodat juiste station/printer ze kan oppakken.
 
-**6. Releases en deploys in deze sessie**
+**6. Hardcoded label- en stationregels verwijderd**
+- Hardcoded ELB 100mm en ELB 200mm logica verwijderd uit `pickPreferredTempTemplateId`, `PrintStationView`, en `PrintQueueAdminView`.
+- Hardcoded BH18 station regel verwijderd uit `ProductionStartModal` die altijd 2 labels forceerde voor diameters > 200 of elbows >= 125.
+- De applicatie leunt nu 100% op de dynamische Admin Label Print Regels voor labelaantallen en keuzes.
+
+**7. Releases en deploys in deze sessie**
 - Patch bumps en hosting deploys uitgevoerd:
     - `0.1.34 -> 0.1.35`
     - `0.1.35 -> 0.1.36`

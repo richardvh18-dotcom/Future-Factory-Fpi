@@ -422,24 +422,7 @@ const ProductionStartModal = ({
         initialCount = 1;
       }
 
-      if (isBh18Station(stationId)) {
-        const itemIdentifier = [order?.item, order?.itemCode, order?.itemDescription].join(' ').toUpperCase();
-        const isElbow = itemIdentifier.includes("ELBOW") || itemIdentifier.includes("BOCHT") || itemIdentifier.includes("ELB");
-        const isSpecialElbow = itemIdentifier.includes("AB/AB") || itemIdentifier.includes("SB/SB");
 
-        const dia = getOrderNominalDiameter(order);
-
-        // BH18-regel: alle diameters > 200 krijgen altijd 2 labels.
-        if (dia > 200) {
-          initialCount = 2;
-        } else if (dia > 0 && dia < 125) {
-          initialCount = 1;
-        } else if (dia >= 125 && isElbow && !isSpecialElbow) {
-          initialCount = 2;
-        } else if (dia >= 125 && isElbow && isSpecialElbow) {
-          initialCount = 1;
-        }
-      }
 
       setLabelCount(String(Math.max(1, initialCount)));
     }

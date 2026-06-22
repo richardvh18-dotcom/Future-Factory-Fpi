@@ -34,11 +34,10 @@ import {
   buildOrderLabelPreviewData,
   buildOrderLabelTemplateProduct,
   hasOrderLabelCode,
-  isElbow200Product,
   getOrderLabelDescription,
   getOrderLabelItemCode,
   getOrderLabelOrder,
-  isElbow100Product,
+  normalizeOrderLabelProductData,
   pickPreferredTempTemplateId,
   resolveLinkedTemplateChain,
 } from '../../utils/orderLabelTemplateUtils';
@@ -489,18 +488,7 @@ const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printer
   const { t } = useTranslation();
   const { notify } = useNotifications();
 
-  const shouldPrintDoubleElb12590 = (record: AnyRecord | null | undefined): boolean => {
-    const description = getOrderLabelDescription(record || {}).toUpperCase();
-    const itemCode = getOrderLabelItemCode(record || {}).toUpperCase();
-    const rawType = String((record as AnyRecord)?.type || (record as AnyRecord)?.productType || '').toUpperCase();
 
-    const combined = `${description} ${itemCode} ${rawType}`;
-    const hasElbow = /(^|\W)ELB(\W|$)|(^|\W)ELBOW(\W|$)/.test(combined);
-    const hasDiameter125 = /(^|\D)125(\D|$)/.test(combined);
-    const hasNinetyDegree = /(90\s*°)|(90\s*GRADEN)|(90\s*DEGREE)|(90\s*DEG)/.test(combined);
-
-    return hasElbow && hasDiameter125 && hasNinetyDegree;
-  };
 
   // Printfunctie nu binnen de modal zodat t altijd beschikbaar is
   const handleTempLegacyPrint = async (orderData: AnyRecord, template: any, processedData: any) => {
@@ -512,10 +500,7 @@ const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printer
     const desc = getOrderLabelDescription(orderData);
 
     let zpl;
-    const shouldPrintDoubleElb200WithCode = isElbow200Product(orderData) && hasOrderLabelCode(orderData);
-    const printQuantity = isElbow100Product(orderData)
-      ? 1
-      : (shouldPrintDoubleElb200WithCode || shouldPrintDoubleElb12590(orderData) ? 2 : 1);
+    const printQuantity = 1;
     const templateChain = template
       ? (resolveLinkedTemplateChain(labelTemplates as any[], template.id, { maxDepth: 4 }) as LabelTemplate[])
       : [];

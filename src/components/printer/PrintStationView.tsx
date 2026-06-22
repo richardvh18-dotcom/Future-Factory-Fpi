@@ -22,7 +22,6 @@ import {
   getOrderLabelDescription,
   getOrderLabelItemCode,
   getOrderLabelOrder,
-  isElbow200Product,
   normalizeOrderLabelProductData,
   pickPreferredTempTemplateId,
   resolveLinkedTemplateChain,
@@ -1138,7 +1137,7 @@ const PrintStationView = () => {
     const order = getOrderLabelOrder(orderData);
     const item = getOrderLabelItemCode(orderData);
     const desc = getOrderLabelDescription(orderData);
-    const printQuantity = isElbow200Product(orderData) && hasOrderLabelCode(orderData) ? 2 : 1;
+    const printQuantity = 1;
 
     let zpl;
 

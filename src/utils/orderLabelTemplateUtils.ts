@@ -142,37 +142,6 @@ export const pickPreferredTempTemplateId = (
 ): string => {
   if (!Array.isArray(templates) || templates.length === 0) return '';
 
-  if (!isElbow100Product(item)) {
-    return toTemplateId(templates[0]?.id);
-  }
-
-  if (isElbow200Product(item) && hasOrderLabelCode(item)) {
-    const byId = new Map<string, LabelTemplateLike>();
-    templates.forEach((template) => {
-      const id = toTemplateId(template?.id);
-      if (id) byId.set(id, template);
-    });
-
-    const codeTemplates = templates.filter((template) => hasCodeTemplateHint(template));
-
-    const codeThenLargeTemplate = codeTemplates.find((template) => {
-      const linkedId = toTemplateId(template?.linkedTemplateId || template?.linkedLabelTemplateId);
-      if (!linkedId) return false;
-      const linkedTemplate = byId.get(linkedId);
-      return Boolean(linkedTemplate && hasLargeTemplateHint(linkedTemplate));
-    });
-
-    if (codeThenLargeTemplate) return toTemplateId(codeThenLargeTemplate.id);
-
-    const codeLargeTemplate = codeTemplates.find((template) => hasLargeTemplateHint(template));
-    if (codeLargeTemplate) return toTemplateId(codeLargeTemplate.id);
-
-    const codeWithLink = codeTemplates.find((template) => hasLinkedTemplate(template));
-    if (codeWithLink) return toTemplateId(codeWithLink.id);
-
-    if (codeTemplates.length > 0) return toTemplateId(codeTemplates[0]?.id);
-  }
-
   if (hasOrderLabelCode(item)) {
     const byId = new Map<string, LabelTemplateLike>();
     templates.forEach((template) => {
