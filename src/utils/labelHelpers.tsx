@@ -341,6 +341,32 @@ const getNestedValue = (obj: Record<string, unknown> | null | undefined, path: s
   }, obj);
 };
 
+const resolvePlaceholderValue = (data: AnyRecord, key: string): string => {
+  const directValue = getNestedValue(data, key);
+  if (directValue !== undefined && directValue !== null && String(directValue) !== "") {
+    return String(directValue);
+  }
+
+  // Backward-compatible aliasing for templates that use {code}.
+  if (key === "code") {
+    const fallback =
+      getNestedValue(data, "extraCode") ??
+      getNestedValue(data, "itemCode") ??
+      getNestedValue(data, "productId");
+    return fallback !== undefined && fallback !== null ? String(fallback) : "";
+  }
+
+  if (key === "extraCode") {
+    const fallback =
+      getNestedValue(data, "code") ??
+      getNestedValue(data, "itemCode") ??
+      getNestedValue(data, "productId");
+    return fallback !== undefined && fallback !== null ? String(fallback) : "";
+  }
+
+  return "";
+};
+
 /**
  * Verwerkt ruwe orderdata naar rijke label data.
  */
@@ -587,7 +613,8 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
     flangePressureLine,
     flangeConnectionLine,
     flangeDrillingLine,
-    extraCode: data.extraCode || data.code || "",
+    code: data.code || data.extraCode || data.itemCode || data.productId || "",
+    extraCode: data.extraCode || data.code || data.itemCode || data.productId || "",
 
     lotNumber: lotNumber,
     jointCode: jointCode, // Toegevoegd voor A2G3 logica
@@ -719,12 +746,7 @@ export const resolveLabelContent = (
       const key = match.slice(1, -1);
       const value = key === "date"
         ? format(new Date(), "dd-MM-yyyy")
-        : (() => {
-          const rawValue = getNestedValue(data, key);
-          return rawValue !== undefined && rawValue !== null
-            ? String(rawValue)
-            : "";
-        })();
+        : resolvePlaceholderValue(data, key);
 
       // Vervang ALLE voorkomens van de placeholder (niet alleen de eerste)
       content = content.split(match).join(value);
@@ -1005,7 +1027,6 @@ export const evaluatePrintRules = (
   // Basis/Standaard instellingen als geen enkele regel triggert
   const finalOutput: PrintRuleOutput = {
     labelCount: 1,
-    labelSizeId: "Large",
     requiredTags: [],
   };
 

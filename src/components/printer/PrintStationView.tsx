@@ -18,10 +18,13 @@ import { resolvePrinterForRouting } from '../../utils/printRouting';
 import {
   buildOrderLabelPreviewData,
   buildOrderLabelTemplateProduct,
+  hasOrderLabelCode,
   getOrderLabelDescription,
   getOrderLabelItemCode,
   getOrderLabelOrder,
+  isElbow200Product,
   normalizeOrderLabelProductData,
+  pickPreferredTempTemplateId,
   resolveLinkedTemplateChain,
 } from '../../utils/orderLabelTemplateUtils';
 
@@ -178,7 +181,7 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, onPrint, printerDpi =
     if (topOptions.length > 0) {
       const isValidSelection = topOptions.some((t: LabelTemplate) => t.id === selectedTemplateId);
       if (!selectedTemplateId || !isValidSelection) {
-        setSelectedTemplateId(topOptions[0]?.id || "");
+        setSelectedTemplateId(pickPreferredTempTemplateId(item, topOptions as any[]));
       }
     } else if (selectedTemplateId) {
       setSelectedTemplateId("");
@@ -1135,6 +1138,7 @@ const PrintStationView = () => {
     const order = getOrderLabelOrder(orderData);
     const item = getOrderLabelItemCode(orderData);
     const desc = getOrderLabelDescription(orderData);
+    const printQuantity = isElbow200Product(orderData) && hasOrderLabelCode(orderData) ? 2 : 1;
 
     let zpl;
 
@@ -1202,8 +1206,11 @@ const PrintStationView = () => {
         return;
       }
 
-      await printRawUsb(deviceToUse, zpl);
-      const labelsPrinted = Math.max(1, templatesToPrint.length || 1);
+      const usbPayload = printQuantity > 1
+        ? Array.from({ length: printQuantity }, () => zpl).join('\n')
+        : zpl;
+      await printRawUsb(deviceToUse, usbPayload);
+      const labelsPrinted = Math.max(1, (templatesToPrint.length || 1) * printQuantity);
       showSuccess(`${labelsPrinted} label(s) voor ${order} direct geprint via USB!`);
       setShowTempModal(false);
       return;

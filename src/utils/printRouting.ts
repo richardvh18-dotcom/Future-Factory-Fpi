@@ -4,7 +4,7 @@ const normalizeRouteToken = (value: unknown): string =>
     .toUpperCase()
     .replace(/^#+/, "")
     .replace(/\s+/g, "")
-    .replace(/^40(?=BH|BM|BA|MAZAK)/, "40");
+    .replace(/^40(?=BH|BM|BA)/, "");
 
 const toTokenList = (value: unknown): string[] => {
   if (Array.isArray(value)) {

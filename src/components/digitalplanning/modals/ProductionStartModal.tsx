@@ -67,6 +67,7 @@ type OperatorPrintRule = {
   id?: string;
   enabled?: boolean;
   productType?: string;
+  code?: string;
   minDiameter?: number;
   maxDiameter?: number;
   angle?: number;
@@ -157,6 +158,14 @@ const getOrderCodeTags = (order: any): string[] => {
   return Array.from(new Set(orderText.match(/\bA\d[A-Z]\d\b/g) || []));
 };
 
+const getOrderPrimaryCode = (order: any): string => {
+  const explicitCode = String(order?.extraCode || order?.code || "").trim().toUpperCase();
+  if (explicitCode) return explicitCode;
+
+  const tags = getOrderCodeTags(order);
+  return String(tags[0] || "").trim().toUpperCase();
+};
+
 const hasSpecificOrderCodeTag = (label: LabelOption): boolean =>
   getNormalizedLabelTags(label).some((tag) => /^A\d[A-Z]\d$/.test(tag));
 
@@ -204,6 +213,7 @@ const resolveOperatorPrintRule = (order: any, rules: OperatorPrintRule[] | null 
   const diameter = getOrderNominalDiameter(order);
   const angle = getOrderAngle(order);
   const productType = getOrderProductTypeKey(order);
+  const orderCode = getOrderPrimaryCode(order);
 
   return (
     list.find((rule) => {
@@ -211,6 +221,11 @@ const resolveOperatorPrintRule = (order: any, rules: OperatorPrintRule[] | null 
 
       const ruleType = String(rule?.productType || "ANY").toUpperCase();
       if (ruleType !== "ANY" && ruleType !== productType) return false;
+
+      const ruleCode = String(rule?.code || "ANY").trim().toUpperCase();
+      if (ruleCode !== "ANY") {
+        if (!orderCode || orderCode !== ruleCode) return false;
+      }
 
       if (typeof rule?.minDiameter === "number" && diameter < rule.minDiameter) return false;
       if (typeof rule?.maxDiameter === "number" && diameter > rule.maxDiameter) return false;
@@ -545,6 +560,21 @@ const ProductionStartModal = ({
     return filteredLabels;
   }, [allLabels, order, stationId]);
 
+  const selectableLabels = useMemo(() => {
+    if (!Array.isArray(availableLabels) || availableLabels.length === 0) return [];
+
+    const ruleCodeTag = String(matchedOperatorPrintRule?.code || "").trim().toUpperCase();
+    const hasRuleSpecificCode = Boolean(ruleCodeTag && ruleCodeTag !== "ANY");
+    if (!hasRuleSpecificCode) return availableLabels;
+
+    const filteredByRuleCode = availableLabels.filter((label: LabelOption) => {
+      const normalizedTags = getNormalizedLabelTags(label);
+      return normalizedTags.includes(ruleCodeTag) || String(label.name || "").toUpperCase().includes(ruleCodeTag);
+    });
+
+    return filteredByRuleCode.length > 0 ? filteredByRuleCode : availableLabels;
+  }, [availableLabels, matchedOperatorPrintRule?.code]);
+
   // Autofocus naar ordernummer (of lotnummer) bij openen in manuele modus
   useEffect(() => {
     if (isOpen && mode === "manual" && shouldAutoFocusInputs) {
@@ -573,7 +603,7 @@ const ProductionStartModal = ({
   // 1. Label Templates & Rules Laden
   useEffect(() => {
     const setDefaultLabel = () => {
-      if (!isOpen || loadingLabels || availableLabels.length === 0) return;
+      if (!isOpen || loadingLabels || selectableLabels.length === 0) return;
       
       // Nieuwe logica: Eerst de rule engine proberen
       const productDataForRules = processLabelData(order);
@@ -592,12 +622,12 @@ const ProductionStartModal = ({
       }
 
       try {
-        if (availableLabels.length > 0) {
+        if (selectableLabels.length > 0) {
           const isFlange = ruleOutput.labelSizeId === "Flange" ? true : shouldUseFlangeLabelFlow;
 
           if (isFlange) {
             // Zoek eerst naar labels met de tag FLANGE, FLENS of FLENZEN
-            let flangeLabels = availableLabels.filter((l: LabelOption) =>
+            let flangeLabels = selectableLabels.filter((l: LabelOption) =>
               Array.isArray(l.tags) && l.tags.some((tag: string) => /^(FLANGE|FLENS|FLENZEN)$/i.test(tag))
             );
 
@@ -608,7 +638,7 @@ const ProductionStartModal = ({
 
             // Als er geen specifiek FLANGE label is, gebruik dan alle labels als fallback
             if (flangeLabels.length === 0) {
-              flangeLabels = availableLabels;
+              flangeLabels = selectableLabels;
             }
 
             const itemIdentifier = [order?.item, order?.itemCode, order?.itemDescription].join(' ').toUpperCase();
@@ -670,17 +700,27 @@ const ProductionStartModal = ({
           }
           
           const orderCodeTags = getOrderCodeTags(order);
-          const exactCodeLabels = availableLabels.filter((label: LabelOption) => {
+          const ruleCodeTag = String(matchedOperatorPrintRule?.code || "").trim().toUpperCase();
+          const hasRuleSpecificCode = Boolean(ruleCodeTag && ruleCodeTag !== "ANY");
+          const ruleCodeLabels = hasRuleSpecificCode
+            ? availableLabels.filter((label: LabelOption) => {
+                const normalizedTags = getNormalizedLabelTags(label);
+                return normalizedTags.includes(ruleCodeTag) || String(label.name || "").toUpperCase().includes(ruleCodeTag);
+              })
+            : [];
+          const exactCodeLabels = selectableLabels.filter((label: LabelOption) => {
             const normalizedTags = getNormalizedLabelTags(label);
             return orderCodeTags.some((codeTag) => normalizedTags.includes(codeTag));
           });
-          const codeLabels = availableLabels.filter((label: LabelOption) =>
+          const codeLabels = selectableLabels.filter((label: LabelOption) =>
             getNormalizedLabelTags(label).includes("CODE")
           );
           const genericCodeLabels = codeLabels.filter((label: LabelOption) => !hasSpecificOrderCodeTag(label));
-          const nonSpecificLabels = availableLabels.filter((label: LabelOption) => !hasSpecificOrderCodeTag(label));
+          const nonSpecificLabels = selectableLabels.filter((label: LabelOption) => !hasSpecificOrderCodeTag(label));
           const candidateLabels =
-            exactCodeLabels.length > 0
+            ruleCodeLabels.length > 0
+              ? ruleCodeLabels
+              : exactCodeLabels.length > 0
               ? exactCodeLabels
               : genericCodeLabels.length > 0
                 ? genericCodeLabels
@@ -692,11 +732,21 @@ const ProductionStartModal = ({
             ? candidateLabels.find((label: LabelOption) => isLargeLabelOption(label))
             : candidateLabels.find((label: LabelOption) => isSmallLabelOption(label));
 
-          if (!defaultLabel) {
-            defaultLabel = candidateLabels[0] || availableLabels[0];
+          // Als SMALL expliciet gevraagd is, val niet terug op groot uit een te smalle kandidaatset.
+          if (!defaultLabel && !preferLarge) {
+            defaultLabel = selectableLabels.find((label: LabelOption) => isSmallLabelOption(label));
           }
 
-          const labelToSelect = defaultLabel?.id || availableLabels[0]?.id;
+          // Als LARGE expliciet gevraagd is, probeer alsnog eerst een grote uit alle labels.
+          if (!defaultLabel && preferLarge) {
+            defaultLabel = selectableLabels.find((label: LabelOption) => isLargeLabelOption(label));
+          }
+
+          if (!defaultLabel) {
+            defaultLabel = candidateLabels[0] || selectableLabels[0];
+          }
+
+          const labelToSelect = defaultLabel?.id || selectableLabels[0]?.id;
           
           if (labelToSelect) {
             if (labelToSelect !== selectedLabelId) {
@@ -710,7 +760,7 @@ const ProductionStartModal = ({
       }
     };
     setDefaultLabel();
-  }, [isOpen, order, availableLabels, loadingLabels, stationId, shouldUseFlangeLabelFlow, selectedLabelId, matchedOperatorPrintRule, isBh12Station, dynamicPrintRules]);
+  }, [isOpen, order, selectableLabels, loadingLabels, stationId, shouldUseFlangeLabelFlow, selectedLabelId, matchedOperatorPrintRule, isBh12Station, dynamicPrintRules]);
   
   // 1b. Operators ophalen voor dit station
   useEffect(() => {
@@ -2096,7 +2146,7 @@ const ProductionStartModal = ({
                 <div className="p-3 text-center text-xs text-slate-400 italic flex items-center justify-start gap-2">
                   <Loader2 size={14} className="animate-spin" /> {t("productionStartModal.labels.loadingLabels")}
                 </div>
-              ) : availableLabels.length === 0 ? (
+              ) : selectableLabels.length === 0 ? (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 flex items-center gap-2">
                   <AlertTriangle size={16} />
                   <span>{t("productionStartModal.labels.noSuitableLabels")}</span>
@@ -2123,7 +2173,7 @@ const ProductionStartModal = ({
                     }}
                     className="w-full p-3 bg-white border-2 border-slate-100 rounded-xl text-xs font-black text-slate-700 outline-none focus:border-blue-600 shadow-sm appearance-none cursor-pointer group-hover:border-slate-300"
                   >
-                    {availableLabels.map((l) => (
+                    {selectableLabels.map((l) => (
                       <option key={String(l.id)} value={String(l.id)}>
                         {String(l.name || "Label")} ({String(l.width || "?")}x{String(l.height || "?")}mm)
                       </option>

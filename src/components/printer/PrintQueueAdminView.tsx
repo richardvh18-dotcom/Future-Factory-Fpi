@@ -33,9 +33,13 @@ import { resolvePrinterForRouting } from '../../utils/printRouting';
 import {
   buildOrderLabelPreviewData,
   buildOrderLabelTemplateProduct,
+  hasOrderLabelCode,
+  isElbow200Product,
   getOrderLabelDescription,
   getOrderLabelItemCode,
   getOrderLabelOrder,
+  isElbow100Product,
+  pickPreferredTempTemplateId,
   resolveLinkedTemplateChain,
 } from '../../utils/orderLabelTemplateUtils';
 
@@ -148,7 +152,12 @@ const stationNameFromValue = (stationValue: unknown): string => {
   return String(stationValue).trim();
 };
 
-const normalizeStationKey = (value: unknown): string => String(value || '').trim().toUpperCase();
+const normalizeStationKey = (value: unknown): string =>
+  String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/^40(?=BH|BM|BA)/, '');
 const normalizeQueueStatus = (value: unknown): string => String(value || 'pending').trim().toLowerCase();
 const isQueuedJobStatus = (value: unknown): boolean => {
   const status = normalizeQueueStatus(value);
@@ -244,7 +253,6 @@ const getJobStationKeys = (job: PrintJob): string[] => {
     metadata.targetStationId,
     metadata.machineId,
     metadata.machine,
-    metadata.targetPrinterName,
     job.machineId,
     job.stationId,
     job.currentStation,
@@ -405,7 +413,7 @@ const TempLabelItem = ({ item, labelTemplates, labelRules, printerDpi = 203, han
     if (topOptions.length > 0) {
       const isValidSelection = topOptions.some((t) => String(t.id) === selectedTemplateId);
       if (!selectedTemplateId || !isValidSelection) {
-        setSelectedTemplateId(String(topOptions[0]?.id || ""));
+        setSelectedTemplateId(pickPreferredTempTemplateId(item, topOptions as any[]));
       }
     } else if (selectedTemplateId) {
       setSelectedTemplateId("");
@@ -504,7 +512,10 @@ const TempLabelModal = ({ onClose, labelTemplates = [], labelRules = [], printer
     const desc = getOrderLabelDescription(orderData);
 
     let zpl;
-    const printQuantity = shouldPrintDoubleElb12590(orderData) ? 2 : 1;
+    const shouldPrintDoubleElb200WithCode = isElbow200Product(orderData) && hasOrderLabelCode(orderData);
+    const printQuantity = isElbow100Product(orderData)
+      ? 1
+      : (shouldPrintDoubleElb200WithCode || shouldPrintDoubleElb12590(orderData) ? 2 : 1);
     const templateChain = template
       ? (resolveLinkedTemplateChain(labelTemplates as any[], template.id, { maxDepth: 4 }) as LabelTemplate[])
       : [];

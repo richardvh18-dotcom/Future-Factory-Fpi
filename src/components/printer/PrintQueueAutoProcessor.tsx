@@ -60,7 +60,12 @@ const stationNameFromValue = (stationValue: unknown): string => {
   return String(stationValue).trim();
 };
 
-const normalizeStationKey = (value: unknown): string => String(value || '').trim().toUpperCase();
+const normalizeStationKey = (value: unknown): string =>
+  String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/^40(?=BH|BM|BA)/, '');
 const normalizeStationBindingKey = (value: unknown): string => String(value || '').trim().toUpperCase().replace(/\s+/g, '');
 
 const readStationBindings = (): Record<string, string> => {
@@ -99,8 +104,10 @@ const getJobStationKeys = (job: PrintJob): string[] => {
     metadata.stationId,
     metadata.station,
     metadata.currentStation,
+    metadata.targetStation,
+    metadata.targetStationId,
+    metadata.machineId,
     metadata.machine,
-    metadata.targetPrinterName,
     job.stationId,
     job.currentStation,
     job.machine,
@@ -386,18 +393,8 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
         for (const job of pendingJobs) {
           const routingViolation = getPrinterRoutingViolation(job, currentPrinter);
           if (routingViolation) {
-            try {
-              await transitionPrintQueueJobStatus({
-                jobId: job.id,
-                status: 'error',
-                error: routingViolation,
-                source: 'PrintQueueAutoProcessor',
-              });
-            } catch (transitionError) {
-              if (!isInvalidPrintQueueTransitionError(transitionError)) {
-                throw transitionError;
-              }
-            }
+            // Skip jobs that belong to another station/printer routing target.
+            console.warn(`[PrintQueueAutoProcessor] ${routingViolation} jobId=${job.id}`);
             continue;
           }
 

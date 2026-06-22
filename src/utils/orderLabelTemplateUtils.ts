@@ -57,6 +57,158 @@ export const buildOrderLabelTemplateProduct = (item: AnyRecord = {}): AnyRecord 
   };
 };
 
+const normalizeTokenText = (value: unknown): string =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim();
+
+export const isElbow100Product = (item: AnyRecord = {}): boolean => {
+  const typeText = normalizeTokenText(item.productType || item.type || '');
+  const descriptionText = normalizeTokenText(getOrderLabelDescription(item));
+  const itemCodeText = normalizeTokenText(getOrderLabelItemCode(item));
+  const combined = `${typeText} ${descriptionText} ${itemCodeText}`.trim();
+
+  const hasElbow = /\bELB\b|\bELBOW\b/.test(combined);
+  const has100 = /(^|\D)100(\D|$)/.test(combined);
+  return hasElbow && has100;
+};
+
+export const isElbow200Product = (item: AnyRecord = {}): boolean => {
+  const typeText = normalizeTokenText(item.productType || item.type || '');
+  const descriptionText = normalizeTokenText(getOrderLabelDescription(item));
+  const itemCodeText = normalizeTokenText(getOrderLabelItemCode(item));
+  const combined = `${typeText} ${descriptionText} ${itemCodeText}`.trim();
+
+  const hasElbow = /\bELB\b|\bELBOW\b/.test(combined);
+  const has200 = /(^|\D)200(\D|$)/.test(combined);
+  return hasElbow && has200;
+};
+
+const hasSmallTemplateHint = (template: LabelTemplateLike): boolean => {
+  const tags = Array.isArray(template?.tags)
+    ? template.tags.map((tag) => String(tag || '').toUpperCase().trim())
+    : [];
+  const name = normalizeTokenText(template?.name || '');
+  const width = Number(template?.width || 0);
+  const height = Number(template?.height || 0);
+  const hasSmallDimensions = width > 0 && height > 0 && height <= 40;
+
+  return (
+    tags.includes('SMALL') ||
+    tags.includes('KLEIN') ||
+    tags.includes('SMAL') ||
+    tags.includes('SLIM') ||
+    /\bSMALL\b|\bKLEIN\b|\bSMAL\b|\bSLIM\b/.test(name) ||
+    hasSmallDimensions
+  );
+};
+
+const hasCodeTemplateHint = (template: LabelTemplateLike): boolean => {
+  const tags = Array.isArray(template?.tags)
+    ? template.tags.map((tag) => String(tag || '').toUpperCase().trim())
+    : [];
+  const name = normalizeTokenText(template?.name || '');
+
+  return tags.includes('CODE') || /\bCODE\b/.test(name);
+};
+
+const hasLargeTemplateHint = (template: LabelTemplateLike): boolean => {
+  const tags = Array.isArray(template?.tags)
+    ? template.tags.map((tag) => String(tag || '').toUpperCase().trim())
+    : [];
+  const name = normalizeTokenText(template?.name || '');
+
+  return (
+    tags.includes('LARGE') ||
+    tags.includes('GROOT') ||
+    /\bLARGE\b|\bGROOT\b/.test(name)
+  );
+};
+
+export const hasOrderLabelCode = (item: AnyRecord = {}): boolean => {
+  const rawCode = item.code || item.extraCode || item.Code || '';
+  const normalizedCode = String(rawCode).trim().toUpperCase();
+  if (!normalizedCode) return false;
+  return normalizedCode !== '-' && normalizedCode !== 'NVT' && normalizedCode !== 'N/A';
+};
+
+const hasLinkedTemplate = (template: LabelTemplateLike): boolean =>
+  Boolean(toTemplateId(template?.linkedTemplateId || template?.linkedLabelTemplateId));
+
+export const pickPreferredTempTemplateId = (
+  item: AnyRecord = {},
+  templates: LabelTemplateLike[] = []
+): string => {
+  if (!Array.isArray(templates) || templates.length === 0) return '';
+
+  if (!isElbow100Product(item)) {
+    return toTemplateId(templates[0]?.id);
+  }
+
+  if (isElbow200Product(item) && hasOrderLabelCode(item)) {
+    const byId = new Map<string, LabelTemplateLike>();
+    templates.forEach((template) => {
+      const id = toTemplateId(template?.id);
+      if (id) byId.set(id, template);
+    });
+
+    const codeTemplates = templates.filter((template) => hasCodeTemplateHint(template));
+
+    const codeThenLargeTemplate = codeTemplates.find((template) => {
+      const linkedId = toTemplateId(template?.linkedTemplateId || template?.linkedLabelTemplateId);
+      if (!linkedId) return false;
+      const linkedTemplate = byId.get(linkedId);
+      return Boolean(linkedTemplate && hasLargeTemplateHint(linkedTemplate));
+    });
+
+    if (codeThenLargeTemplate) return toTemplateId(codeThenLargeTemplate.id);
+
+    const codeLargeTemplate = codeTemplates.find((template) => hasLargeTemplateHint(template));
+    if (codeLargeTemplate) return toTemplateId(codeLargeTemplate.id);
+
+    const codeWithLink = codeTemplates.find((template) => hasLinkedTemplate(template));
+    if (codeWithLink) return toTemplateId(codeWithLink.id);
+
+    if (codeTemplates.length > 0) return toTemplateId(codeTemplates[0]?.id);
+  }
+
+  if (hasOrderLabelCode(item)) {
+    const byId = new Map<string, LabelTemplateLike>();
+    templates.forEach((template) => {
+      const id = toTemplateId(template?.id);
+      if (id) byId.set(id, template);
+    });
+
+    const codeTemplates = templates.filter((template) => hasCodeTemplateHint(template));
+
+    const codeThenSmallTemplate = codeTemplates.find((template) => {
+      const linkedId = toTemplateId(template?.linkedTemplateId || template?.linkedLabelTemplateId);
+      if (!linkedId) return false;
+      const linkedTemplate = byId.get(linkedId);
+      return Boolean(linkedTemplate && hasSmallTemplateHint(linkedTemplate));
+    });
+
+    if (codeThenSmallTemplate) return toTemplateId(codeThenSmallTemplate.id);
+
+    const codeSingleTemplate = codeTemplates.find((template) => !hasLinkedTemplate(template));
+    if (codeSingleTemplate) return toTemplateId(codeSingleTemplate.id);
+
+    if (codeTemplates.length > 0) return toTemplateId(codeTemplates[0]?.id);
+  }
+
+  const smallTemplates = templates.filter((template) => hasSmallTemplateHint(template));
+  const smallSingleTemplate = smallTemplates.find((template) => !hasLinkedTemplate(template));
+  if (smallSingleTemplate) return toTemplateId(smallSingleTemplate.id);
+
+  if (smallTemplates.length > 0) return toTemplateId(smallTemplates[0]?.id);
+
+  const singleTemplate = templates.find((template) => !hasLinkedTemplate(template));
+  if (singleTemplate) return toTemplateId(singleTemplate.id);
+
+  return toTemplateId(templates[0]?.id);
+};
+
 export const normalizeOrderLabelProductData = (item: AnyRecord = {}): AnyRecord => {
   const order = getOrderLabelOrder(item);
   const itemCode = getOrderLabelItemCode(item);

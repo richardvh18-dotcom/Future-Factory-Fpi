@@ -43,6 +43,7 @@ type OperatorPrintRule = {
   id: string;
   enabled: boolean;
   productType: string;
+  code?: string;
   minDiameter?: number;
   maxDiameter?: number;
   angle?: number;
@@ -54,6 +55,7 @@ const createPrintRuleId = () => `${Date.now()}_${Math.random().toString(36).slic
 
 const normalizePrintRule = (rule: Partial<OperatorPrintRule> | null | undefined): OperatorPrintRule => {
   const normalizedProductType = String(rule?.productType || "ANY").trim().toUpperCase() || "ANY";
+  const normalizedCode = String(rule?.code || "ANY").trim().toUpperCase() || "ANY";
   const parsedLabelCount = parseInt(String(rule?.labelCount || "1"), 10);
   const toOptionalNumber = (value: unknown): number | undefined => {
     if (value === undefined || value === null || value === "") return undefined;
@@ -65,6 +67,7 @@ const normalizePrintRule = (rule: Partial<OperatorPrintRule> | null | undefined)
     id: String(rule?.id || createPrintRuleId()),
     enabled: rule?.enabled !== false,
     productType: normalizedProductType,
+    code: normalizedCode,
     minDiameter: toOptionalNumber(rule?.minDiameter),
     maxDiameter: toOptionalNumber(rule?.maxDiameter),
     angle: toOptionalNumber(rule?.angle),
@@ -85,6 +88,7 @@ const buildPrintRuleSignature = (rule: OperatorPrintRule): string => {
   return [
     rule.enabled ? "1" : "0",
     String(rule.productType || "ANY").trim().toUpperCase() || "ANY",
+    String(rule.code || "ANY").trim().toUpperCase() || "ANY",
     toSigNumber(rule.minDiameter),
     toSigNumber(rule.maxDiameter),
     toSigNumber(rule.angle),
@@ -497,6 +501,7 @@ const AdminLabelLogic: React.FC = () => {
         id: createPrintRuleId(),
         enabled: true,
         productType: "ANY",
+        code: "ANY",
         labelCount: 1,
         labelSize: "small",
       },
@@ -897,7 +902,7 @@ const AdminLabelLogic: React.FC = () => {
 
           <div className="space-y-2">
             {printRules.map((rule) => (
-              <div key={rule.id} className="grid grid-cols-1 lg:grid-cols-[auto_1fr_120px_120px_110px_100px_120px_auto] gap-2 items-center bg-white border border-amber-200 rounded-lg p-2">
+              <div key={rule.id} className="grid grid-cols-1 lg:grid-cols-[auto_1fr_140px_120px_120px_110px_100px_120px_auto] gap-2 items-center bg-white border border-amber-200 rounded-lg p-2">
                 <input
                   type="checkbox"
                   checked={!!rule.enabled}
@@ -924,6 +929,21 @@ const AdminLabelLogic: React.FC = () => {
                       {pt}
                     </option>
                   ))}
+                </select>
+                <select
+                  value={String(rule.code || "ANY")}
+                  onChange={(e) => updatePrintRule(rule.id, { code: e.target.value })}
+                  className="px-2 py-2 rounded-lg border border-slate-200 text-xs font-semibold"
+                >
+                  <option value="ANY">{t("adminLabelLogic.anyCode", "Elke code")}</option>
+                  {availableCodes
+                    .map((code) => String(code || "").trim().toUpperCase())
+                    .filter(Boolean)
+                    .map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
                 </select>
                 <input
                   type="number"
@@ -1028,7 +1048,11 @@ const AdminLabelLogic: React.FC = () => {
                           </button>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[11px] font-semibold text-slate-700">
+                      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-[11px] font-semibold text-slate-700">
+                        <div>
+                          <span className="text-slate-500">Code</span>
+                          <div>{String(rule.code || "ANY")}</div>
+                        </div>
                         <div>
                           <span className="text-slate-500">Min ID</span>
                           <div>{formatRuleValue(rule.minDiameter)}</div>
