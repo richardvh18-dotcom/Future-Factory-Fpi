@@ -21,6 +21,7 @@ export const CORE_MODULES = ["planning", "catalog", "inbox"];
 type FeatureUser = {
   role?: string;
   isGodMode?: boolean;
+  modules?: string[];
   permissions?: Record<string, string[] | undefined>;
 };
 
@@ -34,6 +35,8 @@ type FeatureUser = {
 export function checkFeature(user: FeatureUser | null | undefined, moduleId: string, featureId: string | null = null): boolean {
   // Admins hebben altijd volledige toegang
   if (user?.role === "admin" || user?.isGodMode) return true;
+
+  const legacyModules = user?.modules || [];
 
   // Kern-modules zijn altijd aan voor iedereen
   if (CORE_MODULES.includes(moduleId)) {
@@ -49,6 +52,9 @@ export function checkFeature(user: FeatureUser | null | undefined, moduleId: str
   // Optionele modules: vereist expliciete toegang in permissions
   const perms = user?.permissions || {};
   const modulePerms = perms[moduleId] || [];
+
+  // Legacy fallback: oude module-toewijzingen betekenen volledige toegang
+  if (legacyModules.includes(moduleId)) return true;
 
   if (!featureId) {
     // Alleen module-level check: true als minstens 1 feature aan staat
