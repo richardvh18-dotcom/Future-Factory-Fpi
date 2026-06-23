@@ -1,3 +1,52 @@
+## Update sessie 23 juni 2026 (USB Printer Restore & Reconnection Logic)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. USB Printer Restore Logic Verbeterd**
+- Probleem: PrintQueueAutoProcessor en PrintStationView konden USB printers niet betrouwbaar herstellen bij startup, wat tot vertraging in queue-verwerking leidde.
+- Fix: Verbeterde USB-restauratie in `PrintQueueAutoProcessor.tsx`, `PrintStationView.tsx`, en `PrintQueueAdminView.tsx`:
+  - Nu wordt USB device gerestaureerd via **3 methoden** in volgorde: opgeslagen vendor/product IDs, printer ID metadata, of enige beschikbare geauthoriseerde device.
+  - Fallback naar enige USB device indien geen opgeslagen voorkeur bestaat.
+  
+**2. USB Connect/Disconnect Event Listeners**
+- `navigator.usb.addEventListener('connect', ...)` en `'disconnect'` listeners toegevoegd.
+- Automatische herverbinding wanneer eerder gepaired device opnieuw wordt aangesloten.
+- Automatische state clearing bij disconnect van de actieve printer.
+- Proper cleanup van listeners bij component unmount.
+
+**3. Station Binding Afdelingskopelingen**
+- USB device nu ook matcht via opgeslagen printer ID en factory departments.
+- Printers worden beter herkend door hun opgeslagen metadata in plaats van alleen vendor/product IDs.
+- Applicatie kan nu sneller juiste printer resolven voor automatische queue-verwerking.
+
+**4. Build en Deployment**
+- Frontend gebuild met `npm run build` → succesvol (geen errors).
+- Wijzigingen gecommit naar `FPiFF-June-rolout` branch.
+- Push naar GitHub: succesvol.
+- Deployment status: klaar voor merge naar `main` (auto-deployment via GitHub Actions).
+
+**Belangrijk:** Backend (`functions/`) had geen wijzigingen nodig. Alleen frontend componenten aangepast.
+
+**Aangepaste bestanden:**
+- `src/components/printer/PrintQueueAutoProcessor.tsx`
+- `src/components/printer/PrintStationView.tsx`
+- `src/components/printer/PrintQueueAdminView.tsx`
+
+**Git commit:**
+```
+Improve USB printer restore and reconnection logic
+
+- Enhanced USB device restoration in PrintQueueAutoProcessor, PrintStationView, and PrintQueueAdminView
+- Added support for restoring USB device by printer ID metadata in addition to vendor/product IDs
+- Implemented navigator.usb connect/disconnect event listeners for automatic printer reconnection
+- Added fallback to single authorized USB device when no saved preferences exist
+- Improved queue processing startup latency by better restoring USB connection state
+- Proper cleanup of USB event listeners on component unmount
+```
+
+---
+
 ## Update sessie 22 juni 2026 (ZPL data verborgen in logboeken, Audit Logging ISO Compliant fix)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
