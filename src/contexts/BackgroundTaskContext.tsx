@@ -20,7 +20,9 @@ export type BackgroundTask = {
 
 interface BackgroundTaskStore {
     tasks: BackgroundTask[];
+    dismissedTaskIds: string[];
     setTasks: (tasks: BackgroundTask[]) => void;
+    dismissTask: (taskId: string) => void;
     downloadTaskResult: (task: BackgroundTask) => void;
 }
 
@@ -41,7 +43,11 @@ const b64toBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
 
 export const useBackgroundTaskStore = create<BackgroundTaskStore>((set) => ({
     tasks: [],
+    dismissedTaskIds: [],
     setTasks: (tasks) => set({ tasks }),
+    dismissTask: (taskId: string) => set((state) => ({
+        dismissedTaskIds: Array.from(new Set([...state.dismissedTaskIds, taskId]))
+    })),
     downloadTaskResult: (task: BackgroundTask) => {
         if (!task.result) return;
         

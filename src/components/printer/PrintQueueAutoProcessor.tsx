@@ -182,21 +182,22 @@ const replaceLastLiteral = (source: string, searchValue: string, replaceValue: s
   return `${source.slice(0, idx)}${replaceValue}${source.slice(idx + searchValue.length)}`;
 };
 
-const enforceCutModeOnBatchPayload = (payload: unknown, shouldCutAtEnd: boolean): string => {
-  let normalized = String(payload || '').trim();
+const enforceCutModeOnBatchPayload = (payload: unknown, shouldCutAtEnd: boolean, isPreBatchedJob: boolean = false): string => {
+  const normalized = String(payload || '').trim();
   if (!normalized) return '';
+  if (isPreBatchedJob) return normalized;
 
-  normalized = normalized
+  let transformed = normalized
     .replace(/\^MM[CT]/g, '^MMT')
     .replace(/\^PQ1,0,1,[YN]/g, '^PQ1,0,1,N');
 
   if (!shouldCutAtEnd) {
-    return normalized;
+    return transformed;
   }
 
-  normalized = replaceLastLiteral(normalized, '^MMT', '^MMC');
-  normalized = replaceLastLiteral(normalized, '^PQ1,0,1,N', '^PQ1,0,1,Y');
-  return normalized;
+  transformed = replaceLastLiteral(transformed, '^MMT', '^MMC');
+  transformed = replaceLastLiteral(transformed, '^PQ1,0,1,N', '^PQ1,0,1,Y');
+  return transformed;
 };
 
 const getJobQuantity = (job: PrintJob): number => {
@@ -261,28 +262,94 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
 
     let cancelled = false;
 
+    const matchesSavedUsbDevice = (
+      device: USBDevice,
+      savedVendor?: string | null,
+      savedProduct?: string | null,
+      savedPrinterId?: string
+    ): boolean => {
+      if (savedVendor && savedProduct) {
+        return (
+          device.vendorId === parseInt(savedVendor, 10) &&
+          device.productId === parseInt(savedProduct, 10)
+        );
+      }
+
+      if (savedPrinterId) {
+        const savedPrinter = printers.find((printer) => printer.id === savedPrinterId);
+        if (savedPrinter?.vendorId !== undefined && savedPrinter?.productId !== undefined) {
+          return (
+            Number(savedPrinter.vendorId) === device.vendorId &&
+            Number(savedPrinter.productId) === device.productId
+          );
+        }
+      }
+
+      return false;
+    };
+
     const restoreUsbConnection = async () => {
       const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
       const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
-      if (!savedVendor || !savedProduct) return;
+      const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
 
       try {
         const devices = await navigator.usb.getDevices();
-        const match = devices.find(
-          (d) => d.vendorId === parseInt(savedVendor, 10) && d.productId === parseInt(savedProduct, 10)
+        if (cancelled) return;
+
+        const match = devices.find((device) =>
+          matchesSavedUsbDevice(device, savedVendor, savedProduct, savedPrinterId)
         );
-        if (!cancelled && match) setUsbDevice(match);
+
+        if (match) {
+          setUsbDevice(match);
+          return;
+        }
+
+        if (!savedVendor && !savedProduct && !savedPrinterId && devices.length === 1) {
+          setUsbDevice(devices[0]);
+          return;
+        }
       } catch (error) {
         console.warn('[PrintQueueAutoProcessor] USB herstel mislukt:', error);
       }
     };
 
+    const handleUsbConnect = (event: USBConnectionEvent | Event) => {
+      const device = (event as USBConnectionEvent).device || (event as any).device;
+      if (!device) return;
+
+      const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
+      const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
+      const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
+
+      if (matchesSavedUsbDevice(device, savedVendor, savedProduct, savedPrinterId)) {
+        setUsbDevice(device);
+      }
+    };
+
+    const handleUsbDisconnect = (event: USBConnectionEvent | Event) => {
+      const device = (event as USBConnectionEvent).device || (event as any).device;
+      if (!device || !usbDevice) return;
+      if (
+        device.vendorId === usbDevice.vendorId &&
+        device.productId === usbDevice.productId &&
+        String(device.serialNumber || '').trim() === String(usbDevice.serialNumber || '').trim()
+      ) {
+        setUsbDevice(null);
+      }
+    };
+
     void restoreUsbConnection();
+    navigator.usb.addEventListener('connect', handleUsbConnect as EventListener);
+    navigator.usb.addEventListener('disconnect', handleUsbDisconnect as EventListener);
 
     return () => {
       cancelled = true;
+      navigator.usb.removeEventListener('connect', handleUsbConnect as EventListener);
+      navigator.usb.removeEventListener('disconnect', handleUsbDisconnect as EventListener);
     };
-  }, [enabled]);
+  }, [enabled, printers]);
 
   useEffect(() => {
     if (!enabled) {
@@ -421,7 +488,7 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
             const hasBatchSequence = Number.isFinite(batchSeqIndex) && Number.isFinite(batchSeqTotal) && batchSeqTotal > 0;
             const shouldCutAtEnd = hasBatchSequence ? batchSeqIndex === batchSeqTotal : true;
             const basePayload = normalizeQueuePrintPayload(content, getJobQuantity(job), isPreBatchedJob);
-            const payload = enforceCutModeOnBatchPayload(basePayload, shouldCutAtEnd);
+            const payload = enforceCutModeOnBatchPayload(basePayload, shouldCutAtEnd, isPreBatchedJob);
             await printRawUsbToDevice({ device: usbDevice, content: payload });
 
             await transitionPrintQueueJobStatus({

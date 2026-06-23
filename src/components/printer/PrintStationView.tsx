@@ -793,25 +793,95 @@ const PrintStationView = () => {
   const [usbDevice, setUsbDevice] = useState<USBDevice | null>(null);
 
   useEffect(() => {
+    const matchesSavedUsbDevice = (
+      device: USBDevice,
+      savedVendor?: string | null,
+      savedProduct?: string | null,
+      savedPrinterId?: string,
+      printers?: PrinterConfig[]
+    ): boolean => {
+      if (savedVendor && savedProduct) {
+        return (
+          device.vendorId === parseInt(savedVendor, 10) &&
+          device.productId === parseInt(savedProduct, 10)
+        );
+      }
+
+      if (savedPrinterId && printers) {
+        const savedPrinter = printers.find((printer) => printer.id === savedPrinterId);
+        if (savedPrinter?.vendorId !== undefined && savedPrinter?.productId !== undefined) {
+          return (
+            Number(savedPrinter.vendorId) === device.vendorId &&
+            Number(savedPrinter.productId) === device.productId
+          );
+        }
+      }
+
+      return false;
+    };
+
     const restoreUsbConnection = async () => {
       if (!('usb' in navigator)) return;
       const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
       const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
-      if (savedVendor && savedProduct) {
-        try {
-          const devices = await navigator.usb.getDevices();
-          const match = devices.find((d) => 
-            d.vendorId === parseInt(savedVendor) && 
-            d.productId === parseInt(savedProduct)
-          );
-          if (match) setUsbDevice(match);
-        } catch (err) {
-          console.warn("Kon USB printer niet automatisch herstellen:", err);
+      const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
+
+      try {
+        const devices = await navigator.usb.getDevices();
+        if (devices.length === 0) return;
+
+        const match = devices.find((device) =>
+          matchesSavedUsbDevice(device, savedVendor, savedProduct, savedPrinterId, printers)
+        );
+
+        if (match) {
+          setUsbDevice(match);
+          return;
         }
+
+        if (!savedVendor && !savedProduct && !savedPrinterId && devices.length === 1) {
+          setUsbDevice(devices[0]);
+          return;
+        }
+      } catch (err) {
+        console.warn("Kon USB printer niet automatisch herstellen:", err);
       }
     };
-    restoreUsbConnection();
-  }, []);
+
+    const handleUsbConnect = (event: USBConnectionEvent | Event) => {
+      const device = (event as USBConnectionEvent).device || (event as any).device;
+      if (!device) return;
+
+      const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
+      const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
+      const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
+
+      if (matchesSavedUsbDevice(device, savedVendor, savedProduct, savedPrinterId, printers)) {
+        setUsbDevice(device);
+      }
+    };
+
+    const handleUsbDisconnect = (event: USBConnectionEvent | Event) => {
+      const device = (event as USBConnectionEvent).device || (event as any).device;
+      if (!device || !usbDevice) return;
+      if (
+        device.vendorId === usbDevice.vendorId &&
+        device.productId === usbDevice.productId &&
+        String(device.serialNumber || '').trim() === String(usbDevice.serialNumber || '').trim()
+      ) {
+        setUsbDevice(null);
+      }
+    };
+
+    void restoreUsbConnection();
+    navigator.usb.addEventListener('connect', handleUsbConnect as EventListener);
+    navigator.usb.addEventListener('disconnect', handleUsbDisconnect as EventListener);
+
+    return () => {
+      navigator.usb.removeEventListener('connect', handleUsbConnect as EventListener);
+      navigator.usb.removeEventListener('disconnect', handleUsbDisconnect as EventListener);
+    };
+  }, [printers, usbDevice]);
 
   const handleConnectUsb = async () => {
     try {

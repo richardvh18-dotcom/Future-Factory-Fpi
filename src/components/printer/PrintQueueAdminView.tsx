@@ -373,21 +373,22 @@ const replaceLastLiteral = (source: string, searchValue: string, replaceValue: s
   return `${source.slice(0, idx)}${replaceValue}${source.slice(idx + searchValue.length)}`;
 };
 
-const enforceCutModeOnBatchPayload = (payload: unknown, shouldCutAtEnd: boolean): string => {
-  let normalized = String(payload || '').trim();
+const enforceCutModeOnBatchPayload = (payload: unknown, shouldCutAtEnd: boolean, isPreBatchedJob: boolean = false): string => {
+  const normalized = String(payload || '').trim();
   if (!normalized) return '';
+  if (isPreBatchedJob) return normalized;
 
-  normalized = normalized
+  let transformed = normalized
     .replace(/\^MM[CT]/g, '^MMT')
     .replace(/\^PQ1,0,1,[YN]/g, '^PQ1,0,1,N');
 
   if (!shouldCutAtEnd) {
-    return normalized;
+    return transformed;
   }
 
-  normalized = replaceLastLiteral(normalized, '^MMT', '^MMC');
-  normalized = replaceLastLiteral(normalized, '^PQ1,0,1,N', '^PQ1,0,1,Y');
-  return normalized;
+  transformed = replaceLastLiteral(transformed, '^MMT', '^MMC');
+  transformed = replaceLastLiteral(transformed, '^PQ1,0,1,N', '^PQ1,0,1,Y');
+  return transformed;
 };
 
 const getTimestampMillis = (value: unknown): number => {
@@ -1398,28 +1399,89 @@ const PrintQueueAdminView = () => {
 
   useEffect(() => {
     // 1. Probeer automatisch te verbinden met een eerder gekozen USB printer
+    const matchesSavedUsbDevice = (
+      device: USBDevice,
+      savedVendor?: string | null,
+      savedProduct?: string | null,
+      savedPrinterId?: string
+    ): boolean => {
+      if (savedVendor && savedProduct) {
+        return (
+          device.vendorId === parseInt(savedVendor, 10) &&
+          device.productId === parseInt(savedProduct, 10)
+        );
+      }
+
+      if (savedPrinterId) {
+        const savedPrinter = printers.find((printer) => printer.id === savedPrinterId);
+        if (savedPrinter?.vendorId !== undefined && savedPrinter?.productId !== undefined) {
+          return (
+            Number(savedPrinter.vendorId) === device.vendorId &&
+            Number(savedPrinter.productId) === device.productId
+          );
+        }
+      }
+
+      return false;
+    };
+
     const restoreUsbConnection = async () => {
       if (!isUsbDirectSupported()) return;
       
       const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
       const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
+      const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
       
-      if (savedVendor && savedProduct) {
-        try {
-          const devices = await navigator.usb.getDevices();
-          const match = devices.find(d => 
-            d.vendorId === parseInt(savedVendor) && 
-            d.productId === parseInt(savedProduct)
-          );
-          if (match) {
-            setUsbDevice(match);
-          }
-        } catch (err) {
-          console.warn("Kon USB printer niet automatisch herstellen:", err);
+      try {
+        const devices = await navigator.usb.getDevices();
+        if (devices.length === 0) return;
+
+        const match = devices.find((device) =>
+          matchesSavedUsbDevice(device, savedVendor, savedProduct, savedPrinterId)
+        );
+
+        if (match) {
+          setUsbDevice(match);
+          return;
         }
+
+        if (!savedVendor && !savedProduct && !savedPrinterId && devices.length === 1) {
+          setUsbDevice(devices[0]);
+          return;
+        }
+      } catch (err) {
+        console.warn("Kon USB printer niet automatisch herstellen:", err);
       }
     };
-    restoreUsbConnection();
+
+    const handleUsbConnect = (event: USBConnectionEvent | Event) => {
+      const device = (event as USBConnectionEvent).device || (event as any).device;
+      if (!device) return;
+
+      const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
+      const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
+      const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
+
+      if (matchesSavedUsbDevice(device, savedVendor, savedProduct, savedPrinterId)) {
+        setUsbDevice(device);
+      }
+    };
+
+    const handleUsbDisconnect = (event: USBConnectionEvent | Event) => {
+      const device = (event as USBConnectionEvent).device || (event as any).device;
+      if (!device || !usbDevice) return;
+      if (
+        device.vendorId === usbDevice.vendorId &&
+        device.productId === usbDevice.productId &&
+        String(device.serialNumber || '').trim() === String(usbDevice.serialNumber || '').trim()
+      ) {
+        setUsbDevice(null);
+      }
+    };
+
+    void restoreUsbConnection();
+    navigator.usb.addEventListener('connect', handleUsbConnect as EventListener);
+    navigator.usb.addEventListener('disconnect', handleUsbDisconnect as EventListener);
 
     // Printers ophalen
     const unsubPrinters = onSnapshot(collection(db, getPathString(PATHS.PRINTERS)), (snapshot) => {
@@ -1507,6 +1569,8 @@ const PrintQueueAdminView = () => {
       unsubPrinters();
       unsubscribeRoot();
       unsubscribeScoped();
+      navigator.usb.removeEventListener('connect', handleUsbConnect as EventListener);
+      navigator.usb.removeEventListener('disconnect', handleUsbDisconnect as EventListener);
     };
   }, []);
 
@@ -1880,7 +1944,7 @@ const PrintQueueAdminView = () => {
       const hasBatchSequence = Number.isFinite(batchSeqIndex) && Number.isFinite(batchSeqTotal) && batchSeqTotal > 0;
       const shouldCutAtEnd = hasBatchSequence ? batchSeqIndex === batchSeqTotal : true;
       const basePayload = normalizeQueuePrintPayload(content, quantity, isPreBatchedJob);
-      const payload = enforceCutModeOnBatchPayload(basePayload, shouldCutAtEnd);
+      const payload = enforceCutModeOnBatchPayload(basePayload, shouldCutAtEnd, isPreBatchedJob);
 
       await printRawUsb(usbDevice, payload);
       await transitionPrintQueueJobStatus({

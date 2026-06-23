@@ -2,25 +2,16 @@ import React from "react";
 import { useBackgroundTaskStore } from "../../contexts/BackgroundTaskContext";
 import { Download, Loader2, CheckCircle, AlertCircle, X } from "lucide-react";
 import { format } from "date-fns";
-import { doc, deleteDoc } from "firebase/firestore";
-import { db } from "../../config/firebase";
-import { PATHS, getPathString } from "../../config/dbPaths";
 
 export default function BackgroundTaskOverlay() {
   const tasks = useBackgroundTaskStore((state) => state.tasks);
+  const dismissedTaskIds = useBackgroundTaskStore((state) => state.dismissedTaskIds);
+  const dismissTask = useBackgroundTaskStore((state) => state.dismissTask);
   const downloadTaskResult = useBackgroundTaskStore((state) => state.downloadTaskResult);
 
-  const visibleTasks = tasks.slice(0, 3);
+  const visibleTasks = tasks.filter((task) => !dismissedTaskIds.includes(task.id)).slice(0, 3);
 
   if (visibleTasks.length === 0) return null;
-
-  const clearTask = async (taskId: string) => {
-    try {
-      await deleteDoc(doc(db, `${getPathString(PATHS.EXPORT_TASKS)}/${taskId}`));
-    } catch (error) {
-      console.error("Kon export taak niet wissen:", error);
-    }
-  };
 
   return (
     <div className="fixed bottom-20 right-4 z-[9999] flex flex-col gap-2 w-72 pointer-events-none">
@@ -36,7 +27,7 @@ export default function BackgroundTaskOverlay() {
           }`}
         >
           <button 
-            onClick={() => clearTask(task.id)}
+            onClick={() => dismissTask(task.id)}
             className="absolute top-2 right-2 p-1 text-slate-400 hover:text-rose-500 transition-colors rounded-full z-10"
             title="Melding sluiten"
           >
