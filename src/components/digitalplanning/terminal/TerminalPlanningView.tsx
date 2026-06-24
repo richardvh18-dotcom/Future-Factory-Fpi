@@ -195,10 +195,8 @@ const TerminalPlanningView = ({
           className: "bg-purple-600 text-white border border-purple-700 animate-pulse shadow-sm shadow-purple-200",
         };
       }
-      return {
-        label: t("digitalplanning.terminal.demand_order", "SPOED: Spoolbouw"),
-        className: "bg-red-600 text-white border border-red-700 animate-pulse shadow-sm shadow-red-200",
-      };
+      // SPOED: Spoolbouw - Tijdelijk uitgeschakeld
+      return null;
     }
     const level = getPriorityLevel(order);
     if (level === "immediate") {
@@ -274,15 +272,7 @@ const TerminalPlanningView = ({
   };
 
   const getStockBadge = (order: AnyRecord) => {
-    const dType = String(order?.demandOrderType || "").toLowerCase();
-    const isStock = !order?.demandOrder && (dType === "" || dType.includes("voorraad") || dType.includes("veiligheid"));
-    
-    if (isStock) {
-      return {
-        label: <span className="flex items-center gap-1"><Package size={10} /> {t("digitalplanning.terminal.stock_order", "Voorraad")}</span>,
-        className: "bg-slate-100 text-slate-500 border border-slate-200",
-      };
-    }
+    // Voorraad - Tijdelijk uitgeschakeld
     return null;
   };
 
