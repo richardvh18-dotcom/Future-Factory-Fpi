@@ -88,7 +88,12 @@ const PrintQueueAdminView = () => {
       return Number.isFinite(parsed.getTime()) ? parsed.getTime() : 0;
     };
 
-    const printQueuePathFragment = `/${PATHS.PRINT_QUEUE.join('/')}/`;
+    const printQueuePathFragment = `${PATHS.PRINT_QUEUE.join('/')}/`;
+    const isScopedPrintQueuePath = (refPath: string): boolean => {
+      const normalizedPath = refPath.replace(/^\/+/, '').toLowerCase();
+      const normalizedFragment = printQueuePathFragment.replace(/^\/+/, '').toLowerCase();
+      return normalizedPath.includes(normalizedFragment);
+    };
 
     const mergeJobs = () => {
       const byId = new Map();
@@ -117,7 +122,7 @@ const PrintQueueAdminView = () => {
     const scopedQ = collectionGroup(db, 'items');
     const unsubscribeScoped = onSnapshot(scopedQ, (snapshot) => {
       scopedJobs = snapshot.docs
-        .filter((docSnap) => String(docSnap.ref?.path || '').includes(printQueuePathFragment))
+        .filter((docSnap) => isScopedPrintQueuePath(docSnap.ref.path))
         .map(normalizeJob)
         .filter((job): job is PrintJob => Boolean(job) && String(job?._scopeType || 'print_queue').trim() === 'print_queue');
       mergeJobs();
