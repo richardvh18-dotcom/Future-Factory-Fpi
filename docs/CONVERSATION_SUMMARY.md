@@ -1,4 +1,25 @@
+## Update sessie 24 juni 2026 (Tijdelijke Uitschakeling Voorraad & Spoolbouw Badges)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Tijdelijk uitschakelen Voorraad & Spoolbouw Badges in Planning**
+- **Probleem:** Er was behoefte om de "Voorraad" en "SPOED: Spoolbouw" badges tijdelijk uit te schakelen/verbergen op de orderkaartjes in de terminal.
+- **Fix:** In `src/components/digitalplanning/terminal/TerminalPlanningView.tsx` zijn `getStockBadge` en het fallback-retourpad (Spoolbouw) van `getPriorityBadgeStyles` aangepast zodat ze `null` retourneren. Hierdoor worden deze badges noch op de tiles, noch in het detailpaneel getoond.
+- **Opmerking:** De WIK/tekeningknop-revert is hersteld naar de originele staat (deze functioneert zoals voorheen).
+
+**2. Cross-platform Build & Deployment**
+- **Fix:** De `build` en `deploy` scripts in `package.json` zijn aangepast naar cross-platform commando's. `NODE_OPTIONS` is verwijderd uit `build` (aangezien de build stabiel draait en niet out-of-memory gaat), en `firebase deploy` is aangepast naar `npx -p firebase-tools firebase deploy` om te garanderen dat de lokale installatie correct wordt aangesproken op Windows-systemen.
+- **Deployment:** Versie gebumpt en succesvol gedeployed naar Firebase Hosting.
+
+**Aangepaste bestanden in deze sessie:**
+- `src/components/digitalplanning/terminal/TerminalPlanningView.tsx`
+- `package.json`
+
+---
+
 ## Update sessie 23 juni 2026 (QC Steekproef Functionaliteit)
+
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
 
