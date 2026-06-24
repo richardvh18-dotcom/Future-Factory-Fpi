@@ -375,7 +375,12 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
     let rootJobs: PrintJob[] = [];
     let scopedJobs: PrintJob[] = [];
 
-    const printQueuePathFragment = `/${PATHS.PRINT_QUEUE.join('/')}/`;
+    const printQueuePathFragment = `${PATHS.PRINT_QUEUE.join('/')}/`;
+    const isScopedPrintQueuePath = (refPath: string): boolean => {
+      const normalizedPath = refPath.replace(/^\/+/, '').toLowerCase();
+      const normalizedFragment = printQueuePathFragment.replace(/^\/+/, '').toLowerCase();
+      return normalizedPath.includes(normalizedFragment);
+    };
 
     const mergeJobs = () => {
       const byId = new Map<string, PrintJob>();
@@ -417,7 +422,7 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
       scopedQ,
       (snapshot) => {
         scopedJobs = snapshot.docs
-          .filter((docSnap) => String(docSnap.ref?.path || '').includes(printQueuePathFragment))
+          .filter((docSnap) => isScopedPrintQueuePath(docSnap.ref.path))
           .map((docSnap) => normalizeJob(docSnap))
           .filter((job): job is PrintJob => Boolean(job) && String((job as PrintJob)._scopeType || 'print_queue').trim() === 'print_queue');
         mergeJobs();
