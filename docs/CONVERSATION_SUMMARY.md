@@ -12,9 +12,16 @@
 - **Fix:** De `build` en `deploy` scripts in `package.json` zijn aangepast naar cross-platform commando's. `NODE_OPTIONS` is verwijderd uit `build` (aangezien de build stabiel draait en niet out-of-memory gaat), en `firebase deploy` is aangepast naar `npx -p firebase-tools firebase deploy` om te garanderen dat de lokale installatie correct wordt aangesproken op Windows-systemen.
 - **Deployment:** Versie gebumpt en succesvol gedeployed naar Firebase Hosting.
 
+**3. Print Wachtrij Scoped Pad Matching Herstel**
+- **Probleem:** Bij het starten van een order op BH18 bleef de wachtrij leeg, ondanks de melding dat de labels succesvol waren klaargezet.
+- **Root Cause:** De auto-processor (`PrintQueueAutoProcessor.tsx`) filterde Firestore `collectionGroup('items')` documenten door te checken of `docSnap.ref.path` de `printQueuePathFragment` (met een leading slash, bijv. `"/production/print_queue/"`) bevatte. Echter, `ref.path` in de Firestore JS Web SDK bevat geen leading slash (`production/print_queue/...`), waardoor alle pending jobs stilzwijgend werden overgeslagen.
+- **Fix:** De leading slash is verwijderd uit het fragment en er is een robuuste normalisatie helper `isScopedPrintQueuePath` geïntroduceerd in `PrintQueueAutoProcessor.tsx` en `src/components/admin/PrintQueueAdminView.tsx` om de paden correct te matchen (net zoals in de actieve `PrintQueueAdminView.tsx`).
+
 **Aangepaste bestanden in deze sessie:**
 - `src/components/digitalplanning/terminal/TerminalPlanningView.tsx`
 - `package.json`
+- `src/components/printer/PrintQueueAutoProcessor.tsx`
+- `src/components/admin/PrintQueueAdminView.tsx`
 
 ---
 
