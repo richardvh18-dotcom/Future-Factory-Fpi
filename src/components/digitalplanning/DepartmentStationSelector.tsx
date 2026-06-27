@@ -246,7 +246,6 @@ const DepartmentStationSelector = ({ department, onBack, searchOrder }: Departme
       const singleStation = stations[0];
       // Don't auto-select teamleader hub
       if (!String(singleStation.name || "").toLowerCase().includes('teamleader')) {
-        console.log(`[DeptStationSelector] Auto-selecting single station: ${singleStation.name}`);
         setSelectedStation(String(singleStation.name || ""));
       }
     }

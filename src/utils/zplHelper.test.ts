@@ -34,7 +34,6 @@ describe('ZPL Font Calibration Tests', () => {
     // ^A0N,28,X = Zebra font, Normal rotation, ~28 dots height
     expect(zpl).toContain('^A0N,');
     expect(zpl).toMatch(/\^A0N,\d+,\d+/); // Ensure font spec is present
-    console.log('✓ Font height conversion applied');
   });
 
   test('Character width should be 52% of height', () => {
@@ -50,7 +49,6 @@ describe('ZPL Font Calibration Tests', () => {
     // fontHeightDots = Math.round(6.5 * 8) ≈ 52 dots
     // fontWidthDots = Math.round(52 * 0.52) ≈ 27 dots
     expect(zpl).toMatch(/\^A0N,\d+,\d+/);
-    console.log('✓ Character width ratio (52%) applied');
   });
 
   test('Font height should be within valid range (6-500 dots)', () => {
@@ -106,7 +104,6 @@ describe('ZPL Font Calibration Tests', () => {
       expect(height2).toBeLessThanOrEqual(500);
     }
 
-    console.log('✓ Font height range validation passed');
   });
 
   test('DPI conversion: 203 vs 300 DPI should scale proportionally', () => {
@@ -157,6 +154,5 @@ describe('ZPL Font Calibration Tests', () => {
     // Both should have valid font specs
     expect(zpl203).toMatch(/\^A0N,\d+,\d+/);
     expect(zpl300).toMatch(/\^A0N,\d+,\d+/);
-    console.log('✓ DPI conversion works for both 203 and 300 DPI');
   });
 });

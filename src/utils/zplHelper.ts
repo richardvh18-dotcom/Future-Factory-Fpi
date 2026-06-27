@@ -474,7 +474,6 @@ export const generatePrintData = (
     if (DEBUG_ZPL) {
         // Log de ZPL-output voor debugdoeleinden
          
-        console.log('--- ZPL OUTPUT ---\n' + zpl + '\n--- END ZPL ---');
     }
     return zpl;
 };

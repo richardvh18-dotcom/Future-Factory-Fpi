@@ -132,7 +132,6 @@ const AdminMatrixManager = ({ onNavigate }: { onNavigate?: (screen: string | nul
           setSiteConfig(migrated);
         }
 
-        console.log("✅ Matrix Hub: Alle data gesynchroniseerd.");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           addLog("error", `Sync fout: ${message}`);

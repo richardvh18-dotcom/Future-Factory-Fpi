@@ -79,7 +79,6 @@ const UserStationManager = () => {
         }
         
         // DEBUG: Controleer in de browser console (F12) welke landen er geladen worden
-        console.log("🌍 Gevonden landen in config:", [...new Set(stations.map(s => s.country))]);
 
         // Voeg speciale rollen toe
         stations.push({ 

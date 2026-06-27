@@ -1,6 +1,53 @@
-## Update sessie 24 juni 2026 (Inrichting 2e Firebase Project & Sync-Script)
+## Update sessie 27 juni 2026 (Backend Modularisatie & DND-kit UX)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Fase 2: Backend Cloud Functions Modularisatie**
+- **Probleem:** Het bestand `functions/index.js` bestond uit >2400 regels wat onderhoudbaarheid lastig maakte.
+- **Fix:** Een rigoureuze opsplitsing uitgevoerd via een script:
+  - Constanten naar `functions/src/config/constants.js`.
+  - Hulpfuncties (zoals parsing en filtering) naar `functions/src/utils/helpers.js`.
+  - Alle Firebase triggers verplaatst naar domeinspecifieke bestanden: `scheduledJobs.js`, `webhooks.js`, `storageTriggers.js`, `databaseTriggers.js`.
+  - `index.js` teruggebracht tot een schoon entrypoint voor Node.js.
+- **Validatie:** Via `tsc` geverifieerd dat de build intact blijft.
+
+**2. Fase 3: UX Workflows - Drag & Drop migratie**
+- **Probleem:** De applicatie gebruikte het legacy `react-beautiful-dnd` package voor de Kanban weergave.
+- **Fix:** Volledige migratie naar modernere tooling:
+  - `@dnd-kit/core`, `@dnd-kit/sortable`, en `@dnd-kit/utilities` geïnstalleerd.
+  - `react-beautiful-dnd` en gerelateerde types volledig verwijderd uit de codebase.
+  - `src/components/planning/KanbanBoardView.tsx` volledig herschreven om gebruik te maken van `DndContext`, `useDraggable`, en `useDroppable`.
+- **Validatie:** Type checks (`npm run type-check`) zijn succesvol doorlopen na de refactor.
+
+**3. Fase 4: Log Cleanup & TODO's (Task 7)**
+- **Probleem:** Er stonden nog overbodige `console.log` en `console.debug` statements in de frontend codebase die in de productieomgeving vervuilden.
+- **Fix:** Alle onnodige debug-logs (multi-line) handmatig verwijderd uit o.a. `WorkstationHub.tsx`, `useTeamleaderDataStore.ts`, `PrintQueueAutoProcessor.tsx`, `archiveService.ts` en `autoLearningService.ts`. De `scripts/clean_logs.cjs` was hiervoor onvoldoende omdat de logs verspreid stonden over meerdere regels. Enkel de log in `useAdminAuth.ts` is behouden, omdat deze netjes is afgeschermd achter een `DEBUG_AUTH` check.
+
+**4. Fase 5: Deployment & Version Bump**
+- **Beschrijving:** Volledige deployment (frontend + backend) getriggerd na de recente modularisatie en cleanup.
+- **Actie:** Applicatie versie succesvol gebumpt voor auto-refresh op de clients en uitgerold via Firebase.
+
+**Aangepaste bestanden in deze sessie:**
+- `functions/index.js` [MODIFY]
+- `functions/src/config/constants.js` [NEW]
+- `functions/src/utils/helpers.js` [NEW]
+- `functions/src/triggers/scheduledJobs.js` [NEW]
+- `functions/src/triggers/webhooks.js` [NEW]
+- `functions/src/triggers/storageTriggers.js` [NEW]
+- `functions/src/triggers/databaseTriggers.js` [NEW]
+- `src/components/planning/KanbanBoardView.tsx` [MODIFY]
+- `src/types/react-beautiful-dnd.d.ts` [DELETE]
+- `package.json` [MODIFY]
+- `src/components/printer/PrintQueueAutoProcessor.tsx` [MODIFY]
+- `src/components/digitalplanning/WorkstationHub.tsx` [MODIFY]
+- `src/components/digitalplanning/useTeamleaderDataStore.ts` [MODIFY]
+- `src/utils/archiveService.ts` [MODIFY]
+- `src/utils/autoLearningService.ts` [MODIFY]
+
+---
+
+## Update sessie 24 juni 2026 (Inrichting 2e Firebase Project & Sync-Script)**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
 
 ### Uitgevoerd in deze sessie
 **1. Multi-Environment Firebase Setup (Productie vs. Test/Staging)**

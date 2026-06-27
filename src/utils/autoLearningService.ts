@@ -101,7 +101,6 @@ export const analyzeAndUpdateStandards = async (options: AutoLearningOptions = {
       .map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }) as StandardRecord)
       .filter((record) => typeof record.itemCode === "string" && typeof record.machine === "string");
 
-    console.log(i18n.t("autolearning.analyzing", { count: standards.length, defaultValue: `[Auto-Learning] Analyzing ${standards.length} standards...` }));
 
     // Voor elke standaard, analyseer recente voltooide producties
     for (const standard of standards) {
@@ -157,9 +156,7 @@ export const analyzeAndUpdateStandards = async (options: AutoLearningOptions = {
 
         if (validProducts.length < minSamples) {
           results.skipped++;
-          console.log(
-            i18n.t("autolearning.skipped_samples", { item: standard.itemCode, machine: standard.machine, count: validProducts.length, min: minSamples, defaultValue: `[Auto-Learning] Skipped ${standard.itemCode}/${standard.machine}: only ${validProducts.length} samples (min: ${minSamples})` })
-          );
+
           continue;
         }
 
@@ -190,9 +187,7 @@ export const analyzeAndUpdateStandards = async (options: AutoLearningOptions = {
         // Check of afwijking significant genoeg is
         if (Math.abs(deviation) < 5) {
           // Minder dan 5% afwijking = geen update nodig
-          console.log(
-            i18n.t("autolearning.deviation_acceptable", { item: standard.itemCode, machine: standard.machine, deviation: deviation.toFixed(1), defaultValue: `[Auto-Learning] ${standard.itemCode}/${standard.machine}: deviation ${deviation.toFixed(1)}% is acceptable` })
-          );
+
           continue;
         }
 
@@ -242,13 +237,9 @@ export const analyzeAndUpdateStandards = async (options: AutoLearningOptions = {
           });
 
           results.updated++;
-          console.log(
-            i18n.t("autolearning.updated", { item: standard.itemCode, machine: standard.machine, old: currentStandard, new: roundedNew, samples: actualTimes.length, deviation: deviation.toFixed(1), defaultValue: `[Auto-Learning] Updated ${standard.itemCode}/${standard.machine}: ${currentStandard}m → ${roundedNew}m (${actualTimes.length} samples, ${deviation.toFixed(1)}% deviation)` })
-          );
+
         } else {
-          console.log(
-            i18n.t("autolearning.dry_run", { item: standard.itemCode, machine: standard.machine, old: currentStandard, new: roundedNew, defaultValue: `[Auto-Learning] [DRY RUN] Would update ${standard.itemCode}/${standard.machine}: ${currentStandard}m → ${roundedNew}m` })
-          );
+
         }
 
       } catch (error: unknown) {
@@ -268,7 +259,6 @@ export const analyzeAndUpdateStandards = async (options: AutoLearningOptions = {
     });
   }
 
-  console.log(i18n.t("autolearning.analysis_complete", "[Auto-Learning] Analysis complete:"), results);
   return results;
 };
 
@@ -277,7 +267,6 @@ export const analyzeAndUpdateStandards = async (options: AutoLearningOptions = {
  * Kan worden aangeroepen vanuit een Cloud Function of cron job
  */
 export const scheduledAutoLearning = async (): Promise<AutoLearningResults> => {
-  console.log(i18n.t("autolearning.starting_scheduled", "[Auto-Learning] Starting scheduled analysis..."));
   
   const results = await analyzeAndUpdateStandards({
     minSamples: 10,        // Wacht op minstens 10 voltooide producties

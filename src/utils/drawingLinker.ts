@@ -101,7 +101,6 @@ export const findDrawingForOrder = async (order: DrawingOrderInput): Promise<str
       const hit = productIndex.get(key);
       if (hit) {
         const result = hit.drawing || hit.id;
-        console.log(`[drawingLinker] Directe match voor '${rawCode}' → product: ${result}`);
         return result;
       }
     }
@@ -141,13 +140,11 @@ export const findDrawingForOrder = async (order: DrawingOrderInput): Promise<str
         const hit = productIndex.get(targetKey);
         if (hit) {
           const result = hit.drawing || hit.id;
-          console.log(`[drawingLinker] Conversie match: '${rawCode}' → '${targetKey}' → product: ${result}`);
           return result;
         }
       }
     }
 
-    console.log(`[drawingLinker] Geen match gevonden voor '${rawCode}'`);
     return null;
   } catch (error) {
     console.error(i18n.t("drawing.search_error", "Fout bij zoeken tekening:"), error);
@@ -186,7 +183,6 @@ export const syncOrderDrawing = async (orderId: string, drawing: string): Promis
  * of verplaatst worden naar een Firebase Cloud Function (Node.js) voor echte automatisering.
  */
 export const runBatchDrawingSync = async (): Promise<number> => {
-  console.log(i18n.t("drawing.batch_start", "Start batch sync..."));
   const ordersRef = collection(db, getPathString(PATHS.PLANNING));
   const snap = await getDocs(ordersRef);
   
@@ -204,6 +200,5 @@ export const runBatchDrawingSync = async (): Promise<number> => {
       }
     }
   }
-  console.log(i18n.t("drawing.batch_done", { count, defaultValue: `Batch sync klaar. ${count} orders bijgewerkt.` }));
   return count;
 };

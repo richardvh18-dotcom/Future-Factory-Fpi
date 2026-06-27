@@ -105,7 +105,6 @@ const buildLookupKeys = (value: unknown): string[] => {
  */
 export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Promise<SyncResultItem[]> => {
   try {
-    console.log(i18n.t("manualsync.start", "Start manual sync..."));
 
     // 1. Haal alle unieke itemCodes uit de planning (zowel root als scoped)
     const planningPath = getPathString(PATHS.PLANNING);
@@ -115,7 +114,6 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
     // NIEUW: Ook scoped orders ophalen (machines/*/orders)
     // We gebruiken collectionGroup voor "orders" en filteren op het actieve planning pad.
     // LET OP: Hiervoor is de index 'orders' in Firestore vereist.
-    console.log("Fetching scoped orders via collectionGroup...");
     let scopedDocs: QueryDocumentSnapshot<DocumentData, DocumentData>[] = [];
     try {
       const scopedSnap = await getDocs(collectionGroup(db, "orders"));
@@ -125,7 +123,6 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
     }
     
     const allPlanningDocs = [...planningSnap.docs, ...scopedDocs];
-    console.log(`Totaal ${allPlanningDocs.length} planning documenten gevonden (Root: ${planningSnap.size}, Scoped: ${scopedDocs.length})`);
 
     const uniqueItems = new Set<string>();
     const planningDocsByCode = new Map<string, PlanningDoc[]>();
@@ -182,7 +179,6 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
     });
 
     const total = uniqueItems.size;
-    console.log(`Unieke codes uit planning: ${total}`);
 
     let current = 0;
     const results: SyncResultItem[] = [];
@@ -190,7 +186,6 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
 
     // 2. Haal alle producten op uit de catalogus
     const productsPath = getPathString(PATHS.PRODUCTS);
-    console.log(`Product catalogus ophalen van: ${productsPath}`);
     const productsRef = collection(db, productsPath);
     const productsSnap = await getDocs(productsRef);
     
@@ -224,8 +219,6 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
     // DEBUG: Log ECHT wat we in de catalogus hebben om te vergelijken
     const catalogKeysSample = Array.from(productsByCode.keys()).slice(0, 50);
     const catalogIdsSample = productsSnap.docs.slice(0, 10).map(d => d.id);
-    console.log("Catalogus Ids (eerste 10):", catalogIdsSample);
-    console.log("Catalogus index sample (keys):", catalogKeysSample);
 
     // 2b. Haal conversies op voor fallback (Old Code -> New Code)
     const conversionsPath = getPathString(PATHS.CONVERSION_MATRIX);
@@ -262,11 +255,9 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
             }
         }
     });
-    console.log(i18n.t("manualsync.conversion_count", "Conversie matrix geladen: {count} regels.", { count: conversionsByOldCode.size }));
     
     // DEBUG: Toon een sample van beschikbare codes om te vergelijken
     const availableKeys = Array.from(productsByCode.keys()).slice(0, 15);
-    console.log(i18n.t("manualsync.available_codes", "Beschikbare product codes (sample):"), availableKeys);
 
     // 3. Itereer en match
     for (const itemCode of uniqueItems) {
@@ -307,12 +298,10 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
 
       // DEBUG: Log de eerste paar pogingen om te zien wat er mis gaat
       if (current <= 10) {
-        console.log(`${i18n.t("manualsync.searching", "Zoeken naar item")}: '${itemCode}' (clean: '${cleanCode}') -> Keys:`, lookupKeys, `-> ${match ? i18n.t("manualsync.found", "GEVONDEN") : i18n.t("manualsync.not_found", "NIET GEVONDEN")}`);
       }
 
       if (match) {
         // MATCH GEVONDEN! Update planning docs direct met drawing link
-        console.log(i18n.t("manualsync.match_found", { item: itemCode, name: match.name, id: match.id, defaultValue: `Match found for ${itemCode}: ${match.name} (${match.id})` }));
         const docsToUpdate = planningDocsByCode.get(itemCode);
         if (docsToUpdate && docsToUpdate.length > 0) {
             // Batch updates in chunks of 400
@@ -382,7 +371,6 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
                     }
                 }
                 removedCount = docsWithDrawing.length;
-                console.log(i18n.t("manualsync.old_link_removed", { item: itemCode, count: removedCount, defaultValue: `Oude koppeling verwijderd voor: ${itemCode} (${removedCount} items)` }));
             }
         }
 
@@ -418,7 +406,6 @@ export const manualSyncDrawings = async (onProgress?: SyncProgressCallback): Pro
       console.warn("Failed to update lastDrawingSync:", err);
     }
 
-    console.log(i18n.t("manualsync.sync_done", "Sync voltooid. {count} matches gevonden en opgeslagen.", { count: savedCount }));
     return results;
   } catch (error) {
     console.error(i18n.t("manualsync.error", "Manual Sync Error:"), error);

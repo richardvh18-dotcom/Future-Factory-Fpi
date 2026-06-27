@@ -163,7 +163,6 @@ async function queuePrintJobService(printerId, zplData, metadata = {}, context) 
 
   await scopedRef.set(jobData, { merge: true });
 
-  console.log(`[Printing] Print job queued (scoped): ${scopedRef.path} (printer: ${printerId}, machine: ${scopedMachine})`);
   return docRef.id;
 }
 

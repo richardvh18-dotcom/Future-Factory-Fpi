@@ -143,18 +143,14 @@ const DigitalPlanningHub = () => {
     }
 
     try {
-      console.log('[DigitalPlanningHub] Location:', location.pathname);
-      console.log('[DigitalPlanningHub] State:', location.state);
       
       const state = (location.state || {}) as LocationState;
       if (state.searchOrder) {
-        console.log('[DigitalPlanningHub] Search order:', state.searchOrder);
         setSearchOrderNumber(state.searchOrder);
       }
       
       // Als we via een link met state binnenkomen (bijv. vanaf Portal)
       if (state.initialView) {
-        console.log('[DigitalPlanningHub] Setting activeDept:', state.initialView);
         setActiveDept(state.initialView);
       } else if (!state.searchOrder) {
         // FIX: Reset naar hoofdmenu als er geen specifieke state is (bijv. klik op Sidebar)

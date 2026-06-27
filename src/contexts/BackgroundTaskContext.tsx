@@ -156,7 +156,6 @@ export const BackgroundTaskProvider = ({ children }: { children: React.ReactNode
             const newlyCompleted = updatedTasks.find(t => t.status === 'completed' && !t.notified);
             if (newlyCompleted) {
                 // Hier kun een browser notification of een UI toast triggeren
-                console.log(`Taak voltooid: ${newlyCompleted.taskName}`);
             }
         }, (error) => {
             const code = String(error?.code || "").toLowerCase();

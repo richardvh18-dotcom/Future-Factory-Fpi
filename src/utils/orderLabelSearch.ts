@@ -52,7 +52,6 @@ export const executeOrderLabelSearch = async (
   
   const diagnostics: string[] = [];
   const addDebug = (msg: string) => {
-    console.log(msg);
     diagnostics.push(msg);
   };
   

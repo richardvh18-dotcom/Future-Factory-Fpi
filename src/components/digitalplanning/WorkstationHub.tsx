@@ -629,18 +629,15 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
   // Als searchOrder is meegegeven, zoek en select die order
   useEffect(() => {
     if (searchFilterOrder && rawOrders.length > 0) {
-      console.log(`🔍 WorkstationHub: Zoeken naar order ${searchFilterOrder}`);
       const foundOrder = rawOrders.find((order: PlanningOrder) => 
         order.orderId === searchFilterOrder || order.id === searchFilterOrder
       );
       
       if (foundOrder) {
-        console.log(`✅ Order gevonden:`, foundOrder);
         useWorkstationStore.getState().setSelectedOrder(foundOrder);
         setActiveTab("terminal"); // Toon de orders tab
         showInfo(t("digitalplanning.workstation.order_loaded", { order: searchFilterOrder }));
       } else {
-        console.log(`⚠️ Order ${searchFilterOrder} niet gevonden in planning`);
         showWarning(t("digitalplanning.workstation.order_not_found", { order: searchFilterOrder }));
       }
     }
@@ -2072,9 +2069,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
         const match = (
           pCleanUpper === "NABEWERKING" || pCleanUpper === "NABEWERKEN" || pCleanUpper === "NABW" || pCleanUpper.includes("NABEWERK")
         );
-        console.log(
-          `[Nabewerking Filter Debug] lotNumber: ${p.lotNumber}, id: ${p.id}, currentStation: ${p.currentStation}, currentStep: ${p.currentStep}, match: ${match}`
-        );
+
         return match;
       }
       

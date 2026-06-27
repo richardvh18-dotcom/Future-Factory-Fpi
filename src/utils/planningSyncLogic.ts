@@ -50,7 +50,6 @@ export const syncMissingDrawings = async (
       .filter((order) => !order.articleCode || !order.drawingUrl);
 
     const total = ordersToCheck.length;
-    console.log(`Start sync voor ${total} orders in digital_planning...`);
 
     for (let i = 0; i < total; i++) {
       const order = ordersToCheck[i];

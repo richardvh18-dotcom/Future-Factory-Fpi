@@ -31,7 +31,6 @@ exports.syncUserClaimsOnWrite = functions.region('europe-west1').firestore
         role: role || null,
       });
       
-      console.log(`Successfully synced role '${role}' to custom claims for user ${userId}`);
       
       const { logSystem } = require('../services/auditService');
       logSystem('USER_ROLE_CHANGED', { userId, oldRole: beforeRole, newRole: role }, { category: 'SECURITY', severity: 'WARNING' });

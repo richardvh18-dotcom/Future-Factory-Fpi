@@ -503,9 +503,6 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
         const dept = factoryConfig.departments?.find(d => d.id === id);
         return dept ? dept.name : id;
       });
-      console.log("📊 Department IDs in occupancy:", uniqueDeptIds);
-      console.log("📊 Department Names:", uniqueDeptNames);
-      console.log("🔍 Filtering for:", selectedDepartment);
     }
 
     // Filter op afdeling als niet "ALLES"
@@ -623,12 +620,9 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
         const dept = factoryConfig.departments?.find(d => d.id === id);
         return dept ? dept.name : id;
       });
-      console.log("📋 Department IDs in planning:", uniqueDeptIds);
-      console.log("📋 Department Names:", uniqueDeptNames);
     }
 
     // DEBUG: Toon alle machines die in de database gevonden zijn voordat er gefilterd wordt
-    console.log("🔍 Machines in database (Raw):", [...new Set(planningOrders.map(o => o.machine))]);
 
     // Filter op afdeling als niet "ALLES"
     if (selectedDepartment !== "ALLES") {
@@ -1908,7 +1902,6 @@ const CapacityPlanningView = ({ initialDepartment, lockDepartment = false, onNav
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         onSuccess={() => {
-          console.log("Uren geïmporteerd");
         }}
       />
       </div>

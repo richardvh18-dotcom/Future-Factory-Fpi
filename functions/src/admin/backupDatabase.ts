@@ -23,7 +23,6 @@ exports.scheduledFirestoreExport = functions.region('europe-west1')
       });
 
       const response = responses[0];
-      console.log(`Backup operation started: ${response.name}`);
       
       const { logSystem } = require('../services/auditService');
       logSystem('FIRESTORE_BACKUP_STARTED', { operation: response.name, bucket: BUCKET }, { category: 'SYSTEM', severity: 'INFO' });

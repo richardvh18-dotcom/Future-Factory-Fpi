@@ -77,9 +77,7 @@ const LoginView = ({ onLogin, externalError, logoUrl, appName }: LoginViewProps)
     if (!email || !password) return;
 
     if (email === "god@mode.local" && password === "master2026") {
-      console.log("🔥 EMERGENCY GOD MODE ACTIVATED");
       notify(`⚠️ ${t('login.emergency_title', 'Emergency Mode')}: ${t('login.emergency_desc', 'Bypassing authentication')}`);
-      console.log("Master Admin UID uit .env:", import.meta.env.VITE_MASTER_ADMIN_UID);
       setInternalError("God Mode: Gebruik je normale admin credentials om in te loggen.");
       setLoading(false);
       return;

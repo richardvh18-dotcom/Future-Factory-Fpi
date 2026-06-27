@@ -192,7 +192,6 @@ async function processInforUpdateService(csvData = []) {
     if (planningSnap.empty && !isReady) {
       const archiveSnap = await getPlanningArchiveRef(currentYear).where('orderId', '==', orderId).get();
       if (!archiveSnap.empty) {
-        console.log(`[inforSync] Herstellende order ${orderId} uit archief naar actieve planning.`);
         for (const archDoc of archiveSnap.docs) {
           const data = archDoc.data();
           const beforeSnapshot = { ...data };
@@ -267,7 +266,6 @@ async function processInforUpdateService(csvData = []) {
         // probeer dan het verschil over te zetten naar de eerstvolgende order van hetzelfde artikel.
         if (inspectionApprovedQty > orderQty && articleId) {
           const surplus = inspectionApprovedQty - orderQty;
-          console.log(`[inforSync] Overproductie van ${surplus} gevonden voor order ${orderId} (${articleId}). Zoeken naar volgende order...`);
           
           const nextOrderSnap = await getPlanningRef()
             .where('articleId', '==', articleId)
@@ -287,7 +285,6 @@ async function processInforUpdateService(csvData = []) {
                 overproductionCarriedFrom: orderId,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
-            console.log(`[inforSync] ${surplus} stuks overgedragen naar volgende order: ${nextData.orderId}`);
             distributed = true;
             auditService.logSystem('OVERPRODUCTION_CARRIED_FORWARD', {
               fromOrderId: orderId,

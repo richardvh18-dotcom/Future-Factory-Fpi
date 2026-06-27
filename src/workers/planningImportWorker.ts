@@ -395,17 +395,14 @@ workerScope.onmessage = (event) => {
       return;
     }
 
-    console.log("[Worker] Starting parse, buffer size:", arrayBuffer.byteLength);
     
     const rows = parseWorkbook(arrayBuffer);
     
-    console.log("[Worker] Parse complete, rows:", rows.length);
     
     // Split payload if too large (safety measure for big files)
     // Browser postMessage has limits on serializable data
     const chunkSize = 5000;
     if (rows.length > chunkSize) {
-      console.log("[Worker] Large payload detected, chunking...");
       let sent = 0;
       while (sent < rows.length) {
         const chunk = rows.slice(sent, sent + chunkSize);

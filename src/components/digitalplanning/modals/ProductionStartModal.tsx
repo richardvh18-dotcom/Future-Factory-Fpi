@@ -845,7 +845,6 @@ const ProductionStartModal = ({
         if (scopedExists) return true;
       } catch (scopedErr: any) {
         // Niet blokkeren op index/permissie issues; overige checks blijven actief.
-        console.debug("Scoped lot-check overgeslagen:", getErrorMessage(scopedErr));
       }
 
       // 3) Legacy active production check (orders met activeLot)
@@ -937,7 +936,6 @@ const ProductionStartModal = ({
             if (seq > maxSeq) maxSeq = seq;
           });
         } catch (scopedErr: any) {
-          console.debug("Scoped sequence lookup overgeslagen:", getErrorMessage(scopedErr));
         }
 
     } catch (error: any) {
@@ -1697,7 +1695,6 @@ const ProductionStartModal = ({
               throw new Error(`Lege printpayload opgebouwd voor template ${templateToPrint.name}.`);
             }
 
-            console.log(`🖨️ [Print Queue] Aanmaken job voor template: ${templateToPrint.name} (ID: ${templateToPrint.id}), Aantal: ${labelsToPrint}`);
 
             await queuePrintJob(
                 targetPrinter.id,
@@ -1747,7 +1744,6 @@ const ProductionStartModal = ({
                 lots: lotBatchLots,
               }
             );
-            console.log("[ProductionStartModal] String lot batch queue job created:", queueJobId, "printer:", targetPrinter.id, "zplLength:", normalizedLotBatchData.length);
             showSuccess(t("productionStartModal.notifications.stringLotsQueued", { count: lotBatchLots.length, printer: targetPrinter.name }));
           } else {
             showError(t("productionStartModal.errors.noPrinterConfigured", { stationId }));

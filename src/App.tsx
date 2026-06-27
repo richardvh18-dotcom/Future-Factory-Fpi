@@ -154,7 +154,6 @@ const App = () => {
       );
 
       if (isUserTyping) {
-        console.log("Update beschikbaar, maar gebruiker is actief. Herlaad 30s uitgesteld...");
         setTimeout(() => {
           void requestVersionReload(remoteVersionRaw);
         }, 30000);
