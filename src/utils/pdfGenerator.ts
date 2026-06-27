@@ -62,7 +62,6 @@ const imageToDataUri = async (url: string | null | undefined): Promise<string | 
  */
 export const generateProductPDF = async (product: ProductRecord, role = "operator"): Promise<void> => {
   // Toon een kleine indicatie in de console dat we bezig zijn
-  console.log(i18n.t("pdf.generating_for", "PDF genereren voor:"), product.name);
 
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import("jspdf"),

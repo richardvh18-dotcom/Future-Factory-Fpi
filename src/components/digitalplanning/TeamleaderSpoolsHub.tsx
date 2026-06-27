@@ -30,21 +30,17 @@ const TeamleaderSpoolsHub = React.memo((props: Record<string, unknown>) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('[TeamleaderSpoolsHub] Initializing, path:', PATHS.FACTORY_CONFIG.join('/'));
     const docRef = (doc as any)(db, ...(PATHS.FACTORY_CONFIG as string[]));
 
     const unsubscribe = onSnapshot(
       docRef,
       (docSnap: any) => {
-        console.log('[TeamleaderSpoolsHub] Factory config exists:', docSnap.exists());
         if (docSnap.exists()) {
           const data = docSnap.data() as FactoryConfigDoc;
-          console.log('[TeamleaderSpoolsHub] Departments:', data.departments?.length || 0);
           const myDept = (data.departments || []).find(
             (d: DepartmentConfig) => d.slug === "spools" || d.id === "spools"
           );
           if (myDept) {
-            console.log('[TeamleaderSpoolsHub] Found spools dept with', myDept.stations?.length || 0, 'stations');
             const activeStations = (myDept.stations || []).filter((s: StationConfig) => s.isAvailableForPlanning !== false);
             setStations(activeStations);
           } else {
@@ -62,7 +58,6 @@ const TeamleaderSpoolsHub = React.memo((props: Record<string, unknown>) => {
     );
 
     return () => {
-      console.log('[TeamleaderSpoolsHub] Cleanup');
       unsubscribe();
     };
   }, []);

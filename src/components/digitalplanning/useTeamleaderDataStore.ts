@@ -224,22 +224,6 @@ export const useTeamleaderDataStore = ({
   const dataStore = useMemo(() => {
     if (!rawOrders) return [];
 
-    const bh17InRaw = rawOrders.filter((o) =>
-      String(o.machine || "").toUpperCase().includes("BH17")
-    );
-    if (bh17InRaw.length > 0) {
-      console.log(
-        "[DEBUG BH17] dataStore: BH17 orders in rawOrders:",
-        bh17InRaw.length,
-        "effectiveAllowedNorms:",
-        effectiveAllowedNorms,
-        "targetSlug:",
-        targetSlug,
-        "departmentFilter:",
-        departmentFilter
-      );
-    }
-
     return rawOrders
       .map((o) => {
         const normMachine = normalizeMachine(o.machine || "");

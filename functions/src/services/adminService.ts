@@ -29,7 +29,6 @@ async function updateUserProfileService(userId, profileData) {
 
   await userRef.set(sanitizedData, { merge: true });
 
-  console.log(`[Admin] User profile updated: ${userId}`);
   return { ok: true, userId };
 }
 
@@ -45,7 +44,6 @@ async function clearPasswordChangeFlagService(userId) {
   
   await userRef.set({ requirePasswordChange: false }, { merge: true });
 
-  console.log(`[Admin] Password change flag cleared for: ${userId}`);
   return { ok: true, userId };
 }
 
@@ -79,7 +77,6 @@ async function submitAccountRequestService(requestData) {
     processedBy: null,
   });
 
-  console.log(`[Admin] New account request: ${docRef.id} (${email})`);
   return { ok: true, requestId: docRef.id };
 }
 
@@ -105,7 +102,6 @@ async function updateUserLanguageService(userId, language) {
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  console.log(`[Admin] Language preference updated for ${userId}: ${lang}`);
   return { ok: true, userId, language: lang };
 }
 

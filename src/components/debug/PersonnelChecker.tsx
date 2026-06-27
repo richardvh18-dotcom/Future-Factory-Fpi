@@ -36,13 +36,10 @@ const PersonnelChecker: React.FC = () => {
     setError(null);
     try {
       const path = PATHS.PERSONNEL.join('/');
-      console.log('🔍 Checking path:', path);
       
       const snap = await getDocs(collection(db, ...(PATHS.PERSONNEL as [string, ...string[]])));
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      console.log('✅ Found personnel:', items.length);
-      console.log('📋 Items:', items);
       
       setData({
         path,

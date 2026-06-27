@@ -101,15 +101,7 @@ class AIService {
   async debugListDocuments() {
     try {
       const docs = await this.getAiDocuments(50);
-      console.log(`\n📚 === AI DOCUMENTEN DATABASE (${docs.length} totaal) ===`);
       docs.forEach((doc, idx) => {
-        console.log(`\n${idx + 1}. ${doc.fileName}`);
-        console.log(`   ID: ${doc.id}`);
-        console.log(`   Parsed: ${doc.parsed}`);
-        console.log(`   Character Count: ${doc.characterCount || 'N/A'}`);
-        console.log(`   Has fullText: ${!!doc.fullText}`);
-        console.log(`   Summary: ${doc.analysis?.summary?.substring(0, 100) || 'N/A'}...`);
-        console.log(`   Tags: ${doc.analysis?.tags?.join(', ') || 'N/A'}`);
       });
       return docs;
     } catch (error) {
@@ -122,13 +114,9 @@ class AIService {
    * Debug: Test document search
    */
   async debugSearchDocuments(searchTerm: string) {
-    console.log(`\n🔍 === SEARCH TEST voor: "${searchTerm}" ===`);
     const terms = this.extractSearchTerms(searchTerm);
-    console.log('Geëxtraheerde zoektermen:', terms);
     const results = await this.searchAiDocuments(searchTerm);
-    console.log(`Resultaten: ${results.length}`);
     results.forEach((doc, idx) => {
-      console.log(`${idx + 1}. ${doc.fileName} (${doc.characterCount || 0} chars)`);
     });
     return results;
   }
@@ -137,10 +125,7 @@ class AIService {
    * Debug: Test context generation
    */
   async debugTestContext(query: string) {
-    console.log(`\n📊 === CONTEXT TEST voor: "${query}" ===`);
     const context = await this.getRelevantContext(query);
-    console.log(`Context lengte: ${context.length} karakters`);
-    console.log(`\nContext preview:\n${context.substring(0, 500)}...`);
     return context;
   }
 
@@ -170,7 +155,6 @@ class AIService {
       
       // Probeer PATHS.PLANNING eerst
       try {
-        console.log('🔎 Trying PATHS.PLANNING: /future-factory/production/digital_planning');
         const planningCollection = collection(db, getPathString(PATHS.PLANNING));
         const q = query(planningCollection, limit(limitCount));
         const snapshot = await getDocs(q);
@@ -180,16 +164,13 @@ class AIService {
           ...(doc.data() as Record<string, any>)
         }));
         
-        console.log(`📦 PATHS.PLANNING: ${planningOrders.length} documenten gevonden`);
         pushUnique(planningOrders, 'PLANNING');
       } catch (error) {
-        console.log('⚠️ PATHS.PLANNING error:', getErrorMessage(error));
       }
 
       // Legacy planning pad fallback
       try {
         const legacyPath = ['future-factory', 'production', 'data', 'digital_planning', 'orders'];
-        console.log('🔎 Trying LEGACY planning path:', legacyPath.join('/'));
         const legacyCollection = collection(db, getPathString(legacyPath));
         const legacySnap = await getDocs(query(legacyCollection, limit(limitCount)));
 
@@ -198,15 +179,12 @@ class AIService {
           ...(doc.data() as Record<string, any>)
         }));
 
-        console.log(`📦 LEGACY planning: ${legacyOrders.length} documenten gevonden`);
         pushUnique(legacyOrders, 'PLANNING_LEGACY');
       } catch (error) {
-        console.log('⚠️ LEGACY planning error:', getErrorMessage(error));
       }
 
       // Scoped orders fallback via collectionGroup
       try {
-        console.log('🔎 Trying collectionGroup("orders") fallback');
         const scopedSnap = await getDocs(query(collectionGroup(db, 'orders'), limit(Math.max(80, limitCount * 3))));
 
         const scopedOrders = scopedSnap.docs.map(doc => ({
@@ -214,15 +192,12 @@ class AIService {
           ...(doc.data() as Record<string, any>)
         }));
 
-        console.log(`📦 Scoped orders: ${scopedOrders.length} documenten gevonden`);
         pushUnique(scopedOrders, 'PLANNING_SCOPED');
       } catch (error) {
-        console.log('⚠️ Scoped orders fallback error:', getErrorMessage(error));
       }
       
       // Probeer PATHS.TRACKING
       try {
-        console.log('🔎 Trying PATHS.TRACKING: /future-factory/production/tracked_products');
         const trackingCollection = collection(db, getPathString(PATHS.TRACKING));
         const q = query(trackingCollection, limit(limitCount));
         const snapshot = await getDocs(q);
@@ -232,16 +207,12 @@ class AIService {
           ...(doc.data() as Record<string, any>)
         }));
         
-        console.log(`📦 PATHS.TRACKING: ${trackedOrders.length} documenten gevonden`);
         pushUnique(trackedOrders, 'TRACKING');
       } catch (error) {
-        console.log('⚠️ PATHS.TRACKING error:', getErrorMessage(error));
       }
       
       // Log eerste doc structure
       if (allOrders.length > 0) {
-        console.log('📄 Eerste order strukture:', Object.keys(allOrders[0]));
-        console.log('📄 Sample data:', allOrders[0]);
       }
       
       return allOrders;
@@ -297,12 +268,9 @@ class AIService {
       const lotNumberMatch = searchTerm.match(/\b\d{10,20}\b/);
       const lotNumber = lotNumberMatch ? lotNumberMatch[0] : null;
       
-      console.log(`🔎 searchProductionOrders: zoeken naar "${searchTerm}"`);
       if (orderNumber) {
-        console.log(`   Gevonden ordernummer format: ${orderNumber}`);
       }
       if (lotNumber) {
-        console.log(`   Gevonden lotnummer format: ${lotNumber}`);
       }
       
       // Filter orders
@@ -318,7 +286,6 @@ class AIService {
         // Als we een ordernummer gevonden hebben, check daar eerst
         if (orderNumber) {
           if (orderId.includes(orderNumber) || itemCode.includes(orderNumber)) {
-            console.log(`   ✅ Match gevonden: orderId="${orderId}"`);
             return true;
           }
         }
@@ -327,7 +294,6 @@ class AIService {
         if (lotNumber) {
           const lotUpper = lotNumber.toUpperCase();
           if (lotNumbers.some((n) => n.includes(lotUpper))) {
-            console.log(`   ✅ Match gevonden: lotnummer="${lotNumber}"`);
             return true;
           }
         }
@@ -344,7 +310,6 @@ class AIService {
         );
       });
       
-      console.log(`✅ Found ${filtered.length} matching orders`);
       
       // Sorteer zodat exacte matches eerst komen
       return filtered.sort((a, b) => {
@@ -408,7 +373,6 @@ class AIService {
         }
         const docs = snapshot.docs.map(d => ({ id: d.id, source: pathKey, ...(d.data() as Record<string, any>) }));
         results.push(...docs);
-        console.log(`📦 Recent activity from ${pathKey}: ${docs.length} items`);
       } catch (error) {
         console.warn(`⚠️ Kon recente activiteit niet ophalen uit ${pathKey}:`, getErrorMessage(error));
       }
@@ -435,7 +399,6 @@ class AIService {
         }
         const docs = snapshot.docs.map(d => ({ id: d.id, source: pathKey, ...(d.data() as Record<string, any>) }));
         results.push(...docs);
-        console.log(`⏱️ Times from ${pathKey}: ${docs.length} items`);
       } catch (error) {
         console.warn(`⚠️ Kon tijden niet ophalen uit ${pathKey}:`, getErrorMessage(error));
       }
@@ -445,7 +408,6 @@ class AIService {
       const efficiencyRows = await fetchScopedEfficiencyHours({ db, mode: 'active', maxDocs: limitCount });
       const docs = efficiencyRows.map((row) => ({ ...row, source: 'EFFICIENCY_HOURS' }));
       results.push(...docs);
-      console.log(`⏱️ Times from EFFICIENCY_HOURS(scoped): ${docs.length} items`);
     } catch (error) {
       console.warn('⚠️ Kon scoped efficiency tijden niet ophalen:', getErrorMessage(error));
     }
@@ -1298,7 +1260,6 @@ class AIService {
   async searchAiDocuments(searchTerm: string): Promise<AiDocument[]> {
     try {
       const docs = await this.getAiDocuments(30);
-      console.log(`📑 searchAiDocuments: ${docs.length} totale documenten beschikbaar`);
       
       if (docs.length === 0) {
         console.warn('⚠️ Geen documenten in database!');
@@ -1307,7 +1268,6 @@ class AIService {
       
       // Extracteer belangrijke zoektermen
       const searchTerms = this.extractSearchTerms(searchTerm);
-      console.log(`🔍 Zoektermen geëxtraheerd:`, searchTerms);
       
       // Als geen goede termen, gebruik originele search term
       if (searchTerms.length === 0) {
@@ -1333,13 +1293,11 @@ class AIService {
         const found = searchTerms.some(term => haystack.includes(term));
         
         if (found) {
-          console.log(`✅ Match gevonden in: ${docItem.fileName} (matched terms: ${searchTerms.filter(t => haystack.includes(t)).join(', ')})`);
         }
         
         return found;
       });
       
-      console.log(`📊 Search voor "${searchTerm}": ${results.length} resultaten`);
       return results;
     } catch (error) {
       console.error('Error searching AI documents:', error);
@@ -1409,7 +1367,6 @@ class AIService {
       const entities = this.extractEntityTokens(userQuery);
       const scenario = this.parsePlanningScenario(userQuery);
       
-      console.log('🔍 AI Context: Zoeken naar:', userQuery);
 
       // ALTIJD eerst een compacte live snapshot toevoegen.
       try {
@@ -1427,22 +1384,18 @@ class AIService {
             contextData += `- **${mem.topic}**: ${mem.content}\n`;
           });
           contextData += '\n';
-          console.log(`🧠 ${memories.length} geheugen-item(s) gevonden voor context`);
         }
       } catch (err) { console.warn('Kon geheugen niet laden voor context:', err); }
 
       // EERSTE: Probeer ALTIJD document context te vinden
       // Doe een brede zoekactie in alle documenten
       const docs = await this.searchAiDocuments(userQuery);
-      console.log(`📚 Document search resultaten: ${docs.length} documenten gevonden`);
       
       if (docs.length > 0) {
-        console.log('📚 Gevonden documenten:', docs.map(d => `"${d.fileName}" (${d.characterCount || 0} chars)`).join(', '));
         contextData += `\n\n${i18n.t("ai.context.relevant_docs", "📚 RELEVANTE DOCUMENTEN:")}\n`;
         contextData += '='.repeat(60) + '\n';
 
         docs.slice(0, 3).forEach((docItem, idx) => {
-          console.log(`  📄 Document ${idx + 1}: ${docItem.fileName}, parsed: ${docItem.parsed}, has fullText: ${!!docItem.fullText}`);
           contextData += `\n[Document ${idx + 1}]\n`;
           contextData += `Bestand: ${docItem.fileName || 'Onbekend'}\n`;
           if (docItem.analysis?.title) contextData += `Titel: ${docItem.analysis.title}\n`;
@@ -1492,7 +1445,6 @@ class AIService {
       
       if (isOrderRelated || queryStr.includes('product')) {
         const orders = await this.searchProductionOrders(userQuery);
-        console.log('📦 Orders gevonden:', orders.length);
         
         if (orders.length > 0) {
           contextData += `\n\n${i18n.t("ai.context.prod_orders", "📦 PRODUCTIE ORDER INFORMATIE:")}\n`;
@@ -1564,7 +1516,6 @@ class AIService {
           
           contextData += '\n' + '='.repeat(60) + '\n';
         } else {
-          console.log('⚠️ Geen orders gevonden voor:', userQuery);
           contextData += `\n\n${i18n.t("ai.context.no_orders_found", "⚠️ Geen productie orders gevonden in database voor:")} ${userQuery}\n`;
         }
       }
@@ -1688,19 +1639,15 @@ class AIService {
 
       if (isCapacityQuery) {
         try {
-          console.log('📊 Capaciteitscontext ophalen...');
           const capacityCtx = await this.getCapacityContext();
           contextData += capacityCtx;
-          console.log('✅ Capaciteitscontext toegevoegd');
         } catch (err) {
           console.warn('Kon capaciteitscontext niet laden:', err);
         }
 
         try {
-          console.log('🧠 Voorspellende planningscontext ophalen...');
           const predictiveCtx = await this.getPredictivePlanningContext(scenario);
           contextData += predictiveCtx;
-          console.log('✅ Voorspellende planningscontext toegevoegd');
         } catch (err) {
           console.warn('Kon voorspellende planning niet laden:', err);
         }
@@ -1755,11 +1702,8 @@ class AIService {
       
       contextData = clamp(contextData, 7800);
 
-      console.log('📊 Context data lengte:', contextData.length, 'bytes');
       if (contextData.length > 100) {
-        console.log('📋 Context preview:', contextData.substring(0, 200) + '...');
       } else {
-        console.log('⚠️ Waarschuwing: Zeer weinig context data!');
       }
       return contextData;
     } catch (error) {
@@ -1810,23 +1754,16 @@ class AIService {
     if (includeContext && messages.length > 0) {
       const lastUserMessage = messages[messages.length - 1];
       if (lastUserMessage && lastUserMessage.role === 'user') {
-        console.log('🤖 Gathering context for:', lastUserMessage.content.substring(0, 50));
         const context = await this.getRelevantContext(lastUserMessage.content);
         
-        console.log(`📊 Context opgehaald: ${context.length} karakters`);
         
         if (context && context.trim().length > 0) {
-          console.log('✅ Context toegevoegd aan prompt');
-          console.log('📝 Context bevat documenten:', context.includes('RELEVANTE DOCUMENTEN'));
-          console.log('📝 Context bevat orders:', context.includes('PRODUCTIE ORDER'));
           enhancedSystemPrompt = this.composeSystemPrompt(enhancedSystemPrompt, context);
         } else {
-          console.log('⚠️ Geen context gevonden, gebruik standaard system prompt');
         }
       }
     }
 
-    console.log(`📤 Verzenden naar AI met system prompt lengte: ${enhancedSystemPrompt.length} karakters`);
     return this.chat(messages, enhancedSystemPrompt, options);
   }
 
@@ -1886,7 +1823,6 @@ class AIService {
         'AI_MEMORY_SAVE',
         `AI memory opgeslagen: ${topic || 'zonder onderwerp'}`
       );
-      console.log('💾 AI Geheugen opgeslagen:', topic);
     } catch (error) {
       console.error('Error saving AI memory:', error);
       throw error;

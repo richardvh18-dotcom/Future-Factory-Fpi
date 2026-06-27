@@ -246,7 +246,6 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
             const selectedForAction = selectedProductRef.current || selectedProduct;
 
             // Debug: log scan
-            console.debug('[BM01] Scan ontvangen:', code, 'selectedProduct:', selectedForAction);
 
             // Goedkeuren met QR-code (OK QR)
             if (code === QR_CODE_OK_CONFIRMATION && selectedForAction) {
@@ -262,7 +261,6 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
                 setShowFinishModal(true); // Direct popup openen
                 setScanInput("");
                 // Debug: log gevonden product
-                console.debug('[BM01] Product gevonden en popup geopend:', found);
             } else {
                 const foundElsewhere = products.find((i: ProductRecord) => (i.lotNumber || "").toUpperCase() === code);
                 if (foundElsewhere) {
@@ -594,7 +592,6 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
             return isNaharding && !isClosed;
         });
 
-        console.debug('[BM01] Naharding filter:', items.length, 'items gevonden');
         return items.sort((a, b) => getNahardingOfferedMillis(b) - getNahardingOfferedMillis(a));
     }, [products]);
 

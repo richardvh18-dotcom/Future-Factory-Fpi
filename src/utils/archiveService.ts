@@ -40,9 +40,7 @@ export const archiveOrder = async (order: ArchiveOrderInput | null | undefined, 
     const resData = res?.data as Record<string, unknown> | null;
     const archiveYear = (resData?.archiveYear as number) || new Date().getFullYear();
 
-    console.log(
-      i18n.t("archive.success", { order: order.orderId || order.id, year: archiveYear, defaultValue: `Order ${order.orderId || order.id} succesvol verplaatst naar archief (${archiveYear})` })
-    );
+
     return true;
   } catch (error) {
     console.error(i18n.t("archive.error", "Fout bij archiveren:"), error);

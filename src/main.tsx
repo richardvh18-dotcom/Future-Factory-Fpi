@@ -64,19 +64,14 @@ if (shouldAttachManifest) {
  */
 
 // Debug logging voor Safari/iPad issues
-console.log("🚀 App initializing...");
-console.log("📱 User Agent:", navigator.userAgent);
-console.log("🌐 Browser:", /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent) ? "Safari" : "Other");
 
 // Eruda debug console voor iPad/mobiel (activeer met ?debug=true in URL)
 if (window.location.search.includes('debug=true') || localStorage.getItem('eruda-debug') === 'true') {
-  console.log("🐛 Loading Eruda debug console...");
   const script = document.createElement('script');
   script.src = 'https://cdn.jsdelivr.net/npm/eruda';
   script.onload = () => {
     if (window.eruda) {
       window.eruda.init();
-      console.log("✅ Eruda loaded");
     }
   };
   document.body.appendChild(script);

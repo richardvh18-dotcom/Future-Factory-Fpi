@@ -176,7 +176,6 @@ const OrderSearchModal = ({ isOpen, onClose, onSelectItems, newRow, setNewRow }:
         }
       };
 
-      console.log(`🔍 Zoeken naar: "${searchStr}" met opties: [${uniqueOptions.join(", ")}]`);
 
       // Direct doc ID lookup
       for (const opt of uniqueOptions) {
@@ -190,7 +189,6 @@ const OrderSearchModal = ({ isOpen, onClose, onSelectItems, newRow, setNewRow }:
           snaps.forEach((s) => {
             if (s.exists()) {
               foundDocs.set(s.id, { id: s.id, ...(s.data() as DocumentData) } as ToolingDoc);
-              console.log(`✓ Gevonden via doc ID: ${s.id}`);
             }
           });
         } catch (err: unknown) {
@@ -224,7 +222,6 @@ const OrderSearchModal = ({ isOpen, onClose, onSelectItems, newRow, setNewRow }:
         
         const exactSnaps = await Promise.all(exactQueries);
         exactSnaps.forEach(snap => snap && addDocs(snap));
-        console.log(`✓ Root collection search completed. Total found: ${foundDocs.size}`);
       } catch (err: unknown) {
         console.warn("Fout bij exact queries:", err);
       }
@@ -233,7 +230,6 @@ const OrderSearchModal = ({ isOpen, onClose, onSelectItems, newRow, setNewRow }:
       if (foundDocs.size === 0) {
         console.warn(`⚠️ Geen resultaten gevonden voor: "${searchStr}"`);
       } else {
-        console.log(`✅ ${foundDocs.size} resultaat(en) gevonden!`);
       }
     } catch (e: unknown) {
       console.error("Zoekfout:", e);

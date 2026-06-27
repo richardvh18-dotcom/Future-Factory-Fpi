@@ -186,7 +186,6 @@ IMPORTANT RULES:
         systemPrompt
       );
 
-      console.log('🔍 Raw AI Response:', response.substring(0, 200));
 
       const jsonText = extractJson(response);
       if (!jsonText) {
@@ -218,7 +217,6 @@ IMPORTANT RULES:
         console.error("❌ JSON Parse Error:", parseErr, "\nText:", jsonText.substring(0, 500) + "...");
         throw new Error("Ongeldige JSON structuur ontvangen van AI", { cause: parseErr });
       }
-      console.log('✅ JSON parsing succesvol');
       
       // Valideer en vul ontbrekende velden
       const validatedAnalysis = {

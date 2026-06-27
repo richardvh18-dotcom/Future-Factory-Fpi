@@ -60,7 +60,6 @@ const buildLookupKeys = (value) => {
 };
 
 async function executeDrawingSync() {
-  console.log("Starting scheduled drawing sync...");
   
   // 1. Get Planning Path
   const planningBase = DB_PATHS.PRODUCTION_PLANNING;
@@ -72,7 +71,6 @@ async function executeDrawingSync() {
   const scopedDocs = scopedSnap.docs.filter(d => d.ref.path.startsWith(planningBase));
   
   const allPlanningDocs = [...planningSnap.docs, ...scopedDocs];
-  console.log(`Found ${allPlanningDocs.length} planning documents.`);
 
   const uniqueItems = new Set();
   const planningDocsByCode = new Map();
@@ -155,7 +153,6 @@ async function executeDrawingSync() {
     }
   }
 
-  console.log(`Sync completed. Matched ${matchCount} items.`);
   return { matchCount };
 }
 

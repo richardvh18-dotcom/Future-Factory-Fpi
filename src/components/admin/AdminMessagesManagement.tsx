@@ -456,7 +456,7 @@ const AdminMessagesManagement = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          /* TODO: Edit group */
+
                         }}
                         className="p-2 text-slate-600 hover:bg-blue-50 rounded-lg transition-all"
                         title={t('common.edit')}

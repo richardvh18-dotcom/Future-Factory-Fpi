@@ -93,7 +93,6 @@ export const queuePrintJob = async (printerId: string, zplData: string, metadata
       "PRINT_QUEUE_ADD",
       `Printjob in wachtrij gezet: ${docRef.id} (${printerId})`
     );
-    console.log(`Print job queued with ID: ${docRef.id} for printer: ${printerId}`);
     return docRef.id;
   } catch (error) {
     console.error("Error queuing print job:", error);

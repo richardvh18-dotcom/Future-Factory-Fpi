@@ -617,7 +617,6 @@ const TempLabelModal = ({ onClose, printers, labelTemplates, labelRules, onPrint
         deepPaths.forEach((item) => {
           if (!rows.find((r) => r.id === item.id)) rows.push(item);
         });
-        console.log("📋 InitialList loaded:", rows.length, "items (temp:", tempSnap.docs.length, "plan:", planSnap.docs.length, "track:", trackSnap.docs.length, "scoped:", scopedPlanningSnap.docs.length, "deepPaths:", deepPaths.length, ")");
 
         const dedup: TempOrderRecord[] = [];
         const seen = new Set<string>();

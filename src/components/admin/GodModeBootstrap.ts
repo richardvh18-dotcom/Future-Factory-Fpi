@@ -6,7 +6,6 @@ const GodModeBootstrap = () => {
 
   useEffect(() => {
     if (user?.uid === 'pzxPfiwQhnQdEQJcXU77ZgT2Jo32') {
-      console.log("👑 God Mode Active: Full database access granted via Security Rules.");
     }
   }, [user]);
 

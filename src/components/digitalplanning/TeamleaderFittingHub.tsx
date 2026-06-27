@@ -30,21 +30,17 @@ const TeamleaderFittingHub = (props: Record<string, unknown>) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('[TeamleaderFittingHub] Initializing, path:', PATHS.FACTORY_CONFIG.join('/'));
     const docRef = (doc as any)(db, ...(PATHS.FACTORY_CONFIG as string[]));
 
     const unsubscribe = onSnapshot(
       docRef,
       (docSnap: any) => {
-        console.log('[TeamleaderFittingHub] Factory config exists:', docSnap.exists());
         if (docSnap.exists()) {
           const data = docSnap.data() as FactoryConfigDoc;
-          console.log('[TeamleaderFittingHub] Departments:', data.departments?.length || 0);
           const myDept = (data.departments || []).find(
             (d: DepartmentConfig) => d.slug === "fittings" || d.id === "fittings"
           );
           if (myDept) {
-            console.log('[TeamleaderFittingHub] Found fittings dept with', myDept.stations?.length || 0, 'stations');
             const activeStations = (myDept.stations || []).filter((s: StationConfig) => s.isAvailableForPlanning !== false);
             setStations(activeStations);
           } else {
@@ -62,7 +58,6 @@ const TeamleaderFittingHub = (props: Record<string, unknown>) => {
     );
 
     return () => {
-      console.log('[TeamleaderFittingHub] Cleanup');
       unsubscribe();
     };
   }, []);

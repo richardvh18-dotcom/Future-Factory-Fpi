@@ -6,7 +6,6 @@
 import { aiService } from "./aiService";
 
 export async function testGeminiAPI() {
-  console.log('🧪 Testing AI proxy...');
 
   if (!aiService?.isConfigured?.()) {
     console.error('❌ AI is disabled or not configured.');
@@ -18,7 +17,6 @@ export async function testGeminiAPI() {
       { role: 'user', content: 'Zeg hallo in het Nederlands' }
     ]);
 
-    console.log('✅ AI proxy response:', text);
   } catch (error) {
     console.error('❌ Test failed:', error);
   }
@@ -26,6 +24,4 @@ export async function testGeminiAPI() {
 
 // Auto-run test
 if (typeof window !== 'undefined') {
-  console.log('🤖 Gemini API Test Module Loaded');
-  console.log('Run: testGeminiAPI()');
 }

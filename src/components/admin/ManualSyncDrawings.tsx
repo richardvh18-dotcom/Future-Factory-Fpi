@@ -93,7 +93,6 @@ export default function ManualSyncDrawings() {
         setProgress({ current, total });
         setResult([...partialResults]);
       })) as SyncResultItem[];
-      console.log("Sync resultaat:", res);
       setResult(res);
       setProgress({ current: res.length, total: res.length });
       await logActivity(auth.currentUser?.uid || "system", "MASTER_SYNC", `Manual sync executed. Matches: ${res.filter(r => r.found).length}`);

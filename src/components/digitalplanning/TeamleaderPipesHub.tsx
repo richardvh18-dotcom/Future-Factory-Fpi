@@ -29,21 +29,17 @@ const TeamleaderPipesHub = React.memo((props: Record<string, unknown>) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('[TeamleaderPipesHub] Initializing, path:', PATHS.FACTORY_CONFIG.join('/'));
     const docRef = (doc as any)(db, ...(PATHS.FACTORY_CONFIG as string[]));
 
     const unsubscribe = onSnapshot(
       docRef,
       (docSnap: any) => {
-        console.log('[TeamleaderPipesHub] Factory config exists:', docSnap.exists());
         if (docSnap.exists()) {
           const data = docSnap.data() as FactoryConfigDoc;
-          console.log('[TeamleaderPipesHub] Departments:', data.departments?.length || 0);
           const myDept = (data.departments || []).find(
             (d: DepartmentConfig) => d.slug === "pipes" || d.id === "pipes"
           );
           if (myDept) {
-            console.log('[TeamleaderPipesHub] Found pipes dept with', myDept.stations?.length || 0, 'stations');
             const activeStations = (myDept.stations || []).filter((s: StationConfig) => s.isAvailableForPlanning !== false);
             setStations(activeStations);
           } else {
@@ -61,7 +57,6 @@ const TeamleaderPipesHub = React.memo((props: Record<string, unknown>) => {
     );
 
     return () => {
-      console.log('[TeamleaderPipesHub] Cleanup');
       unsubscribe();
     };
   }, []);
