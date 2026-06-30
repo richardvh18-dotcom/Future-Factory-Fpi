@@ -59,6 +59,7 @@ type LnReadyGroupedRow = {
   orderId: string;
   item: string;
   totalOrderCount?: number;
+  readyReportedCount?: number;
   todoCount?: number;
   nahardingCount?: number;
   wikkelCount?: number;
@@ -225,6 +226,10 @@ const resolvePlanningTodoCount = (
     0,
     toSafeNumber(fallback) - toSafeNumber(alreadyWikkeldCount) - toSafeNumber(nahardingCount)
   );
+};
+
+const resolveLnReadyReportedCount = (totalOrderCount: number, todoCount: number) => {
+  return Math.max(0, toSafeNumber(totalOrderCount) - toSafeNumber(todoCount));
 };
 
 const toLnReferenceCode = (value: unknown) => {
@@ -746,12 +751,14 @@ const ImportExportDashboard = ({
         alreadyWikkeldCount,
         nahardingCount
       );
+      const readyReportedCount = resolveLnReadyReportedCount(totalOrderCount, todoCount);
       const current: LnReadyGroupedRow = existingRow || {
         id: rowKey,
         station: originStation,
         orderId,
         item: product?.item || product?.itemDescription || order?.item || "",
         totalOrderCount,
+        readyReportedCount,
         todoCount,
         nahardingCount,
         wikkelCount: stats?.wikkelCount || 0,
@@ -903,6 +910,7 @@ const ImportExportDashboard = ({
         orderId: row.orderId,
         item: row.item,
         totalOrderCount: row.totalOrderCount,
+        readyReportedCount: row.readyReportedCount,
         todoCount: row.todoCount,
         nahardingCount: row.nahardingCount,
         wikkelCount: row.wikkelCount,
@@ -929,6 +937,7 @@ const ImportExportDashboard = ({
           orderId: row.orderId,
           item: row.item,
           totalOrderCount: row.totalOrderCount,
+          readyReportedCount: row.readyReportedCount,
           todoCount: row.todoCount,
           nahardingCount: row.nahardingCount,
           wikkelCount: row.wikkelCount,
@@ -967,14 +976,14 @@ const ImportExportDashboard = ({
       startY: meta.exportedAt ? 30 : 25,
       styles: { fontSize: 9, cellPadding: 2 },
       headStyles: { fillColor: [15, 23, 42], textColor: 255 },
-      head: [["Station", "Order", "Product", "Totaal order", "To do", "Naharding (geweest)", "Aantal"]],
+      head: [["Station", "Order", "Product", "Totaal order", "Gereedgemeld", "Nog te doen", "LN wikkelstap"]],
       body: rows.map((row) => [
         String(row.station || "-"),
         String(row.orderId || "-"),
         String(row.item || "-"),
         Number(row.totalOrderCount || 0),
+        Number(row.readyReportedCount || 0),
         Number(row.todoCount || 0),
-        Number(row.nahardingCount || 0),
         Number(row.count || 0),
       ]),
     });
@@ -1529,30 +1538,32 @@ const ImportExportDashboard = ({
               </div>
 
               <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                <div className="grid grid-cols-[6rem_8rem_minmax(0,1fr)_5rem_5rem_5rem_5rem] gap-3 bg-slate-100 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  <span>{t("importExportDashboard.station", "Station")}</span>
-                  <span>{t("importExportDashboard.order", "Order")}</span>
-                  <span>{t("importExportDashboard.product", "Product")}</span>
-                  <span>Totaal</span>
-                  <span>To do</span>
-                  <span>Naharding</span>
-                  <span>{t("importExportDashboard.amount", "Aantal")}</span>
+                <div className="overflow-x-auto">
+                  <div className="grid min-w-[56rem] grid-cols-[6rem_8rem_minmax(16rem,1fr)_5.5rem_5.5rem_5.5rem_6.5rem] gap-4 bg-slate-100 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 items-start">
+                  <span className="whitespace-nowrap">{t("importExportDashboard.station", "Station")}</span>
+                  <span className="whitespace-nowrap">{t("importExportDashboard.order", "Order")}</span>
+                  <span className="whitespace-nowrap">{t("importExportDashboard.product", "Product")}</span>
+                  <span className="whitespace-nowrap">Totaal order</span>
+                  <span className="whitespace-nowrap">Gereedgemeld</span>
+                  <span className="whitespace-nowrap">Nog te doen</span>
+                  <span className="whitespace-nowrap">LN wikkelstap</span>
+                  </div>
                 </div>
-                <div className="max-h-[22rem] overflow-y-auto custom-scrollbar divide-y divide-slate-100">
+                <div className="max-h-[22rem] overflow-y-auto overflow-x-auto custom-scrollbar divide-y divide-slate-100">
                   {lnReadyQrRows.length === 0 ? (
                     <div className="px-4 py-10 text-center text-xs font-bold uppercase tracking-widest text-slate-400">
                       {t("importExportDashboard.noLnQrRulesForSelection", "Geen LN QR-exportregels gevonden voor deze selectie.")}
                     </div>
                   ) : (
                     lnReadyQrRows.map((row) => (
-                      <div key={row.id} className="grid grid-cols-[6rem_8rem_minmax(0,1fr)_5rem_5rem_5rem_5rem] gap-3 px-4 py-3 text-xs text-slate-700 items-center">
-                        <span className="font-bold">{row.station || "-"}</span>
-                        <span className="font-bold">{row.orderId || "-"}</span>
+                      <div key={row.id} className="grid min-w-[56rem] grid-cols-[6rem_8rem_minmax(16rem,1fr)_5.5rem_5.5rem_5.5rem_6.5rem] gap-4 px-4 py-3 text-xs text-slate-700 items-center">
+                        <span className="font-bold whitespace-nowrap">{row.station || "-"}</span>
+                        <span className="font-bold whitespace-nowrap">{row.orderId || "-"}</span>
                         <span className="truncate" title={row.item}>{row.item || "-"}</span>
-                        <span className="font-bold text-slate-700">{row.totalOrderCount || 0}</span>
-                        <span className="font-bold text-orange-700">{row.todoCount || 0}</span>
-                        <span className="font-bold text-amber-700">{row.nahardingCount || 0}</span>
-                        <span className="font-bold text-blue-600">{row.count || 0}</span>
+                        <span className="font-bold text-slate-700 whitespace-nowrap">{row.totalOrderCount || 0}</span>
+                        <span className="font-bold text-emerald-700 whitespace-nowrap">{row.readyReportedCount || 0}</span>
+                        <span className="font-bold text-orange-700 whitespace-nowrap">{row.todoCount || 0}</span>
+                        <span className="font-bold text-blue-600 whitespace-nowrap">{row.count || 0}</span>
                       </div>
                     ))
                   )}

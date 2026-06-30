@@ -1,3 +1,29 @@
+## Update sessie 30 juni 2026 (Gereed voor LN tabel verduidelijkt en layout gefixt)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. LN exportkolommen inhoudelijk verduidelijkt**
+- In `ImportExportDashboard.tsx` zijn de kolommen in de modal en lijst-PDF hernoemd naar:
+    - `Totaal order`
+    - `Gereedgemeld`
+    - `Nog te doen`
+    - `LN wikkelstap`
+- `Gereedgemeld` wordt nu expliciet afgeleid als `totaal - nog te doen`, zodat de tabel beter aansluit op de gewenste operationele lezing.
+
+**2. Visuele uitlijning en overlap van kolommen opgelost**
+- De laatste kolommen zijn breder gemaakt en `whitespace-nowrap` is toegepast op headers en waardes waar nodig.
+- De tabelcontainer ondersteunt nu horizontale scroll op smallere schermen (`overflow-x-auto`) met een minimale gridbreedte, zodat kolommen niet meer over elkaar heen vallen.
+
+### Resultaat
+- De "Gereed voor LN" tabel leest nu duidelijker en blijft netjes uitgelijnd op zowel brede als smallere viewports.
+
+**Aangepaste bestanden in deze sessie:**
+- `src/components/digitalplanning/ImportExportDashboard.tsx` [MODIFY]
+- `docs/CONVERSATION_SUMMARY.md` [MODIFY]
+
+---
+
 ## Update sessie 30 juni 2026 (Auto-print direct na Start Order + cross-station queue op zelfde printer)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
