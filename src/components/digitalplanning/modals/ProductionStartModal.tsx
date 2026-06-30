@@ -49,6 +49,11 @@ const getPixelsPerMm = (printerDpi = 203) => {
 
 const DEFAULT_PRINTER_DPI = 203;
 const LOT_ARCHIVE_LOOKBACK_YEARS = 6;
+const USB_PRINTER_VENDOR_KEY = "usb_printer_vendor";
+const USB_PRINTER_PRODUCT_KEY = "usb_printer_product";
+const USB_PRINTER_ID_KEY = "usb_printer_id";
+const PRINT_STATION_SELECTED_KEY = "print_station_selected_station";
+const PRINT_STATION_BINDINGS_KEY = "print_station_printer_bindings_v1";
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -79,6 +84,38 @@ const isPermissionDeniedError = (error: any) => {
   const code = String(error?.code || "").toLowerCase();
   const message = String(error?.message || "").toLowerCase();
   return code.includes("permission-denied") || message.includes("insufficient permissions");
+};
+
+const normalizeStationBindingKey = (value: unknown): string =>
+  String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+
+const persistPrinterBindingForAutoProcessor = (station: string, printer: any) => {
+  if (typeof window === "undefined") return;
+  const safeStation = normalizeStationBindingKey(station);
+  const safePrinterId = String(printer?.id || "").trim();
+  if (!safeStation || !safePrinterId) return;
+
+  try {
+    localStorage.setItem(PRINT_STATION_SELECTED_KEY, safeStation);
+    localStorage.setItem(USB_PRINTER_ID_KEY, safePrinterId);
+
+    const vendorId = String(printer?.vendorId || "").trim();
+    const productId = String(printer?.productId || "").trim();
+    if (vendorId && productId) {
+      localStorage.setItem(USB_PRINTER_VENDOR_KEY, vendorId);
+      localStorage.setItem(USB_PRINTER_PRODUCT_KEY, productId);
+    }
+
+    const raw = String(localStorage.getItem(PRINT_STATION_BINDINGS_KEY) || "").trim();
+    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    const updated = {
+      ...parsed,
+      [safeStation]: safePrinterId,
+    };
+    localStorage.setItem(PRINT_STATION_BINDINGS_KEY, JSON.stringify(updated));
+  } catch {
+    // Local storage is best-effort; print queueing must continue.
+  }
 };
 
 // Functie om ISO week en bijbehorend ISO jaar te berekenen
@@ -1669,6 +1706,7 @@ const ProductionStartModal = ({
       // --- NIEUWE PRINT LOOP VOOR MEERDERE TEMPLATES ---
       if (!isFlangeOrder && printConfig.mode === "queue" && labelsToPrint > 0 && selectedTemplateIds.length > 0) {
         if (targetPrinter) {
+          persistPrinterBindingForAutoProcessor(stationId, targetPrinter);
           for (const templateId of selectedTemplateIds) {
           const templateToPrint = allLabels.find(l => l.id === templateId);
           if (!templateToPrint) {
@@ -1729,6 +1767,7 @@ const ProductionStartModal = ({
           }
 
           if (targetPrinter) {
+            persistPrinterBindingForAutoProcessor(stationId, targetPrinter);
             const queueJobId = await queuePrintJob(
               targetPrinter.id,
               normalizedLotBatchData,

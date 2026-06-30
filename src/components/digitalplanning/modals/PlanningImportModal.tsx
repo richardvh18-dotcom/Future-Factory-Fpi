@@ -108,7 +108,6 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   const [importProgressLabel, setImportProgressLabel] = useState("");
   const [importEtaLabel, setImportEtaLabel] = useState("");
   const [, setDebugLogs] = useState<DebugLogEntry[]>([]);
-  const [activeTab, setActiveTab] = useState<"valid" | "blocked">("valid");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pasteTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1089,20 +1088,8 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
       setLoading(false);
     }
   };
-  // Orders zonder holdReason die valid zijn
-  const validOrders = useMemo(() => fileData.filter((d) => d.isValidForImport && !d.holdReason), [fileData]);
-  // Orders MET holdReason (nu valid, maar we tonen ze in de aparte tab)
-  const blockedOrders = useMemo(() => fileData.filter((d) => d.isValidForImport && d.holdReason), [fileData]);
-  
-  // We voegen ze samen in effectiveValidOrders zodat BEIDE in aanmerking komen voor de daadwerkelijke import!
+  // Alle valide orders blijven importeerbaar, ook als LN een holdReason aanlevert.
   const allValidForImport = useMemo(() => fileData.filter((d) => d.isValidForImport), [fileData]);
-
-  // Als er geen blocked orders zijn, forceer valid tab
-  useEffect(() => {
-    if (blockedOrders.length === 0 && activeTab === "blocked") {
-      setActiveTab("valid");
-    }
-  }, [blockedOrders.length, activeTab]);
 
   const getComparableToDoQty = (order: PlanningImportEntry) => {
     const raw =
@@ -1129,7 +1116,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
         toDoQty: parsed,
       };
     });
-  }, [validOrders, toDoOverrides]);
+  }, [allValidForImport, toDoOverrides]);
 
   const availableMachines = useMemo(() => {
     let machines = Array.from(new Set(effectiveValidOrders.map((d) => normalizeMachineCodeForFilter(d.machine)).filter(Boolean))).sort();
@@ -1349,8 +1336,7 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
   }, [effectiveValidOrders, existingOrderMap, toDoOverrides]);
 
   const displayData = useMemo(() => {
-    // Afhankelijk van de actieve tab tonen we de valid of de blocked orders
-    let rows = activeTab === "valid" ? [...validOrders] : [...blockedOrders];
+    let rows = [...effectiveValidOrders];
 
     if (isFittingsScoped) {
       rows = rows.filter((d) => isFittingsMachine(d.machine));
@@ -1634,32 +1620,9 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                 </div>
             ) : (
               <div className="h-full min-h-0 flex flex-col gap-8">
-                {/* Tabs */}
-                {blockedOrders.length > 0 && (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setActiveTab("valid")}
-                      className={`px-6 py-3 rounded-full font-black text-sm uppercase tracking-widest transition-all ${
-                        activeTab === "valid" ? "bg-blue-600 text-white shadow-lg shadow-blue-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                      }`}
-                    >
-                      Te Importeren ({validOrders.length})
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("blocked")}
-                      className={`px-6 py-3 rounded-full font-black text-sm uppercase tracking-widest transition-all flex items-center gap-2 ${
-                        activeTab === "blocked" ? "bg-red-600 text-white shadow-lg shadow-red-200" : "bg-red-50 text-red-500 border border-red-100 hover:bg-red-100"
-                      }`}
-                    >
-                      <ShieldCheck size={18} />
-                      Geblokkeerd door LN ({blockedOrders.length})
-                    </button>
-                  </div>
-                )}
-
-                {/* We gebruiken nu altijd dezelfde tabelstructuur en filters, maar de content (displayData) verandert obv activeTab */}
+                {/* We gebruiken 1 uniforme lijst; LN hold-orders blijven zichtbaar en importeerbaar. */}
                 <>
-                  <div className={`p-4 rounded-[2.5rem] flex justify-between items-start shadow-2xl gap-4 ${activeTab === 'blocked' ? 'bg-red-950' : 'bg-slate-900'}`}>
+                  <div className="p-4 rounded-[2.5rem] flex justify-between items-start shadow-2xl gap-4 bg-slate-900">
                      <div className="flex-1 min-w-0 text-white">
                       <div className="flex flex-wrap items-end gap-4">
                         <div className="flex flex-col">
@@ -1837,7 +1800,14 @@ const PlanningImportModal = ({ isOpen, onClose, onSuccess, currentDepartment = "
                               </div>
                             </td>
                             <td className="px-2 py-1.5 text-center">
-                              <span className="inline-block px-2 py-[2px] rounded-lg bg-slate-100 text-slate-700 text-[10px] font-black uppercase max-w-[110px] truncate leading-none">{order.orderStatus || "-"}</span>
+                              <div className="inline-flex items-center gap-1">
+                                <span className="inline-block px-2 py-[2px] rounded-lg bg-slate-100 text-slate-700 text-[10px] font-black uppercase max-w-[110px] truncate leading-none">{order.orderStatus || "-"}</span>
+                                {order.holdReason ? (
+                                  <span className="inline-block px-2 py-[2px] rounded-lg bg-red-100 text-red-700 text-[10px] font-black uppercase leading-none" title={order.holdReason}>
+                                    LN Hold
+                                  </span>
+                                ) : null}
+                              </div>
                             </td>
                             <td className="px-2 py-1.5 text-center">
                               {importMode === "smart_update" && changeMeta?.isExisting && changeMeta?.quantityChanged ? (
