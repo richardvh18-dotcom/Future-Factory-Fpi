@@ -3,7 +3,7 @@ import { collection, collectionGroup, onSnapshot, query, where } from 'firebase/
 import { db } from '../../config/firebase';
 import { PATHS, getPathString } from '../../config/dbPaths';
 import { transitionPrintQueueJobStatus } from '../../services/planningSecurityService';
-import { printRawUsbToDevice, isUsbDirectSupported } from '../../utils/usbPrintService';
+import { printRawUsbToDevice, isUsbDirectSupported, parseUsbId } from '../../utils/usbPrintService';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -243,9 +243,11 @@ const getCurrentPrinterId = (printers: PrinterConfig[], usbDevice: USBDevice | n
 
   if (!usbDevice) return null;
 
-  const matches = printers.filter(
-    (printer) => Number(printer.vendorId) === usbDevice.vendorId && Number(printer.productId) === usbDevice.productId
-  );
+  const matches = printers.filter((printer) => {
+    const pVendor = parseUsbId(printer.vendorId);
+    const pProduct = parseUsbId(printer.productId);
+    return pVendor !== undefined && pProduct !== undefined && pVendor === usbDevice.vendorId && pProduct === usbDevice.productId;
+  });
 
   if (matches.length === 1) {
     return matches[0].id || null;
@@ -275,24 +277,18 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
       savedProduct?: string | null,
       savedPrinterId?: string
     ): boolean => {
-
-
-      if (savedVendor && savedProduct) {
-        const matches = (
-          device.vendorId === parseInt(savedVendor, 10) &&
-          device.productId === parseInt(savedProduct, 10)
-        );
-        return matches;
+      const parsedVendor = parseUsbId(savedVendor);
+      const parsedProduct = parseUsbId(savedProduct);
+      if (parsedVendor !== undefined && parsedProduct !== undefined) {
+        return device.vendorId === parsedVendor && device.productId === parsedProduct;
       }
 
       if (savedPrinterId) {
         const savedPrinter = printers.find((printer) => printer.id === savedPrinterId);
-        if (savedPrinter?.vendorId !== undefined && savedPrinter?.productId !== undefined) {
-          const matches = (
-            Number(savedPrinter.vendorId) === device.vendorId &&
-            Number(savedPrinter.productId) === device.productId
-          );
-          return matches;
+        const printerVendor = parseUsbId(savedPrinter?.vendorId);
+        const printerProduct = parseUsbId(savedPrinter?.productId);
+        if (printerVendor !== undefined && printerProduct !== undefined) {
+          return device.vendorId === printerVendor && device.productId === printerProduct;
         }
       }
 
@@ -478,18 +474,71 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
   );
 
   useEffect(() => {
-
-
-    if (!enabled || !usbDevice || !currentPrinterId || isProcessingRef.current) {
+    if (!enabled || isProcessingRef.current) {
       return;
     }
 
+    const activePrinterId = currentPrinterId || getCurrentPrinterId(printers, usbDevice);
+    if (!activePrinterId) return;
+
     const pendingJobs = printJobs.filter((job) => {
       if (job.status !== 'pending') return false;
-      return job.printerId === currentPrinterId;
+      return job.printerId === activePrinterId;
     }).sort((a, b) => tsToMillis(a.createdAt) - tsToMillis(b.createdAt));
 
     if (pendingJobs.length === 0) return;
+
+    if (!usbDevice) {
+      if (!isUsbDirectSupported()) return;
+      // Probeer de USB verbinding te herstellen aangezien er werk in de wachtrij staat
+      const restoreUsb = async () => {
+        const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
+        const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
+        const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
+
+        try {
+          const devices = await navigator.usb.getDevices();
+          
+          const matchesSavedUsbDevice = (
+            device: USBDevice,
+            sv?: string | null,
+            sp?: string | null,
+            spId?: string
+          ): boolean => {
+            const parsedVendor = parseUsbId(sv);
+            const parsedProduct = parseUsbId(sp);
+            if (parsedVendor !== undefined && parsedProduct !== undefined) {
+              return device.vendorId === parsedVendor && device.productId === parsedProduct;
+            }
+
+            if (spId) {
+              const savedPrinter = printers.find((printer) => printer.id === spId);
+              const printerVendor = parseUsbId(savedPrinter?.vendorId);
+              const printerProduct = parseUsbId(savedPrinter?.productId);
+              if (printerVendor !== undefined && printerProduct !== undefined) {
+                return device.vendorId === printerVendor && device.productId === printerProduct;
+              }
+            }
+            return false;
+          };
+
+          const match = devices.find((device) =>
+            matchesSavedUsbDevice(device, savedVendor, savedProduct, savedPrinterId)
+          );
+
+          if (match) {
+            setUsbDevice(match);
+          } else if (!savedVendor && !savedProduct && !savedPrinterId && devices.length === 1) {
+            setUsbDevice(devices[0]);
+          }
+        } catch (error) {
+          console.warn('[PrintQueueAutoProcessor] USB herstel mislukt tijdens wachtrij verwerking:', error);
+        }
+      };
+
+      void restoreUsb();
+      return;
+    }
 
     const processQueue = async () => {
       isProcessingRef.current = true;
@@ -556,7 +605,7 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
     };
 
     void processQueue();
-  }, [enabled, usbDevice, currentPrinterId, currentPrinter, printJobs]);
+  }, [enabled, usbDevice, currentPrinterId, currentPrinter, printJobs, printers]);
 
   return null;
 };

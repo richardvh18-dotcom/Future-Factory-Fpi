@@ -1,3 +1,43 @@
+## Update sessie 30 juni 2026 (Fix Automatisch Printen & USB Auto-Herstel)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Zelfherstellend USB-verbindingsmechanisme toegevoegd**
+- In `PrintQueueAutoProcessor.tsx` toegevoegd dat wanneer er printtaken in de wachtrij verschijnen maar `usbDevice` `null` is, de processor automatisch probeert de USB-verbinding te herstellen met de meest actuele printergegevens uit `localStorage`. Dit voorkomt dat operators naar de printerpagina moeten navigeren om printen te starten.
+- Controle toegevoegd met `isUsbDirectSupported()` om fouten op niet-ondersteunde browsers of onveilige contexten te vermijden.
+
+**2. Hex-vergelijking van USB ID's hersteld**
+- De parsing van `vendorId` en `productId` in `PrintQueueAutoProcessor.tsx` herschreven om `parseUsbId` te gebruiken in plaats van `parseInt(..., 10)`. Dit voorkomt dat hex-waarden (zoals `0x0a5f` voor Zebra) verkeerd geparseerd worden als `0`.
+
+**3. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.51` naar `0.1.52`.
+
+**Aangepaste bestanden in deze sessie:**
+- `src/components/printer/PrintQueueAutoProcessor.tsx` [MODIFY]
+- `package.json` [MODIFY]
+- `package-lock.json` [MODIFY]
+- `public/version.json` [MODIFY]
+- `docs/CONVERSATION_SUMMARY.md` [MODIFY]
+
+---
+
+## Update sessie 30 juni 2026 (Git pull & .env configuratie)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Git Pull en setup**
+- Lokale branch `FPiFF-June-rolout` gesynchroniseerd met de remote repository (`origin/FPiFF-June-rolout`). Deze was al up-to-date.
+- Nieuw `.env` bestand aangemaakt in de root van de workspace met de benodigde parameters voor Firebase (VITE_FIREBASE_*), Admin UIDs, en de Gemini API sleutel (VITE_GOOGLE_AI_KEY).
+
+**Aangepaste bestanden in deze sessie:**
+- `.env` [NEW]
+- `docs/CONVERSATION_SUMMARY.md` [MODIFY]
+
+---
+
+
 ## Update sessie 30 juni 2026 (Gereed voor LN tabel verduidelijkt en layout gefixt)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
@@ -10324,3 +10364,4 @@ Made changes.
 **Resultaat:**
 - Preview en print gebruiken nu dezelfde template/payload-logica in Admin Order Labels.
 - Order Labels zoekt nu breder in zowel legacy, huidige/scoped, als diep geneste machine-paden, zodat recente BH18-orders (ook uit Fittings/Pipes-structuur) vindbaar zijn.
+
