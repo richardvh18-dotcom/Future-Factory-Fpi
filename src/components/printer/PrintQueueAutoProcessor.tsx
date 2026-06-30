@@ -126,6 +126,11 @@ const getJobStationKeys = (job: PrintJob): string[] => {
 };
 
 const getPrinterRoutingViolation = (job: PrintJob, printer: PrinterConfig | null | undefined): string | null => {
+  // If the backend already resolved this job to the active printer, trust that assignment.
+  if (printer?.id && String(job?.printerId || '').trim() === String(printer.id).trim()) {
+    return null;
+  }
+
   const allowedStationKeys = getPrinterAllowedStationKeys(printer);
   if (allowedStationKeys.length === 0) return null;
 

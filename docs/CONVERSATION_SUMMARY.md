@@ -1,3 +1,32 @@
+## Update sessie 30 juni 2026 (Auto-print direct na Start Order + cross-station queue op zelfde printer)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Auto-print start nu direct vanuit ProductionStartModal**
+- Probleem: printjobs bleven soms wachten tot iemand eerst handmatig naar Print Stations ging.
+- Fix: in `ProductionStartModal.tsx` wordt bij het queueen van labels nu direct de station->printer binding en actieve printer-id in localStorage gezet (zelfde keys als de app-brede auto-processor gebruikt).
+- Resultaat: na `Start Order` pakt de achtergrondprocessor direct de juiste printer op, zonder extra pagina-switch.
+
+**2. Cross-station jobs op dezelfde printer blijven automatisch printen**
+- Wens: jobs van andere stations die bewust naar deze printer zijn gerouteerd moeten ook gewoon doorlopen.
+- Fix: in `PrintQueueAutoProcessor.tsx` is de routeringsvalidatie versoepeld: als `job.printerId` al gelijk is aan de actieve printer, wordt de station-mismatch check overgeslagen.
+- Resultaat: expliciet toegewezen printjobs worden niet meer onterecht geblokkeerd op station-herkomst.
+
+**3. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.50` naar `0.1.51` via `npm run version:bump:patch`.
+
+**Aangepaste bestanden in deze sessie:**
+- `src/components/digitalplanning/modals/ProductionStartModal.tsx` [MODIFY]
+- `src/components/printer/PrintQueueAutoProcessor.tsx` [MODIFY]
+- `src/components/digitalplanning/modals/PlanningImportModal.tsx` [MODIFY]
+- `package.json` [MODIFY]
+- `package-lock.json` [MODIFY]
+- `public/version.json` [MODIFY]
+- `docs/CONVERSATION_SUMMARY.md` [MODIFY]
+
+---
+
 ## Update sessie 30 juni 2026 (Systeem Presentatie Demo Video)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
