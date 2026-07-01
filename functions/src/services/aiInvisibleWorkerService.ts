@@ -15,7 +15,7 @@ const TRACKED_LEGACY_COLLECTION = DB_PATHS.TRACKED_PRODUCTS;
 const IMPORT_FOLDER_PREFIX = 'imports/planning/';
 const IMPORT_EXTENSIONS = ['.xlsx', '.xlsm', '.xls'];
 
-const AI_RUNTIME = { memory: '2GB', timeoutSeconds: 540, minInstances: 1 };
+const AI_RUNTIME = { memory: '2GB', timeoutSeconds: 540, minInstances: 0 };
 const VERTEX_LOCATION = process.env.VERTEX_AI_LOCATION || 'europe-west1';
 const VERTEX_MODEL = process.env.INVISIBLE_WORKER_MODEL || 'gemini-2.5-flash';
 

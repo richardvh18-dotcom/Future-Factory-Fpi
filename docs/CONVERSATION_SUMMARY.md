@@ -1,3 +1,24 @@
+## Update sessie 1 juli 2026 (Kostenbesparing Cloud Functions & minInstances naar 0)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. minInstances naar 0 ingesteld voor Cloud Functions**
+- In [aiInvisibleWorkerService.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/services/aiInvisibleWorkerService.ts) de parameter `minInstances: 1` gewijzigd naar `minInstances: 0` in het `AI_RUNTIME` configuratie-object. Dit voorkomt onnodige runtimekosten (keep-warm/idle fees) voor Cloud Functions.
+- De Cloud Functions zijn opnieuw uitgerold via `firebase deploy --only functions`.
+
+**2. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.52` naar `0.1.53`.
+
+**Aangepaste bestanden in deze sessie:**
+- [aiInvisibleWorkerService.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/services/aiInvisibleWorkerService.ts) [MODIFY]
+- [package.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/package.json) [MODIFY]
+- [package-lock.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/package-lock.json) [MODIFY]
+- [version.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/public/version.json) [MODIFY]
+- [CONVERSATION_SUMMARY.md](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/docs/CONVERSATION_SUMMARY.md) [MODIFY]
+
+---
+
 ## Update sessie 30 juni 2026 (Fix Automatisch Printen & USB Auto-Herstel)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
