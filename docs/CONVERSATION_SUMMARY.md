@@ -1,3 +1,73 @@
+## Update sessie 2 juli 2026 (Fix Batch Label Generatie in ProductionStartModal)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Opeenvolgende labels printen bij batch productie**
+- In [ProductionStartModal.tsx](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/src/components/digitalplanning/modals/ProductionStartModal.tsx) de print-loop geoptimaliseerd:
+  - Wanneer er bij het starten van de productie wordt gekozen voor meerdere producten (bijv. 2), werd voorheen de ZPL alleen voor het eerste lotnummer gerenderd en vervolgens 2 keer geprint.
+  - De code is aangepast om over alle gegenereerde lotnummers in `lotBatchLots` te lussen. Hierdoor wordt voor elk afzonderlijk lotnummer de ZPL correct gerenderd en naar de printer gestuurd. Dit resulteert in unieke, opeenvolgende labels per geproduceerd product.
+
+**2. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.56` naar `0.1.57`.
+
+**Aangepaste bestanden in deze sessie:**
+- [ProductionStartModal.tsx](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/src/components/digitalplanning/modals/ProductionStartModal.tsx) [MODIFY]
+- [package.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/package.json) [MODIFY]
+- [version.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/public/version.json) [MODIFY]
+- [CONVERSATION_SUMMARY.md](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/docs/CONVERSATION_SUMMARY.md) [MODIFY]
+
+---
+
+## Update sessie 2 juli 2026 (Automatisch Hergebruik en Gaten Opvullen Volgenummers)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Automatische `usedSequences` tracking & gaten opvullen**
+- In [planningTransitionService.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/services/planningTransitionService.ts) het lot-reserveringssysteem uitgebreid met een nieuw trackingveld `usedSequences` in de counters-documenten:
+  - **`reserveAutoLotNumberRangeService`**: Scant nu proactief vanaf volgnummer `1` naar het eerste vrije aaneengesloten gat van de gevraagde hoeveelheid (`qty`) volgnummers dat niet in `usedSequences` voorkomt en niet botst in Firestore. Dit zorgt ervoor dat gaten door annuleringen of overgeslagen nummers direct en automatisch worden opgevuld. De gereserveerde nummers worden aan `usedSequences` toegevoegd.
+  - **`cancelTrackedProductionService`**: Verwijdert het volgnummer van een geannuleerd product uit `usedSequences`, waardoor het nummer direct vrijkomt voor hergebruik bij een volgende reservering.
+  - **`editTrackedProductLotNumberService`**: Voegt nieuw gecreëerde (virtuele/hold) lotnummers toe aan `usedSequences` om dubbele reserveringen te voorkomen.
+
+**2. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.55` naar `0.1.56`.
+
+**Aangepaste bestanden in deze sessie:**
+- [planningTransitionService.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/services/planningTransitionService.ts) [MODIFY]
+- [package.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/package.json) [MODIFY]
+- [version.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/public/version.json) [MODIFY]
+- [CONVERSATION_SUMMARY.md](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/docs/CONVERSATION_SUMMARY.md) [MODIFY]
+
+---
+
+## Update sessie 2 juli 2026 (Fix Ordernummer Wijzigen - Doelorder niet gevonden - Verdieping)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Index-vrije parallelle padcontrole & extra zoekvelden toegevoegd**
+- In [planningRepository.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/repositories/planningRepository.ts) de orderzoeklogica uitgebreid:
+  - In `getPlanningOrderDocById` een proactieve, parallelle document-check toegevoegd die kandidaat-paden (combinaties van Fittings/Pipes/Spools en bekende machine-IDs) direct opvraagt via `db.doc(fullPath).get()`. Dit omzeilt de Firestore collectionGroup index-restrictie en vindt direct samengestelde ID's (zoals `N20025336_40M001834EL9AEFS0ER01M0BCCJJ0`).
+  - `getPlanningOrderDocByOrderId` uitgebreid met een fallback naar `getPlanningOrderDocById` en extra zoekvelden (`order`, `Order`, `Productieorder`, `originalOrderId`).
+- In [planningTransitionService.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/services/planningTransitionService.ts) de volgorde van parameters en verwerking in `reassignTrackedProductOrderService` geoptimaliseerd.
+
+**2. Firestore collectionGroup index overrides toegevoegd**
+- In [firestore.indexes.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/firestore.indexes.json) single-field collectionGroup indexes toegevoegd voor de velden `orderId`, `orderNumber` en `Ordernummer` op de `orders` collection group. Dit zorgt ervoor dat reguliere queries op de orders-subcollectie correct functioneren.
+
+**3. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.53` naar `0.1.55`.
+
+**Aangepaste bestanden in deze sessie:**
+- [planningRepository.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/repositories/planningRepository.ts) [MODIFY]
+- [planningTransitionService.ts](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/functions/src/services/planningTransitionService.ts) [MODIFY]
+- [firestore.indexes.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/firestore.indexes.json) [MODIFY]
+- [package.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/package.json) [MODIFY]
+- [version.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/public/version.json) [MODIFY]
+- [CONVERSATION_SUMMARY.md](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/docs/CONVERSATION_SUMMARY.md) [MODIFY]
+
+---
+
 ## Update sessie 1 juli 2026 (Kostenbesparing Cloud Functions & minInstances naar 0)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)

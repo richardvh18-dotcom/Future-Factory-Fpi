@@ -1844,16 +1844,21 @@ const cancelTrackedProductionService = async ({
     const counterDocId = `${lotStation}_${lotWeekSuffix}`;
     const counterRef = db.doc(`${BASE}/production/counters/${counterDocId}`);
     const counterSnap = await counterRef.get();
-    const existing = counterSnap.exists && Array.isArray(counterSnap.data()?.recycledSequences)
-      ? counterSnap
-        .data()
-        .recycledSequences.map((n) => Number(n))
-        .filter((n) => Number.isFinite(n) && n > 0)
+    const counterData = counterSnap.exists ? (counterSnap.data() || {}) : {};
+    
+    const existing = Array.isArray(counterData.recycledSequences)
+      ? counterData.recycledSequences.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
       : [];
     const nextRecycled = Array.from(new Set([...existing, lotSeq])).sort((a, b) => a - b);
 
+    const existingUsed = Array.isArray(counterData.usedSequences)
+      ? counterData.usedSequences.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const nextUsed = existingUsed.filter((n) => n !== lotSeq).sort((a, b) => a - b);
+
     batch.set(counterRef, {
       recycledSequences: nextRecycled,
+      usedSequences: nextUsed,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     recycledSequenceAdded = true;
@@ -4071,9 +4076,15 @@ const startProductionLotsService = async ({
 
       const nextRecycled = recycled.filter((n) => !usedSequences.includes(n));
 
+      const currentUsed = Array.isArray(counterData.usedSequences)
+        ? counterData.usedSequences.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+      const nextUsed = Array.from(new Set([...currentUsed, ...usedSequences])).sort((a, b) => a - b);
+
       tx.set(counterRef, {
         lastSequence: Math.max(currentLast, highestUsedSequence),
         recycledSequences: nextRecycled,
+        usedSequences: nextUsed,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
     });
@@ -4186,6 +4197,13 @@ const reassignTrackedProductOrderService = async ({
   }
   if (!targetOrderDoc && safeTargetOrderDocId) {
     targetOrderDoc = await getPlanningOrderDocById(safeTargetOrderDocId, ctx._rds);
+  }
+  if (!targetOrderDoc && newOrderId) {
+    const rawClean = clean(newOrderId);
+    targetOrderDoc = await getPlanningOrderDocById(rawClean, ctx._rds);
+    if (!targetOrderDoc) {
+      targetOrderDoc = await getPlanningOrderDocByOrderId(rawClean, ctx._rds);
+    }
   }
   if (!targetOrderDoc) {
     targetOrderDoc = await getPlanningOrderDocByOrderId(safeNewOrderId, ctx._rds);
@@ -4630,6 +4648,12 @@ const reserveAutoLotNumberRangeService = async ({
         .filter((n) => Number.isFinite(n) && n > 0)))
         .sort((a, b) => a - b)
       : [];
+    const used = Array.isArray(counterData.usedSequences)
+      ? Array.from(new Set(counterData.usedSequences
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0)))
+        .sort((a, b) => a - b)
+      : [];
 
     const existsInTracking = async (seqStart) => {
       for (let i = 0; i < qty; i += 1) {
@@ -4644,26 +4668,56 @@ const reserveAutoLotNumberRangeService = async ({
       return false;
     };
 
+    // Zoek proactief vanaf 1 naar een aaneengesloten gat van `qty` nummers die niet in `used` zitten
+    let sequenceToTry = 1;
+    let foundStartSeq = false;
+
+    if (qty === 1 && recycled.length > 0) {
+      // Als qty === 1 en we hebben expliciet gerecyclede sequences, proberen we die eerst
+      for (const recSeq of recycled) {
+        const collision = await existsInTracking(recSeq);
+        if (!collision) {
+          sequenceToTry = recSeq;
+          foundStartSeq = true;
+          break;
+        }
+      }
+    }
+
+    if (!foundStartSeq) {
+      // Zoek vanaf 1 naar een aaneengesloten reeks van `qty` vrije nummers
+      for (let candidate = 1; candidate <= lastSequence; candidate += 1) {
+        let isRangeFree = true;
+        for (let i = 0; i < qty; i += 1) {
+          if (used.includes(candidate + i)) {
+            isRangeFree = false;
+            break;
+          }
+        }
+        if (isRangeFree) {
+          const collision = await existsInTracking(candidate);
+          if (!collision) {
+            sequenceToTry = candidate;
+            foundStartSeq = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!foundStartSeq) {
+      // Geen gat gevonden, dus we gaan verder na de lastSequence
+      sequenceToTry = lastSequence + 1;
+    }
+
     const maxAttempts = 300;
     let attempts = 0;
-    let recycledIndex = 0;
-    let sequenceToTry = recycled.length > 0 && qty === 1 ? recycled[0] : (lastSequence + 1);
 
     while (attempts < maxAttempts) {
       attempts += 1;
-      const usingRecycled = qty === 1
-        && recycledIndex < recycled.length
-        && sequenceToTry === recycled[recycledIndex];
 
       if (sequenceToTry <= 0 || sequenceToTry + qty - 1 > 9999) {
-        if (usingRecycled) {
-          recycledIndex += 1;
-          sequenceToTry = recycledIndex < recycled.length
-            ? recycled[recycledIndex]
-            : Math.max(lastSequence + 1, sequenceToTry + 1);
-        } else {
-          sequenceToTry += 1;
-        }
+        sequenceToTry += 1;
         continue;
       }
 
@@ -4672,14 +4726,19 @@ const reserveAutoLotNumberRangeService = async ({
         const lotStart = `${baseLot}${String(sequenceToTry).padStart(4, '0')}`;
 
         if (reserve !== false) {
-          const nextRecycled = usingRecycled
+          const isRecycledSequence = recycled.includes(sequenceToTry);
+          const nextRecycled = isRecycledSequence
             ? recycled.filter((n) => n !== sequenceToTry)
             : recycled;
           const newLast = Math.max(lastSequence, sequenceToTry + qty - 1);
 
+          const newlyReserved = Array.from({ length: qty }, (_, idx) => sequenceToTry + idx);
+          const nextUsed = Array.from(new Set([...used, ...newlyReserved])).sort((a, b) => a - b);
+
           tx.set(counterRef, {
             lastSequence: newLast,
             recycledSequences: nextRecycled,
+            usedSequences: nextUsed,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           }, { merge: true });
         }
@@ -4695,14 +4754,7 @@ const reserveAutoLotNumberRangeService = async ({
         };
       }
 
-      if (usingRecycled) {
-        recycledIndex += 1;
-        sequenceToTry = recycledIndex < recycled.length
-          ? recycled[recycledIndex]
-          : Math.max(lastSequence + 1, sequenceToTry + 1);
-      } else {
-        sequenceToTry += 1;
-      }
+      sequenceToTry += 1;
     }
 
     throw new Error('NO_UNIQUE_LOT_AVAILABLE');

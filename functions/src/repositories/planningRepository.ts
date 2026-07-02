@@ -65,7 +65,7 @@ const getPlanningOrderDocByOrderId = async (orderId) => {
     normalizedOrderId.toLowerCase(),
   ].filter(Boolean)));
 
-  const candidateFields = ['orderId', 'orderNumber', 'Ordernummer'];
+  const candidateFields = ['orderId', 'orderNumber', 'Ordernummer', 'order', 'Order', 'Productieorder', 'originalOrderId'];
 
   for (const field of candidateFields) {
     for (const candidate of candidateOrderIds) {
@@ -83,6 +83,10 @@ const getPlanningOrderDocByOrderId = async (orderId) => {
   const primaryDocRef = db.collection(planningCollection).doc(normalizedOrderId);
   const primaryDocSnap = await primaryDocRef.get();
   if (primaryDocSnap.exists) return primaryDocSnap;
+
+  // Directe path check fallback via getPlanningOrderDocById
+  const directDoc = await getPlanningOrderDocById(normalizedOrderId);
+  if (directDoc) return directDoc;
 
   try {
     for (const field of candidateFields) {
@@ -211,6 +215,31 @@ const getPlanningOrderDocById = async (orderDocId) => {
   const primaryRef = db.collection(planningCollection).doc(lookupId);
   const primarySnap = await primaryRef.get();
   if (primarySnap.exists) return primarySnap;
+
+  // Proactieve parallelle path check voor bekende categories & machines om collectionGroup te omzeilen.
+  if (lookupId) {
+    const candidateCategories = ['Fittings', 'Pipes', 'Spools'];
+    const candidateMachines = ['40BH18', 'BH18', '40BH17', 'BH17', 'BM01', '40BM18', '40BM17', '40BH01', '40BH02'];
+    const checkPromises = [];
+
+    for (const cat of candidateCategories) {
+      for (const mach of candidateMachines) {
+        const fullPath = `${planningCollection}/${cat}/machines/${mach}/orders/${lookupId}`;
+        checkPromises.push((async () => {
+          try {
+            const snap = await db.doc(fullPath).get();
+            return snap.exists ? snap : null;
+          } catch (e) {
+            return null;
+          }
+        })());
+      }
+    }
+
+    const results = await Promise.all(checkPromises);
+    const foundDoc = results.find(Boolean);
+    if (foundDoc) return foundDoc;
+  }
 
   // Zoek scoped planning-orders direct op document-id (laatste segment),
   // zodat orderDocId waarden zoals N200..._ITEMCODE ook resolven.

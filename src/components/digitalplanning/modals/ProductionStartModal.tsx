@@ -310,6 +310,11 @@ const ProductionStartModal = ({
   const [manualOrderInput, setManualOrderInput] = useState("");
   const [assignedOperators, setAssignedOperators] = useState<Array<{ number: string; name: string }>>([]);
   const [operatorInput, setOperatorInput] = useState("");
+  const [previewLotIndex, setPreviewLotIndex] = useState(0);
+
+  useEffect(() => {
+    setPreviewLotIndex(0);
+  }, [stringCount, isOpen]);
   
   // Refs voor autofocus bij barcode scanning
   const orderInputRef = useRef<HTMLInputElement>(null);
@@ -1707,52 +1712,61 @@ const ProductionStartModal = ({
       if (!isFlangeOrder && printConfig.mode === "queue" && labelsToPrint > 0 && selectedTemplateIds.length > 0) {
         if (targetPrinter) {
           persistPrinterBindingForAutoProcessor(stationId, targetPrinter);
-          for (const templateId of selectedTemplateIds) {
-          const templateToPrint = allLabels.find(l => l.id === templateId);
-          if (!templateToPrint) {
-            console.warn(`Template met ID ${templateId} niet gevonden, wordt overgeslagen.`);
-            continue;
-          }
+          
+          const targetLots = Array.isArray(lotBatchLots) && lotBatchLots.length > 0
+            ? lotBatchLots
+            : [effectiveLotNumber];
 
-          try {
-            const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
-            const darkness = Number.parseInt(String((targetPrinter as any)?.darkness || '15'), 10);
-            const currentPrintData = await renderLabelToBitmapZpl({
-              template: templateToPrint as any,
-              data: { ...previewData, lotNumber: effectiveLotNumber } as Record<string, unknown>,
-              printerDpi: dpiForPrint,
-              darkness: Number.isFinite(darkness) ? darkness : 15,
-              printSpeed: 3,
-            });
+          let totalQueuedCount = 0;
 
-            const normalizedPrintData = String(currentPrintData || "").trim();
-            if (!normalizedPrintData) {
-              throw new Error(`Lege printpayload opgebouwd voor template ${templateToPrint.name}.`);
-            }
+          for (const currentLot of targetLots) {
+            for (const templateId of selectedTemplateIds) {
+              const templateToPrint = allLabels.find(l => l.id === templateId);
+              if (!templateToPrint) {
+                console.warn(`Template met ID ${templateId} niet gevonden, wordt overgeslagen.`);
+                continue;
+              }
 
+              try {
+                const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
+                const darkness = Number.parseInt(String((targetPrinter as any)?.darkness || '15'), 10);
+                const currentPrintData = await renderLabelToBitmapZpl({
+                  template: templateToPrint as any,
+                  data: { ...previewData, lotNumber: currentLot } as Record<string, unknown>,
+                  printerDpi: dpiForPrint,
+                  darkness: Number.isFinite(darkness) ? darkness : 15,
+                  printSpeed: 3,
+                });
 
-            await queuePrintJob(
-                targetPrinter.id,
-                normalizedPrintData,
-                {
-                  description: `Label ${templateToPrint.name} voor ${order.orderId} (Lot: ${effectiveLotNumber}) (x${labelsToPrint})`,
-                  quantity: labelsToPrint,
-                  orderId: order.orderId,
-                  lotNumber: effectiveLotNumber,
-                  stationId: stationId || t("common.unknown"),
-                  targetPrinterName: targetPrinter.name,
-                  width: parseInt(String(templateToPrint.width || 0), 10),
-                  height: parseInt(String(templateToPrint.height || 0), 10),
-                  variables: previewData,
-                  templateId: templateToPrint.id,
+                const normalizedPrintData = String(currentPrintData || "").trim();
+                if (!normalizedPrintData) {
+                  throw new Error(`Lege printpayload opgebouwd voor template ${templateToPrint.name}.`);
                 }
-            );
-          } catch (printError: unknown) {
-            const printMessage = getErrorMessage(printError);
-            notify(t("productionStartModal.errors.printFailedForTemplate", { template: templateToPrint.name, message: printMessage }));
+
+                await queuePrintJob(
+                    targetPrinter.id,
+                    normalizedPrintData,
+                    {
+                      description: `Label ${templateToPrint.name} voor ${order.orderId} (Lot: ${currentLot}) (x${labelsToPrint})`,
+                      quantity: labelsToPrint,
+                      orderId: order.orderId,
+                      lotNumber: currentLot,
+                      stationId: stationId || t("common.unknown"),
+                      targetPrinterName: targetPrinter.name,
+                      width: parseInt(String(templateToPrint.width || 0), 10),
+                      height: parseInt(String(templateToPrint.height || 0), 10),
+                      variables: { ...previewData, lotNumber: currentLot },
+                      templateId: templateToPrint.id,
+                    }
+                );
+                totalQueuedCount += labelsToPrint;
+              } catch (printError: unknown) {
+                const printMessage = getErrorMessage(printError);
+                notify(t("productionStartModal.errors.printFailedForTemplate", { template: templateToPrint.name, message: printMessage }));
+              }
             }
           }
-          showSuccess(t("productionStartModal.notifications.labelsQueued", { count: labelsToPrint * selectedTemplateIds.length, printer: targetPrinter.name }));
+          showSuccess(t("productionStartModal.notifications.labelsQueued", { count: totalQueuedCount, printer: targetPrinter.name }));
         } else if (!isManualMode) {
           // Alleen een waarschuwing tonen als we niet in handmatige modus zitten en er geen printer is
           console.warn(`Geen printer geconfigureerd voor station ${stationId}, labels overgeslagen.`);
@@ -1882,6 +1896,25 @@ const ProductionStartModal = ({
 
   const shouldShowStringLotPreview = showPreviewPane && supportsStringLotBatch && previewStringCount > 1;
   const isCompactAutoLayout = (mode === "auto" || mode === "qc_steekproef") && !isFlangeOrder;
+
+  const currentPreviewLot = useMemo(() => {
+    const count = Math.max(1, parseInt(stringCount, 10) || 1);
+    if (count <= 1 || !lotNumber) return lotNumber;
+    
+    const prefix = String(lotNumber || "").slice(0, -4);
+    const startSeq = parseInt(String(lotNumber || "").slice(-4), 10);
+    if (!prefix || !Number.isFinite(startSeq)) return lotNumber;
+    
+    return `${prefix}${String(startSeq + previewLotIndex).padStart(4, "0")}`;
+  }, [lotNumber, stringCount, previewLotIndex]);
+
+  const activePreviewData = useMemo(() => {
+    if (!previewData) return previewData;
+    return {
+      ...previewData,
+      lotNumber: currentPreviewLot,
+    };
+  }, [previewData, currentPreviewLot]);
 
   if (!isOpen || !order || location.pathname.includes("/login")) return null;
 
@@ -2268,19 +2301,44 @@ const ProductionStartModal = ({
             <Activity size={12} className="text-emerald-500" /> {t("productionStartModal.labels.labelPreview", "Etiket preview")}
           </div>
 
-          <div ref={previewAreaRef} className="flex-1 flex items-center justify-center w-full min-h-0 py-4">
+          <div ref={previewAreaRef} className="flex-1 flex flex-col items-center justify-center w-full min-h-0 py-4">
             {mode === "manual" && (!manualLotInput || !manualOrderInput) ? (
               <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] text-xs uppercase font-black tracking-widest italic">
                 {t("productionStartModal.labels.fillOrderAndLot")}
               </div>
             ) : (
               selectedLabel ? (
-                <LabelVisualPreview
-                  label={selectedLabel as any}
-                  data={previewData}
-                  zoom={previewZoom}
-                  className="shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center border-2 border-white/10"
-                />
+                <div className="flex flex-col items-center gap-4">
+                  <LabelVisualPreview
+                    label={selectedLabel as any}
+                    data={activePreviewData}
+                    zoom={previewZoom}
+                    className="shadow-[0_0_100px_rgba(0,0,0,0.8)] relative transition-all duration-500 origin-center border-2 border-white/10"
+                  />
+                  {previewStringCount > 1 && (
+                    <div className="flex items-center gap-3 bg-black/40 border border-white/10 px-4 py-2 rounded-xl text-xs text-white z-10">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewLotIndex(prev => Math.max(0, prev - 1))}
+                        disabled={previewLotIndex === 0}
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-white/5 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed font-bold"
+                      >
+                        &larr; {t("common.previous", "Vorige")}
+                      </button>
+                      <span className="font-bold font-mono text-[11px] tracking-wide text-slate-300">
+                        Label {previewLotIndex + 1} / {previewStringCount} ({String(currentPreviewLot).slice(-4)})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewLotIndex(prev => Math.min(previewStringCount - 1, prev + 1))}
+                        disabled={previewLotIndex >= previewStringCount - 1}
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-white/5 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed font-bold"
+                      >
+                        {t("common.next", "Volgende")} &rarr;
+                      </button>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="text-slate-700 p-20 border-2 border-dashed border-slate-800 rounded-[50px] animate-pulse text-xs uppercase font-black tracking-widest italic">
                   {t("productionStartModal.labels.loadingDesign")}
