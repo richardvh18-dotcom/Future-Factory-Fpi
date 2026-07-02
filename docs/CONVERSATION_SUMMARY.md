@@ -1,3 +1,25 @@
+## Update sessie 2 juli 2026 (EMT/CMT Drukklasse Formatting)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. EMT/CMT Drukklasse Weergave Verbeterd**
+- In [labelHelpers.tsx](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/src/utils/labelHelpers.tsx) de parse- en formatteerlogica van EMT/CMT drukklassen aangepast:
+  - Formaten zoals `EMT 30/10`, `CMT 50/15` en `FIBERMAR 15/16` worden nu automatisch omgezet naar de nieuwe structuur: `EMT/CMT Pu [X] mcw PN[Y] bar`.
+  - Toegevoegd dat `FIBERMAR` in de omschrijving ook wordt herkend en omgezet naar `CMT` (indien conductive/CMT vermeld staat) of `EMT` (standaard).
+  - Dit zorgt ervoor dat drukklassen zoals `EMT 30/10` netjes worden geprint als `EMT Pu 30 mcw PN10 bar`.
+
+**2. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.57` naar `0.1.58`.
+
+**Aangepaste bestanden in deze sessie:**
+- [labelHelpers.tsx](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/src/utils/labelHelpers.tsx) [MODIFY]
+- [package.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/package.json) [MODIFY]
+- [version.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/public/version.json) [MODIFY]
+- [CONVERSATION_SUMMARY.md](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/docs/CONVERSATION_SUMMARY.md) [MODIFY]
+
+---
+
 ## Update sessie 2 juli 2026 (Fix Batch Label Generatie in ProductionStartModal)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)

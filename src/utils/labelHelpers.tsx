@@ -151,10 +151,12 @@ const barToPsi = (bar: unknown): number | string => {
 // Zoekt drukklasse (EST20, CST16, EMT25, EDF11)
 const parsePressure = (text: string): string => {
   // 1. Check specifiek op EMT/CMT met de xx/xx notatie (bijv. EMT 10/10)
-  const emtMatch = text.match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i);
+  const emtMatch = text.match(/(EMT|CMT)\s*(\d+)\s*[-/]\s*(\d+)/i);
   if (emtMatch) {
-    const val = emtMatch[2].replace(/\s/g, '').replace('-', '/');
-    return `${emtMatch[1].toUpperCase()} ${val}`;
+    const material = emtMatch[1].toUpperCase();
+    const x = emtMatch[2];
+    const y = emtMatch[3];
+    return `${material} Pu ${x} mcw PN${y} bar`;
   }
 
   // Zoek naar patroon: EST, CST, EMT, EDF, EWT gevolgd door cijfers
@@ -418,13 +420,17 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
   // Bepaal Pressure Line EMT (zoekt specifiek naar waarden zoals "EMT 30/10" of "EMT30/10")
   let pressureLineEmt = "";
   const emtLikeMatch =
-    desc.match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i) ||
-    String(rawData.productId || "").match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i) ||
-    String(rawData.itemCode || "").match(/(EMT|CMT)\s*(\d+\s*[-/]\s*\d+)/i);
+    desc.match(/(EMT|CMT|FIBERMAR)\s*(\d+)\s*[-/]\s*(\d+)/i) ||
+    String(rawData.productId || "").match(/(EMT|CMT|FIBERMAR)\s*(\d+)\s*[-/]\s*(\d+)/i) ||
+    String(rawData.itemCode || "").match(/(EMT|CMT|FIBERMAR)\s*(\d+)\s*[-/]\s*(\d+)/i);
   if (emtLikeMatch) {
-      const materialCode = String(emtLikeMatch[1] || "EMT").toUpperCase();
-      const val = emtLikeMatch[2].replace(/\s/g, '').replace('-', '/');
-      pressureLineEmt = `${materialCode} ${val}`;
+      let materialCode = String(emtLikeMatch[1] || "EMT").toUpperCase();
+      if (materialCode === "FIBERMAR") {
+        materialCode = upperDesc.includes("CONDUCTIVE") || upperDesc.includes("CMT") ? "CMT" : "EMT";
+      }
+      const x = emtLikeMatch[2];
+      const y = emtLikeMatch[3];
+      pressureLineEmt = `${materialCode} Pu ${x} mcw PN${y} bar`;
       // Altijd overschrijven voor EMT/CMT omdat dit het specifieke "xx/xx" formaat forceert
       pressureLine = pressureLineEmt;
   }
