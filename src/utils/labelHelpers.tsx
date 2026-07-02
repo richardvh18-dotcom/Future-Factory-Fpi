@@ -639,8 +639,8 @@ export const processLabelData = (data: Record<string, unknown> | null | undefine
     flangePressureLine,
     flangeConnectionLine,
     flangeDrillingLine,
-    code: data.code || data.extraCode || data.itemCode || data.productId || "",
-    extraCode: data.extraCode || data.code || data.itemCode || data.productId || "",
+    code: data.code || data.itemCode || data.productId || "",
+    extraCode: data.extraCode || data.Code || "",
 
     lotNumber: lotNumber,
     jointCode: jointCode, // Toegevoegd voor A2G3 logica
@@ -690,7 +690,7 @@ export const applyLabelLogic = (
             // 2. Mapping aliases
             if (field === 'diameter' && data.dn !== undefined) return data.dn;
             if (field === 'pressure' && data.pn !== undefined) return data.pn;
-            if (field === 'extraCode') return data.extraCode || data.code;
+            if (field === 'extraCode') return data.extraCode || data.Code || "";
             // 3. Specs object
             const specs = data.specs as AnyRecord | undefined;
             if (specs && specs[field] !== undefined) return specs[field];

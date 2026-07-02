@@ -1,3 +1,25 @@
+## Update sessie 2 juli 2026 (Fix Extra Code Overlapping in Flens Labels)
+
+**Branch:** `FPiFF-June-rolout` (actuele werkbranch)
+
+### Uitgevoerd in deze sessie
+**1. Scheiding tussen `code` (Artikelcode) en `extraCode`**
+- In [labelHelpers.tsx](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/src/utils/labelHelpers.tsx) de fallbacks voor `code` en `extraCode` ontkoppeld:
+  - Voorheen vielen `code` en `extraCode` op elkaar terug in de fallback-keten (`data.code || data.extraCode` etc.). Hierdoor werd bij flens-labels, wanneer er geen extra code was of wanneer deze juist wel was ingesteld, de artikelcode/itemCode ten onrechte getoond op de plek van de extra code (of omgekeerd).
+  - Nu is `code` (artikelcode) zuiver gekoppeld aan `data.code || data.itemCode || data.productId`, en `extraCode` zuiver aan `data.extraCode || data.Code`. Ze vallen niet meer op elkaar terug.
+  - Dit lost het probleem op waarbij de extra code (zoals `A1G9`, `A2G3`) hetzelfde werd weergegeven als de item code.
+
+**2. Versie bump uitgevoerd**
+- App versie verhoogd van `0.1.58` naar `0.1.59`.
+
+**Aangepaste bestanden in deze sessie:**
+- [labelHelpers.tsx](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/src/utils/labelHelpers.tsx) [MODIFY]
+- [package.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/package.json) [MODIFY]
+- [version.json](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/public/version.json) [MODIFY]
+- [CONVERSATION_SUMMARY.md](file:///c:/Users/sa-nldfitting/.gemini/antigravity-ide/scratch/Future-Factory-Fpi/docs/CONVERSATION_SUMMARY.md) [MODIFY]
+
+---
+
 ## Update sessie 2 juli 2026 (EMT/CMT Drukklasse Formatting)
 
 **Branch:** `FPiFF-June-rolout` (actuele werkbranch)
