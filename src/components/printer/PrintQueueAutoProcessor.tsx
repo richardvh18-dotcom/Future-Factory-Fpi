@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, collectionGroup, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, collectionGroup, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { PATHS, getPathString } from '../../config/dbPaths';
 import { transitionPrintQueueJobStatus } from '../../services/planningSecurityService';
@@ -472,6 +472,62 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
     () => printers.find((printer) => printer.id === currentPrinterId) || null,
     [printers, currentPrinterId]
   );
+
+  useEffect(() => {
+    if (!enabled || !currentPrinterId || !isUsbDirectSupported() || typeof navigator === 'undefined') {
+      return;
+    }
+
+    const printerRef = doc(db, getPathString(PATHS.PRINTERS), currentPrinterId);
+
+    const updateHeartbeat = (isOnline: boolean) => {
+      updateDoc(printerRef, {
+        isOnline,
+        lastHeartbeat: serverTimestamp(),
+      }).catch(() => {});
+    };
+
+    updateHeartbeat(!!usbDevice);
+
+    const pollInterval = setInterval(async () => {
+      if (usbDevice) {
+        updateHeartbeat(true);
+      } else {
+        try {
+          const devices = await navigator.usb.getDevices();
+          const savedVendor = localStorage.getItem(USB_PRINTER_VENDOR_KEY);
+          const savedProduct = localStorage.getItem(USB_PRINTER_PRODUCT_KEY);
+          const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || '').trim();
+
+          const match = devices.find((d) => {
+            const pv = parseUsbId(savedVendor);
+            const pp = parseUsbId(savedProduct);
+            if (pv !== undefined && pp !== undefined && d.vendorId === pv && d.productId === pp) return true;
+            if (savedPrinterId) {
+              const sp = printers.find((p) => p.id === savedPrinterId);
+              const spv = parseUsbId(sp?.vendorId);
+              const spp = parseUsbId(sp?.productId);
+              if (spv !== undefined && spp !== undefined && d.vendorId === spv && d.productId === spp) return true;
+            }
+            return false;
+          });
+
+          if (match) {
+            setUsbDevice(match);
+          } else if (!savedVendor && !savedProduct && !savedPrinterId && devices.length === 1) {
+            setUsbDevice(devices[0]);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }, 15000);
+
+    return () => {
+      clearInterval(pollInterval);
+      updateHeartbeat(false);
+    };
+  }, [enabled, currentPrinterId, usbDevice, printers]);
 
   useEffect(() => {
     if (!enabled || isProcessingRef.current) {

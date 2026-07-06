@@ -1,0 +1,23 @@
+<div className="flex gap-2">
+          <button 
+            onClick={() => setActiveMainTab("explorer")}
+            className={`px-5 py-3 font-bold text-xs uppercase tracking-widest rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
+              activeMainTab === "explorer" 
+                ? "bg-white text-blue-600 border-gray-200 border-b-transparent translate-y-[1px]" 
+                : "bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100 hover:text-slate-800"
+            }`}
+          >
+            <FolderTree size={16} />
+            {t('projectStructureExpert.projectExplorer', 'Project Verkenner')}
+          </button>
+          <button 
+            onClick={() => setActiveMainTab("docs")}
+            className={`px-5 py-3 font-bold text-xs uppercase tracking-widest rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
+              activeMainTab === "docs" 
+                ? "bg-white text-blue-600 border-gray-200 border-b-transparent translate-y-[1px]" 
+                : "bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100 hover:text-slate-800"
+            }`}
+          >
+            <FileText size={16} />
+            {t('projectStructureExpert.docsTab', 'Systeem Documentatie')}
+          </button>

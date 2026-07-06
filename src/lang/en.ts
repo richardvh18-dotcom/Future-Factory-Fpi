@@ -1731,7 +1731,7 @@ export const en = {
       firestoreLive: "Firestore: Live",
       zebraDriverVersion: "Zebra Driver: v2.1",
       edgeBridgeSyncing: "Edge-Bridge: Syncing",
-      authorizedEngineeringOnly: "Authorized Engineering Only • FPi Fittings 2026",
+      authorizedEngineeringOnly: "Authorized Engineering Only • FPI BV 2026",
       selectComponent: "Select Component",
       portalTitle: "ENGINEERING PORTAL",
       portalSubtitle: "FPi Future Factory • System Architecture & Onboarding",

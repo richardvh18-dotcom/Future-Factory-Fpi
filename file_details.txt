@@ -1,0 +1,120 @@
+const fileDetails: Record<string, FileDetail> = {
+  // CONFIGURATIE
+  "src/config/dbPaths.js": {
+    title: "Database Path Manager",
+    desc: "De centrale verkeerstoren voor data-routing. Switcht de root tussen /future-factory/ (productie) en /artifacts/ (test) op basis van de omgeving. Dit voorkomt dat testdata in de echte fabriek terechtkomt.",
+    tags: ["Architectuur", "Veiligheid", "Firestore"]
+  },
+  "src/config/firebase.js": {
+    title: "Firebase Initialisatie",
+    desc: "Stelt de verbinding in met de Google Firebase services (Firestore, Auth, Functions). Bevat de SDK configuratie.",
+    tags: ["Infrastructuur", "Firebase"]
+  },
+
+  // MODALS (DE DIALOGEN)
+  "src/components/digitalplanning/modals/ProductionStartModal.tsx": {
+    title: "Productie Start Dialog",
+    desc: "Het startpunt voor een operator op BH18. Handelt het scannen van orders en het koppelen van lotnummers af.",
+    tags: ["Modal", "BH18", "Workflow"]
+  },
+  "src/components/digitalplanning/modals/InspectionModal.tsx": {
+    title: "Keuringsvenster",
+    desc: "Interface voor het invoeren van meetgegevens (diameter, wanddikte). Vervangt de papieren meetlijsten.",
+    tags: ["Kwaliteit", "Data-Entry"]
+  },
+  "src/components/digitalplanning/modals/TraceModal.tsx": {
+    title: "Traceability Viewer",
+    desc: "Biedt inzicht in de volledige geschiedenis van een product: wie heeft het gewikkeld, wanneer is het gelost en door wie is het goedgekeurd.",
+    tags: ["Traceability", "ISO-Audit"]
+  },
+  "src/components/digitalplanning/modals/PlanningImportModal.tsx": {
+    title: "Planning Importeur",
+    desc: "Gids voor planners (Edwin/Frank) om Excel of CSV bestanden uit LN te importeren naar de digitale planning.",
+    tags: ["ERP", "Import", "Admin"]
+  },
+  "src/components/digitalplanning/modals/TerminalSelectionModal.tsx": {
+    title: "Terminal Kiezer",
+    desc: "Eerste scherm op een nieuwe tablet. Hiermee bepaalt de gebruiker of de tablet fungeert als BH18 terminal, Nabewerking of BM01 Hub.",
+    tags: ["Setup", "UX"]
+  },
+
+  // UTILS & LOGICA
+  "src/utils/infor_sync_service.js": {
+    title: "Infor LN Sync Engine",
+    desc: "Bevat de logica om orderdata uit het ERP systeem te trekken. Dit is het hart van de hybride pilot.",
+    tags: ["ERP", "Integratie"]
+  },
+  "src/utils/zplHelper.js": {
+    title: "Zebra ZPL Driver",
+    desc: "Vertaalt labels naar Zebra code. Geoptimaliseerd voor papierbesparing (geen witruimte) en batch-snijden voor 90mm rollen.",
+    tags: ["Printing", "ZPL", "Optimalisatie"]
+  },
+  "src/utils/workstationLogic.js": {
+    title: "Routering Logica",
+    desc: "Bepaalt de workflow van een product. Bijv: Diameter > 300mm sturen naar Trekbank-terminal i.p.v. standaard losplek.",
+    tags: ["Business Logic", "Routing"]
+  },
+
+  // HUBS & VIEWS
+  "src/components/digitalplanning/BM01Hub.tsx": {
+    title: "BM01 Eindcontrole Hub",
+    desc: "Het zenuwcentrum voor de keurmeester. Genereert de dubbele QR-codes voor Factory Track overdracht.",
+    tags: ["Kwaliteit", "BM01", "QR"]
+  },
+  "src/components/digitalplanning/terminal/TerminalProductionView.tsx": {
+    title: "BH18 Live Scherm",
+    desc: "Toont de actuele status van de wikkelbank. In de toekomst gekoppeld aan de Beckhoff PLC via de Edge Gateway.",
+    tags: ["Real-time", "Operator", "UI"]
+  },
+  "src/components/admin/AdminUsersView.tsx": {
+    title: "Gebruikers & Wachtwoord Beheer",
+    desc: "Beheermodule voor accounts. Inclusief de 'Admin Override' om wachtwoorden van @fpi.nl accounts te resetten zonder e-mail.",
+    tags: ["Admin", "Security", "Auth"]
+  },
+
+  // INFRASTRUCTUUR
+  "firestore.rules": {
+    title: "Database Beveiliging",
+    desc: "De 'uitsmijter' van de database. Zorgt dat alleen geautoriseerd personeel bij de /future-factory/ data kan.",
+    tags: ["Security", "Database"]
+  },
+  "ROADMAP.md": {
+    title: "Project Strategie",
+    desc: "Beschrijft de 4 fasen van de pilot en de technische stappen voor de Beckhoff integratie.",
+    tags: ["Documentatie", "Planning"]
+  },
+
+  // --- GEMIGREERD VAN OUDE VERSIE ---
+  "src/components/admin/AdminDashboard.tsx": { title: "Admin Dashboard", desc: "Hoofdscherm voor alle admin-functies, bevat tabbladen voor alle beheermodules.", tags: ["Admin", "UI"] },
+  "src/components/admin/AdminProductManager.tsx": { title: "Product Manager", desc: "Beheer van producten, toevoegen/bewerken/verwijderen van productdata.", tags: ["Admin", "Producten"] },
+  "src/components/admin/AdminLogView.tsx": { title: "Audit Log", desc: "Logboek van alle belangrijke systeemacties en wijzigingen.", tags: ["Admin", "Logs"] },
+  "src/components/admin/AdminLabelDesigner.tsx": { title: "Label Designer", desc: "Visuele editor voor het ontwerpen van labels en etiketten.", tags: ["Admin", "Labels"] },
+  "src/components/admin/AdminReferenceTable.tsx": { title: "Reference Table", desc: "Technische encyclopedie en referentietabellen.", tags: ["Admin", "Data"] },
+  "src/components/admin/ProductionTimeStandardsManager.tsx": { title: "Time Standards", desc: "Beheer van standaard productietijden per product/machine.", tags: ["Admin", "Efficiency"] },
+  "src/components/digitalplanning/EfficiencyDashboard.tsx": { title: "Efficiency Dashboard", desc: "Dashboard met efficiency metrics en real-time performance.", tags: ["Planning", "KPI"] },
+  "src/components/digitalplanning/DigitalPlanningHub.tsx": { title: "Planning Hub", desc: "Hoofdhub voor digitale productieplanning.", tags: ["Planning", "Core"] },
+  "src/components/digitalplanning/MobileScanner.tsx": { title: "Mobile Scanner", desc: "Mobiele scanner voor werkvloer en voorraadbeheer.", tags: ["Mobile", "Scanner"] },
+  "src/components/notifications/ToastContainer.tsx": { title: "Toast Container", desc: "UI-container voor alle toastmeldingen.", tags: ["UI", "Notificaties"] },
+  "src/components/products/ProductSearchView.tsx": { title: "Product Search", desc: "Zoek- en filtercomponent voor producten.", tags: ["Producten", "Search"] },
+  "src/components/products/ProductCard.tsx": { title: "Product Card", desc: "Visuele kaartweergave van een product.", tags: ["UI", "Producten"] },
+  "src/components/personnel/PersonnelListView.tsx": { title: "Personnel List", desc: "Overzicht en beheer van personeel.", tags: ["Personeel", "Admin"] },
+  "src/components/planning/KanbanBoardView.tsx": { title: "Kanban Board", desc: "Kanban-bord voor orderplanning.", tags: ["Planning", "UI"] },
+  "src/components/planning/GanttChartView.tsx": { title: "Gantt Chart", desc: "Gantt-diagram voor tijdlijnplanning.", tags: ["Planning", "UI"] },
+  "src/components/ai/AiCenterView.tsx": { title: "AI Center", desc: "AI-hub: training, documenten, flashcards.", tags: ["AI", "Core"] },
+  "src/components/ai/AiTrainingView.tsx": { title: "AI Training", desc: "Trainingsmodule voor AI-kennis.", tags: ["AI", "Training"] },
+  "src/components/teamleader/TeamleaderDashboard.tsx": { title: "Teamleader Dashboard", desc: "Dashboard voor teamleiders.", tags: ["Teamleader", "KPI"] },
+  "src/components/debug/FirestoreDebugger.tsx": { title: "Firestore Debugger", desc: "Debugtool voor Firestore-database.", tags: ["Debug", "Database"] },
+  "src/contexts/NotificationContext.tsx": { title: "Notification Context", desc: "Context provider voor notificatiesysteem.", tags: ["Context", "Core"] },
+  "src/hooks/useAdminAuth.js": { title: "Auth Hook", desc: "Custom React hook voor admin authenticatie.", tags: ["Hooks", "Auth"] },
+  "src/hooks/useProductsData.js": { title: "Products Hook", desc: "Custom React hook voor productdata.", tags: ["Hooks", "Data"] },
+  "src/utils/efficiencyCalculator.js": { title: "Efficiency Calc", desc: "Helperfuncties voor efficiencyberekeningen.", tags: ["Utils", "Math"] },
+  "src/utils/autoLearningService.js": { title: "Auto Learning", desc: "Automatisch AI-leren van gebruikersacties.", tags: ["AI", "Service"] },
+  "src/utils/automationEngine.js": { title: "Automation Engine", desc: "Automatiseringsengine voor workflows.", tags: ["Automation", "Core"] },
+  "src/utils/conversionLogic.js": { title: "Conversion Logic", desc: "Logica voor eenheden- en data-conversies.", tags: ["Utils", "Data"] },
+  "src/utils/helpers.js": { title: "Helpers", desc: "Algemene helperfuncties.", tags: ["Utils"] },
+  "src/services/aiService.js": { title: "AI Service", desc: "Service voor AI API-calls en integratie.", tags: ["Service", "AI"] },
+  "src/services/planningContext.js": { title: "Planning Context", desc: "Context voor planningsdata en -logica.", tags: ["Context", "Planning"] },
+  "src/data/aiContext.js": { title: "AI Context Data", desc: "AI contextdata voor kennisbank.", tags: ["Data", "AI"] },
+  "src/data/aiPrompts.js": { title: "AI Prompts", desc: "AI prompts en instructies voor de assistent.", tags: ["Data", "AI"] },
+  "src/data/constants.js": { title: "Constants", desc: "Algemene constanten voor de app.", tags: ["Data", "Config"] }
+};

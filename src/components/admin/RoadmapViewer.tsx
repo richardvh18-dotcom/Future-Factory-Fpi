@@ -17,7 +17,44 @@ const RoadmapViewer = () => {
   const [newIdea, setNewIdea] = useState("");
 
   // State voor het optimalisatieplan
-  const [planContent, setPlanContent] = useState(`# Optimalisatieplan: Fittings Pilot (BH18 & BM01)\n\nDit document bevat de technische en functionele optimalisaties om de 4-weekse pilot tot een succes te maken.\n\n## 1. Code & Infrastructuur "Merge"\nDe eerste stap is het samenvoegen van de kracht van beide versies (Set 1 en Set 2).\n\n- **Herstel de Backend:** Zorg dat de functions/ map uit Set 1 volledig geïntegreerd is in je werkomgeving.\n- **Fix Bestandsfouten:** Verwijder het foutieve bestand AiCenterView,jsx uit Set 2.\n- **Activeer de ERP-Sync:** Integreer infor_sync_service.js uit Set 1.\n\n## 2. Optimalisatie voor de Werkvloer (UX)\nOperators werken vaak met handschoenen of in een luidruchtige omgeving.\n\n- **Scanner Snelheid:** Optimaliseer MobileScanner.jsx (Auto-Focus).\n- **Grote Interactie-elementen:** Knoppen minimaal h-16 (64px).\n- **Offline-First Check:** Lokale cache check in workstationLogic.js.\n\n## 3. De "Hybride Brug" (Papier-Digitaal)\n- **QR-Code Generatie:** Sticker-lay-out op papieren bon.\n- **Sync-Dashboard:** Vergelijk "Papieren Status" met "App Status".\n- **BM01 Checklists:** Volgorde gelijk aan papieren formulier.\n\n## 4. AI Assistent Optimalisatie\n- **Context Injectie:** Specifieke context over BH18.\n- **Spraak-naar-Tekst:** Web Speech API in AiChatView.\n\n## 5. Performance & Data\n- **Firestore Indexen:** Controleer indexen voor usePlanningData.js.\n- **Cleanup Script:** Archiveer voltooide orders wekelijks.`);
+  const [planContent, setPlanContent] = useState(`# Optimalisatieplan: Fittings Pilot (BH18 & BM01)
+
+Dit document bevat de technische en functionele optimalisaties om de 4-weekse pilot tot een succes te maken.
+
+## 1. Code & Infrastructuur "Merge"
+De eerste stap is het samenvoegen van de kracht van beide versies (Set 1 en Set 2).
+
+- [x] **Herstel de Backend:** Zorg dat de functions/ map uit Set 1 volledig geïntegreerd is in je werkomgeving. (Gefixed: geneste map hersteld).
+- [x] **Fix Bestandsfouten:** Verwijder het foutieve bestand AiCenterView,jsx uit Set 2. (Verholpen & omgezet naar .tsx).
+- [ ] **Activeer de ERP-Sync:** Integreer infor_sync_service.js uit Set 1.
+- [x] **Live Environment Variabelen:** Automatische GIT_HASH en BUILD_STATUS injectie in 'vite.config.ts'.
+- [x] **Dynamische App Versie:** Release-versies uitlezen uit 'version.json' voor knoppen.
+
+## 2. Optimalisatie voor de Werkvloer (UX)
+Operators werken vaak met handschoenen of in een luidruchtige omgeving.
+
+- [ ] **Scanner Snelheid:** Optimaliseer MobileScanner.jsx (Auto-Focus).
+- [ ] **Grote Interactie-elementen:** Knoppen minimaal h-16 (64px).
+- [ ] **Offline-First Check:** Lokale cache check in workstationLogic.js.
+- [x] **Status Selectie Bugfix:** Verholpen dat gebruikers vastzaten op 'definitieve afkeur' als metingen niet verplicht waren in de 'ProductReleaseModal'.
+- [x] **Nood-etiketten & Flens Uitzondering:** "Handmatig Aanmaken" modus voor lotnummers + doorsturen van Flens-labels naar de speciale Mazak printer.
+
+## 3. De "Hybride Brug" (Papier-Digitaal)
+- [x] **QR-Code Generatie & Print Pariteit:** Label preview en daadwerkelijke Zebra ZPL-print exact gelijkgetrokken.
+- [ ] **Sync-Dashboard:** Vergelijk "Papieren Status" met "App Status".
+- [ ] **BM01 Checklists:** Volgorde gelijk aan papieren formulier.
+
+## 4. AI Assistent Optimalisatie & Documentatie
+- [x] **Live Docs Dashboard:** Alle belangrijke markdowns ('CONVERSATION_SUMMARY.md', etc) direct leesbaar en doorzoekbaar in Expert modus via Vite HMR.
+- [x] **Project Verkenner Annotaties:** Alle componenten en hooks voorzien van diepgaande Nederlandse uitleg voor snelle context.
+- [ ] **Context Injectie:** Specifieke context over BH18.
+- [ ] **Spraak-naar-Tekst:** Web Speech API in AiChatView.
+
+## 5. Performance & Data
+- [ ] **Firestore Indexen:** Controleer indexen voor usePlanningData.js.
+- [ ] **Cleanup Script:** Archiveer voltooide orders wekelijks.
+- [x] **Admin Diep Zoeken (Deep Path):** Extra zoekpaden toegevoegd ('digital_planning/{Fittings|Pipes}/machines/{...}/orders') zodat nieuwe BH18 orders correct vindbaar zijn.
+- [x] **Backend Command Migration (CQRS):** 'PlanningImportModal' migratie naar backend (callable) gestart om client-side write-bypasses te dichten.`);
   
   const [pilotTasks, setPilotTasks] = useState<PilotTask[]>([
     { id: 1, text: "Voer een volledige build uit met de functions/ map actief", completed: false },

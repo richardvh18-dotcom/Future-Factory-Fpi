@@ -115,8 +115,8 @@ const PortalView = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const displayName = user?.displayName
-    ? String(user.displayName).split(" ")[0]
+  const displayName = user?.name || user?.displayName 
+    ? String(user?.name || user?.displayName)
     : user?.email?.split("@")[0] || t('common.employee', 'Medewerker');
 
   // FIX: Werkende uitlog functie

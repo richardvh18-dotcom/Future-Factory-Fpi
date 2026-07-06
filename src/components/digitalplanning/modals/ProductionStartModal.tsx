@@ -301,7 +301,19 @@ const ProductionStartModal = ({
   const addOperation = useProgressOperationsStore((state) => state.addOperation);
   const updateOperation = useProgressOperationsStore((state) => state.updateOperation);
   const removeOperation = useProgressOperationsStore((state) => state.removeOperation);
-  const [mode, setMode] = useState("manual"); // Standaard manueel voor pilot
+  const [mode, setMode] = useState(() => {
+    const normalized = String(stationId || "").toUpperCase().trim();
+    const noPrefix = normalized.startsWith("40") ? normalized.slice(2) : normalized;
+    return noPrefix === "BH18" ? "auto" : "manual";
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      const normalized = String(stationId || "").toUpperCase().trim();
+      const noPrefix = normalized.startsWith("40") ? normalized.slice(2) : normalized;
+      setMode(noPrefix === "BH18" ? "auto" : "manual");
+    }
+  }, [isOpen, stationId]);
   const [lotNumber, setLotNumber] = useState("");
   const [stringCount, setStringCount] = useState("1");
   const [labelCount, setLabelCount] = useState("1");
@@ -1068,6 +1080,12 @@ const ProductionStartModal = ({
             .sort((a: number, b: number) => a - b)
         : [];
 
+      const usedSeqList = Array.isArray(counterData.usedSequences)
+        ? Array.from(new Set(counterData.usedSequences
+            .map((n: any) => Number(n))
+            .filter((n: number) => Number.isFinite(n) && n > 0)))
+        : [];
+
       const maxAttempts = 250;
       let attempts = 0;
       let recycledIndex = 0;
@@ -1100,10 +1118,16 @@ const ProductionStartModal = ({
             ? recycled.filter((n: number) => n !== sequenceToTry)
             : recycled;
           const newLast = Math.max(lastSequence, sequenceToTry + quantity - 1);
+          
+          for (let i = 0; i < quantity; i++) {
+            usedSeqList.push(sequenceToTry + i);
+          }
+          const uniqueUsed = Array.from(new Set(usedSeqList)).sort((a, b) => a - b);
 
           tx.set(counterRef, {
             lastSequence: newLast,
             recycledSequences: nextRecycled,
+            usedSequences: uniqueUsed,
             updatedAt: serverTimestamp(),
           }, { merge: true });
 
@@ -1280,11 +1304,26 @@ const ProductionStartModal = ({
           const recycled = Array.isArray(counterData.recycledSequences)
             ? counterData.recycledSequences.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
             : [];
+          
+          const usedSeqList = Array.isArray(counterData.usedSequences)
+            ? Array.from(new Set(counterData.usedSequences.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)))
+            : [];
+
           const rangeStart = currentSeq;
           const rangeEnd = candidateMax;
           const nextRecycled = recycled.filter((n: number) => n < rangeStart || n > rangeEnd);
 
-          await setDoc(counterRef, { lastSequence: newMax, recycledSequences: nextRecycled, updatedAt: serverTimestamp() }, { merge: true });
+          for (let s = rangeStart; s <= rangeEnd; s++) {
+            usedSeqList.push(s);
+          }
+          const uniqueUsed = Array.from(new Set(usedSeqList)).sort((a, b) => a - b);
+
+          await setDoc(counterRef, { 
+            lastSequence: newMax, 
+            recycledSequences: nextRecycled, 
+            usedSequences: uniqueUsed,
+            updatedAt: serverTimestamp() 
+          }, { merge: true });
 
           const twoWeeksAgo = new Date();
           twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
@@ -2399,19 +2438,71 @@ const ProductionStartModal = ({
             </div>
           )}
 
-          {/* --- PRINT AREA (ALLEEN PRINT KNOP) --- */}
-          <div className="w-full max-w-sm bg-white/5 border border-white/10 p-4 rounded-2xl backdrop-blur-md mb-2 flex flex-col gap-3 animate-in slide-in-from-bottom-6 duration-700 text-left">
-            <div className="flex justify-center items-center px-1">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                <Database size={12} className="text-purple-400" />
-                {t("productionStartModal.labels.printViaQueue")}
+          {/* --- AUTO LOT NUMBER EDITOR --- */}
+          {mode !== "manual" && lotNumber && lotNumber.length >= 11 && (
+            <div className="w-full max-w-sm bg-white/5 border border-white/10 p-4 rounded-2xl backdrop-blur-md mb-2 flex flex-col gap-3 animate-in slide-in-from-bottom-6 duration-700 text-center">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center justify-center gap-2">
+                <QrCode size={12} className="text-cyan-400" />
+                Aanpasbaar Lotnummer
               </span>
+              <div className="flex items-center justify-center gap-1 font-mono text-lg font-black text-white">
+                <span className="text-slate-400">{lotNumber.slice(0, 4)}</span>
+                <input 
+                  key={`week-${lotNumber}`}
+                  type="text" 
+                  defaultValue={lotNumber.slice(4, 6)}
+                  onBlur={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').padStart(2, '0').slice(-2);
+                    e.target.value = val;
+                    const newLot = lotNumber.slice(0, 4) + val + lotNumber.slice(6, 11) + lotNumber.slice(11);
+                    setLotNumber(newLot);
+                    (async () => {
+                      setIsCheckingLot(true);
+                      const exists = await checkLotNumberExists(newLot);
+                      setLotError(exists ? "Dit lotnummer is al in gebruik." : "");
+                      setIsCheckingLot(false);
+                    })();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                  }}
+                  className={`w-8 text-center bg-white/10 border-b-2 outline-none focus:bg-white/20 px-0.5 rounded-t ${lotError ? "border-red-500 text-red-400" : "border-cyan-500 text-cyan-300"}`}
+                  maxLength={2}
+                />
+                <span className="text-slate-400">{lotNumber.slice(6, 11)}</span>
+                <input 
+                  key={`seq-${lotNumber}`}
+                  type="text" 
+                  defaultValue={lotNumber.slice(11).padStart(4, '0').slice(-4)}
+                  onBlur={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').padStart(4, '0').slice(-4);
+                    e.target.value = val;
+                    const newLot = lotNumber.slice(0, 11) + val;
+                    setLotNumber(newLot);
+                    (async () => {
+                      setIsCheckingLot(true);
+                      const exists = await checkLotNumberExists(newLot);
+                      setLotError(exists ? "Dit lotnummer is al in gebruik." : "");
+                      setIsCheckingLot(false);
+                    })();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                  }}
+                  className={`w-14 text-center bg-white/10 border-b-2 outline-none focus:bg-white/20 px-0.5 rounded-t ${lotError ? "border-red-500 text-red-400" : "border-cyan-500 text-cyan-300"}`}
+                  maxLength={4}
+                />
+              </div>
+              <p className="text-[8px] text-slate-500 text-center font-bold uppercase tracking-tighter opacity-50">
+                Pas de week of het volgnummer aan indien nodig
+              </p>
+              {lotError && (
+                <p className="text-xs font-bold text-red-400 text-center px-2 animate-in slide-in-from-top-1">
+                  {lotError}
+                </p>
+              )}
             </div>
-
-            <p className="text-[8px] text-slate-500 text-center font-bold uppercase tracking-tighter opacity-50">
-              {t("productionStartModal.labels.labelAutoPrintedOnStart")}
-            </p>
-          </div>
+          )}
         </div>}
       </div>
     </div>

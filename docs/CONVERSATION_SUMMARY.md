@@ -1,3 +1,120 @@
+### Update sessie 06 July 2026 (Printer Beheer - Afdelingen & Locatie Label)
+
+**Datum:** 06 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Printers in Printer Beheer structureren in inklapbare categorieën (afdelingen uit de factory config).
+- Een specifiek tekstveld toevoegen om per printer de exacte locatie (bijv. "Bij BH18") vast te leggen.
+
+**Uitgevoerd:**
+- In `AdminPrinterManager.tsx` worden nu automatisch de hoofdcategorieën/afdelingen uitgelezen uit de factory config.
+- Bij "Nieuwe Printer Toevoegen" of "Bewerken" kan nu een afdeling worden gekozen en optioneel een `Locatie/Werkplek` label worden getypt.
+- In het hoofdscherm worden alle printers nu dynamisch gegroepeerd per afdeling. Deze groepen zijn standaard netjes ingeklapt (via `<details>` en `<summary>`), waarbij de teller aangeeft hoeveel printers erin zitten.
+- Het getypte locatielabel (bijv. "Bij BH18") wordt nu prominent getoond op de "printerkaart".
+
+---
+
+
+
+**Datum:** 06 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Zorgen dat álle factory-stations gekoppeld kunnen worden aan een printer, inclusief de stations waar niet direct op gepland wordt (zoals Mazak).
+
+**Uitgevoerd:**
+- In `AdminPrinterManager.tsx` werd de keuzelijst voor werkstations (om een printer aan te koppelen) gefilterd op `isAvailableForPlanning`.
+- Dit was onjuist: hoewel een station (zoals Mazak of Expeditie) misschien geen order-planning ondersteunt in de Terminal, kan het wél een lokaal Print Station zijn.
+- De `isAvailableForPlanning === false` filter is verwijderd bij het inladen van de lijst.
+- **Resultaat:** De Zebra ZM400 Mazak kan nu probleemloos gekoppeld worden aan het 'Mazak' station in Printer Beheer.
+
+---
+
+
+
+**Datum:** 06 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Het oplossen van de uitvallende/grijze USB verbindingen na het ontwaken uit slaapstand (bump) of updates.
+- Inzicht bieden in de actuele verbindingsstatus van printers (ook op afstand).
+
+**Uitgevoerd:**
+
+1. **Auto-Recovery & Heartbeat Loop**
+- In `PrintQueueAutoProcessor.tsx` is een robuuste polling-loop ingebouwd die elke 15 seconden controleert of de WebUSB connectie nog in leven is.
+- Mocht de verbinding zijn weggevallen (bijvoorbeeld door een stroomdip of slaapstand), dan roept het systeem automatisch `navigator.usb.getDevices()` aan om de laatst bekende, geautoriseerde printer weer muisstil te herkoppelen, *zonder* dat de operator een knop hoeft in te drukken.
+
+2. **Database Connectiviteit (Ping/Heartbeat)**
+- Tijdens de 15-seconden loop schrijft het productiestation nu actief een 'heartbeat' weg naar het betreffende printer-document in Firestore (`isOnline: true`, `lastHeartbeat: serverTimestamp()`).
+- Bij het afsluiten (of disconnect) wordt de status direct op `false` gezet.
+
+3. **Live Indicator in Printer Beheer**
+- In `AdminPrinterManager.tsx` is een visuele status-indicator (badge) toegevoegd achter de printernaam. 
+- Deze leest de heartbeat uit. Als de heartbeat ouder is dan 45 seconden (of `isOnline: false`), wordt de printer gemarkeerd als **OFFLINE** (grijze stip). Is er actieve communicatie, dan toont hij **VERBONDEN** (met een knipperende, groene 'live' dot).
+- Hierdoor kan een beheerder vanuit het kantoor exact zien of de printer op de werkvloer fysiek verbonden is aan het workstation.
+
+---
+
+
+
+**Datum:** 06 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Verbeteren van de lotnummer-generatie en handmatige overschrijvingen binnen de `ProductionStartModal`.
+- Uitbreiden van de tracking van verbruikte lotnummers ten behoeve van gap-checking en controle.
+
+**Uitgevoerd:**
+
+1. **Auto-modus als standaard voor BH18**
+- In `ProductionStartModal.tsx` is de initialisatie van de `mode` state aangepast. Wanneer het station `BH18` (of `40BH18`) is, opent de modal nu standaard in `auto` modus in plaats van `manual`.
+
+2. **Uitbreiding Counter Tracking (`usedSequences`)**
+- Zowel in `claimAutoLotRange` als `updateCounterOnStart` worden nu *alle* gegenereerde of via ranges geclaimde volgnummers direct weggeschreven naar de `usedSequences` array in het Firestore counter-document (bijv. `/production/counters/BH18_2628`). 
+- Dit zorgt voor een sluitende, oplopende lijst van nummers per week/machine waarmee eventuele gaten (door bijv. netwerkfouten of handmatige overschrijvingen) direct inzichtelijk worden.
+
+3. **Interactief Aanpasbaar Auto-Lotnummer (UI)**
+- Het statische informatieblokje onderin de rechterkolom ("Printen via wachtrij / Label wordt automatisch geprint") is verwijderd.
+- In plaats daarvan is er een interactieve, opgesplitste weergave van het gegenereerde lotnummer gebouwd. Hier kan de operator de **week** (2 tekens) of het **volgnummer** (4 tekens) handmatig overschrijven als er bijvoorbeeld een foutief nummer wordt voorgesteld door de auto-generator.
+
+4. **Robuustheid & Validatie (Uniqueness Check)**
+- Het bewerken van het auto-lotnummer is ontworpen met `defaultValue`, `onBlur` en Enter-toets event listeners. Dit zorgt ervoor dat het invoerveld niet wegglipt of zijn opmaak verliest tijdens het (backspace) typen (`padStart` logica triggert pas bij defocus).
+- Zodra de wijziging wordt bevestigd, triggert er automatisch een controle op de achtergrond (`checkLotNumberExists`). Als het ingevoerde nummer al bestaat in de `tracking` collectie, worden de velden rood, verschijnt er een foutmelding, en wordt de **Start Order** knop hardware-matig geblokkeerd.
+
+---
+
+### Update sessie 04 July 2026 (Live Docs Integratie & Dashboard Consolidatie)
+
+**Datum:** 04 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Het consolideren van alle expert-informatie (Documentatie, Projectstructuur en Master Roadmap) in één overzichtelijk dashboard.
+- Live doorzoekbare documentatie inbouwen voor snelle troubleshooting in de productie-omgeving.
+
+**Uitgevoerd:**
+
+1. **Live Docs Tab in Projectstructuur & Uitleg**
+- Nieuwe tab toegevoegd aan ProjectStructureExpertView.tsx die live .md bestanden inlaadt via Vite ?raw imports (o.a. CONVERSATION_SUMMARY.md, ROADMAP.md, SOP's).
+- Dynamische en snelle tekst-zoekbalk (highlighter met <mark>) toegevoegd om realtime termen te vinden in de geladen documentatie.
+- Import paden gecorrigeerd om te zorgen dat Vite de bestanden veilig vanuit de /docs root pakt.
+
+2. **Dashboard Consolidatie & Layout Fixes**
+- De losse 'Master Roadmap' tegel uit het AdminDashboard verwijderd en geïntegreerd als hoofd-tabblad binnen de 'Projectstructuur & Uitleg' component.
+- Flex-box lay-out herschreven zodat de Roadmap en Live Docs het volledige scherm overnemen, in plaats van de navigatieboom naar beneden te drukken.
+
+3. **Synchronisatie van de Master Roadmap**
+- De inhoud van de RoadmapViewer.tsx (hardcoded markdown) geüpdatet met de daadwerkelijke voortgang uit deze Conversation Summary.
+- Backticks escaping bugs in Javascript template-strings in de roadmap verholpen.
+
+4. **Kleine updates & branding**
+- De zwarte header wit gemaakt.
+- 'Pilot v3.0' knop vervangen door een dynamische uitlezing uit ersion.json inclusief live GIT_HASH/BUILD_STATUS indicatoren afkomstig uit de Vite config.
+- Developer branding tekst (FPI BV 2026) veilig in de code verwerkt via obfuscation (String.fromCharCode).
+
+**Resultaat:**
+- Het Admin Dashboard is aanzienlijk schoner met één centraal 'Kennis Centrum' (Projectstructuur & Uitleg) waar code, systeem-documentatie, markdown logboeken en de ontwikkelings-roadmap naadloos in elkaar overlopen. 
+
+
+---
+
 ## Opschoonrapport Pilot Future-Factory (v4) - 3 juli 2026
 
 **Status:** De codebase is geaudit en opgeschoond ter voorbereiding op de pilot.

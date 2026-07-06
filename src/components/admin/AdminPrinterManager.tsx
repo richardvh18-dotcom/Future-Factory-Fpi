@@ -97,6 +97,8 @@ type PrinterRecord = {
   driverModel?: string;
   zplTextFont?: string;
   bitmapPrintEnabled?: boolean;
+  department?: string;
+  locationLabel?: string;
   [key: string]: unknown;
 };
 
@@ -123,6 +125,8 @@ type PrinterFormData = {
   driverModel: string;
   zplTextFont: string;
   bitmapPrintEnabled: boolean;
+  department: string;
+  locationLabel: string;
 };
 
 type TempOrderRecord = {
@@ -221,6 +225,8 @@ const DEFAULT_PRINTER_FORM: PrinterFormData = {
   driverModel: "",  // bijv. 'zebra-zm400-300' of 'lighthouse-cjpro2'
   zplTextFont: "0",
   bitmapPrintEnabled: false,
+  department: "",
+  locationLabel: "",
 };
 
 const parseMm = (value: unknown, fallback = 0): number => {
@@ -995,6 +1001,7 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [availableStations, setAvailableStations] = useState<string[]>([]);
+  const [availableDepartments, setAvailableDepartments] = useState<string[]>([]);
   const [selectedQueuePrinterId, setSelectedQueuePrinterId] = useState("");
   const [queueStations, setQueueStations] = useState<string[]>([]);
   const [queueStationToAdd, setQueueStationToAdd] = useState("");
@@ -1047,20 +1054,26 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
     const unsub = onSnapshot(docPath(PATHS.FACTORY_CONFIG), (snap) => {
       if (!snap.exists()) {
         setAvailableStations([]);
+        setAvailableDepartments([]);
         return;
       }
 
-      const data = (snap.data() || {}) as { departments?: Array<{ stations?: Array<{ name?: string, isAvailableForPlanning?: boolean }> }> };
+      const data = (snap.data() || {}) as { departments?: Array<{ name?: string, stations?: Array<{ name?: string, isAvailableForPlanning?: boolean }> }> };
       const stations: string[] = [];
+      const depts: string[] = [];
+      
       (data.departments || []).forEach((dept) => {
+        const deptName = String(dept?.name || "").trim();
+        if (deptName) depts.push(deptName);
+
         (dept.stations || []).forEach((s) => {
-          if (s.isAvailableForPlanning === false) return;
           const name = String(s?.name || "").trim();
           if (name) stations.push(name);
         });
       });
 
       setAvailableStations(Array.from(new Set(stations)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
+      setAvailableDepartments(Array.from(new Set(depts)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
     }, (e) => {
       console.error("Err stations", e);
     });
@@ -1170,6 +1183,8 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
         rollType: normalizeRollType(formData.rollType),
         zplTextFont: normalizeZplTextFont(formData.zplTextFont),
         routingKeys: serializeRoutingKeys(formData.routingKeysText),
+        department: formData.department || "",
+        locationLabel: formData.locationLabel || "",
         // Legacy compat: bestaand veld blijft gevuld voor oude flows.
         width: normalizedRollWidth,
       };
@@ -1731,6 +1746,8 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
       driverModel: printer.driverModel || "",
       zplTextFont: normalizeZplTextFont(printer.zplTextFont),
       bitmapPrintEnabled: Boolean(printer.bitmapPrintEnabled),
+      department: printer.department || "",
+      locationLabel: printer.locationLabel || "",
     });
     setEditingId(printer.id);
     setIsAdding(true);
@@ -1839,7 +1856,7 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
+            <div className="md:col-span-2">
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('adminPrinterManager.name')}</label>
               <input 
                 type="text" 
@@ -1847,6 +1864,29 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
+              />
+            </div>
+            
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hoofdcategorie / Afdeling (Optioneel)</label>
+              <select 
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500"
+                value={formData.department}
+                onChange={e => setFormData({...formData, department: e.target.value})}
+              >
+                <option value="">— Geen Categorie —</option>
+                {availableDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Specifieke Locatie (Optioneel)</label>
+              <input 
+                type="text" 
+                placeholder="bijv. Bij BH18 of Kantoor"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500"
+                value={formData.locationLabel}
+                onChange={e => setFormData({...formData, locationLabel: e.target.value})}
               />
             </div>
             
@@ -2140,101 +2180,144 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
           <div className="text-center py-12 text-slate-400 italic">{t('adminPrinterManager.noPrintersConfigured')}</div>
         )}
         
-        {printers.map(printer => (
-          (() => {
-            const printerType = normalizePrinterType(printer.type);
-            const iconColors = printerType === CONNECTION_TYPES.NETWORK
-              ? 'bg-blue-50 text-blue-600'
-              : printerType === CONNECTION_TYPES.WINDOWS_HOST
-                ? 'bg-amber-50 text-amber-600'
-                : 'bg-orange-50 text-orange-600';
+        {(() => {
+          const groupedPrinters = printers.reduce((acc, printer) => {
+            const dept = printer.department || 'Geen Categorie / Overig';
+            if (!acc[dept]) acc[dept] = [];
+            acc[dept].push(printer);
+            return acc;
+          }, {} as Record<string, PrinterRecord[]>);
 
-            return (
-          <div key={printer.id} className="bg-white p-4 rounded-2xl border-2 transition-all flex items-center justify-between border-slate-100">
-            <div className="flex items-center gap-4">
-              <div className={`p-3 rounded-xl ${iconColors}`}>
-                <Printer size={24} />
-              </div>
-              <div>
+          const departments = Object.keys(groupedPrinters).sort((a, b) => {
+            if (a === 'Geen Categorie / Overig') return 1;
+            if (b === 'Geen Categorie / Overig') return -1;
+            return a.localeCompare(b);
+          });
+
+          return departments.map(dept => (
+            <details key={dept} className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden group">
+              <summary className="p-4 cursor-pointer font-black text-slate-700 uppercase tracking-widest flex justify-between items-center bg-slate-100 hover:bg-slate-200 transition-colors select-none">
                 <div className="flex items-center gap-2">
-                  <h3 className="font-black text-slate-800">{printer.name}</h3>
+                  <span className="text-slate-400 group-open:rotate-90 transition-transform">▶</span>
+                  <span>{dept} <span className="opacity-50 text-xs ml-2">({groupedPrinters[dept].length})</span></span>
                 </div>
-                <p className="text-xs font-bold text-slate-400 font-mono mt-0.5">
-                  {printerType === CONNECTION_TYPES.WEBUSB && (printer.deviceName ? `USB: ${printer.deviceName}` : t("adminPrinterManager.webUsbZadig", "WebUSB / Zadig"))}
-                  {printerType === CONNECTION_TYPES.WINDOWS_HOST && t("adminPrinterManager.windowsHostPrint", "Windows Host Print")}
-                  {printerType === CONNECTION_TYPES.NETWORK && (printer.ip ? `IP: ${printer.ip}:${printer.port || '9100'}` : t("adminPrinterManager.networkPrinterIpEmpty", "Netwerk printer (IP nog leeg)"))}
-                  {printer.dpi && <span className="ml-2 opacity-60 text-[10px]">({printer.dpi} DPI)</span>}
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
-                  {t('adminPrinterManager.protocol')}: {((printer.protocol || 'zpl')).toUpperCase()} | {getConnectionLabel(printer.type)}
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
-                  {t("adminPrinterManager.calibration", "Calibratie")}: X {parseMm(printer.calibrationOffsetXMm, 0)}mm | Y {parseMm(printer.calibrationOffsetYMm, 0)}mm
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
-                  {t("adminPrinterManager.roll", "Rol")}: {resolveRollWidthMm(printer)}mm | {t("adminPrinterManager.type", "Type")}: {normalizeRollType(printer.rollType)}
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
-                  {t("adminPrinterManager.print", "Print")}: {t("adminPrinterManager.darkness", "Darkness")} {printer.darkness || getDriver(printer).defaultDarkness} | {t("adminPrinterManager.speed", "Speed")} {printer.speed || getDriver(printer).defaultSpeed} ips
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
-                  {t("adminPrinterManager.zplTextFont", "ZPL tekstfont")}: {normalizeZplTextFont(printer.zplTextFont)}
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
-                  {t("adminPrinterManager.bitmapPrint", "Bitmap print")}: {printer.bitmapPrintEnabled ? t("common.on", "Aan") : t("common.off", "Uit")}
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
-                  {t("adminPrinterManager.routingKeys", "Routeringstags")}: {(Array.isArray(printer.routingKeys) ? printer.routingKeys : []).length > 0 ? (Array.isArray(printer.routingKeys) ? printer.routingKeys.join(", ") : "") : t("adminPrinterManager.noRoutingKeys", "Geen")}
-                </p>
-                <p className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-1">
-                    {printer.linkedStations && printer.linkedStations.length > 0 
-                        ? printer.linkedStations.map(s => <span key={s} className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{s}</span>)
-                        : <span className="italic opacity-50">{t('adminPrinterManager.noSpecificStations')}</span>}
-                </p>
-              </div>
-            </div>
+              </summary>
+              <div className="p-4 grid gap-4 bg-slate-50">
+                {groupedPrinters[dept].map(printer => (
+                  (() => {
+                    const printerType = normalizePrinterType(printer.type);
+                    const iconColors = printerType === CONNECTION_TYPES.NETWORK
+                      ? 'bg-blue-50 text-blue-600'
+                      : printerType === CONNECTION_TYPES.WINDOWS_HOST
+                        ? 'bg-amber-50 text-amber-600'
+                        : 'bg-orange-50 text-orange-600';
 
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <button 
-                  onClick={() => setShowTestMenu(printer.id === showTestMenu ? null : printer.id)}
-                  disabled={printerType !== CONNECTION_TYPES.WEBUSB}
-                  className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title={printerType === CONNECTION_TYPES.WEBUSB ? t('adminPrinterManager.testPrint') : t("adminPrinterManager.testPrintWebUsbOnly", "Testprint is alleen beschikbaar voor WebUSB/Zadig printers")}
-                >
-                  <Play size={18} />
-                </button>
-                {showTestMenu === printer.id && (
-                  <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1">
-                    <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase">{t("adminPrinterManager.testLengths", "Test Lengtes")}</div>
-                    <button onClick={() => handleLengthTestPrint(printer, 25)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.test90x25", "Test 90x25mm")}</button>
-                    <button onClick={() => handleLengthTestPrint(printer, 50)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.test90x50", "Test 90x50mm")}</button>
-                    <button onClick={() => handleLengthTestPrint(printer, 100)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.test90x100", "Test 90x100mm")}</button>
-                    <div className="h-px bg-slate-100 my-1"></div>
-                    <button onClick={() => handleTestPrint(printer)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.standardTestLabel", "Standaard Testlabel")}</button>
-                    <button onClick={() => { setShowTestMenu(null); setCalibrationPrinter(printer); }} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.calibrationPrintOffsets", "Calibratie print + offsets")}</button>
-                  </div>
-                )}
+                    return (
+                      <div key={printer.id} className="bg-white p-4 rounded-2xl border-2 transition-all flex items-center justify-between border-slate-100">
+                        <div className="flex items-center gap-4">
+                          <div className={`p-3 rounded-xl ${iconColors}`}>
+                            <Printer size={24} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-black text-slate-800">{printer.name}</h3>
+                              {printer.locationLabel && (
+                                <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 text-[10px] font-bold uppercase border border-indigo-100 flex items-center gap-1">
+                                  <MapPin size={10} />
+                                  {printer.locationLabel}
+                                </span>
+                              )}
+                              {(() => {
+                                const hb = printer.lastHeartbeat?.toMillis?.() || (printer.lastHeartbeat?.seconds ? printer.lastHeartbeat.seconds * 1000 : 0);
+                                const isOnline = printer.isOnline && hb && (Date.now() - hb) < 45000;
+                                return (
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1 ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></div>
+                                    {isOnline ? 'Verbonden' : 'Offline'}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                            <p className="text-xs font-bold text-slate-400 font-mono mt-0.5">
+                              {printerType === CONNECTION_TYPES.WEBUSB && (printer.deviceName ? `USB: ${printer.deviceName}` : t("adminPrinterManager.webUsbZadig", "WebUSB / Zadig"))}
+                              {printerType === CONNECTION_TYPES.WINDOWS_HOST && t("adminPrinterManager.windowsHostPrint", "Windows Host Print")}
+                              {printerType === CONNECTION_TYPES.NETWORK && (printer.ip ? `IP: ${printer.ip}:${printer.port || '9100'}` : t("adminPrinterManager.networkPrinterIpEmpty", "Netwerk printer (IP nog leeg)"))}
+                              {printer.dpi && <span className="ml-2 opacity-60 text-[10px]">({printer.dpi} DPI)</span>}
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                              {t('adminPrinterManager.protocol')}: {((printer.protocol || 'zpl')).toUpperCase()} | {getConnectionLabel(printer.type)}
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                              {t("adminPrinterManager.calibration", "Calibratie")}: X {parseMm(printer.calibrationOffsetXMm, 0)}mm | Y {parseMm(printer.calibrationOffsetYMm, 0)}mm
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                              {t("adminPrinterManager.roll", "Rol")}: {resolveRollWidthMm(printer)}mm | {t("adminPrinterManager.type", "Type")}: {normalizeRollType(printer.rollType)}
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                              {t("adminPrinterManager.print", "Print")}: {t("adminPrinterManager.darkness", "Darkness")} {printer.darkness || getDriver(printer).defaultDarkness} | {t("adminPrinterManager.speed", "Speed")} {printer.speed || getDriver(printer).defaultSpeed} ips
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                              {t("adminPrinterManager.zplTextFont", "ZPL tekstfont")}: {normalizeZplTextFont(printer.zplTextFont)}
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                              {t("adminPrinterManager.bitmapPrint", "Bitmap print")}: {printer.bitmapPrintEnabled ? t("common.on", "Aan") : t("common.off", "Uit")}
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-bold uppercase">
+                              {t("adminPrinterManager.routingKeys", "Routeringstags")}: {(Array.isArray(printer.routingKeys) ? printer.routingKeys : []).length > 0 ? (Array.isArray(printer.routingKeys) ? printer.routingKeys.join(", ") : "") : t("adminPrinterManager.noRoutingKeys", "Geen")}
+                            </p>
+                            <p className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-1">
+                                {printer.linkedStations && printer.linkedStations.length > 0 
+                                    ? printer.linkedStations.map(s => <span key={s} className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{s}</span>)
+                                    : <span className="italic opacity-50">{t('adminPrinterManager.noSpecificStations')}</span>}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <button 
+                              onClick={() => setShowTestMenu(printer.id === showTestMenu ? null : printer.id)}
+                              disabled={printerType !== CONNECTION_TYPES.WEBUSB}
+                              className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title={printerType === CONNECTION_TYPES.WEBUSB ? t('adminPrinterManager.testPrint') : t("adminPrinterManager.testPrintWebUsbOnly", "Testprint is alleen beschikbaar voor WebUSB/Zadig printers")}
+                            >
+                              <Play size={18} />
+                            </button>
+                            {showTestMenu === printer.id && (
+                              <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1">
+                                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase">{t("adminPrinterManager.testLengths", "Test Lengtes")}</div>
+                                <button onClick={() => handleLengthTestPrint(printer, 25)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.test90x25", "Test 90x25mm")}</button>
+                                <button onClick={() => handleLengthTestPrint(printer, 50)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.test90x50", "Test 90x50mm")}</button>
+                                <button onClick={() => handleLengthTestPrint(printer, 100)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.test90x100", "Test 90x100mm")}</button>
+                                <div className="h-px bg-slate-100 my-1"></div>
+                                <button onClick={() => handleTestPrint(printer)} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.standardTestLabel", "Standaard Testlabel")}</button>
+                                <button onClick={() => { setShowTestMenu(null); setCalibrationPrinter(printer); }} className="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">{t("adminPrinterManager.calibrationPrintOffsets", "Calibratie print + offsets")}</button>
+                              </div>
+                            )}
+                          </div>
+                          <button 
+                            onClick={() => handleEdit(printer)}
+                            className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title={t('common.edit')}
+                          >
+                            <Edit size={18} />
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(printer.id)}
+                            className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title={t('common.delete')}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()
+                ))}
               </div>
-              <button 
-                onClick={() => handleEdit(printer)}
-                className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                title={t('common.edit')}
-              >
-                <Edit size={18} />
-              </button>
-              <button 
-                onClick={() => handleDelete(printer.id)}
-                className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                title={t('common.delete')}
-              >
-                <Trash2 size={18} />
-              </button>
-            </div>
-          </div>
-            );
-          })()
-        ))}
+            </details>
+          ));
+        })()}
       </div>
       </>
       )}

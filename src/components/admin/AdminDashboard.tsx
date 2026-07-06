@@ -546,17 +546,8 @@ const AdminDashboard = () => {
       color: "bg-fuchsia-50 border-fuchsia-200",
       items: [
         {
-          id: "roadmap",
-          title: "Master Roadmap",
-          desc: "Ontwikkelings-roadmap en ideeën.",
-          icon: <TrendingUp size={24} className="text-emerald-600" />,
-          color: "bg-emerald-50 border-emerald-100",
-          roles: ["admin", "engineer", "teamleader"],
-          component: RoadmapViewer,
-        },
-        {
           id: "project_structure",
-          title: "Projectstructuur & Uitleg (Expert)",
+          title: "Projectstructuur & Uitleg",
           desc: "Zeer gedetailleerd overzicht, AI-koppeling.",
           icon: <BookOpen size={24} className="text-indigo-600" />,
           color: "bg-indigo-50 border-indigo-100",
