@@ -76,18 +76,6 @@ export const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 const createFirestoreInstance = () => {
-  if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
-    try {
-      const keys = Object.keys(localStorage);
-      for (const key of keys) {
-        if (key.startsWith("firestore_mutations_") || key.includes("firestore")) {
-          localStorage.removeItem(key);
-        }
-      }
-    } catch (e) {
-      console.warn("Could not clear localStorage firestore keys:", e);
-    }
-  }
 
   // Enable IndexedDB offline persistence with a safe 50MB cache size limit
   try {

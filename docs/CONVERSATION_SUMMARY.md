@@ -1,4 +1,18 @@
+### Update sessie 07 July 2026 (Fix Cache Wipen op Startup)
+
+**Datum:** 07 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Voorkomen dat de Firestore cache bij elke paginalading wordt weggegooid, wat voor trage laadtijden (planningen, labels, lotnummers) zorgde op wifi.
+
+**Uitgevoerd:**
+- In `firebase.ts` het opstart-script verwijderd dat handmatig alle `localStorage` keys beginnend met `firestore` wiste. Nu we de cachegrootte gelimiteerd hebben op 50MB via Firestore's eigen garbage collector, is dit handmatige wissen overbodig. Het behouden van de cache zorgt ervoor dat herhaalde data-aanvragen en labels nu direct vanuit de lokale cache laden.
+- Versie verhoogd van `0.1.78` naar `0.1.79` in `package.json` en `public/version.json`.
+
+---
+
 ### Update sessie 07 July 2026 (Optimalisatie BH18 Laadtijd door Scoped Subcollecties)
+
 
 **Datum:** 07 July 2026 | **Branch:** pilot-dev
 
