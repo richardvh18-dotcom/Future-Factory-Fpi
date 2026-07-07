@@ -585,7 +585,7 @@ import { TeamleaderModalProvider, useTeamleaderModalStore } from "./modals/Teaml
            }}
            rawOrders={rawOrdersList as any}
            rawProducts={rawProductsList as any}
-           archivedProducts={archivedHistoryProductsList as any}
+           archivedProducts={[...archivedHistoryProductsList, ...archivedRejectedProductsList] as any}
            initialExportType={exportModalType as any}
            lockExportType={exportModalLocked as any}
            onTaskCreated={((taskId: string) => {

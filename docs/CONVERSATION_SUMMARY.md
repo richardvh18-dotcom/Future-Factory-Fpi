@@ -1,4 +1,18 @@
+### Update sessie 07 July 2026 (QC Steekproef in Lotnummer Controle Historie)
+
+**Datum:** 07 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Zorgen dat QC-steekproeven (die definitief afgekeurd worden) correct worden meegenomen in de Lotnummer Controle (Historie) export, om te voorkomen dat deze lotnummers als gaten/ontbrekend worden gerapporteerd.
+
+**Uitgevoerd:**
+- In `TeamleaderHub.tsx` de prop `archivedProducts` voor de `TeamleaderExportModal` uitgebreid om zowel de normale archiefproducten (`archivedHistoryProductsList`) als de gearchiveerde afkeurproducten (`archivedRejectedProductsList`) door te geven. Hierdoor worden de lotnummers van QC-steekproeven nu correct geëvalueerd en getoond in het overzicht, in plaats van te worden gerapporteerd als ontbrekende sequenties.
+- Versie verhoogd van `0.1.81` naar `0.1.82` in `package.json` en `public/version.json`.
+
+---
+
 ### Update sessie 07 July 2026 (Fix isPostProcessing ReferenceError)
+
 
 **Datum:** 07 July 2026 | **Branch:** pilot-dev
 
