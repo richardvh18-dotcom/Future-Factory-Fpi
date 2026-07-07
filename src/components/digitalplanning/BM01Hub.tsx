@@ -159,7 +159,10 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showPrintModal, setShowPrintModal] = useState(false);
     const [archivedProducts, setArchivedProducts] = useState<ProductRecord[]>([]);
-  const [viewMode, setViewMode] = useState("day"); // 'day' or 'week'
+  const [lastNahardingResetAt, setLastNahardingResetAt] = useState<string | null>(() => {
+    return typeof window !== "undefined" ? localStorage.getItem("last_naharding_reset_at") : null;
+  });
+  const [viewMode, setViewMode] = useState("export"); // 'export', 'day' or 'week'
     const [deliveryMismatchFilter, setDeliveryMismatchFilter] = useState("all"); // all | over | under
         const [showDeliveryMismatch, setShowDeliveryMismatch] = useState(false);
   
@@ -691,7 +694,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
     const year = selectedDate.getFullYear();
     let start, end;
 
-    if (viewMode === "day") {
+    if (viewMode === "day" || viewMode === "export") {
         start = new Date(selectedDate);
         start.setHours(0, 0, 0, 0);
         end = new Date(selectedDate);
@@ -742,7 +745,12 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
           const ts = getNahardingOfferedMillis(p);
           if (!ts) return false;
           const date = new Date(ts);
-          if (viewMode === "day") {
+          if (viewMode === "export") {
+              if (lastNahardingResetAt) {
+                  return ts > new Date(lastNahardingResetAt).getTime();
+              }
+              return isSameDay(date, new Date());
+          } else if (viewMode === "day") {
               return isSameDay(date, selectedDate);
           } else {
               const start = startOfISOWeek(selectedDate);
@@ -764,7 +772,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
           }
           return getNahardingOfferedMillis(a) - getNahardingOfferedMillis(b);
       });
-  }, [products, archivedProducts, selectedDate, viewMode]);
+  }, [products, archivedProducts, selectedDate, viewMode, lastNahardingResetAt]);
 
   // Filter producten die gereed zijn (Aangeboden tab) op basis van geselecteerde datum
   // Combineert actieve producten (die nog niet gearchiveerd zijn) en gearchiveerde producten
@@ -1111,6 +1119,19 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
                             win.focus();
                             win.print();
                             setTimeout(cleanup, 2000);
+
+                            if (activeTab === "naharding_batch") {
+                                setTimeout(() => {
+                                    const confirmReset = window.confirm(
+                                        t("bm01.reset_counter_confirm", "Wil je de teller resetten (de geprinte items markeren als geëxporteerd)?")
+                                    );
+                                    if (confirmReset) {
+                                        const nowStr = new Date().toISOString();
+                                        localStorage.setItem("last_naharding_reset_at", nowStr);
+                                        setLastNahardingResetAt(nowStr);
+                                    }
+                                }, 500);
+                            }
                     };
 
                     frame.srcdoc = html;
@@ -1560,6 +1581,12 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
                                 </div>
                                 <div className="flex bg-white p-0.5 rounded-lg border border-blue-100 shadow-sm shrink-0">
                                     <button 
+                                        onClick={() => setViewMode("export")}
+                                        className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${viewMode === "export" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                                    >
+                                        {t('bm01.export', 'Per Export')}
+                                    </button>
+                                    <button 
                                         onClick={() => setViewMode("day")}
                                         className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${viewMode === "day" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
                                     >
@@ -1577,28 +1604,48 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
                                 <p className="text-xs font-bold text-blue-800 bg-blue-100/50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm">
                                     {t('bm01.lotCount', 'Aantal lots')}: <span className="font-black text-lg ml-1">{nahardingPrintList.length}</span>
                                 </p>
-                                <div className="flex items-center bg-white p-1.5 rounded-xl shadow-md border-2 border-blue-200 shrink-0">
-                                    <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-2 hover:bg-blue-50 rounded-lg text-slate-500 hover:text-blue-700 transition-colors">
-                                        <ChevronLeft size={18} />
-                                    </button>
-                                    <div 
-                                        className="flex items-center px-4 cursor-pointer select-none min-w-[120px] justify-center"
-                                        onDoubleClick={() => setSelectedDate(new Date())}
-                                        title={t('bm01.doubleClickForToday', 'Dubbelklik voor vandaag')}
-                                    >
-                                        <Calendar size={14} className="text-blue-500 mr-2 inline-block" />
-                                        <span className="font-black text-slate-800 text-xs uppercase tracking-wider">
-                                            {viewMode === 'day' 
-                                                ? format(selectedDate, "d MMM", { locale: nl })
-                                                : `Week ${format(selectedDate, "w")}`
-                                            }
+                                {viewMode === "export" ? (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[9px] text-slate-500 font-bold uppercase">
+                                            {lastNahardingResetAt 
+                                                ? `${t('bm01.lastPrint', 'Reset')}: ${format(new Date(lastNahardingResetAt), "HH:mm")}`
+                                                : t('bm01.noPrintYet', 'Geen reset')}
                                         </span>
+                                        <button 
+                                            type="button"
+                                            onClick={() => {
+                                                const nowStr = new Date().toISOString();
+                                                localStorage.setItem("last_naharding_reset_at", nowStr);
+                                                setLastNahardingResetAt(nowStr);
+                                            }}
+                                            className="px-2 py-1 bg-slate-200 hover:bg-slate-300 border border-slate-300 rounded-lg text-[8px] font-black uppercase tracking-wider text-slate-700 transition-colors"
+                                        >
+                                            Reset view
+                                        </button>
                                     </div>
-                                    <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-2 hover:bg-blue-50 rounded-lg text-slate-500 hover:text-blue-700 transition-colors">
-                                        <ChevronRight size={18} />
-                                    </button>
-                                </div>
-                            </div>
+                                ) : (
+                                    <div className="flex items-center bg-white p-1.5 rounded-xl shadow-md border-2 border-blue-200 shrink-0">
+                                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? subDays(d, 1) : subDays(d, 7))} className="p-2 hover:bg-blue-50 rounded-lg text-slate-500 hover:text-blue-700 transition-colors">
+                                            <ChevronLeft size={18} />
+                                        </button>
+                                        <div 
+                                            className="flex items-center px-4 cursor-pointer select-none min-w-[120px] justify-center"
+                                            onDoubleClick={() => setSelectedDate(new Date())}
+                                            title={t('bm01.doubleClickForToday', 'Dubbelklik voor vandaag')}
+                                        >
+                                            <Calendar size={14} className="text-blue-500 mr-2 inline-block" />
+                                            <span className="font-black text-slate-800 text-xs uppercase tracking-wider">
+                                                {viewMode === 'day' 
+                                                    ? format(selectedDate, "d MMM", { locale: nl })
+                                                    : `Week ${format(selectedDate, "w")}`
+                                                }
+                                            </span>
+                                        </div>
+                                        <button onClick={() => setSelectedDate(d => viewMode === 'day' ? addDays(d, 1) : addDays(d, 7))} className="p-2 hover:bg-blue-50 rounded-lg text-slate-500 hover:text-blue-700 transition-colors">
+                                            <ChevronRight size={18} />
+                                        </button>
+                                    </div>
+                                )}
                         </div>
                         <button 
                             onClick={() => setShowPrintModal(true)}

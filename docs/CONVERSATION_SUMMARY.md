@@ -1,4 +1,22 @@
+### Update sessie 07 July 2026 (BM01 NH Tab Print Reset)
+
+**Datum:** 07 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Het toevoegen van een reset-mogelijkheid na het printen van het QR-overzicht in de Naharding (NH) tab op de BM01 hub, analoog aan de "Gereed voor LN" export in de Teamleader hub. Dit voorkomt dat reeds geprinte lots bij een volgende printactie op dezelfde dag opnieuw worden meegenomen.
+
+**Uitgevoerd:**
+- In `BM01Hub.tsx` een `lastNahardingResetAt` state variabele geïntroduceerd (opgeslagen in `localStorage`).
+- De `viewMode` opties in de "Print Labels" sectie uitgebreid met de optie **"Per Export"** (Sinds print), die standaard is geselecteerd.
+- De `nahardingPrintList` filterlogica aangepast zodat in "Per Export" modus alleen lots worden getoond die zijn aangemaakt/aangeboden *na* de laatste reset (`lastNahardingResetAt`).
+- Een handmatige **"Reset view"** knop toegevoegd aan de UI om de teller direct te resetten.
+- In `handlePrintQrOverview` een pop-up toegevoegd die na het printen vraagt: *"Wil je de teller resetten (de geprinte items markeren als geëxporteerd)?"*. Indien bevestigd wordt de reset-tijd direct bijgewerkt naar `now`.
+- Versie verhoogd van `0.1.82` naar `0.1.83` in `package.json` en `public/version.json`.
+
+---
+
 ### Update sessie 07 July 2026 (QC Steekproef in Lotnummer Controle Historie)
+
 
 **Datum:** 07 July 2026 | **Branch:** pilot-dev
 
