@@ -76,6 +76,20 @@ export const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 const createFirestoreInstance = () => {
+  if (typeof window !== "undefined" && window.indexedDB) {
+    try {
+      const CURRENT_CACHE_VERSION = "v3";
+      const storedVersion = localStorage.getItem("fpi_firestore_cache_version");
+      if (storedVersion !== CURRENT_CACHE_VERSION) {
+        window.indexedDB.deleteDatabase("firestore/[DEFAULT]/future-factory-377ef/main");
+        window.indexedDB.deleteDatabase("firestore/[DEFAULT]/future-factory-377ef");
+        localStorage.setItem("fpi_firestore_cache_version", CURRENT_CACHE_VERSION);
+        console.log("Firestore IndexedDB cache cleared (upgraded to v3).");
+      }
+    } catch (e) {
+      console.warn("Could not check firestore cache version:", e);
+    }
+  }
 
   // Enable IndexedDB offline persistence with a safe 50MB cache size limit
   try {

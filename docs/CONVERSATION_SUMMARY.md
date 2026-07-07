@@ -1,4 +1,22 @@
+### Update sessie 07 July 2026 (Fix Index-vrije Queries & Productlimiet)
+
+**Datum:** 07 July 2026 | **Branch:** pilot-dev
+
+**Doel:**
+- Oplossen van de lege planning op centrale hubs door het ontbreken van de vereiste status-index.
+- Voorkomen van lag door het instellen van een veilige productlimiet.
+- Automatisch herstellen van eventueel gecorrumpeerde IndexedDB databases.
+
+**Uitgevoerd:**
+- In `WorkstationHub.tsx` de centrale stations teruggezet naar de index-vrije `collectionGroup(db, "orders")` query. Hierdoor worden alle actieve orders weer succesvol getoond zonder database-fouten.
+- In `WorkstationHub.tsx` de productlimiet verhoogd naar een veilige `maxItems: 350` (in plaats van `null` oftewel ongelimiteerd). Dit voorkomt lag door duizenden oude producten te downloaden, terwijl het ruim voldoende is om alle "Te Keuren" items op BM01 te tonen.
+- In `firebase.ts` een gecontroleerd database-wissingsmechanisme toegevoegd op basis van `fpi_firestore_cache_version = "v3"`. Dit zorgt ervoor dat bij gebruikers met een gecorrumpeerde cache de database eenmalig schoon wordt opgebouwd.
+- Versie verhoogd van `0.1.79` naar `0.1.80` in `package.json` en `public/version.json`.
+
+---
+
 ### Update sessie 07 July 2026 (Fix Cache Wipen op Startup)
+
 
 **Datum:** 07 July 2026 | **Branch:** pilot-dev
 
