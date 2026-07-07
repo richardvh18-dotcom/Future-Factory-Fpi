@@ -1647,6 +1647,7 @@ const BM01Hub = React.memo(({ onBack, orders = [], products = [], onMoveLot }: B
                                     </div>
                                 )}
                         </div>
+                    </div>
                         <button 
                             onClick={() => setShowPrintModal(true)}
                             disabled={nahardingPrintList.length === 0}
