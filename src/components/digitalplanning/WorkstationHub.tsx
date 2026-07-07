@@ -819,14 +819,8 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
           unsubsPaths.forEach((unsub) => unsub());
         };
       } else {
-        const activeStatuses = ["ready", "planned", "production", "paused", "setup", "material_ready", "to_be_planned", "concept", "running"];
-        const scopedOrdersQuery = query(
-          collectionGroup(db, "orders"),
-          where("status", "in", activeStatuses)
-        );
-
         unsubScopedOrders = onSnapshot(
-          scopedOrdersQuery,
+          collectionGroup(db, "orders"),
           (snap) => {
             const planningPrefix = `${getPathString(PATHS.PLANNING)}/`;
             scopedOrders = snap.docs
@@ -873,7 +867,7 @@ const WorkstationHub = ({ initialStationId, onExit, searchOrder }: WorkstationHu
       const unsubProds = subscribeTrackedProducts({
         db,
         statusExclusions: ["completed", "shipped", "deleted", "archived_rejected"],
-        maxItems: null,
+        maxItems: 350,
         onData: (items) => {
           if (isMounted) setRawProducts(items);
           markStreamReady();
