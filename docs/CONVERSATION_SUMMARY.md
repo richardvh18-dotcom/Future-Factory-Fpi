@@ -1,3 +1,27 @@
+### Update sessie 08 July 2026 (Counter sync fix BH18_2628)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Probleem:**
+- Counterdocument `future-factory/production/counters/BH18_2628` liep niet correct mee.
+- `lastSequence` en `usedSequences` werden niet consequent bijgewerkt bij normale productie-starts.
+- Er was geen snelle complete lotcontrole in het counterdocument.
+
+**Uitgevoerd:**
+- In `planningTransitionService.ts` de counter-sync losgetrokken van `virtualMode`; deze draait nu voor elke start met aangemaakte lots.
+- `lastSequence` wordt nu consistent geüpdatet op basis van gebruikte sequenties.
+- `usedSequences` wordt uitgebreid met nieuw gebruikte sequenties.
+- Nieuw veld `usedLotNumbers` toegevoegd en gevuld voor snelle controle van gebruikte lotnummers.
+
+**Resultaat:**
+- Nieuwe productie-starts houden counterdata nu structureel synchroon.
+- Snelle inspectie op gebruikte lotnummers is direct mogelijk via `usedLotNumbers`.
+
+**Deployresultaat:**
+- Geen deploy uitgevoerd (alleen codewijziging + git push).
+
+---
+
 ### Update sessie 08 July 2026 (Release 0.1.93)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout

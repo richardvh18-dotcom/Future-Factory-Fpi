@@ -1123,12 +1123,13 @@ const Terminal = ({ initialStation, onCancelProduction, orders = [] }: TerminalP
 
       const startLabelZpl = String(labelZplData || "").trim();
       const printerId = String((startOptions as any)?.printerId || "").trim();
+      const skipStartLabel = Boolean((startOptions as any)?.skipStartLabel);
       const requestedLabelCount = Math.max(
         1,
         Number.parseInt(String((startOptions as any)?.requestedLabelCount || "1"), 10) || 1
       );
 
-      if (startLabelZpl && printerId) {
+      if (!skipStartLabel && startLabelZpl && printerId) {
         try {
           await queuePrintJob(printerId, startLabelZpl, {
             source: "production_start",

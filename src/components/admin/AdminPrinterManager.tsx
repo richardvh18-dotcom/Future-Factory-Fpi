@@ -102,6 +102,19 @@ type PrinterRecord = {
   [key: string]: unknown;
 };
 
+type TimestampLike = {
+  toMillis?: () => number;
+  seconds?: number;
+};
+
+const timestampToMillis = (value: unknown): number => {
+  if (!value || typeof value !== "object") return 0;
+  const timestamp = value as TimestampLike;
+  if (typeof timestamp.toMillis === "function") return timestamp.toMillis();
+  if (typeof timestamp.seconds === "number") return timestamp.seconds * 1000;
+  return 0;
+};
+
 type PrinterFormData = {
   name: string;
   ip: string;
@@ -2228,7 +2241,7 @@ const AdminPrinterManager = ({ onNavigate }: { onNavigate?: (screen: string | nu
                                 </span>
                               )}
                               {(() => {
-                                const hb = printer.lastHeartbeat?.toMillis?.() || (printer.lastHeartbeat?.seconds ? printer.lastHeartbeat.seconds * 1000 : 0);
+                                const hb = timestampToMillis(printer.lastHeartbeat);
                                 const isOnline = printer.isOnline && hb && (Date.now() - hb) < 45000;
                                 return (
                                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1 ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
