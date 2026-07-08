@@ -29,7 +29,6 @@ import PrintQueueAutoProcessor from "./components/printer/PrintQueueAutoProcesso
 
 // Hooks
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useProductsData } from "./hooks/useProductsData";
 import { useSettingsData } from "./hooks/useSettingsData";
 import { useMessages } from "./hooks/useMessages";
 import { useAutoLogout } from "./hooks/useAutoLogout";
@@ -90,8 +89,7 @@ const App = () => {
   const canAccessPrinters =
     checkFeature(user, "printer_center") || checkFeature(user, "digital_planning");
   const firebaseUser = user as any;
-  const { products = [] } = useProductsData(firebaseUser);
-  const { generalConfig } = useSettingsData(firebaseUser);
+  const { generalConfig } = useSettingsData(firebaseUser, { mode: "minimal" });
   useMessages(firebaseUser);
   const logoUrl = typeof generalConfig?.logoUrl === "string" ? generalConfig.logoUrl : undefined;
   const appName = typeof generalConfig?.appName === "string" ? generalConfig.appName : undefined;

@@ -76,8 +76,22 @@ export const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+// Emergency switch: keep Firestore persistence disabled in production until
+// the upstream SDK assertion-loop is fully resolved.
+const FIRESTORE_PERSISTENCE_EMERGENCY_DISABLED = true;
+
 const FIRESTORE_PERSISTENCE_DISABLED_UNTIL_KEY = "fpi_firestore_persistence_disabled_until";
 const FIRESTORE_QUOTA_RECOVERY_RELOAD_KEY = "fpi_firestore_quota_recovery_reload_done";
+const FIRESTORE_ASSERT_RECOVERY_HANDLED_KEY = "fpi_firestore_assert_recovery_handled";
+
+const isFirestoreUnexpectedStateText = (text: string): boolean => {
+  const normalized = String(text || "").toLowerCase();
+  return (
+    normalized.includes("@firebase/firestore") &&
+      normalized.includes("internal assertion failed") &&
+      normalized.includes("unexpected state")
+  ) || normalized.includes("firestore (10.14.1) internal assertion failed: unexpected state");
+};
 
 const readNumberFromStorage = (key: string): number => {
   if (typeof window === "undefined") return 0;
@@ -91,6 +105,7 @@ const readNumberFromStorage = (key: string): number => {
 };
 
 const shouldUseMemoryFirestoreCache = (): boolean => {
+  if (FIRESTORE_PERSISTENCE_EMERGENCY_DISABLED) return true;
   const disabledUntil = readNumberFromStorage(FIRESTORE_PERSISTENCE_DISABLED_UNTIL_KEY);
   return disabledUntil > Date.now();
 };
@@ -147,21 +162,46 @@ const installFirestoreQuotaRecovery = () => {
 
   window.addEventListener("unhandledrejection", (event) => {
     try {
-      const reasonText = String((event as PromiseRejectionEvent)?.reason || "").toLowerCase();
-      if (!reasonText.includes("quotaexceedederror") && !reasonText.includes("failed to persist write")) {
+      const reasonText = String((event as PromiseRejectionEvent)?.reason || "");
+      const normalizedReason = reasonText.toLowerCase();
+
+      const isQuotaIssue =
+        normalizedReason.includes("quotaexceedederror") ||
+        normalizedReason.includes("failed to persist write");
+      const isUnexpectedStateIssue = isFirestoreUnexpectedStateText(reasonText);
+
+      if (!isQuotaIssue && !isUnexpectedStateIssue) {
         return;
       }
 
       const now = Date.now();
+      // Soft recovery for transient assertion storms: keep app running and
+      // avoid full-page reloads (important on tablets with unstable Wi-Fi).
+      if (isUnexpectedStateIssue && !isQuotaIssue) {
+        const assertDisableForMs = 2 * 60 * 60 * 1000;
+        window.localStorage.setItem(
+          FIRESTORE_PERSISTENCE_DISABLED_UNTIL_KEY,
+          String(now + assertDisableForMs),
+        );
+
+        const handledAlready = window.sessionStorage.getItem(FIRESTORE_ASSERT_RECOVERY_HANDLED_KEY) === "1";
+        if (!handledAlready) {
+          window.sessionStorage.setItem(FIRESTORE_ASSERT_RECOVERY_HANDLED_KEY, "1");
+          console.warn("Firestore assertion gedetecteerd; app blijft actief zonder harde reload.");
+        }
+        return;
+      }
+
       const disableForMs = 24 * 60 * 60 * 1000;
       window.localStorage.setItem(FIRESTORE_PERSISTENCE_DISABLED_UNTIL_KEY, String(now + disableForMs));
 
       clearFirestoreLocalStorageArtifacts();
       clearFirestoreIndexedDbArtifacts();
 
-      const hasReloaded = String(window.sessionStorage.getItem(FIRESTORE_QUOTA_RECOVERY_RELOAD_KEY) || "") === "1";
+      const reloadKey = FIRESTORE_QUOTA_RECOVERY_RELOAD_KEY;
+      const hasReloaded = String(window.sessionStorage.getItem(reloadKey) || "") === "1";
       if (!hasReloaded) {
-        window.sessionStorage.setItem(FIRESTORE_QUOTA_RECOVERY_RELOAD_KEY, "1");
+        window.sessionStorage.setItem(reloadKey, "1");
         window.location.reload();
       }
     } catch {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchAllSettings } from "../repositories/settingsRepository";
+import { fetchAllSettings, fetchGeneralConfig } from "../repositories/settingsRepository";
 import type { User } from "firebase/auth";
 
 interface SettingsState {
@@ -11,11 +11,18 @@ interface SettingsState {
   loading: boolean;
 }
 
+interface UseSettingsDataOptions {
+  mode?: "full" | "minimal";
+}
+
 /**
  * useSettingsData V8.0 - Via settingsRepository
  * Haalt alle factory-instellingen op via de centrale repository laag.
  */
-export const useSettingsData = (user: User | null | undefined): SettingsState => {
+export const useSettingsData = (
+  user: User | null | undefined,
+  options?: UseSettingsDataOptions,
+): SettingsState => {
   const [settings, setSettings] = useState<SettingsState>({
     productRange: {},
     generalConfig: {},
@@ -33,7 +40,18 @@ export const useSettingsData = (user: User | null | undefined): SettingsState =>
 
     let isMounted = true;
 
-    fetchAllSettings()
+    const loadPromise =
+      options?.mode === "minimal"
+        ? fetchGeneralConfig().then((generalConfig) => ({
+            generalConfig,
+            productRange: {},
+            boreDimensions: [],
+            cbDimensions: [],
+            tbDimensions: [],
+          }))
+        : fetchAllSettings();
+
+    loadPromise
       .then((data) => {
         if (isMounted) setSettings({ ...(data as SettingsState), loading: false });
       })
@@ -43,7 +61,7 @@ export const useSettingsData = (user: User | null | undefined): SettingsState =>
       });
 
     return () => { isMounted = false; };
-  }, [user]);
+  }, [user, options?.mode]);
 
   return settings;
 };

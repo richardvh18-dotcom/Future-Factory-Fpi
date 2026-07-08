@@ -99,6 +99,7 @@ export const subscribeMessages = (
   const q = query(
     collection(db, getPathString(PATHS.MESSAGES)),
     where('to', '==', recipientEmail.toLowerCase()),
+    limit(100),
   );
   return onSnapshot(q, (snap) => onData(snap.docs), onError);
 };

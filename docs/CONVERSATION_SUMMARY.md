@@ -1,3 +1,30 @@
+### Update sessie 08 July 2026 (Tablet WiFi soft-recovery + snellere client bootstrap)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Probleem:**
+- Op tablets werd bij kortstondig zwakke of wegvallende WiFi de app soms hard ververst.
+- Hierdoor moest de volledige UI/databaseweergave opnieuw laden, wat merkbare wachttijd veroorzaakte.
+- Daarnaast werden bij app-start onnodig zware Firestore reads uitgevoerd.
+
+**Uitgevoerd:**
+- In `firebase.ts` recovery-flow aangepast:
+    - Geen harde `window.location.reload()` meer bij tijdelijke Firestore assertion/netwerkfluctuaties.
+    - Wel soft recovery: tijdelijke fallback naar memory-cache, zodat de app in beeld blijft.
+    - Harde reload alleen behouden voor echte quota/persistence-corruptie scenario's.
+- In `App.tsx` onnodige bootstrap fetch verwijderd:
+    - `useProductsData` werd daar geladen maar niet gebruikt; deze volledige catalogus-read is verwijderd.
+- In `useSettingsData.ts` een lichte startup mode toegevoegd:
+    - `mode: "minimal"` laadt alleen `generalConfig` voor de app-shell.
+    - `App.tsx` gebruikt nu deze minimal mode om initiële load te verlagen.
+- In `planningRepository.ts` message subscription begrensd met `limit(100)` om payload op clients te beperken.
+
+**Resultaat:**
+- Tablets blijven stabieler in beeld bij korte WiFi dips.
+- Minder volledige herlaadmomenten en duidelijk snellere eerste opbouw van de app op clients.
+
+---
+
 ### Update sessie 08 July 2026 (Hotfix Firestore QuotaExceeded crash-loop)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
