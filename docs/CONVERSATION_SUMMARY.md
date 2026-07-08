@@ -1,3 +1,22 @@
+### Update sessie 08 July 2026 (Hotfix: lotnummer spinner blijft actief in ProductionStartModal)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Probleem:**
+- In auto mode bleef bij `Huidig lotnummer` soms een draai-icoon zichtbaar terwijl het lotnummer al stond.
+- Oorzaak: overlappende lot-refresh runs konden elkaar overschrijven, waardoor de laatste run de loading-state niet altijd correct vrijgaf.
+
+**Uitgevoerd:**
+- In `ProductionStartModal.tsx` run-guard toegevoegd voor auto lot-refresh (`lotRefreshRunIdRef`).
+- Alleen de meest recente run mag nog `lotNumber`, `lotError` en `isAutoLotRefreshing` updaten.
+- Effect dependencies gestabiliseerd (o.a. `order?.orderId` i.p.v. volledig `order` object) om onnodige reruns te beperken.
+
+**Resultaat:**
+- Spinner stopt nu correct zodra de actuele lot-refresh klaar is.
+- Geen permanente draai-indicator meer op BH18 wanneer lotnummer al beschikbaar is.
+
+---
+
 ### Update sessie 08 July 2026 (Hotfix: start blijft hangen op 'Bezig met starten' + print 400 fail)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout

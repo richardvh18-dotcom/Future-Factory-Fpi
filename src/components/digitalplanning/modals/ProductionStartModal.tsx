@@ -362,6 +362,7 @@ const ProductionStartModal = ({
   const orderInputRef = useRef<HTMLInputElement>(null);
   const lotInputRef = useRef<HTMLInputElement>(null);
   const manualLotAutoStartTimeoutRef = useRef<any>(null);
+  const lotRefreshRunIdRef = useRef(0);
   const lastLotInputAtRef = useRef(0);
   const previousLotInputRef = useRef("");
   const scannerLikeLotInputRef = useRef(false);
@@ -1267,6 +1268,7 @@ const ProductionStartModal = ({
 
     const generateRobustLotNumber = async () => {
       if (!isOpen || !order || mode !== "auto") return;
+      const runId = ++lotRefreshRunIdRef.current;
       setIsAutoLotRefreshing(true);
 
       try {
@@ -1284,7 +1286,7 @@ const ProductionStartModal = ({
 
         // Toon direct een kandidaat op basis van de counter-doc (bijv. BH18_2628),
         // zodat we niet meer standaard op ...0001 landen.
-        if (isMounted) {
+        if (isMounted && lotRefreshRunIdRef.current === runId) {
           const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
           const counterDocId = `${safeStationId}_${weekSuffix}`;
           const counterRef = doc(db, getPathString(PATHS.COUNTERS), counterDocId);
@@ -1302,7 +1304,7 @@ const ProductionStartModal = ({
 
         const recycledLot = await consumeRecycledSequence(baseLot, stationId, weekSuffix);
         if (recycledLot) {
-          if (isMounted) {
+          if (isMounted && lotRefreshRunIdRef.current === runId) {
             setLotNumber(recycledLot);
             setLotError("");
           }
@@ -1321,15 +1323,19 @@ const ProductionStartModal = ({
             if (counter > 9999) break; 
         }
 
-        if (isMounted) {
+        if (isMounted && lotRefreshRunIdRef.current === runId) {
             setLotNumber(newLotNumber);
             setLotError("");
         }
       } catch (error: any) {
         console.error("Error setting lot number", error);
-        if (isMounted) setLotError("Waarschuwing: Kan uniciteit niet garanderen.");
+        if (isMounted && lotRefreshRunIdRef.current === runId) {
+          setLotError("Waarschuwing: Kan uniciteit niet garanderen.");
+        }
       } finally {
-        if (isMounted) setIsAutoLotRefreshing(false);
+        if (isMounted && lotRefreshRunIdRef.current === runId) {
+          setIsAutoLotRefreshing(false);
+        }
       }
     };
 
@@ -1358,7 +1364,14 @@ const ProductionStartModal = ({
     }
 
     return () => { isMounted = false; };
-  }, [isOpen, order, mode, stationId, shouldUseFlangeLabelFlow, normalizedStationNoPrefix]);
+  }, [
+    isOpen,
+    mode,
+    stationId,
+    shouldUseFlangeLabelFlow,
+    normalizedStationNoPrefix,
+    order?.orderId,
+  ]);
 
   const updateCounterOnStart = async (usedLotNumber: string, count: number) => {
       if (!usedLotNumber) return;
