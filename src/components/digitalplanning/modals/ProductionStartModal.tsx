@@ -1861,7 +1861,11 @@ const ProductionStartModal = ({
               printerId: targetPrinter?.id || "",
               requestedLabelCount: labelsToPrint,
               isFlangeSeries: isFlangeOrder,
-              skipStartLabel: isFlangeOrder,
+              skipStartLabel: isFlangeOrder || (
+                printConfig.mode === "queue" &&
+                labelsToPrint > 0 &&
+                templateIdsToPrint.length > 0
+              ),
               lotNumbers: Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots : undefined,
               batchCount,
               isQcSteekproef: mode === "qc_steekproef",

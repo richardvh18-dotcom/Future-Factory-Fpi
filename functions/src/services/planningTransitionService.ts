@@ -4041,7 +4041,7 @@ const startProductionLotsService = async ({
     }
   }
 
-  if (virtualMode && createdLots.length > 0) {
+  if (createdLots.length > 0) {
     const firstLotDigits = String(createdLots[0] || '').replace(/\D/g, '');
     const lotWeekSuffix = firstLotDigits.length >= 6 ? firstLotDigits.slice(2, 6) : '';
     const fallbackIso = getISOWeekInfoServer(new Date());
@@ -4059,12 +4059,17 @@ const startProductionLotsService = async ({
           .map((lot) => Number.parseInt(String(lot || '').slice(-4), 10))
           .filter((seq) => Number.isFinite(seq) && seq > 0)
       ));
+      const usedLotNumbers = Array.from(new Set(
+        createdLots
+          .map((lot) => clean(lot))
+          .filter(Boolean)
+      ));
 
-      if (usedSequences.length === 0) {
+      if (usedSequences.length === 0 && usedLotNumbers.length === 0) {
         return;
       }
 
-      const highestUsedSequence = Math.max(...usedSequences);
+      const highestUsedSequence = usedSequences.length > 0 ? Math.max(...usedSequences) : 0;
       const currentLast = Number.isFinite(Number(counterData.lastSequence))
         ? Number(counterData.lastSequence)
         : 0;
@@ -4080,11 +4085,16 @@ const startProductionLotsService = async ({
         ? counterData.usedSequences.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
         : [];
       const nextUsed = Array.from(new Set([...currentUsed, ...usedSequences])).sort((a, b) => a - b);
+      const currentUsedLotNumbers = Array.isArray(counterData.usedLotNumbers)
+        ? counterData.usedLotNumbers.map((lot) => clean(lot)).filter(Boolean)
+        : [];
+      const nextUsedLotNumbers = Array.from(new Set([...currentUsedLotNumbers, ...usedLotNumbers]));
 
       tx.set(counterRef, {
         lastSequence: Math.max(currentLast, highestUsedSequence),
         recycledSequences: nextRecycled,
         usedSequences: nextUsed,
+        usedLotNumbers: nextUsedLotNumbers,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
     });
