@@ -12,10 +12,14 @@ const DEBOUNCE_DELAY = 500;
  */
 export function useFormPersistence<T>(storageKey: string, initialState: T): [T, React.Dispatch<React.SetStateAction<T>>, () => void] {
   const [state, setState] = useState<T>(() => {
+    if (typeof window === 'undefined') return initialState;
     try {
       const storedValue = window.localStorage.getItem(storageKey);
       if (storedValue) {
-        return JSON.parse(storedValue);
+        const parsed = JSON.parse(storedValue);
+        if (parsed !== null && parsed !== undefined) {
+          return parsed as T;
+        }
       }
     } catch (error) {
       console.error(`Fout bij lezen uit localStorage voor sleutel "${storageKey}":`, error);
@@ -27,16 +31,24 @@ export function useFormPersistence<T>(storageKey: string, initialState: T): [T, 
   const debounceTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
 
     debounceTimeoutRef.current = window.setTimeout(() => {
-      window.localStorage.setItem(storageKey, JSON.stringify(state));
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(state));
+      } catch {
+        // Ignore write failures (quota/private mode) to avoid UI crashes.
+      }
     }, DEBOUNCE_DELAY);
 
     return () => { if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current); };
   }, [storageKey, state]);
 
-  const clearPersistedData = () => window.localStorage.removeItem(storageKey);
+  const clearPersistedData = () => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.removeItem(storageKey);
+  };
 
   return [state, setState, clearPersistedData];
 }

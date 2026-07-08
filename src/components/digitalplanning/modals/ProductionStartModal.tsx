@@ -16,7 +16,7 @@ import {
   Loader2,
   Database
 } from "lucide-react";
-import { collection, collectionGroup, getDocs, query, where, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp, runTransaction, limit } from "firebase/firestore";
+import { collection, collectionGroup, getDocs, query, where, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp, runTransaction, limit, orderBy } from "firebase/firestore";
 
 import { db, auth, logActivity } from "../../../config/firebase"; 
 import { PATHS, getArchiveItemsPath, getPathString } from "../../../config/dbPaths";
@@ -59,6 +59,19 @@ const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   return String(error);
 };
+
+const tryParseObject = (raw: string): Record<string, unknown> => {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const RECYCLED_SEQUENCE_SCAN_LIMIT = 20;
 
 type LabelOption = {
   id: string;
@@ -107,7 +120,7 @@ const persistPrinterBindingForAutoProcessor = (station: string, printer: any) =>
     }
 
     const raw = String(localStorage.getItem(PRINT_STATION_BINDINGS_KEY) || "").trim();
-    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    const parsed = raw ? tryParseObject(raw) : {};
     const updated = {
       ...parsed,
       [safeStation]: safePrinterId,
@@ -357,8 +370,10 @@ const ProductionStartModal = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const previewAreaRef = useRef<HTMLDivElement>(null);
   const counterPermissionWarnedRef = useRef(false);
+  const lotExistsCacheRef = useRef<Map<string, { exists: boolean; checkedAt: number }>>(new Map());
 
   const [isCheckingLot, setIsCheckingLot] = useState(false);
+  const [isAutoLotRefreshing, setIsAutoLotRefreshing] = useState(false);
   const [lotError, setLotError] = useState("");
   const [isStarting, setIsStarting] = useState(false);
   const [manualMinimumSeq, setManualMinimumSeq] = useState<number | null>(null);
@@ -873,18 +888,30 @@ const ProductionStartModal = ({
       const normalizedLot = String(lotToCheck || "").trim().toUpperCase();
       if (!normalizedLot) return false;
 
+      const now = Date.now();
+      const cached = lotExistsCacheRef.current.get(normalizedLot);
+      if (cached && now - cached.checkedAt < 15000) {
+        return cached.exists;
+      }
+
       // 1) Lokale context check (realtime meegegeven producten in de modal)
       const localExists = (existingProducts || []).some((p: any) => {
         const lot = String(p?.lotNumber || "").trim().toUpperCase();
         const activeLot = String(p?.activeLot || "").trim().toUpperCase();
         return lot === normalizedLot || activeLot === normalizedLot;
       });
-      if (localExists) return true;
+      if (localExists) {
+        lotExistsCacheRef.current.set(normalizedLot, { exists: true, checkedAt: now });
+        return true;
+      }
 
       // 2) Actieve tracking check (root pad)
       const trackingRef = collection(db, getPathString(PATHS.TRACKING as string[]));
       const trackingByLotSnap = await getDocs(query(trackingRef, where("lotNumber", "==", normalizedLot), limit(1)));
-      if (!trackingByLotSnap.empty) return true;
+      if (!trackingByLotSnap.empty) {
+        lotExistsCacheRef.current.set(normalizedLot, { exists: true, checkedAt: now });
+        return true;
+      }
 
       // 2b) Actieve tracking check (scoped items pad)
       try {
@@ -896,7 +923,10 @@ const ProductionStartModal = ({
           const path = String(docSnap.ref?.path || "");
           return path.startsWith(trackingPathPrefix);
         });
-        if (scopedExists) return true;
+        if (scopedExists) {
+          lotExistsCacheRef.current.set(normalizedLot, { exists: true, checkedAt: now });
+          return true;
+        }
       } catch (scopedErr: any) {
         // Niet blokkeren op index/permissie issues; overige checks blijven actief.
       }
@@ -905,19 +935,31 @@ const ProductionStartModal = ({
       const actPaths = PATHS.ACTIVE_PRODUCTION;
       const activeRef = collection(db, getPathString(actPaths as string[]));
       const activeLotSnap = await getDocs(query(activeRef, where("activeLot", "==", normalizedLot), limit(1)));
-      if (!activeLotSnap.empty) return true;
+      if (!activeLotSnap.empty) {
+        lotExistsCacheRef.current.set(normalizedLot, { exists: true, checkedAt: now });
+        return true;
+      }
+
+      const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (isOffline) {
+        lotExistsCacheRef.current.set(normalizedLot, { exists: false, checkedAt: now });
+        return false;
+      }
 
       // 4) Multi-year archive check (failsafe tegen hergebruik van historische lotnummers)
       const currentYear = new Date().getFullYear();
       const yearsToCheck = Array.from({ length: LOT_ARCHIVE_LOOKBACK_YEARS }, (_, idx) => currentYear - idx);
+      const archiveChecks = await Promise.all(
+        yearsToCheck.map(async (year) => {
+          const archiveRef = collection(db, getPathString(getArchiveItemsPath(year)));
+          const archiveSnap = await getDocs(query(archiveRef, where("lotNumber", "==", normalizedLot), limit(1)));
+          return !archiveSnap.empty;
+        })
+      );
 
-      for (const year of yearsToCheck) {
-        const archiveRef = collection(db, getPathString(getArchiveItemsPath(year)));
-        const archiveSnap = await getDocs(query(archiveRef, where("lotNumber", "==", normalizedLot), limit(1)));
-        if (!archiveSnap.empty) return true;
-      }
-
-      return false;
+      const exists = archiveChecks.some(Boolean);
+      lotExistsCacheRef.current.set(normalizedLot, { exists, checkedAt: now });
+      return exists;
     } catch (error: any) {
       console.error("Fout bij lot validatie:", error);
       return false;
@@ -930,15 +972,6 @@ const ProductionStartModal = ({
     const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
     const counterDocId = `${safeStationId}_${weekSuffix}`;
     const counterRef = doc(db, getPathString(PATHS.COUNTERS), counterDocId);
-
-    try {
-        const counterSnap = await getDoc(counterRef);
-        if (counterSnap.exists()) {
-            return counterSnap.data().lastSequence || 0;
-        }
-    } catch (e: any) {
-        console.error("Fout bij lezen counter:", e);
-    }
 
     const extractSeq = (lot: string) => {
         if (!lot || !lot.startsWith(baseLotStr)) return 0;
@@ -953,36 +986,53 @@ const ProductionStartModal = ({
     });
 
     try {
-        const activePath = PATHS.ACTIVE_PRODUCTION;
-        const activeRef = collection(db, getPathString(activePath as string[]));
-        const activeSnap = await getDocs(activeRef);
-        activeSnap.forEach((doc: any) => {
-            const data = doc.data();
-            const seq = extractSeq(data.lotNumber || data.activeLot);
-            if (seq > maxSeq) maxSeq = seq;
+        const counterSnap = await getDoc(counterRef);
+        if (counterSnap.exists()) {
+            const counterValue = Number(counterSnap.data().lastSequence || 0);
+            return Math.max(maxSeq, Number.isFinite(counterValue) ? counterValue : 0);
+        }
+    } catch (e: any) {
+        console.error("Fout bij lezen counter:", e);
+    }
+
+    try {
+        const trackingRef = collection(db, getPathString(PATHS.TRACKING as string[]));
+        const trackingTopSnap = await getDocs(query(
+          trackingRef,
+          where("lotNumber", ">=", baseLotStr),
+          where("lotNumber", "<=", `${baseLotStr}\uf8ff`),
+          orderBy("lotNumber", "desc"),
+          limit(1)
+        ));
+        trackingTopSnap.forEach((docSnap: any) => {
+          const seq = extractSeq(String(docSnap.data()?.lotNumber || ""));
+          if (seq > maxSeq) maxSeq = seq;
         });
 
         const archiveRef = collection(db, getPathString(getArchiveItemsPath(new Date().getFullYear())));
-        const q = query(
-            archiveRef, 
-            where("lotNumber", ">=", baseLotStr),
-            where("lotNumber", "<=", baseLotStr + '\uf8ff')
-        );
-        const archiveSnap = await getDocs(q);
-        archiveSnap.forEach((doc: any) => {
-            const seq = extractSeq(doc.data().lotNumber);
-            if (seq > maxSeq) maxSeq = seq;
+        const archiveTopSnap = await getDocs(query(
+          archiveRef,
+          where("lotNumber", ">=", baseLotStr),
+          where("lotNumber", "<=", `${baseLotStr}\uf8ff`),
+          orderBy("lotNumber", "desc"),
+          limit(1)
+        ));
+        archiveTopSnap.forEach((docSnap: any) => {
+          const seq = extractSeq(String(docSnap.data()?.lotNumber || ""));
+          if (seq > maxSeq) maxSeq = seq;
         });
 
         // Neem ook scoped tracking-items mee, omdat lotnummers daar primair worden opgeslagen.
         try {
           const trackingPathPrefix = `${(PATHS.TRACKING || []).join("/")}/`;
-          const scopedTrackingQuery = query(
+          const scopedTrackingTopQuery = query(
             collectionGroup(db, "items"),
             where("lotNumber", ">=", baseLotStr),
-            where("lotNumber", "<=", `${baseLotStr}\uf8ff`)
+            where("lotNumber", "<=", `${baseLotStr}\uf8ff`),
+            orderBy("lotNumber", "desc"),
+            limit(5)
           );
-          const scopedTrackingSnap = await getDocs(scopedTrackingQuery);
+          const scopedTrackingSnap = await getDocs(scopedTrackingTopQuery);
           scopedTrackingSnap.forEach((docSnap: any) => {
             const path = String(docSnap.ref?.path || "");
             if (!path.startsWith(trackingPathPrefix)) return;
@@ -1028,7 +1078,8 @@ const ProductionStartModal = ({
           .sort((a, b) => a - b)
       : [];
 
-    for (const seq of recycled) {
+    const candidatesToCheck = recycled.slice(0, RECYCLED_SEQUENCE_SCAN_LIMIT);
+    for (const seq of candidatesToCheck) {
       const candidate = `${baseLot}${String(seq).padStart(4, '0')}`;
       const exists = await checkLotNumberExists(candidate);
       if (!exists) {
@@ -1199,7 +1250,7 @@ const ProductionStartModal = ({
 
     const generateRobustLotNumber = async () => {
       if (!isOpen || !order || mode !== "auto") return;
-      setIsCheckingLot(true);
+      setIsAutoLotRefreshing(true);
 
       try {
         const d = new Date();
@@ -1213,6 +1264,24 @@ const ProductionStartModal = ({
 
         const baseLot = `${bedrijf}${jaar}${week}${machine}${land}`;
         const weekSuffix = `${jaar}${week}`;
+
+        // Toon direct een kandidaat op basis van de counter-doc (bijv. BH18_2628),
+        // zodat we niet meer standaard op ...0001 landen.
+        if (isMounted) {
+          const safeStationId = (stationId || "UNKNOWN").toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const counterDocId = `${safeStationId}_${weekSuffix}`;
+          const counterRef = doc(db, getPathString(PATHS.COUNTERS), counterDocId);
+          try {
+            const counterSnap = await getDoc(counterRef);
+            const currentLast = counterSnap.exists()
+              ? Number(counterSnap.data()?.lastSequence || 0)
+              : 0;
+            const nextSeq = Math.max(1, (Number.isFinite(currentLast) ? currentLast : 0) + 1);
+            setLotNumber(`${baseLot}${String(nextSeq).padStart(4, "0")}`);
+          } catch {
+            setLotNumber(`${baseLot}0001`);
+          }
+        }
 
         const recycledLot = await consumeRecycledSequence(baseLot, stationId, weekSuffix);
         if (recycledLot) {
@@ -1243,7 +1312,7 @@ const ProductionStartModal = ({
         console.error("Error setting lot number", error);
         if (isMounted) setLotError("Waarschuwing: Kan uniciteit niet garanderen.");
       } finally {
-        if (isMounted) setIsCheckingLot(false);
+        if (isMounted) setIsAutoLotRefreshing(false);
       }
     };
 
@@ -1537,7 +1606,7 @@ const ProductionStartModal = ({
   }, [isOpen, isManualMode, orderValidated, manualLotInput, stationId, existingProducts]);
 
   const canStartManual = isManualMode && orderValidated && !!manualLotInput.trim() && !orderError && !lotError && !isCheckingLot;
-  const canStartAuto = !isManualMode && !!lotNumber && !isCheckingLot && !lotError;
+  const canStartAuto = !isManualMode && !!lotNumber && !lotError;
 
   const handleStartProduction = async () => {
     if (isStarting) return;
@@ -1554,12 +1623,12 @@ const ProductionStartModal = ({
     setIsStarting(true);
     const startOpId = `start_${Date.now()}`;
     addOperation(startOpId, order?.orderId || "order");
+    let startCommitted = false;
     try {
       let targetPrinter = null;
       let effectiveLotNumber = isManualMode ? manualLotInput.trim() : lotNumber;
       let printData = null;
       let lotBatchPrintData = null;
-      let counterClaimed = false;
       const totalToProduce = Math.max(1, parseInt(stringCount, 10) || 1);
       const requestedLabelsToPrint = isFlangeOrder ? 0 : Math.max(1, parseInt(labelCount, 10) || 1);
       const operatorForcedLabels = !isFlangeOrder && typeof matchedOperatorPrintRule?.labelCount === "number" && matchedOperatorPrintRule.labelCount > 0
@@ -1582,54 +1651,28 @@ const ProductionStartModal = ({
         if (previewLotCandidate) {
           effectiveLotNumber = previewLotCandidate;
         } else {
-          try {
-            effectiveLotNumber = await claimAutoLotRange(totalToProduce);
-            counterClaimed = true;
-          } catch (counterErr: any) {
-            if (!isPermissionDeniedError(counterErr)) {
-              throw counterErr;
-            }
-
-            if (!counterPermissionWarnedRef.current) {
-              counterPermissionWarnedRef.current = true;
-              console.warn("Counter transactie geweigerd; fallback lot-allocatie zonder counter wordt gebruikt.");
-            }
-
-            notify("Beperkte rechten op counters gedetecteerd. Fallback lot-allocatie actief.");
-            effectiveLotNumber = await claimAutoLotRangeWithoutCounter(totalToProduce);
-          }
+          effectiveLotNumber = await claimAutoLotRangeWithoutCounter(totalToProduce);
         }
         setLotNumber(effectiveLotNumber);
 
-        // Failsafe: ook na counter-claim expliciet controleren op bestaand lot (tracking + archief).
+        // Failsafe: snelle client-check op start- en eindlot.
+        // De server valideert vervolgens alle lots exact bij startProductionLots.
         const autoStartSeq = parseInt(String(effectiveLotNumber || "").slice(-4), 10);
         if (!Number.isFinite(autoStartSeq)) {
           throw new Error(t("productionStartModal.errors.cannotValidateLotRange"));
         }
 
-        for (let i = 0; i < totalToProduce; i++) {
-          const candidateLot = `${String(effectiveLotNumber).slice(0, -4)}${String(autoStartSeq + i).padStart(4, "0")}`;
-          const exists = await checkLotNumberExists(candidateLot);
-          if (exists) {
-            try {
-              effectiveLotNumber = await claimAutoLotRange(totalToProduce);
-              counterClaimed = true;
-            } catch (counterErr: any) {
-              if (!isPermissionDeniedError(counterErr)) {
-                throw counterErr;
-              }
+        const autoPrefix = String(effectiveLotNumber).slice(0, -4);
+        const firstCandidateLot = `${autoPrefix}${String(autoStartSeq).padStart(4, "0")}`;
+        const lastCandidateLot = `${autoPrefix}${String(autoStartSeq + Math.max(0, totalToProduce - 1)).padStart(4, "0")}`;
+        const [firstExists, lastExists] = await Promise.all([
+          checkLotNumberExists(firstCandidateLot),
+          totalToProduce > 1 ? checkLotNumberExists(lastCandidateLot) : Promise.resolve(false),
+        ]);
 
-              if (!counterPermissionWarnedRef.current) {
-                counterPermissionWarnedRef.current = true;
-                console.warn("Counter transactie geweigerd na collision; fallback lot-allocatie zonder counter wordt gebruikt.");
-              }
-
-              notify("Beperkte rechten op counters gedetecteerd. Fallback lot-allocatie actief.");
-              effectiveLotNumber = await claimAutoLotRangeWithoutCounter(totalToProduce);
-            }
-            setLotNumber(effectiveLotNumber);
-            break;
-          }
+        if (firstExists || lastExists) {
+          effectiveLotNumber = await claimAutoLotRangeWithoutCounter(totalToProduce);
+          setLotNumber(effectiveLotNumber);
         }
 
         if (!isFlangeOrder && selectedLabel) {
@@ -1721,11 +1764,6 @@ const ProductionStartModal = ({
 
       const batchCount = Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots.length : totalToProduce;
 
-      if (!counterClaimed) {
-        await updateCounterOnStart(effectiveLotNumber, batchCount);
-      }
-      await logActivity(auth.currentUser?.uid || "system", "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
-
       updateOperation(startOpId, "Bezig met starten...");
       await onStart(
         order,
@@ -1744,6 +1782,11 @@ const ProductionStartModal = ({
           isQcSteekproef: mode === "qc_steekproef",
         }
       );
+      startCommitted = true;
+
+      await updateCounterOnStart(effectiveLotNumber, batchCount);
+      void logActivity(auth.currentUser?.uid || "system", "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
+
       updateOperation(startOpId, "Klaar ✓");
       setTimeout(() => removeOperation(startOpId), 3500);
 
@@ -1849,9 +1892,17 @@ const ProductionStartModal = ({
       }
     } catch (e: any) {
       console.error(e);
-      updateOperation(startOpId, "Fout");
-      setTimeout(() => removeOperation(startOpId), 4000);
-      showError(e.message || t("productionStartModal.errors.startFailed"));
+      // Als de start al gecommit is, behandelen we dit als naverwerkingsfout
+      // (bijv. print/telemetrie) en niet als mislukte productie-start.
+      if (startCommitted) {
+        updateOperation(startOpId, "Klaar ✓");
+        setTimeout(() => removeOperation(startOpId), 3500);
+        notify("Productie is gestart, maar een naverwerkingsstap faalde. Controleer print/logging.");
+      } else {
+        updateOperation(startOpId, "Fout");
+        setTimeout(() => removeOperation(startOpId), 4000);
+        showError(e.message || t("productionStartModal.errors.startFailed"));
+      }
     } finally {
       setIsStarting(false);
     }
@@ -2095,7 +2146,7 @@ const ProductionStartModal = ({
                     <div className={`text-2xl font-mono font-black ${lotError ? 'text-red-400' : 'text-white'} italic tracking-tighter`}>
                       {lotNumber || t("productionStartModal.labels.loading")}
                     </div>
-                    {isCheckingLot && <Loader2 className="animate-spin text-white/50" size={16} />}
+                    {isAutoLotRefreshing && <Loader2 className="animate-spin text-white/50" size={16} />}
                   </div>
                   {lotError && <p className="text-red-400 text-xs mt-2 font-bold">{lotError}</p>}
                 </div>
