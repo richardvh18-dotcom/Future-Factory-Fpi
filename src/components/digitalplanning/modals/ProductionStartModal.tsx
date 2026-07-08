@@ -54,10 +54,27 @@ const USB_PRINTER_PRODUCT_KEY = "usb_printer_product";
 const USB_PRINTER_ID_KEY = "usb_printer_id";
 const PRINT_STATION_SELECTED_KEY = "print_station_selected_station";
 const PRINT_STATION_BINDINGS_KEY = "print_station_printer_bindings_v1";
+const START_OPERATION_TIMEOUT_MS = 45000;
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   return String(error);
+};
+
+const truncateText = (value: unknown, maxLen = 160): string =>
+  String(value || "").trim().slice(0, maxLen);
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
 };
 
 const tryParseObject = (raw: string): Record<string, unknown> => {
@@ -1776,22 +1793,28 @@ const ProductionStartModal = ({
       const batchCount = Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots.length : totalToProduce;
 
       updateOperation(startOpId, "Bezig met starten...");
-      await onStart(
-        order,
-        effectiveLotNumber,
-        totalToProduce,
-        isManualMode ? manualOrderInput : String(order.orderId || ""),
-        operatorInput,
-        selectedOperatorName,
-        printData,
-        !isManualMode ? (selectedLabelId || templateIdsToPrint[0] || null) : null,
-        {
-          isFlangeSeries: isFlangeOrder,
-          skipStartLabel: isFlangeOrder,
-          lotNumbers: Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots : undefined,
-          batchCount,
-          isQcSteekproef: mode === "qc_steekproef",
-        }
+      await withTimeout(
+        Promise.resolve(
+          onStart(
+            order,
+            effectiveLotNumber,
+            totalToProduce,
+            isManualMode ? manualOrderInput : String(order.orderId || ""),
+            operatorInput,
+            selectedOperatorName,
+            printData,
+            !isManualMode ? (selectedLabelId || templateIdsToPrint[0] || null) : null,
+            {
+              isFlangeSeries: isFlangeOrder,
+              skipStartLabel: isFlangeOrder,
+              lotNumbers: Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots : undefined,
+              batchCount,
+              isQcSteekproef: mode === "qc_steekproef",
+            }
+          )
+        ),
+        START_OPERATION_TIMEOUT_MS,
+        "Starten duurt te lang. Controleer netwerk/Firebase en probeer opnieuw."
       );
       startCommitted = true;
 
@@ -1848,7 +1871,14 @@ const ProductionStartModal = ({
                       targetPrinterName: targetPrinter.name,
                       width: parseInt(String(templateToPrint.width || 0), 10),
                       height: parseInt(String(templateToPrint.height || 0), 10),
-                      variables: { ...previewData, lotNumber: currentLot },
+                      // Keep queue metadata compact to avoid callable 400 (metadata too large).
+                      variables: {
+                        lotNumber: currentLot,
+                        orderId: truncateText(order?.orderId, 80),
+                        itemCode: truncateText(order?.itemCode || order?.productId, 80),
+                        item: truncateText(order?.item || order?.description, 160),
+                        stationId: truncateText(stationId, 40),
+                      },
                       templateId: templateToPrint.id,
                     }
                 );

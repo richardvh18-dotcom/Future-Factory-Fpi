@@ -1,5 +1,12 @@
 import { create } from "zustand";
 
+const MAX_OPERATION_AGE_MS = 2 * 60 * 1000;
+
+const pruneStaleOperations = (operations: Record<string, ProgressOperation>, now = Date.now()) =>
+  Object.fromEntries(
+    Object.entries(operations).filter(([, operation]) => now - Number(operation?.timestamp || 0) <= MAX_OPERATION_AGE_MS)
+  );
+
 export type ProgressOperation = {
   lotNumber: string;
   status: string;
@@ -19,28 +26,34 @@ export interface ProgressOperationStore {
 export const useProgressOperationsStore = create<ProgressOperationStore>((set) => ({
   operations: {},
   addOperation: (operationId, lotNumber) =>
-    set((state) => ({
-      operations: {
-        ...state.operations,
+    set((state) => {
+      const now = Date.now();
+      const nextOperations = pruneStaleOperations(state.operations, now);
+      return {
+        operations: {
+          ...nextOperations,
         [operationId]: {
           lotNumber,
           status: "Bezig...",
-          timestamp: Date.now(),
+          timestamp: now,
         },
       },
-    })),
+      };
+    }),
   updateOperation: (operationId, status) =>
     set((state) => {
-      const current = state.operations[operationId];
+      const now = Date.now();
+      const nextOperations = pruneStaleOperations(state.operations, now);
+      const current = nextOperations[operationId];
       if (!current) return state;
 
       return {
         operations: {
-          ...state.operations,
+          ...nextOperations,
           [operationId]: {
             ...current,
             status,
-            timestamp: Date.now(),
+            timestamp: now,
           },
         },
       };

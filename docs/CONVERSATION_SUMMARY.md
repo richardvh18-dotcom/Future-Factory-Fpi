@@ -1,3 +1,24 @@
+### Update sessie 08 July 2026 (Hotfix: start blijft hangen op 'Bezig met starten' + print 400 fail)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Probleem:**
+- In sommige gevallen bleef de progress-toast hangen op `Bezig met starten...`.
+- Printqueue kon falen met een 400 (`invalid-argument`) wanneer metadata payload te groot werd.
+
+**Uitgevoerd:**
+- In `ProductionStartModal.tsx`:
+    - Timeout guard toegevoegd rond `onStart` (`45s`) zodat hangende backend-calls niet oneindig blijven draaien.
+    - Compacte print metadata naar `queuePrintJob` gestuurd (zonder grote `previewData` objecten) om 400 payload-errors te voorkomen.
+- In `ProgressOperationContext.tsx`:
+    - Automatische opruiming van stale operations ouder dan 2 minuten toegevoegd.
+
+**Resultaat:**
+- Startflow blijft niet meer oneindig op actief staan bij timeouts/hangs.
+- Print queue aanvragen blijven onder metadata-limieten en falen niet meer op payload-grootte.
+
+---
+
 ### Update sessie 08 July 2026 (Hotfix: geen labelprint na succesvolle start in ProductionStartModal)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
