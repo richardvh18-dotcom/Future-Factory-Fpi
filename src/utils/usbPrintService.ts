@@ -11,6 +11,8 @@ type UsbPrinterRef = {
 };
 
 const USB_TRANSFER_CHUNK_SIZE = 4096;
+const USB_IO_TIMEOUT_MS = 12000;
+const USB_PREPARE_TIMEOUT_MS = 15000;
 
 type UsbDeviceLockState = {
   locked: boolean;
@@ -186,6 +188,18 @@ const normalizeUsbError = (err: unknown): Error => {
   return new Error(String(err || "Onbekende USB fout"));
 };
 
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+};
+
 const prepareDevice = async (
   device: USBDevice,
   printer: UsbPrinterRef = {}
@@ -326,15 +340,23 @@ export const printRawUsbToDevice = async ({
   ensureUsbSupport();
   const releaseDeviceLock = await acquireUsbDeviceLock(device);
   try {
-    const endpointInfo = await prepareDevice(device, {
-      vendorId: device.vendorId,
-      productId: device.productId,
-    });
+    const endpointInfo = await withTimeout(
+      prepareDevice(device, {
+        vendorId: device.vendorId,
+        productId: device.productId,
+      }),
+      USB_PREPARE_TIMEOUT_MS,
+      "USB printer voorbereiden duurt te lang (timeout)."
+    );
     const data = new TextEncoder().encode(String(content));
 
     for (let offset = 0; offset < data.length; offset += USB_TRANSFER_CHUNK_SIZE) {
       const chunk = data.slice(offset, offset + USB_TRANSFER_CHUNK_SIZE);
-      const result = await device.transferOut(endpointInfo.endpointNumber, chunk);
+      const result = await withTimeout(
+        device.transferOut(endpointInfo.endpointNumber, chunk),
+        USB_IO_TIMEOUT_MS,
+        "USB gegevensoverdracht duurt te lang (timeout)."
+      );
       if (result.status !== "ok") {
         throw new Error(`USB print mislukt met status: ${result.status}`);
       }
