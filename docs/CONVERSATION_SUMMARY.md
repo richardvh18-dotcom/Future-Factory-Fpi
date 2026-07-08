@@ -1,3 +1,21 @@
+### Update sessie 08 July 2026 (Hotfix: geen labelprint na succesvolle start in ProductionStartModal)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Probleem:**
+- Bij starten vanuit `ProductionStartModal` ging de order correct naar Wikkelen, maar labels werden in sommige gevallen niet gequeued/geprint terwijl de voortgang wel liep.
+
+**Uitgevoerd:**
+- In `ProductionStartModal.tsx` robuuste template-fallback toegevoegd:
+    - Nieuwe `templateIdsToPrint` opgebouwd uit `selectedTemplateIds`, `selectedLabelId` en `selectedLabel.id`.
+    - Start-call gebruikt nu ook fallback template-id als `selectedLabelId` leeg is.
+    - Queue print-loop gebruikt `templateIdsToPrint` i.p.v. alleen `selectedTemplateIds`.
+
+**Resultaat:**
+- Startflow blijft snel en labels worden nu ook gequeued wanneer de template-array tijdelijk leeg is, zolang er een geselecteerd label beschikbaar is.
+
+---
+
 ### Update sessie 08 July 2026 (Deploy safety-check tegen Firebase 404 door incomplete build)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout

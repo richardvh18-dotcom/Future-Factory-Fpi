@@ -1631,6 +1631,17 @@ const ProductionStartModal = ({
       let lotBatchPrintData = null;
       const totalToProduce = Math.max(1, parseInt(stringCount, 10) || 1);
       const requestedLabelsToPrint = isFlangeOrder ? 0 : Math.max(1, parseInt(labelCount, 10) || 1);
+      const templateIdsToPrint = Array.from(
+        new Set(
+          [
+            ...selectedTemplateIds,
+            selectedLabelId,
+            String((selectedLabel as any)?.id || "").trim(),
+          ]
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+        )
+      );
       const operatorForcedLabels = !isFlangeOrder && typeof matchedOperatorPrintRule?.labelCount === "number" && matchedOperatorPrintRule.labelCount > 0
         ? matchedOperatorPrintRule.labelCount
         : null;
@@ -1773,7 +1784,7 @@ const ProductionStartModal = ({
         operatorInput,
         selectedOperatorName,
         printData,
-        !isManualMode ? selectedLabelId : null,
+        !isManualMode ? (selectedLabelId || templateIdsToPrint[0] || null) : null,
         {
           isFlangeSeries: isFlangeOrder,
           skipStartLabel: isFlangeOrder,
@@ -1791,7 +1802,7 @@ const ProductionStartModal = ({
       setTimeout(() => removeOperation(startOpId), 3500);
 
       // --- NIEUWE PRINT LOOP VOOR MEERDERE TEMPLATES ---
-      if (!isFlangeOrder && printConfig.mode === "queue" && labelsToPrint > 0 && selectedTemplateIds.length > 0) {
+      if (!isFlangeOrder && printConfig.mode === "queue" && labelsToPrint > 0 && templateIdsToPrint.length > 0) {
         if (targetPrinter) {
           persistPrinterBindingForAutoProcessor(stationId, targetPrinter);
           
@@ -1802,7 +1813,7 @@ const ProductionStartModal = ({
           let totalQueuedCount = 0;
 
           for (const currentLot of targetLots) {
-            for (const templateId of selectedTemplateIds) {
+            for (const templateId of templateIdsToPrint) {
               const templateToPrint = allLabels.find(l => l.id === templateId);
               if (!templateToPrint) {
                 console.warn(`Template met ID ${templateId} niet gevonden, wordt overgeslagen.`);
