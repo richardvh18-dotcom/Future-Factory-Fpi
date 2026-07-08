@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import {
   initializeFirestore,
   persistentLocalCache,
+  memoryLocalCache,
   persistentMultipleTabManager,
   getFirestore,
   collection,
@@ -75,7 +76,103 @@ export const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+const FIRESTORE_PERSISTENCE_DISABLED_UNTIL_KEY = "fpi_firestore_persistence_disabled_until";
+const FIRESTORE_QUOTA_RECOVERY_RELOAD_KEY = "fpi_firestore_quota_recovery_reload_done";
+
+const readNumberFromStorage = (key: string): number => {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = String(window.localStorage.getItem(key) || "").trim();
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const shouldUseMemoryFirestoreCache = (): boolean => {
+  const disabledUntil = readNumberFromStorage(FIRESTORE_PERSISTENCE_DISABLED_UNTIL_KEY);
+  return disabledUntil > Date.now();
+};
+
+const clearFirestoreLocalStorageArtifacts = () => {
+  if (typeof window === "undefined") return;
+  try {
+    const projectId = String(firebaseConfig.projectId || "").trim();
+    if (!projectId) return;
+
+    const keysToDelete: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = String(window.localStorage.key(i) || "");
+      if (!key) continue;
+
+      const isFirestoreKey = key.startsWith("firestore_");
+      const matchesProject = key.includes(projectId);
+      if (isFirestoreKey && matchesProject) {
+        keysToDelete.push(key);
+      }
+    }
+
+    keysToDelete.forEach((key) => {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // ignore remove failures
+      }
+    });
+  } catch {
+    // ignore storage cleanup failures
+  }
+};
+
+const clearFirestoreIndexedDbArtifacts = () => {
+  if (typeof window === "undefined" || !window.indexedDB) return;
+  try {
+    const projectId = String(firebaseConfig.projectId || "").trim();
+    if (!projectId) return;
+
+    window.indexedDB.deleteDatabase(`firestore/[DEFAULT]/${projectId}/main`);
+    window.indexedDB.deleteDatabase(`firestore/[DEFAULT]/${projectId}`);
+  } catch {
+    // ignore indexeddb cleanup failures
+  }
+};
+
+const installFirestoreQuotaRecovery = () => {
+  if (typeof window === "undefined") return;
+
+  const alreadyInstalled = (window as any).__fpiFirestoreQuotaRecoveryInstalled;
+  if (alreadyInstalled) return;
+  (window as any).__fpiFirestoreQuotaRecoveryInstalled = true;
+
+  window.addEventListener("unhandledrejection", (event) => {
+    try {
+      const reasonText = String((event as PromiseRejectionEvent)?.reason || "").toLowerCase();
+      if (!reasonText.includes("quotaexceedederror") && !reasonText.includes("failed to persist write")) {
+        return;
+      }
+
+      const now = Date.now();
+      const disableForMs = 24 * 60 * 60 * 1000;
+      window.localStorage.setItem(FIRESTORE_PERSISTENCE_DISABLED_UNTIL_KEY, String(now + disableForMs));
+
+      clearFirestoreLocalStorageArtifacts();
+      clearFirestoreIndexedDbArtifacts();
+
+      const hasReloaded = String(window.sessionStorage.getItem(FIRESTORE_QUOTA_RECOVERY_RELOAD_KEY) || "") === "1";
+      if (!hasReloaded) {
+        window.sessionStorage.setItem(FIRESTORE_QUOTA_RECOVERY_RELOAD_KEY, "1");
+        window.location.reload();
+      }
+    } catch {
+      // ignore quota recovery handler failures
+    }
+  });
+};
+
 const createFirestoreInstance = () => {
+  installFirestoreQuotaRecovery();
+
   if (typeof window !== "undefined" && window.indexedDB) {
     try {
       const CURRENT_CACHE_VERSION = "v3";
@@ -91,7 +188,23 @@ const createFirestoreInstance = () => {
     }
   }
 
-  // Enable IndexedDB offline persistence with a safe 50MB cache size limit
+  // Enable IndexedDB offline persistence with a safe 50MB cache size limit.
+  // When quota recovery is active, force memory cache temporarily.
+  if (shouldUseMemoryFirestoreCache()) {
+    try {
+      console.warn("Firestore persistence tijdelijk uitgeschakeld na quota-fout; memory cache actief.");
+    } catch {
+      // no-op
+    }
+    try {
+      return initializeFirestore(app, {
+        localCache: memoryLocalCache(),
+      });
+    } catch {
+      return getFirestore(app);
+    }
+  }
+
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({
