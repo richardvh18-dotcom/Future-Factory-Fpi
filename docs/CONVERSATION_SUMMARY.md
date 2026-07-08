@@ -1,3 +1,27 @@
+### Update sessie 08 July 2026 (Deploy safety-check tegen Firebase 404 door incomplete build)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Probleem:**
+- Er was risico op deploy van een onvolledige `dist` (bij afgebroken of partiele build), wat kan leiden tot Firebase default "Page Not Found" of ontbrekende assets in productie.
+
+**Uitgevoerd:**
+- Nieuw verificatiescript toegevoegd: `scripts/verify-build-output.cjs`.
+- Het script faalt hard als een van deze checks niet slaagt:
+    - `dist/` bestaat niet.
+    - `dist/index.html` ontbreekt, leeg is, of geen app-shell bevat.
+    - In `index.html` gerefereerde `/assets/...` bestanden ontbreken fysiek.
+    - `dist/version.json` ontbreekt.
+- Deploy scripts in `package.json` aangescherpt:
+    - Nieuwe npm script: `verify:build-output`.
+    - `deploy`, `deploy:test` en `deploy:prod` draaien nu eerst `verify:build-output` voor Firebase deploy.
+
+**Resultaat:**
+- Deploy stopt nu automatisch bij incomplete build output.
+- Kans op een herhaling van de Firebase 404 door onvolledige public files is hiermee sterk verlaagd.
+
+---
+
 ### Update sessie 08 July 2026 (Tablet WiFi soft-recovery + snellere client bootstrap)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
