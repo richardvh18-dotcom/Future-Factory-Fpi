@@ -1,3 +1,25 @@
+### Update sessie 08 July 2026 (Hotfix Firestore QuotaExceeded crash-loop)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Probleem:**
+- Productie gaf `QuotaExceededError` op Firestore mutation persistence (`firestore_mutations_...`) gevolgd door een `INTERNAL ASSERTION FAILED: Unexpected state` crash-loop en vele unhandled rejections.
+
+**Hotfix uitgevoerd:**
+- In `firebase.ts` is een quota-recovery flow toegevoegd:
+    - Detectie op Firestore quota-gerelateerde `unhandledrejection` errors.
+    - Tijdelijke fallback (24 uur) naar `memoryLocalCache()` via localStorage vlag.
+    - Opruimen van Firestore localStorage artefacten voor het project.
+    - Opruimen van Firestore IndexedDB artefacten voor het project.
+    - Eenmalige automatische reload na recovery om uit de crash-loop te komen.
+- Bij actieve recovery gebruikt de app geen persistente Firestore cache, zodat mutatie-queues niet opnieuw quota overschrijden.
+
+**Resultaat:**
+- App herstelt automatisch uit quota-crashes en blijft bruikbaar.
+- Crash-loop met `Unexpected state` wordt doorbroken.
+
+---
+
 ### Update sessie 08 July 2026 (ProductionStartModal lot/start regressie fix + deploy)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
