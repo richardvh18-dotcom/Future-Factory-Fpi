@@ -1,3 +1,15 @@
+### Update sessie 08 July 2026 (Release 0.1.87)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Samenvatting:**
+- Versie verhoogd van `0.1.86` naar `0.1.87`.
+- Print keepalive aangepast zodat er geen echte printjob meer ontstaat.
+- BH18 printjobs worden expliciet gescoped naar het juiste pad: `future-factory/production/print_queue/Fittings/machines/40BH18`.
+- ProductionStartModal lot-spinner en print-start flow zijn verder gehard.
+
+---
+
 ### Update sessie 08 July 2026 (Hotfix: lotnummer spinner blijft actief in ProductionStartModal)
 
 **Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout

@@ -112,8 +112,8 @@ const App = () => {
       // Importeer inline of roep dynamisch de cloud function aan (zonder frontend validatie)
       import("firebase/functions").then(({ getFunctions, httpsCallable }) => {
         const ping = httpsCallable(getFunctions(app, "europe-west1"), "queuePrintJob");
-        // We sturen expres ongeldige parameters. De server ontwaakt, weigert het, en valt weer in slaap-timer.
-        ping({ printerId: "PING", zplData: "PING" }).catch(() => {});
+        // Keepalive voor cold starts, zonder echte printjob aan te maken.
+        ping({ printerId: "PING", zplData: "PING", metadata: { source: "keepalive" } }).catch(() => {});
       });
     }, 9 * 60 * 1000); // Elke 9 minuten
 

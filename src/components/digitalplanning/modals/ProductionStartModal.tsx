@@ -1880,6 +1880,7 @@ const ProductionStartModal = ({
       if (!isFlangeOrder && printConfig.mode === "queue" && labelsToPrint > 0 && templateIdsToPrint.length > 0) {
         if (targetPrinter) {
           persistPrinterBindingForAutoProcessor(stationId, targetPrinter);
+          const scopedMachineId = normalizedStationNoPrefix || normalizedStationId;
           
           const targetLots = Array.isArray(lotBatchLots) && lotBatchLots.length > 0
             ? lotBatchLots
@@ -1920,6 +1921,8 @@ const ProductionStartModal = ({
                       orderId: order.orderId,
                       lotNumber: currentLot,
                       stationId: stationId || t("common.unknown"),
+                      machineId: scopedMachineId,
+                      originMachine: scopedMachineId,
                       targetPrinterName: targetPrinter.name,
                       width: parseInt(String(templateToPrint.width || 0), 10),
                       height: parseInt(String(templateToPrint.height || 0), 10),
@@ -1957,6 +1960,7 @@ const ProductionStartModal = ({
 
           if (targetPrinter) {
             persistPrinterBindingForAutoProcessor(stationId, targetPrinter);
+            const scopedMachineId = normalizedStationNoPrefix || normalizedStationId;
             const queueJobId = await queuePrintJob(
               targetPrinter.id,
               normalizedLotBatchData,
@@ -1966,6 +1970,8 @@ const ProductionStartModal = ({
                 orderId: order.orderId,
                 lotNumber: effectiveLotNumber,
                 stationId: stationId || t("common.unknown"),
+                machineId: scopedMachineId,
+                originMachine: scopedMachineId,
                 targetPrinterName: targetPrinter.name,
                 isStringLotBatch: true,
                 includesOrderRow: true,

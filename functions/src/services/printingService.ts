@@ -117,6 +117,11 @@ const inferScopedDepartment = (metadata = {}) => {
 async function queuePrintJobService(printerId, zplData, metadata = {}, context) {
   const normalizedPrinterId = String(printerId || '').trim();
   const normalizedZpl = String(zplData || '');
+  const requestSource = String(metadata?.source || '').trim().toLowerCase();
+
+  if (requestSource === 'keepalive') {
+    return null;
+  }
 
   if (!PRINTER_ID_PATTERN.test(normalizedPrinterId)) {
     throw new Error('Ongeldige printerId.');
