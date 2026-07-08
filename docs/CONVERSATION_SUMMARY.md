@@ -23,6 +23,11 @@
 - Tablets blijven stabieler in beeld bij korte WiFi dips.
 - Minder volledige herlaadmomenten en duidelijk snellere eerste opbouw van de app op clients.
 
+**Release/Deploy:**
+- Versie verhoogd van `0.1.85` naar `0.1.86`.
+- Hosting deploy succesvol uitgevoerd op Firebase (volledige `dist` met 100 bestanden).
+- Live URL: `https://future-factory-377ef.web.app`
+
 ---
 
 ### Update sessie 08 July 2026 (Hotfix Firestore QuotaExceeded crash-loop)
