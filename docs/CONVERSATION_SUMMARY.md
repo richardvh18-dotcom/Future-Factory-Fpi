@@ -1,3 +1,39 @@
+### Update sessie 08 July 2026 (ProductionStartModal lot/start regressie fix + deploy)
+
+**Datum:** 08 July 2026 | **Branch:** FPiFF-June-rolout
+
+**Doel:**
+- Crashes en vertragingen rond offline/local cache in startflows verminderen.
+- Lotnummer direct en correct uit counters tonen (o.a. `BH18_2628`) zonder `...0001` regressie.
+- Startknop direct bruikbaar maken en pre-reservering van lotnummers voorkomen.
+- Zorgen dat een succesvolle productie-start niet meer als fout terugvalt door naverwerking (print/logging).
+
+**Uitgevoerd:**
+- In `ProductionStartModal.tsx`:
+    - Veilige JSON parsing toegevoegd voor printer-binding opslag.
+    - Lot-validatie geoptimaliseerd met tijdelijke cache + parallelle archiefchecks.
+    - Zware lotrange-checks uit de UI-blokkerende paden gehaald.
+    - Snelle lotweergave aangepast naar counter-gebaseerde kandidaat (`lastSequence + 1`) i.p.v. standaard `0001`.
+    - Auto-refresh state losgekoppeld van startknop-blocking (`isAutoLotRefreshing`), zodat starten direct klikbaar blijft.
+    - Pre-reservering verwijderd: teller wordt pas bijgewerkt ná succesvolle `onStart`.
+    - Niet-blokkerende logging na succesvolle start gezet.
+    - `startCommitted` safety-guard toegevoegd zodat post-start fouten niet als mislukte start worden behandeld.
+- In `useFormPersistence.ts`:
+    - Extra hardening voor `window` checks, corrupte localStorage data en write-fouten.
+
+**Resultaat:**
+- Lotnummer verschijnt snel en volgt de week/station counter.
+- Startknop blijft direct beschikbaar.
+- Geen “lot gereserveerd maar order niet gestart” gedrag meer.
+- Orders landen weer correct in Wikkelen na start.
+
+**Release/Deploy:**
+- Versie verhoogd van `0.1.83` naar `0.1.84`.
+- Hosting deploy succesvol uitgevoerd op Firebase.
+- Live URL: `https://future-factory-377ef.web.app`
+
+---
+
 ### Update sessie 07 July 2026 (BM01 NH Tab Print Reset)
 
 **Datum:** 07 July 2026 | **Branch:** pilot-dev
