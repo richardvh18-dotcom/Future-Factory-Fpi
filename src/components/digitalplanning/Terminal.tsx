@@ -45,7 +45,7 @@ import MalOptimizationPanel from "./MalOptimizationPanel";
 import MazakView from "./MazakView";
 import RepairModal from "./modals/RepairModal";
 import { useNotifications } from '../../contexts/NotificationContext';
-import { startProductionLots } from "../../services/planningSecurityService";
+import { queuePrintJob, startProductionLots } from "../../services/planningSecurityService";
 import { completeTrackedProductRepair } from "../../services/planningSecurityService";
 
 const QR_CODE_OK_CONFIRMATION = "FPI-ACTION-APPROVE-OK";
@@ -1120,6 +1120,27 @@ const Terminal = ({ initialStation, onCancelProduction, orders = [] }: TerminalP
       const createdLots = Array.isArray(startResult?.createdLots)
         ? startResult.createdLots
         : [startResult?.firstLot || startLot].filter(Boolean);
+
+      const startLabelZpl = String(labelZplData || "").trim();
+      const printerId = String((startOptions as any)?.printerId || "").trim();
+
+      if (startLabelZpl && printerId) {
+        try {
+          await queuePrintJob(printerId, startLabelZpl, {
+            source: "production_start",
+            orderId: cleanOrderId,
+            lotNumber: startLot,
+            quantity: 1,
+            stationId: effectiveStationId,
+            machineId: effectiveStationId,
+            originMachine: effectiveStationId,
+            labelTemplateId: String(labelTemplateId || "").trim(),
+            description: `Startlabel voor ${cleanOrderId} (Lot: ${startLot})`,
+          });
+        } catch (queueError) {
+          console.error("Kon startlabel niet in de printqueue zetten:", queueError);
+        }
+      }
 
       if (startOptions?.isQcSteekproef && createdLots.length > 0) {
         setPendingQcSteekproefLot(createdLots[0]);

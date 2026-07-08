@@ -623,7 +623,10 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
             const content = job.printData || job.zpl;
             if (!content) throw new Error('Geen printdata gevonden in printtaak.');
 
-            const isPreBatchedJob = Boolean(job?.metadata?.queuedAsBatch) || isLikelyPreBatchedZpl(content);
+            const forceQuantityCopies = Boolean(job?.metadata?.forceQuantityCopies);
+            const isPreBatchedJob = forceQuantityCopies
+              ? false
+              : (Boolean(job?.metadata?.queuedAsBatch) || isLikelyPreBatchedZpl(content));
             const batchSeqIndex = Number(job?.metadata?.batchSequenceIndex);
             const batchSeqTotal = Number(job?.metadata?.batchSequenceTotal);
             const hasBatchSequence = Number.isFinite(batchSeqIndex) && Number.isFinite(batchSeqTotal) && batchSeqTotal > 0;

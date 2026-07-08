@@ -1700,6 +1700,10 @@ const ProductionStartModal = ({
       let lotBatchPrintData = null;
       const totalToProduce = Math.max(1, parseInt(stringCount, 10) || 1);
       const requestedLabelsToPrint = isFlangeOrder ? 0 : Math.max(1, parseInt(labelCount, 10) || 1);
+      const runtimeRuleOutput = evaluatePrintRules(processLabelData(order), dynamicPrintRules);
+      const ruleForcedLabels = !isFlangeOrder && Number(runtimeRuleOutput?.labelCount) > 0
+        ? Number(runtimeRuleOutput?.labelCount)
+        : null;
       const templateIdsToPrint = Array.from(
         new Set(
           [
@@ -1714,10 +1718,7 @@ const ProductionStartModal = ({
       const operatorForcedLabels = !isFlangeOrder && typeof matchedOperatorPrintRule?.labelCount === "number" && matchedOperatorPrintRule.labelCount > 0
         ? matchedOperatorPrintRule.labelCount
         : null;
-      // Previously BH18 station forced 2 labels for large diameters. Remove hardcoded enforcement
-      // so label counts are driven by operator settings and admin label rules.
-      const bh18ForcedLabels = null;
-      const labelsToPrint = operatorForcedLabels ?? bh18ForcedLabels ?? requestedLabelsToPrint;
+      const labelsToPrint = ruleForcedLabels ?? operatorForcedLabels ?? requestedLabelsToPrint;
       const normalizedRunStationId = String(stationId || "").toUpperCase();
       const shouldPrintStringLotBatch =
         Boolean(generalSettings?.enableStringLotBatchPrint) &&
@@ -1857,6 +1858,7 @@ const ProductionStartModal = ({
             printData,
             !isManualMode ? (selectedLabelId || templateIdsToPrint[0] || null) : null,
             {
+              printerId: targetPrinter?.id || "",
               isFlangeSeries: isFlangeOrder,
               skipStartLabel: isFlangeOrder,
               lotNumbers: Array.isArray(lotBatchLots) && lotBatchLots.length > 0 ? lotBatchLots : undefined,
@@ -1870,11 +1872,11 @@ const ProductionStartModal = ({
       );
       startCommitted = true;
 
-      await updateCounterOnStart(effectiveLotNumber, batchCount);
-      void logActivity(auth.currentUser?.uid || "system", "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
-
       updateOperation(startOpId, "Klaar ✓");
       setTimeout(() => removeOperation(startOpId), 3500);
+
+      await updateCounterOnStart(effectiveLotNumber, batchCount);
+      void logActivity(auth.currentUser?.uid || "system", "ORDER_RELEASE", `Order started: ${order.orderId}, Lot: ${effectiveLotNumber}`);
 
       // --- NIEUWE PRINT LOOP VOOR MEERDERE TEMPLATES ---
       if (!isFlangeOrder && printConfig.mode === "queue" && labelsToPrint > 0 && templateIdsToPrint.length > 0) {
@@ -1918,6 +1920,8 @@ const ProductionStartModal = ({
                     {
                       description: `Label ${templateToPrint.name} voor ${order.orderId} (Lot: ${currentLot}) (x${labelsToPrint})`,
                       quantity: labelsToPrint,
+                      labelCount: labelsToPrint,
+                      forceQuantityCopies: true,
                       orderId: order.orderId,
                       lotNumber: currentLot,
                       stationId: stationId || t("common.unknown"),
@@ -1967,6 +1971,7 @@ const ProductionStartModal = ({
               {
                 description: `String lotnummers voor ${order.orderId} (${lotBatchLots.length} + orderregel)` ,
                 quantity: lotBatchLots.length + 1,
+                labelCount: lotBatchLots.length + 1,
                 orderId: order.orderId,
                 lotNumber: effectiveLotNumber,
                 stationId: stationId || t("common.unknown"),

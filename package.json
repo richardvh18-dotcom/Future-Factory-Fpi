@@ -1,6 +1,6 @@
 {
   "name": "fpi-future-factory",
-  "version": "0.1.87",
+  "version": "0.1.91",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -75,8 +75,8 @@
     "version:bump:patch:dry": "node scripts/bump-version.cjs --dry-run",
     "verify:build-output": "node scripts/verify-build-output.cjs",
     "deploy": "npm run version:bump:patch && npm run build && npm run verify:build-output && npx -p firebase-tools firebase deploy --only hosting",
-    "deploy:test": "firebase use staging && npm run build:test && npm run verify:build-output && firebase deploy --only hosting",
-    "deploy:prod": "firebase use default && npm run build:prod && npm run verify:build-output && firebase deploy --only hosting",
+    "deploy:test": "npm run version:bump:patch && firebase use staging && npm run build:test && npm run verify:build-output && firebase deploy --only hosting",
+    "deploy:prod": "npm run version:bump:patch && firebase use default && npm run build:prod && npm run verify:build-output && firebase deploy --only hosting",
     "preview": "vite preview",
     "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
     "lint:strict": "eslint src --ext .js,.jsx,.ts,.tsx --max-warnings=0",

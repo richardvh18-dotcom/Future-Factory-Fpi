@@ -49,13 +49,13 @@ const normalizeMachineToken = (rawValue = '') => {
   if (token === 'BM18') token = 'BH18';
   if (token === '40BM18') token = '40BH18';
 
-  if (/^40(BH|BM|BA)\d+$/.test(token)) return token;
-  if (/^(BH|BM|BA)\d+$/.test(token)) return `40${token}`;
+  if (/^40(BH|BM|BA)\d+$/.test(token)) return token.slice(2);
+  if (/^(BH|BM|BA)\d+$/.test(token)) return token;
 
   const match = token.match(/(40)?(BH|BM|BA)\d+/);
   if (match) {
     const core = `${match[2]}${String(match[0]).replace(/^(40)?(BH|BM|BA)/, '').replace(/[^0-9]/g, '')}`;
-    if (/^(BH|BM|BA)\d+$/.test(core)) return `40${core}`;
+    if (/^(BH|BM|BA)\d+$/.test(core)) return core;
   }
 
   return '';

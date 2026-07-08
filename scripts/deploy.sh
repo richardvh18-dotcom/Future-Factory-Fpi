@@ -5,6 +5,9 @@
 
 echo "🚀 Deploying changes..."
 
+echo "🏷️  Bumping version before deploy..."
+npm run version:bump:patch
+
 # Zorg dat we op main branch zijn
 if [ "$(git branch --show-current)" != "main" ]; then
   echo "⚠️  Switching to main branch..."
