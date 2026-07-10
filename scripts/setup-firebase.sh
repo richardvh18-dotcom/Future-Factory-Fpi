@@ -25,6 +25,7 @@ echo ""
 
 read -p "📌 API Key (begint met AIzaSy...): " API_KEY
 read -p "📌 App ID (format: 1:xxx:web:xxx): " APP_ID
+read -p "📌 Gemini API Key (begint met AIzaSy...): " GEMINI_API_KEY
 
 echo ""
 echo "⚙️  Genereren van .env file..."
@@ -39,7 +40,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=180452063401
 VITE_FIREBASE_APP_ID=$APP_ID
 
 # AI & Other Services
-VITE_GEMINI_API_KEY=REDACTED
+VITE_GEMINI_API_KEY=$GEMINI_API_KEY
 
 # Master Admin UID
 VITE_MASTER_ADMIN_UID=pzxPfiwQhnQdEQJcXU77ZgT2Jo32
