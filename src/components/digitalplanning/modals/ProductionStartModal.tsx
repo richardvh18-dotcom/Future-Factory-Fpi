@@ -26,6 +26,7 @@ import {
   evaluatePrintRules,
   type PrintRuleDef
 } from "../../../utils/labelHelpers";
+import { generatePrintData } from "../../../utils/zplHelper";
 import { getFlangeSeriesInfo } from "../../../utils/flangeSeriesHelper";
 import { lookupProductByManufacturedId } from "../../../utils/conversionLogic";
 import { useNotifications } from "../../../contexts/NotificationContext";
@@ -1948,13 +1949,31 @@ const ProductionStartModal = ({
               try {
                 const dpiForPrint = getNormalizedPrinterDpi(targetPrinter, 203);
                 const darkness = Number.parseInt(String((targetPrinter as any)?.darkness || '15'), 10);
-                const currentPrintData = await renderLabelToBitmapZpl({
-                  template: templateToPrint as any,
-                  data: { ...previewData, lotNumber: currentLot } as Record<string, unknown>,
-                  printerDpi: dpiForPrint,
-                  darkness: Number.isFinite(darkness) ? darkness : 15,
-                  printSpeed: 3,
-                });
+                const printVariables = { ...previewData, lotNumber: currentLot } as Record<string, unknown>;
+                let currentPrintData = "";
+
+                try {
+                  currentPrintData = await renderLabelToBitmapZpl({
+                    template: templateToPrint as any,
+                    data: printVariables,
+                    printerDpi: dpiForPrint,
+                    darkness: Number.isFinite(darkness) ? darkness : 15,
+                    printSpeed: 3,
+                  });
+                } catch (bitmapError) {
+                  console.warn(`Bitmap render mislukt voor template ${templateToPrint.name}, valt terug op directe ZPL.`, bitmapError);
+                }
+
+                if (!String(currentPrintData || "").trim()) {
+                  currentPrintData = generatePrintData(
+                    templateToPrint as any,
+                    {
+                      ...printVariables,
+                      isLastOfBatch: true,
+                    } as Record<string, unknown>,
+                    dpiForPrint
+                  );
+                }
 
                 const normalizedPrintData = String(currentPrintData || "").trim();
                 if (!normalizedPrintData) {

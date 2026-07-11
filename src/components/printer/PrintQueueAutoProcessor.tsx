@@ -559,6 +559,25 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
       }
     }
 
+    if (activePrinterId) {
+      const activePendingJobs = printJobs.filter((job) => job.status === 'pending' && job.printerId === activePrinterId);
+      if (activePendingJobs.length === 0 && usbDevice) {
+        const usbMatchedPrinters = printers.filter((printer) => {
+          const pVendor = parseUsbId(printer.vendorId);
+          const pProduct = parseUsbId(printer.productId);
+          return pVendor !== undefined && pProduct !== undefined && pVendor === usbDevice.vendorId && pProduct === usbDevice.productId;
+        });
+
+        const pendingUsbMatches = usbMatchedPrinters.filter((printer) =>
+          printJobs.some((job) => job.status === 'pending' && job.printerId === printer.id)
+        );
+
+        if (pendingUsbMatches.length === 1) {
+          activePrinterId = pendingUsbMatches[0].id;
+        }
+      }
+    }
+
     if (!activePrinterId) return;
 
     const pendingJobs = printJobs.filter((job) => {
