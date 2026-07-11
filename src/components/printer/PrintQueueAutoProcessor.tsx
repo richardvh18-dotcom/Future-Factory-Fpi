@@ -534,7 +534,31 @@ const PrintQueueAutoProcessor = ({ enabled = true }: Props) => {
       return;
     }
 
-    const activePrinterId = currentPrinterId || getCurrentPrinterId(printers, usbDevice);
+    let activePrinterId = currentPrinterId || getCurrentPrinterId(printers, usbDevice);
+
+    if (!activePrinterId && usbDevice) {
+      const usbMatchedPrinters = printers.filter((printer) => {
+        const pVendor = parseUsbId(printer.vendorId);
+        const pProduct = parseUsbId(printer.productId);
+        return pVendor !== undefined && pProduct !== undefined && pVendor === usbDevice.vendorId && pProduct === usbDevice.productId;
+      });
+
+      if (usbMatchedPrinters.length === 1) {
+        activePrinterId = usbMatchedPrinters[0].id;
+      } else if (usbMatchedPrinters.length > 1) {
+        const pendingPrinterIds = new Set(
+          printJobs
+            .filter((job) => String(job?.status || '').toLowerCase() === 'pending')
+            .map((job) => String(job?.printerId || '').trim())
+            .filter(Boolean)
+        );
+        const matchedPending = usbMatchedPrinters.filter((printer) => pendingPrinterIds.has(String(printer.id || '').trim()));
+        if (matchedPending.length === 1) {
+          activePrinterId = matchedPending[0].id;
+        }
+      }
+    }
+
     if (!activePrinterId) return;
 
     const pendingJobs = printJobs.filter((job) => {

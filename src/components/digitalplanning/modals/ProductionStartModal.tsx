@@ -2002,6 +2002,11 @@ const ProductionStartModal = ({
         }
       }
 
+      if (!isFlangeOrder && printConfig.mode === "queue" && labelsToPrint > 0 && templateIdsToPrint.length === 0) {
+        console.warn(`Geen labeltemplate geselecteerd voor station ${stationId}; labels zijn niet in de wachtrij gezet.`);
+        notify(`Geen labeltemplate geselecteerd voor station ${stationId}; labels zijn niet in de wachtrij gezet.`);
+      }
+
       if (printConfig.mode === "queue" && shouldPrintStringLotBatch && lotBatchPrintData) {
         try {
           const normalizedLotBatchData = String(lotBatchPrintData || "").trim();
