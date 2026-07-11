@@ -1003,6 +1003,52 @@ const ProductionStartModal = ({
             : null;
           const targetPrinter = resolveTargetPrinter(list, stationId, isFlangeOrder ? "MAZAK" : `STATION:${String(stationId || "").toUpperCase()}`);
 
+          const resolveUsbPrinterFromList = async () => {
+            if (typeof navigator === "undefined" || !navigator.usb?.getDevices) return null;
+
+            const savedVendor = String(localStorage.getItem(USB_PRINTER_VENDOR_KEY) || "").trim();
+            const savedProduct = String(localStorage.getItem(USB_PRINTER_PRODUCT_KEY) || "").trim();
+            const savedPrinterId = String(localStorage.getItem(USB_PRINTER_ID_KEY) || "").trim();
+
+            try {
+              const devices = await navigator.usb.getDevices();
+              const matchedBySavedIds = devices.find((device) => {
+                if (savedVendor && savedProduct) {
+                  return device.vendorId === Number(savedVendor) && device.productId === Number(savedProduct);
+                }
+
+                if (!savedPrinterId) return false;
+                const savedPrinter = list.find((printer: any) => String(printer?.id || "") === savedPrinterId);
+                return savedPrinter
+                  ? Number(savedPrinter.vendorId) === device.vendorId && Number(savedPrinter.productId) === device.productId
+                  : false;
+              });
+
+              if (matchedBySavedIds) {
+                const matchedPrinter = list.find((printer: any) => {
+                  const printerVendor = Number(printer?.vendorId);
+                  const printerProduct = Number(printer?.productId);
+                  return printerVendor === matchedBySavedIds.vendorId && printerProduct === matchedBySavedIds.productId;
+                });
+                if (matchedPrinter) return matchedPrinter;
+              }
+
+              if (!savedVendor && !savedProduct && !savedPrinterId && devices.length === 1) {
+                const singleDevice = devices[0];
+                const printerByDevice = list.find((printer: any) => {
+                  const printerVendor = Number(printer?.vendorId);
+                  const printerProduct = Number(printer?.productId);
+                  return printerVendor === singleDevice.vendorId && printerProduct === singleDevice.productId;
+                });
+                if (printerByDevice) return printerByDevice;
+              }
+            } catch (error) {
+              console.warn("Kon USB-printer niet automatisch koppelen in ProductionStartModal:", error);
+            }
+
+            return null;
+          };
+
           const preferredPrinter = boundPrinter || targetPrinter;
 
           if (preferredPrinter) {
@@ -1013,7 +1059,17 @@ const ProductionStartModal = ({
               mode: 'queue',
               printerId: boundPrinterId || prev.printerId || preferredPrinter.id
             }));
+            return;
           }
+
+          void resolveUsbPrinterFromList().then((usbPrinter) => {
+            if (!usbPrinter?.id) return;
+            setPrintConfig((prev) => ({
+              ...prev,
+              mode: 'queue',
+              printerId: String(usbPrinter.id),
+            }));
+          });
         });
         return () => unsub();
     } catch(e: any) {
